@@ -15,7 +15,7 @@
 
 import type { Connection } from "../connection/connection.js";
 
-import type { ApprovalDecideParams, ApprovalRequestParams } from "@muse/msp";
+import type { ApprovalDecideParams, ApprovalRequestParams } from "@muse-code/msp";
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;

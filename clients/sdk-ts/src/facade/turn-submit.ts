@@ -23,7 +23,7 @@ import type {
   ReplayAnswer,
 } from "../pending/pending-command-set.js";
 
-import type { TurnStartParams, TurnStartResult } from "@muse/msp";
+import type { TurnStartParams, TurnStartResult } from "@muse-code/msp";
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;

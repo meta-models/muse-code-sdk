@@ -24,7 +24,7 @@ if (!resolved.available) {
   process.exit(2);
 }
 
-const report = await runSdkQa({ museBin: resolved.path, museVersion: resolved.source });
+const report = await runSdkQa({ museBin: resolved.path, resolvedVia: resolved.source });
 const markdown = renderReportMarkdown(report);
 
 const jsonOut = flag("--json");

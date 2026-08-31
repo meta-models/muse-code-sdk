@@ -5,7 +5,7 @@ import type {
   ChildProcessWithoutNullStreams,
   SpawnOptionsWithoutStdio,
 } from "node:child_process";
-import type { InitializeParams, InitializeResult } from "@muse/msp";
+import type { InitializeParams, InitializeResult } from "@muse-code/msp";
 
 import {
   Connection,
@@ -121,6 +121,31 @@ const MAX_SHUTDOWN_TIMEOUT_MS = 2_147_483_647;
 const ownedTransport = Symbol("MuseServeChild.transport");
 const adoptFlushSource = Symbol("ChildStdioTransport.adoptFlushSource");
 
+/**
+ * Shutdown deadline contract: `expired` resolves and never rejects; after
+ * `clear()` it may remain pending forever.
+ */
+interface ShutdownDeadline {
+  readonly expired: Promise<void>;
+  clear(): void;
+}
+
+type ShutdownDeadlineFactory = (budgetMs: number) => ShutdownDeadline;
+
+function makeShutdownDeadline(budgetMs: number): ShutdownDeadline {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, budgetMs);
+  });
+  return {
+    expired,
+    clear: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
 /** A client-local evidence budget. Its contents never influence behavior. */
 class StderrTail {
   #text = "";
@@ -205,11 +230,14 @@ function classifyExit(
  * between the liveness check and the end() call, so its stdin is already
  * gone? That IS the closed end-state close() wants (SS2.11: the caller
  * still awaits `exited` and gates on the exit code); anything else is a
- * real failure. Exported only for its deterministic unit test.
+ * real failure. `ECANCELED` is the same owned-teardown race one stage later:
+ * the SIGTERM->SIGKILL backstop destroys stdin while a wedged write is still
+ * queued, and libuv cancels that write instead of erroring it. Exported only
+ * for its deterministic unit test.
  */
 export function isBenignCloseRace(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
-  return code === "ERR_STREAM_DESTROYED" || code === "EPIPE";
+  return code === "ERR_STREAM_DESTROYED" || code === "EPIPE" || code === "ECANCELED";
 }
 
 /**
@@ -242,6 +270,11 @@ export class ChildStdioTransport implements DuplexTransport {
   readonly incoming: AsyncIterable<string>;
   readonly exited: Promise<ProcessExit>;
   readonly #shutdownTimeoutMs: number;
+  readonly #makeShutdownDeadline: ShutdownDeadlineFactory;
+  // True only when the boundary that SPAWNED this child made it a process-
+  // group leader (FR-017b). Never inferred from the child itself: a test
+  // handing the transport an ordinary child keeps the direct-kill path.
+  readonly #ownsProcessGroup: boolean;
   #closing: Promise<void> | undefined;
   // The default `flushed` for closes routed AROUND the connection — notably
   // the public `child.close()`. Without it, step 0 existed only for
@@ -254,10 +287,15 @@ export class ChildStdioTransport implements DuplexTransport {
     child: ChildProcessWithoutNullStreams,
     onStderr?: (chunk: string) => void,
     shutdownTimeoutMs: number = DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    ownsProcessGroup = false,
+    /** Deterministic-test seam; production always uses `makeShutdownDeadline`. */
+    deadlineFactory: ShutdownDeadlineFactory = makeShutdownDeadline,
   ) {
     this.child = child;
     assertShutdownTimeout(shutdownTimeoutMs);
     this.#shutdownTimeoutMs = shutdownTimeoutMs;
+    this.#ownsProcessGroup = ownsProcessGroup;
+    this.#makeShutdownDeadline = deadlineFactory;
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
     this.child.stderr.on("data", (chunk: string) => onStderr?.(chunk));
@@ -304,16 +342,19 @@ export class ChildStdioTransport implements DuplexTransport {
   async #shutdown(flushed?: Promise<void>): Promise<void> {
     // ONE budget covers the whole shutdown, flush wait included, so handing
     // the connection's submission promise in here cannot double the bound.
-    const endsAt = Date.now() + this.#shutdownTimeoutMs;
-    const remaining = (): number => Math.max(0, endsAt - Date.now());
-    // Frames the connection accepted before close() must reach the stream
-    // ahead of EOF (PR #22819 round 3); a peer that never drains simply
-    // spends the drain window here instead of after EOF.
-    if (flushed !== undefined) await this.#within(flushed, remaining());
-    return await this.#shutdownAfterFlush(remaining);
+    const deadline = this.#makeShutdownDeadline(this.#shutdownTimeoutMs);
+    try {
+      // Frames the connection accepted before close() must reach the stream
+      // ahead of EOF (PR #22819 round 3); a peer that never drains simply
+      // spends the drain window here instead of after EOF.
+      if (flushed !== undefined) await this.#beforeDeadline(flushed, deadline.expired);
+      return await this.#shutdownAfterFlush(deadline.expired);
+    } finally {
+      deadline.clear();
+    }
   }
 
-  async #shutdownAfterFlush(remaining: () => number): Promise<void> {
+  async #shutdownAfterFlush(deadline: Promise<void>): Promise<void> {
     // The EOF attempt must NEVER gate the ladder (PR #22819 review, P0). Two
     // reachable paths leave it unsettled forever, and both are the #15943
     // wedge itself: a host that stopped READING stdin never flushes a filled
@@ -325,7 +366,7 @@ export class ChildStdioTransport implements DuplexTransport {
     // still surfaces to the caller.
     const eof = this.#endStdin();
     eof.catch(() => {});
-    await this.#awaitExitOrTerminate(remaining);
+    await this.#awaitExitOrTerminate(deadline);
     await eof;
   }
 
@@ -351,9 +392,9 @@ export class ChildStdioTransport implements DuplexTransport {
    * a function of the observed `(code, signal)` pair (INV-011). A signal is a
    * way to reach an exit, never a substitute for observing one.
    */
-  async #awaitExitOrTerminate(remaining: () => number): Promise<void> {
-    if (await this.#settledWithin(remaining())) return;
-    this.child.kill("SIGTERM");
+  async #awaitExitOrTerminate(deadline: Promise<void>): Promise<void> {
+    if (await this.#beforeDeadline(this.#settled(), deadline)) return;
+    this.#signal("SIGTERM");
     if (await this.#settledWithin(SIGTERM_GRACE_MS)) return;
     // Past SIGTERM, drop our end of the pipe ourselves (PR #22819 round 3).
     // Nothing else does, so a write the host never drained keeps `stdin`
@@ -361,8 +402,32 @@ export class ChildStdioTransport implements DuplexTransport {
     // EOF await both wait on, needs the stdio closed. Waiting for that write
     // to error out on its own is the last unbounded stage; this removes it.
     this.child.stdin.destroy();
-    this.child.kill("SIGKILL");
+    this.#signal("SIGKILL");
     await this.#settled();
+  }
+
+  /**
+   * One signal per escalation stage, delivered to the whole owned process
+   * group where this spawn created one (FR-017b, #22777). The child PID
+   * alone is not enough: a grandchild that inherited the host's stdout
+   * keeps the `close` event — which `exited` and every stage here wait
+   * on — from firing even after the child itself is gone, and it never
+   * receives a child-targeted signal at all. A group signal that fails for
+   * any reason (expected: `ESRCH`, the whole group already exited between
+   * stages) falls through to the direct path, which Node makes a no-op on
+   * an exited child — the ladder must never rethrow out of a stage.
+   */
+  #signal(signal: NodeJS.Signals): void {
+    const pid = this.child.pid;
+    if (this.#ownsProcessGroup && pid !== undefined) {
+      try {
+        process.kill(-pid, signal);
+        return;
+      } catch {
+        // Fall through to the direct-child path, safe on every failure here.
+      }
+    }
+    this.child.kill(signal);
   }
 
   /** True once `exited` settles either way — a rejection means no live child. */
@@ -370,16 +435,23 @@ export class ChildStdioTransport implements DuplexTransport {
     return await this.#within(this.#settled(), budgetMs);
   }
 
+  /** True if `work` settles before the one shared shutdown deadline fires. */
+  async #beforeDeadline(work: Promise<unknown>, deadline: Promise<void>): Promise<boolean> {
+    return await Promise.race([
+      work.then(() => true, () => true),
+      deadline.then(() => false),
+    ]);
+  }
+
   /** True if `work` settles inside `budgetMs`; false when the budget expires. */
   async #within(work: Promise<unknown>, budgetMs: number): Promise<boolean> {
-    let timer: NodeJS.Timeout | undefined;
-    const deadline = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), budgetMs);
-    });
+    // Deliberately ambient (NOT this.#makeShutdownDeadline): the SIGTERM grace
+    // window is outside the one shared shutdown budget the injected seam models.
+    const deadline = makeShutdownDeadline(budgetMs);
     try {
-      return await Promise.race([work.then(() => true, () => true), deadline]);
+      return await this.#beforeDeadline(work, deadline.expired);
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      deadline.clear();
     }
   }
 
@@ -408,6 +480,7 @@ export class MuseServeChild {
     child: ChildProcessWithoutNullStreams,
     onStderr?: (chunk: string) => void,
     shutdownTimeoutMs?: number,
+    ownsProcessGroup = false,
   ) {
     this.#transport = new ChildStdioTransport(
       child,
@@ -416,6 +489,7 @@ export class MuseServeChild {
         onStderr?.(chunk);
       },
       shutdownTimeoutMs,
+      ownsProcessGroup,
     );
     this.exit = this.#transport.exited.then((status) => classifyExit(status, this.#tail.lines()));
     // A spawn error can reject before a consumer attaches its await. Mark the
@@ -427,14 +501,24 @@ export class MuseServeChild {
     // Validate BEFORE spawning: a throw from the transport constructor would
     // otherwise leave the child it was meant to own already running.
     if (options.shutdownTimeoutMs !== undefined) assertShutdownTimeout(options.shutdownTimeoutMs);
+    // POSIX: own a whole process group, not just the child (FR-017b,
+    // #22777). `detached` makes the host the leader of a new group (and
+    // session), so escalation can end a grandchild holding the inherited
+    // stdout; stdio stays piped, so nothing else about ownership changes.
+    // Windows keeps the child-only path — group signalling via a negative
+    // PID is a POSIX primitive, and pretending otherwise would fake
+    // subtree containment there.
+    const ownsProcessGroup = process.platform !== "win32";
     const spawnOptions: SpawnOptionsWithoutStdio = {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
+      detached: ownsProcessGroup,
     };
     return new MuseServeChild(
       spawn(options.museBin, [...(options.args ?? [])], spawnOptions),
       options.onStderr,
       options.shutdownTimeoutMs,
+      ownsProcessGroup,
     );
   }
 

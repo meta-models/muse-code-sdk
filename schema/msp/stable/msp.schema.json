@@ -1196,6 +1196,18 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "HistoryNoneReason": {
+      "description": "Why a result served `history.mode: \"none\"` — spec 208 FM-005's typed\nunavailability (tdd SS2.5.2; D-050). Open on the client side: an absent\n(older server) or unknown (newer server) value decodes conservatively as\nan unknown reason, and `viewCursor` text never substitutes for it\n(spec 208 INV-19734-1).",
+      "enum": [
+        "excluded",
+        "cursorSuffix",
+        "historyBudget",
+        "projectionUnavailable",
+        "projectionReadLimit"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "HistoryPreference": {
       "description": "The `history` request preference of `session/resume` (tdd SS2.5.2). The\nforced values downgrade `anchored` → `inline` → `snapshot` → `none`; under\n`auto` the full rung order is anchoredSnapshot → inline → snapshot →\nelided snapshot → none.",
       "enum": [
@@ -2622,6 +2634,10 @@
         "mode": {
           "$ref": "#/$defs/HistoryMode",
           "description": "What was actually served — never what was asked for (tdd SS2.5.2)."
+        },
+        "noneReason": {
+          "$ref": "#/$defs/HistoryNoneReason",
+          "description": "Why no history was served — sent exactly when `mode` is `\"none\"`\n(tdd SS2.5.2; D-050, spec 208 INV-19734-1)."
         },
         "snapshot": {
           "anyOf": [

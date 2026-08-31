@@ -8,7 +8,7 @@
  * forbids hand-writing a protocol type to fill the gap, so this module states
  * only the *algebraic precondition* its rules need — an item has an identity
  * and a revision — and takes the payload as a type parameter. When #14953
- * lands, `SessionFold` binds `T` to `@muse/msp`'s `Item` with no change here
+ * lands, `SessionFold` binds `T` to `@muse-code/msp`'s `Item` with no change here
  * and no protocol shape ever restated locally.
  */
 

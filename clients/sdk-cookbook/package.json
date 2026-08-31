@@ -1,0 +1,28 @@
+{
+  "name": "@muse-code/sdk-cookbook",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The validated cookbook harness (issue #24225): the shared journey kit extracted from @muse-code/sdk-quickstart, a recipe manifest, and the runner the cookbook-journeys CI job iterates. `npm test` is the binary-free half; `npm run recipes` needs MUSE_BIN and MUSE_CONFORMANCE_BIN.",
+  "type": "module",
+  "exports": {
+    "./kit": {
+      "types": "./dist/src/kit/index.d.ts",
+      "default": "./dist/src/kit/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check": "tsc --build",
+    "recipes": "npm run build && node dist/src/main.js",
+    "test": "npm run build && node --test dist/test/runner.test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@muse-code/msp": "*",
+    "@muse-code/sdk": "*",
+    "@types/node": "26.2.0"
+  }
+}

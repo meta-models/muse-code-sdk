@@ -21,7 +21,7 @@ import type {
   TurnErrorKind,
   TurnTerminal,
   TurnUnqueuedParams,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 /**
  * Bound through the CLOSED extraction of each generated vocabulary. Both

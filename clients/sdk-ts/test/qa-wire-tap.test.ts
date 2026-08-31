@@ -1,6 +1,6 @@
 /**
  * QA-TEST-001/002/003 — the wire tap and the oracle, proven over the REAL
- * `@muse/sdk` spawn path against a real child process.
+ * `@muse-code/sdk` spawn path against a real child process.
  *
  * The host here is a scripted MSP host rather than `tbh serve` for one
  * reason only: the deviations under test are things a CORRECT host never
@@ -17,9 +17,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { spawnMspConnection } from "../src/index.js";
-import type { InitializeParams } from "@muse/msp";
+import type { InitializeParams } from "@muse-code/msp";
 
-import { readWireLog, runOracle, tappedSpawnOptions } from "../qa/index.js";
+import { readTapPids, readWireLog, runOracle, tappedSpawnOptions } from "../qa/index.js";
 import type { ApiObservation, ObservedRun } from "../qa/index.js";
 
 const SCRIPTED_HOST = fileURLToPath(new URL("./helpers/qa-scripted-host.js", import.meta.url));
@@ -145,6 +145,101 @@ test("QA-TEST-003a: a host that answers one id TWICE is caught", async () => {
     assert.ok(only.apiSaid.length > 0, "the finding states what the public API said");
     assert.equal(only.track, "bug", "a duplicate response violates the correlation contract");
   } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
+/** Settle a promise or give up: the RED shape here is "never settles" (#23615). */
+async function settleOrTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<{ settled: "ok"; value: T } | { settled: "err"; error: Error } | { settled: "timeout" }> {
+  const timedOut = Symbol("timedOut");
+  let timer: NodeJS.Timeout | undefined;
+  const bound = new Promise<typeof timedOut>((resolve) => {
+    timer = setTimeout(() => resolve(timedOut), ms);
+    timer.unref();
+  });
+  const outcome = await Promise.race([
+    promise.then(
+      (value) => ({ settled: "ok", value }) as const,
+      (error: Error) => ({ settled: "err", error }) as const,
+    ),
+    bound.then(() => ({ settled: "timeout" }) as const),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+  return outcome;
+}
+
+test("QA-TEST-014: a host that dies pre-finish propagates EOF through the shim (#23615)", async () => {
+  // The loud start-failure shape: the host writes its complaint and dies
+  // before ever answering. Shim-free, the SDK's pending `initialize`
+  // rejects `ProtocolError: connection reached EOF`; the tap must not change
+  // that — a shim that outlives the dead child holds the SDK's read end open
+  // and wedges the whole QA pass on a response that can never come.
+  // Exit 87, not 1: a shim that crashes on its own fault (an uncaught throw)
+  // exits 1, which `classifyExit` reads as `unhandledError` — the same answer
+  // a relayed exit 1 gives. Only a code the shim cannot self-produce proves
+  // the child's real status travelled THROUGH the shim.
+  const workDir = await mkdtemp(join(tmpdir(), "muse-qa-tap-"));
+  const tapFile = join(workDir, "wire.tap.jsonl");
+  const handshake = spawnMspConnection(
+    tappedSpawnOptions({
+      tapFile,
+      command: process.execPath,
+      args: ["-e", 'console.error("boom: unsupported provider"); process.exit(87);'],
+    }),
+  );
+  try {
+    const initialized = await settleOrTimeout(handshake.initialize(CLIENT_INFO), 10_000);
+    assert.notEqual(
+      initialized.settled,
+      "timeout",
+      "initialize never settled: the shim outlived the dead host and the SDK never saw EOF (#23615)",
+    );
+    assert.equal(initialized.settled, "err", "a dead host cannot have answered initialize");
+    const error = (initialized as { error: Error }).error;
+    assert.equal(error.name, "ProtocolError", "the tapped spawn matches the shim-free contract");
+    assert.match(error.message, /EOF/);
+
+    // The exit classification still comes from the child's real status: 87 is
+    // outside classifyExit's documented 0..5 codes, so it classifies `crash`
+    // with the code intact. A shim dying of its own fault cannot produce this
+    // pair (its uncaught throw exits 1 -> `unhandledError`), so these two
+    // assertions go RED against a self-crashing mutant shim.
+    const exited = await settleOrTimeout(handshake.child.exit, 10_000);
+    assert.equal(exited.settled, "ok", "the shim itself must exit once the child is gone");
+    const classification = (exited as { value: { kind: string; exitCode?: number } }).value;
+    assert.equal(classification.kind, "crash");
+    assert.equal(classification.exitCode, 87);
+
+    // And the shim process really is gone — the wedge FM-QA-004 exists to
+    // prevent held stdio handles, not just an unsettled promise.
+    const { shim } = await readTapPids(tapFile);
+    assert.ok(shim !== undefined, "the tap header names the shim pid");
+    const gone = async (): Promise<boolean> => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        try {
+          process.kill(shim, 0);
+        } catch {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    assert.ok(await gone(), `the shim (pid ${shim}) is still alive with its child dead`);
+  } finally {
+    // A RED run leaves a wedged shim holding this test process's pipe ends;
+    // reap it so the failure reports instead of hanging the whole suite.
+    const { shim } = await readTapPids(tapFile).catch(() => ({ shim: undefined }));
+    if (shim !== undefined) {
+      try {
+        process.kill(shim, "SIGKILL");
+      } catch {
+        // Already gone — the GREEN state.
+      }
+    }
     await rm(workDir, { recursive: true, force: true });
   }
 });

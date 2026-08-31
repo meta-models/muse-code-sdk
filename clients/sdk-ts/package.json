@@ -1,23 +1,39 @@
 {
-  "name": "@muse/sdk",
-  "version": "0.0.0",
-  "private": true,
-  "description": "The MSP TypeScript facade (tdd SS7.1). Zero runtime dependencies: pure TypeScript over @muse/msp plus the Node standard library (spec 14990 INV-009).",
+  "name": "@muse-code/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Muse Session Protocol (MSP): connect to a Muse Code session, drive turns, and fold the event stream. Zero runtime dependencies.",
+  "license": "MIT",
+  "homepage": "https://github.com/meta-models/muse-code-sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meta-models/muse-code-sdk.git",
+    "directory": "clients/sdk-ts"
+  },
+  "bugs": {
+    "url": "https://github.com/meta-models/muse-code-sdk/issues"
+  },
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "tsc --build",
     "check": "tsc --build",
+    "prepack": "npm run build",
     "test": "npm run build && node --test --test-timeout=300000 \"dist/test/**/*.test.js\"",
     "qa:sdk": "npm run build && node dist/qa/bin.js"
   },
   "dependencies": {},
   "devDependencies": {
-    "@muse/msp": "*",
+    "@muse-code/msp": "*",
     "@types/node": "26.2.0"
   }
 }

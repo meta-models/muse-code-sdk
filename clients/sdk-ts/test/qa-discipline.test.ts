@@ -80,7 +80,11 @@ test("QA-TEST-005: two-track filing routes violations and gaps differently", () 
     finding(SILENT_CHECK, { indicts: "binary", summary: "g", apiSaid: "x", wireSaid: "y", evidence: [] }),
   );
   assert.equal(gap.track, "spec-gap");
-  assert.deepEqual([...gap.labels], ["spec-gap"]);
+  // The 2026-08-25 owner ruling: no `spec-gap` label exists and none is being
+  // minted, so the track files as `bug` + `auto` and the owning-spec body line
+  // IS the routing (#23111 arm 4).
+  assert.deepEqual([...gap.labels], ["bug", "auto"]);
+  assert.match(gap.body, /Owning spec\(s\) to decide against/);
   assert.ok(gap.against.length > 0, "a gap names the spec that must constrain or document it");
   assert.equal(gap.decision, "constrain-or-document");
   assert.ok(

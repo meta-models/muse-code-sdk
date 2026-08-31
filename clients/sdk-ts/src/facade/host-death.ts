@@ -13,7 +13,7 @@
  * where it is checked against the GENERATED type.
  */
 
-import type { InitializeResult, Item, ItemStatus, SessionDurability } from "@muse/msp";
+import type { InitializeResult, Item, ItemStatus, SessionDurability } from "@muse-code/msp";
 
 import type { ExitClassification } from "../connection/spawn.js";
 import type { TerminalUnknownItemAnnotation } from "../fold/item-store.js";

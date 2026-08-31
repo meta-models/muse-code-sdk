@@ -35,7 +35,7 @@ import {
   settleMicrotasks,
   waitForWrites,
 } from "./helpers/fake-duplex.js";
-import type { Item } from "@muse/msp";
+import type { Item } from "@muse-code/msp";
 
 /**
  * Every arm carries its own timeout. A settle-path hang here — a fill that

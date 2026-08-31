@@ -15,6 +15,19 @@ import type { TestContext } from "node:test";
 
 /** The child announces its own pid on stderr; the SDK exposes no `pid`. */
 export const PID_MARKER = "child_pid=";
+/**
+ * Startup receipt from NEVER_READS_STDIN: the host is up and its stdin will
+ * never drain. Emitted at birth — not proof a write has filled the pipe.
+ */
+export const STDIN_WEDGED_MARKER = "stdin_wedged";
+
+// Keep diagnostic watchdogs real when a test mocks global setTimeout to prove
+// production code did not create an ambient deadline.
+const realSetTimeout = setTimeout;
+const realClearTimeout = clearTimeout;
+
+/** The #22777 wrapper announces its grandchild's pid the same way. */
+export const GRANDCHILD_PID_MARKER = "grandchild_pid=";
 
 function hostSource(body: readonly string[]): string {
   return [
@@ -40,9 +53,16 @@ export const IGNORES_EOF_AND_SIGTERM = hostSource([
  * resume()-calling host above is blind to (PR #22819 review, P0).
  */
 export const NEVER_READS_STDIN = [
-  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n${STDIN_WEDGED_MARKER}\\n")`,
   "setInterval(() => {}, 1000)",
 ].join(";");
+
+/**
+ * The wedged host that also survives SIGTERM: forces the SIGTERM->SIGKILL
+ * backstop leg deterministically (the 1/5 CI stall class, made the test's
+ * only path).
+ */
+export const TRAPS_SIGTERM_NEVER_READS_STDIN = ['process.on("SIGTERM", () => {})', NEVER_READS_STDIN].join(";");
 
 /**
  * Traps SIGTERM and reports EVERY delivery, so a test can count signals
@@ -52,6 +72,23 @@ export const NEVER_READS_STDIN = [
 export const COUNTS_SIGTERM = hostSource([
   'process.on("SIGTERM", () => process.stderr.write("sigterm_seen\\n"))',
 ]);
+
+/**
+ * The #22777 shape: a wrapper that traps SIGTERM and starts a grandchild
+ * holding the wrapper's INHERITED stdout (`stdio: ["ignore", 1, "ignore"]`).
+ * The grandchild traps SIGTERM too, so only a group-delivered SIGKILL can end
+ * it — a child-PID-only ladder leaves it alive, and its open stdout write end
+ * keeps Node's `close` event (and with it `exited` and every public `close()`)
+ * from ever firing even after the wrapper itself is gone.
+ */
+export const WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\", () => {});setInterval(() => {}, 1000)"], { stdio: ["ignore", 1, "ignore"] })',
+  `process.stderr.write("${GRANDCHILD_PID_MARKER}" + grandchild.pid + "\\n")`,
+  'process.on("SIGTERM", () => {})',
+  "process.stdin.resume()",
+  "setInterval(() => {}, 1000)",
+].join(";");
 
 /** Bytes that comfortably exceed a pipe buffer, so a write cannot flush. */
 export const UNFLUSHABLE_WRITE = "x".repeat(2 * 1024 * 1024);
@@ -88,6 +125,37 @@ export function announcedPidProbe(budgetMs = 10_000): {
   // Awaiters still observe the rejection.
   pid.catch(() => {});
   return { stderr, onStderr, pid };
+}
+
+async function awaitAnnounced(
+  marker: string,
+  stderr: readonly string[],
+  budgetMs: number,
+): Promise<number> {
+  const pattern = new RegExp(`${marker}(\\d+)`);
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    const match = pattern.exec(stderr.join(""));
+    if (match !== null) return Number(match[1]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`host never announced ${marker} within ${budgetMs} ms`);
+}
+
+/** Read the pid the host announced, waiting up to `budgetMs` for the line. */
+export async function awaitAnnouncedPid(
+  stderr: readonly string[],
+  budgetMs = 10_000,
+): Promise<number> {
+  return await awaitAnnounced(PID_MARKER, stderr, budgetMs);
+}
+
+/** Read the grandchild pid the #22777 wrapper announced. */
+export async function awaitAnnouncedGrandchildPid(
+  stderr: readonly string[],
+  budgetMs = 10_000,
+): Promise<number> {
+  return await awaitAnnounced(GRANDCHILD_PID_MARKER, stderr, budgetMs);
 }
 
 /**
@@ -135,7 +203,7 @@ export async function settledWithin<T>(
 ): Promise<Settlement<T>> {
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<Settlement<T>>((resolve) => {
-    timer = setTimeout(() => resolve({ settled: false }), budgetMs);
+    timer = realSetTimeout(() => resolve({ settled: false }), budgetMs);
   });
   try {
     return await Promise.race([
@@ -143,7 +211,7 @@ export async function settledWithin<T>(
       deadline,
     ]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) realClearTimeout(timer);
   }
 }
 

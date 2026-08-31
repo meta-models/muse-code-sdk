@@ -21,7 +21,13 @@ export type FindingTrack =
     }
   | {
       readonly track: "spec-gap";
-      readonly labels: readonly ["spec-gap"];
+      /**
+       * Files as `bug` + `auto` like every issue in this repo: no `spec-gap`
+       * label exists and none is being minted (owner ruling 2026-08-25 — new
+       * vocabulary needs two consumers). The owning-spec line in `body` is
+       * the routing a label would have carried (#23111 arm 4).
+       */
+      readonly labels: readonly ["bug", "auto"];
       /** The specs that must either constrain this or document it as free. */
       readonly against: readonly SpecRef[];
       readonly decision: "constrain-or-document";
@@ -34,7 +40,7 @@ function body(finding: OracleFinding, tail: string): string {
     finding.summary,
     "",
     `- **indicts:** \`${finding.indicts}\` — file this against ${
-      finding.indicts === "facade" ? "`@muse/sdk` (clients/sdk-ts)" : "the `tbh` binary"
+      finding.indicts === "facade" ? "`@muse-code/sdk` (clients/sdk-ts)" : "the `tbh` binary"
     }`,
     `- **public API said:** ${finding.apiSaid}`,
     `- **wire said:** ${finding.wireSaid}`,
@@ -71,14 +77,16 @@ export function classifyFinding(finding: OracleFinding): FindingTrack {
   }
   return {
     track: "spec-gap",
-    labels: ["spec-gap"],
+    labels: ["bug", "auto"],
     against: finding.constraint.candidates,
     decision: "constrain-or-document",
     title,
     body: body(
       finding,
       [
-        "No requirement constrains this today, so it is a **spec gap**, not a bug:",
+        "No requirement constrains this today, so it is a **spec-silent hazard**",
+        "(the spec-gap track) — filed as `bug` + `auto` with the owning-spec line",
+        "below as its routing, per the 2026-08-25 owner ruling:",
         "",
         `> ${finding.constraint.hazard}`,
         "",
@@ -138,7 +146,10 @@ export interface ScenarioResult {
 
 export interface QaReport {
   readonly binaryPath: string;
+  /** The HOST's own identity from the initialize handshake, never a source. */
   readonly binaryVersion: string;
+  /** How the binary was picked (e.g. `MUSE_QA_SDK_BIN`) — reported AS a source. */
+  readonly resolvedVia: string;
   readonly scenarios: readonly ScenarioResult[];
   readonly verdicts: Readonly<Record<ScenarioVerdict, number>>;
   readonly filing: {
@@ -147,9 +158,21 @@ export interface QaReport {
   };
 }
 
+/**
+ * The report's one word for a fact the run did not capture.
+ *
+ * Owned here, beside the renderer that INTERPRETS it: while callers minted
+ * their own `?? "unknown"`, renaming one of them left the renderer stamping a
+ * no-handshake report "— from the initialize handshake" with every test still
+ * green (#23111 review).
+ */
+export const UNKNOWN = "unknown";
+
 export interface ReportInput {
   readonly binaryPath: string;
-  readonly binaryVersion: string;
+  /** The host's identity from the handshake; absent when no run captured one. */
+  readonly binaryVersion?: string;
+  readonly resolvedVia?: string;
   readonly scenarios: readonly ScenarioResult[];
 }
 
@@ -174,7 +197,8 @@ export function buildReport(input: ReportInput): QaReport {
   }
   return {
     binaryPath: input.binaryPath,
-    binaryVersion: input.binaryVersion,
+    binaryVersion: input.binaryVersion ?? UNKNOWN,
+    resolvedVia: input.resolvedVia ?? UNKNOWN,
     scenarios: input.scenarios,
     verdicts,
     filing: { bug, specGap },
@@ -192,7 +216,12 @@ export function renderReportMarkdown(report: QaReport): string {
     "# auto-qa `--area sdk` run report",
     "",
     `- host binary: \`${report.binaryPath}\``,
-    `- host version: \`${report.binaryVersion}\``,
+    `- host version: \`${report.binaryVersion}\`${
+      report.binaryVersion === UNKNOWN
+        ? " — the pass captured no initialize handshake"
+        : " — from the initialize handshake"
+    }`,
+    `- resolved via: \`${report.resolvedVia}\``,
     `- verdicts: ${(Object.entries(report.verdicts) as [ScenarioVerdict, number][])
       .filter(([, count]) => count > 0)
       .map(([verdict, count]) => `${count} ${verdict}`)
@@ -284,9 +313,9 @@ export function renderReportMarkdown(report: QaReport): string {
       "Each names the requirement it violates. `fix-bug` owns the fix.",
     ],
     [
-      "## Track 2 — spec-silent hazards (spec-gap)",
+      "## Track 2 — spec-silent hazards (spec-gap track; filed as `bug` + `auto`)",
       report.filing.specGap,
-      "No requirement constrains these. Each forces a constrain-vs-document decision; none may be fixed silently.",
+      "No requirement constrains these. Each forces a constrain-vs-document decision; none may be fixed silently. Filed as `bug` + `auto` with the owning-spec body line as the routing (owner ruling 2026-08-25: no `spec-gap` label).",
     ],
   ] as const) {
     lines.push("", heading, "", note, "");

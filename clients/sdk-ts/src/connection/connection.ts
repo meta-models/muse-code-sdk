@@ -17,7 +17,7 @@ import type {
   Request,
   RequestId,
   SuccessResponse,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 const DEFAULT_FRAME_LIMIT_BYTES = 10_485_760;
 

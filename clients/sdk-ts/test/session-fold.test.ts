@@ -44,7 +44,7 @@ import type {
   TurnUnqueuedParams,
   UserInputRequestParams,
   UserInputSettledParams,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 import { SessionFold } from "../src/index.js";
 import type { FoldItems, SessionStateMethod, ViewEvent } from "../src/index.js";

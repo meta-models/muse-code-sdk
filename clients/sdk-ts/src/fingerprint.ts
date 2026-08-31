@@ -14,7 +14,7 @@
  *    working against a newer host.
  */
 export const EXPECTED_SCHEMA_FINGERPRINT =
-  "sha256:2ca24d36e08f2f2abac430a0637de723efa378f7396c5ada881f9094065b1a99";
+  "sha256:03312c213efd14277a0e0a102f70adeae497a469ca4edf7242f479953ed758b7";
 
 /**
  * What a build-time mismatch MEANS, in the words a human needs at 2am.
@@ -30,7 +30,7 @@ export function fingerprintMismatchMessage(
 ): string {
   return [
     "MSP schema fingerprint moved: re-pin after a schema advance.",
-    `  pinned by @muse/sdk: ${pinned}`,
+    `  pinned by @muse-code/sdk: ${pinned}`,
     `  schema/msp/stable/manifest.json: ${actual}`,
     "",
     "This does NOT mean the SDK is broken. The stable schema bundle advanced",

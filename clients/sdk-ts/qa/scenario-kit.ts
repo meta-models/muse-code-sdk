@@ -15,14 +15,29 @@ export interface AttributionPlan {
   drive(host: RecordedHost): Promise<void>;
 }
 
+/**
+ * What an expect-blocked scenario proved: a blocker verdict, or a refusal to
+ * give one. A refusal is carried as a VALUE rather than thrown so the oracle
+ * still runs over `runs` and the deviations that same capture recorded are
+ * still filed (#23111).
+ */
+export type BlockedVerdict =
+  | { readonly bites: boolean; readonly refused?: never }
+  | { readonly refused: string; readonly bites?: never };
+
 export interface ScenarioOutcome {
   readonly runs: readonly ObservedRun[];
   /** What the public API actually reported, as a comparable string. */
   readonly observed: string;
   /** What the contract says it should have been. */
   readonly expected: string;
-  /** Expect-blocked scenarios only: did the blocker still bite? */
-  readonly blockerStillBites?: boolean;
+  /**
+   * Expect-blocked scenarios only. ONE field carries the one-of union, so an
+   * outcome that both refuses the verdict and reports a bite cannot be
+   * written — "refused wins" is the type's shape, not a branch order
+   * (#23111 review round 3).
+   */
+  readonly blockedVerdict?: BlockedVerdict;
   /** Supplied when a mismatch would need a component. */
   readonly attributeWith?: AttributionPlan;
 }

@@ -20,11 +20,14 @@ import {
   makeStubChild,
   NEVER_READS_STDIN,
   PID_MARKER,
+  reap,
   reapThenClose,
   settledWithin,
+  STDIN_WEDGED_MARKER,
+  TRAPS_SIGTERM_NEVER_READS_STDIN,
   UNFLUSHABLE_WRITE,
 } from "./helpers/host-lifetime.js";
-import type { InitializeParams } from "@muse/msp";
+import type { InitializeParams } from "@muse-code/msp";
 
 const projectRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const transcriptRoot = resolve(projectRoot, "schema/msp/transcripts");
@@ -156,18 +159,22 @@ test("TEST-009: handshake and typed errors over serve-fixture", { timeout: 120_0
   await expectFixtureExitZero(errorConnection.exited, errorStderr);
 });
 
-test("close tolerates the child-already-exited stdin race, and only that", async () => {
+test("close tolerates exactly the three benign owned-teardown end() races, and only those", async () => {
   // The deterministic structural half (never a timing race in a test): the
-  // predicate that decides which stdin.end() error means "the child exited
-  // between the liveness check and end()" — the benign race close() resolves
-  // (the exit code still gates in the caller) — versus a real failure.
+  // predicate that decides which stdin.end() errors are benign owned-teardown
+  // races close() resolves (the exit code still gates in the caller) — the
+  // child-already-exited pair (ERR_STREAM_DESTROYED, EPIPE) and the
+  // SIGTERM→SIGKILL backstop's cancelled wedged write (ECANCELED) — versus a
+  // real failure.
   const destroyed = Object.assign(new Error("Cannot call end after a stream was destroyed"), {
     code: "ERR_STREAM_DESTROYED",
   });
   const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+  const ecanceled = Object.assign(new Error("write ECANCELED"), { code: "ECANCELED" });
   const real = Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
   assert.equal(isBenignCloseRace(destroyed), true);
   assert.equal(isBenignCloseRace(epipe), true);
+  assert.equal(isBenignCloseRace(ecanceled), true);
   assert.equal(isBenignCloseRace(real), false);
   assert.equal(isBenignCloseRace(new Error("no code")), false);
   assert.equal(isBenignCloseRace(undefined), false);
@@ -210,6 +217,14 @@ test("close() resolves the child-already-exited end() race at the call site", as
     code: "ERR_STREAM_DESTROYED",
   });
   await assert.doesNotReject(new ChildStdioTransport(stubChild(destroyed)).close());
+});
+
+test("close() resolves the backstop's cancelled-write end() race at the call site", async () => {
+  // The ECANCELED twin of the arm above (review round: the predicate arm
+  // alone checks a hand-built constant against itself; this drives the raced
+  // code through close()'s own end() callback path).
+  const ecanceled = Object.assign(new Error("write ECANCELED"), { code: "ECANCELED" });
+  await assert.doesNotReject(new ChildStdioTransport(stubChild(ecanceled)).close());
 });
 
 test("close() still rejects a real stdin.end() failure at the call site", async () => {
@@ -438,6 +453,101 @@ test("the flush wait SHARES the shutdown budget, never doubles it", { timeout: 6
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(signals, ["SIGTERM"]);
   await closing;
+});
+
+test("one injected deadline drives a real wedged host through the SIGKILL backstop", { timeout: 60_000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  // The #22261 conversion of the wedge, on the production seam: the stub arm
+  // above pins the shared budget on virtual time; this arm proves the same
+  // contract on a REAL wedged host. The injected `deadlineFactory` is the
+  // only shutdown clock, so the test hand-fires the ONE shared deadline
+  // instead of waiting out a wall-clock second. The second notify's
+  // submission chains behind a 2 MB write the host never drains, so
+  // `flushed` never settles; the child receipt and injected deadline make
+  // both halves structural. The SIGKILL backstop's stdin destroy then
+  // cancels the wedged write, so a real ECANCELED reaches close(): a
+  // rejection there (the predicate losing ECANCELED) fails the settle assert.
+  const stderr: string[] = [];
+  let resolveWedged!: (pid: number) => void;
+  const wedged = new Promise<number>((resolve) => {
+    resolveWedged = resolve;
+  });
+  const child = spawnChild(process.execPath, ["-e", TRAPS_SIGTERM_NEVER_READS_STDIN]);
+  // Reap BEFORE any receipt await (host-lifetime.ts: the order IS the
+  // contract): a missing receipt must not leave the SIGTERM-trapping child
+  // holding node --test open with no reaper registered.
+  t.after(() => reap(child.pid));
+  const signals: Array<NodeJS.Signals | number> = [];
+  const kill = child.kill.bind(child);
+  child.kill = ((signal?: NodeJS.Signals | number) => {
+    signals.push(signal ?? "SIGTERM");
+    // Causal backstop: production arms the mocked 2s SIGTERM grace in the
+    // same synchronous continuation right after kill() returns, so a
+    // microtask queued here runs after the arm and needs no timed poll
+    // (#22261). The child traps SIGTERM, so the SIGKILL leg is this test's
+    // only path.
+    if ((signal ?? "SIGTERM") === "SIGTERM") {
+      queueMicrotask(() => t.mock.timers.tick(2_000));
+    }
+    return kill(signal);
+  }) as typeof child.kill;
+  let deadlineCreations = 0;
+  let deadlineClears = 0;
+  let fireDeadline!: () => void;
+  let markDeadlineReady!: () => void;
+  const deadlineReady = new Promise<void>((resolve) => {
+    markDeadlineReady = resolve;
+  });
+  const deadlineExpired = new Promise<void>((resolve) => {
+    fireDeadline = resolve;
+  });
+  const transport = new ChildStdioTransport(
+    child,
+    (chunk) => {
+      stderr.push(chunk);
+      const match = new RegExp(`${PID_MARKER}(\\d+)\\n${STDIN_WEDGED_MARKER}\\n`).exec(
+        stderr.join(""),
+      );
+      if (match !== null) resolveWedged(Number(match[1]));
+    },
+    1_000,
+    // This arm spawned an ordinary (non-group-leader) child itself, so the
+    // direct-kill path is the correct one (FR-017b).
+    false,
+    (budgetMs) => {
+      deadlineCreations += 1;
+      assert.equal(budgetMs, 1_000);
+      markDeadlineReady();
+      return {
+        expired: deadlineExpired,
+        clear: () => {
+          deadlineClears += 1;
+        },
+      };
+    },
+  );
+  const connection = new Connection(transport);
+  const pidSettled = await settledWithin(wedged, 20_000);
+  assert.ok(pidSettled.settled, `host never announced a wedged stdin: ${stderr.join("")}`);
+  const pid = pidSettled.value;
+  connection.notify("bulk", { pad: UNFLUSHABLE_WRITE });
+  connection.notify("queued-behind-the-wedge");
+  const closing = connection.close();
+  assert.ok(
+    (await settledWithin(deadlineReady, 20_000)).settled,
+    "shutdown must request its deadline",
+  );
+  fireDeadline();
+  assert.ok(
+    (await settledWithin(closing, 20_000)).settled,
+    `close() must settle (signals=${JSON.stringify(signals)}, childAlive=${isAlive(pid)})`,
+  );
+
+  assert.equal(deadlineCreations, 1, "flush wait and drain must consume one shared budget");
+  assert.equal(deadlineClears, 1);
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.deepEqual(await transport.exited, { code: null, signal: "SIGKILL" });
+  assert.equal(isAlive(pid), false);
 });
 
 test("stdin is destroyed between SIGTERM and SIGKILL", { timeout: 30_000 }, async () => {

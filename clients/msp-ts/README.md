@@ -1,4 +1,4 @@
-# `@muse/msp`
+# `@muse-code/msp`
 
 Generated MSP wire types. **No hand-written protocol types, ever** (spec
 `14990-muse-sdk` INV-001).
@@ -12,7 +12,7 @@ Rust toolchain and cannot drift from the binary that produced it.
 
 Nothing is copied into this directory. A second copy of the declarations
 would fork from the one #206 owns — the failure mode the fingerprint pin
-(`@muse/sdk`'s `EXPECTED_SCHEMA_FINGERPRINT`) exists to catch.
+(`@muse-code/sdk`'s `EXPECTED_SCHEMA_FINGERPRINT`) exists to catch.
 
 ## The loop
 
@@ -35,7 +35,7 @@ params), enrolled by [#14953](https://github.com/par-msl/tbh/pull/14953)
 (merged 2026-08-13). `turn/unqueued` enrolled with spec 206 Phase 11
 ([#22772](https://github.com/mslsrc/tbh/issues/22772)) and `view/gap` with
 [#24021](https://github.com/mslsrc/tbh/issues/24021); the ack and snapshot
-shapes follow with their own enrollment slices. `@muse/sdk` binds to each as it lands.
+shapes follow with their own enrollment slices. `@muse-code/sdk` binds to each as it lands.
 
 ## Nothing is published
 

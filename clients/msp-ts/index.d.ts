@@ -1,4 +1,4 @@
-// @muse/msp — the generated MSP wire types, consumed IN PLACE.
+// @muse-code/msp — the generated MSP wire types, consumed IN PLACE.
 //
 // This file is the whole package. It re-exports the committed declarations
 // that `crates/protocol` renders (spec 206, byte-pinned by the required Rust

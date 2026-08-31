@@ -112,6 +112,6 @@ test("the generated declarations are consumed in place, never copied (INV-008)",
   // points INTO schema/msp/ rather than at anything under clients/.
   assert.ok(
     /from\s+"\.\.\/\.\.\/schema\/msp\/msp(\.js)?"/.test(reexport),
-    "@muse/msp must re-export the committed artifact at its own path",
+    "@muse-code/msp must re-export the committed artifact at its own path",
   );
 });

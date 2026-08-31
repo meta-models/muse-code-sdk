@@ -1,5 +1,5 @@
 {
-  "name": "@muse/workspace",
+  "name": "@muse-code/workspace",
   "private": true,
   "description": "Repo-build-only TypeScript workspace for the MSP client tier (spec 14990-muse-sdk). Nothing here is published to npm before 1.0 (tdd D-013).",
   "workspaces": [
@@ -16,7 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "qa:sdk": "npm run build --workspace @muse/sdk && node clients/sdk-ts/dist/qa/bin.js"
+    "qa:sdk": "npm run build --workspace @muse-code/sdk && node clients/sdk-ts/dist/qa/bin.js"
   },
   "devDependencies": {
     "typescript": "7.0.2"

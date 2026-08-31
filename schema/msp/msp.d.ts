@@ -412,6 +412,9 @@ export interface Goal {
 /** What history a lifecycle result actually served (tdd SS2.5.2). Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself". */
 export type HistoryMode = "anchoredSnapshot" | "inline" | "snapshot" | "none" | (string & {});
 
+/** Why a result served `history.mode: "none"` — spec 208 FM-005's typed unavailability (tdd SS2.5.2; D-050). Open on the client side: an absent (older server) or unknown (newer server) value decodes conservatively as an unknown reason, and `viewCursor` text never substitutes for it (spec 208 INV-19734-1). */
+export type HistoryNoneReason = "excluded" | "cursorSuffix" | "historyBudget" | "projectionUnavailable" | "projectionReadLimit" | (string & {});
+
 /** The `history` request preference of `session/resume` (tdd SS2.5.2). The forced values downgrade `anchored` → `inline` → `snapshot` → `none`; under `auto` the full rung order is anchoredSnapshot → inline → snapshot → elided snapshot → none. */
 export type HistoryPreference = "auto" | "inline" | "snapshot" | "anchored";
 
@@ -996,6 +999,8 @@ export interface SessionHistory {
   items: Item[] | null;
   /** What was actually served — never what was asked for (tdd SS2.5.2). */
   mode: HistoryMode;
+  /** Why no history was served — sent exactly when `mode` is `"none"` (tdd SS2.5.2; D-050, spec 208 INV-19734-1). */
+  noneReason?: HistoryNoneReason;
   /** The folded view state when `mode` is `snapshot` or `anchoredSnapshot`; `null` otherwise. */
   snapshot: ViewSnapshot | null;
 }

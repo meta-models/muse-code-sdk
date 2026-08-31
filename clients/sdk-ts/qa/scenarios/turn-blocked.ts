@@ -21,9 +21,10 @@
  */
 
 import type { ObservedRun } from "../oracle.js";
+import { errorKindOfRun, settlementOfRun } from "../recorder.js";
 import type { RecordedHost } from "../recorder.js";
 import { drivenOnce, sessionIdOf } from "../scenario-kit.js";
-import type { QaScenario, ScenarioOutcome } from "../scenario-kit.js";
+import type { BlockedVerdict, QaScenario, ScenarioOutcome } from "../scenario-kit.js";
 
 const BLOCKER = "#19535";
 const BECAUSE =
@@ -41,7 +42,121 @@ function blockerStillBites(run: ObservedRun): boolean {
   return completed.length === 0;
 }
 
-interface BlockedShape {
+/** What one driven run proved about the blocker. */
+export type BlockedRunEvidence = "bites" | "lifted" | { readonly rejected: string };
+
+/**
+ * Re-exported from `scenario-kit.ts`, which owns it now that `ScenarioOutcome`
+ * carries the union as one field (#23111 review round 3).
+ */
+export type { BlockedVerdict } from "../scenario-kit.js";
+
+/**
+ * Error kinds that mean the call died BEFORE any handler ran, so the run
+ * reached no turn-dependent behaviour whatever the turn did independently:
+ *
+ *  - `invalidParams` — rejected at param validation.
+ *  - `methodNotFound` — rejected at dispatch; the registry answers it for any
+ *    method the active permission profile withholds (FR-024), so it is
+ *    reachable on the very calls these scenarios issue (#23111 review).
+ */
+const REJECTED_BEFORE_ANY_HANDLER: ReadonlySet<string> = new Set([
+  "invalidParams",
+  "methodNotFound",
+]);
+
+/** The two steps every blocked scenario's own drive issues before the subject. */
+const BLOCKED_SETUP_STEPS: ReadonlySet<string> = new Set(["start", "turn"]);
+
+/** Every step a captured run settled, in first-issue order. */
+function settledStepsOf(run: ObservedRun): readonly string[] {
+  const steps: string[] = [];
+  for (const entry of run.api) {
+    if (entry.kind !== "requestOk" && entry.kind !== "requestError") continue;
+    if (steps.includes(entry.step)) continue;
+    steps.push(entry.step);
+  }
+  return steps;
+}
+
+/**
+ * The subject steps a captured run ACTUALLY issued — every settled step
+ * outside the fixed setup. Derived from the run rather than hand-listed on
+ * each shape, so a forgotten or misspelled entry cannot silently hide a
+ * rejection (#23111 review). Used to NAME the rejected call's role; the scan
+ * itself covers setup steps too, because a rejected `session/start` or
+ * `turn/start` reaches the blocker's behaviour just as little.
+ */
+export function subjectStepsOf(run: ObservedRun): readonly string[] {
+  return settledStepsOf(run).filter((step) => !BLOCKED_SETUP_STEPS.has(step));
+}
+
+/**
+ * Decide what a driven run proves. Exported so the verdict — including the
+ * never-reached-the-host arm — is testable without a real host (#23111), the
+ * same reason `blockerStillBites` is.
+ *
+ * A call the host rejected before any handler ran proves nothing about the
+ * blocker, however loudly the turn independently died on the credential
+ * failure (#23111 arm 2: B04/B07 reported `expected-block` on exactly that
+ * traffic). The subject steps are DERIVED here rather than passed in, so no
+ * caller can hand over a stale list that hides a rejection.
+ */
+export function blockedRunEvidence(run: ObservedRun): BlockedRunEvidence {
+  const subjects = subjectStepsOf(run);
+  for (const step of settledStepsOf(run)) {
+    const kind = errorKindOfRun(run, step);
+    if (kind === undefined || !REJECTED_BEFORE_ANY_HANDLER.has(kind)) continue;
+    const role = subjects.includes(step) ? "subject" : "setup call";
+    return {
+      rejected: `${role} \`${step}\` settled \`${settlementOfRun(run, step)}\` — it never reached the host's turn-dependent behaviour`,
+    };
+  }
+  return blockerStillBites(run) ? "bites" : "lifted";
+}
+
+/**
+ * Fold per-run evidence into the outcome's `blockedVerdict` — or REFUSE
+ * the verdict.
+ *
+ * The refusal is returned as a VALUE, not thrown: a throw unwinds past
+ * `runSdkQa`'s oracle, discarding every deviation the same capture recorded
+ * (spec 14990 Scenario 6 acceptance 1 — the oracle runs over every driven
+ * run). The verdict is unchanged either way: `runSdkQa` maps a refusal to
+ * `blocked` ("could not run, learned nothing"), never `expected-block`
+ * (#23111).
+ */
+export function foldBlockedEvidence(
+  id: string,
+  evidence: readonly BlockedRunEvidence[],
+): BlockedVerdict {
+  const rejected = evidence.filter(
+    (proof): proof is { readonly rejected: string } => typeof proof === "object",
+  );
+  if (rejected.length > 0) {
+    return {
+      refused: `${id} was rejected before reaching ${BLOCKER}: ${rejected
+        .map((proof) => proof.rejected)
+        .join("; ")}`,
+    };
+  }
+  return { bites: evidence.every((proof) => proof === "bites") };
+}
+
+/**
+ * The whole derivation → evidence → fold chain, as ONE function the shipped
+ * scenario calls and a test can call with the same arguments. Extracted
+ * because a composition that lives only inside `blockedScenario` cannot be
+ * pinned without a live host (#23111 review).
+ */
+export function blockedVerdictOf(id: string, runs: readonly ObservedRun[]): BlockedVerdict {
+  return foldBlockedEvidence(
+    id,
+    runs.map((run) => blockedRunEvidence(run)),
+  );
+}
+
+export interface BlockedShape {
   readonly id: string;
   readonly title: string;
   readonly vein: string;
@@ -51,7 +166,14 @@ interface BlockedShape {
   readonly willAssert: string;
 }
 
-function blockedScenario(shape: BlockedShape): QaScenario {
+/**
+ * Build one expect-blocked scenario.
+ *
+ * Exported so a test can drive a REAL host through this exact factory — the
+ * only way to pin that the shipped scenario consults `blockedVerdictOf`
+ * rather than reading the turn's terminal directly (#23111 review).
+ */
+export function blockedScenario(shape: BlockedShape): QaScenario {
   return {
     id: shape.id,
     title: shape.title,
@@ -78,9 +200,7 @@ function blockedScenario(shape: BlockedShape): QaScenario {
             : `blocker lifted — the turn ran. NOW ASSERT: ${shape.willAssert}`,
         expected: `blocked-by-${BLOCKER} until its fix lands, then: ${shape.willAssert}`,
       });
-      const runs = outcome.runs;
-      const bites = runs.every((run) => blockerStillBites(run));
-      return { ...outcome, blockerStillBites: bites };
+      return { ...outcome, blockedVerdict: blockedVerdictOf(shape.id, outcome.runs) };
     },
   };
 }
@@ -120,8 +240,15 @@ export const TURN_BLOCKED_SCENARIOS: readonly QaScenario[] = [
     title: "`turn/steer` reaches a running turn",
     vein: "turn lifecycle over stdio",
     async subject(host, sessionId) {
+      // The host requires `expectedTurnId` (crates/session-server
+      // command/turn_steer.rs); the RUNNING turn's real id is in the
+      // `turn/start` ack. The placeholder keeps the params well-formed on the
+      // rare rejected ack, so the steer still reaches turn-state validation.
+      const turnId = (host.resultOf("turn") as { turnId?: unknown } | undefined)?.turnId;
       await host.command("steer", "turn/steer", {
         sessionId,
+        expectedTurnId:
+          typeof turnId === "string" ? turnId : "00000000-0000-7000-8000-000000000000",
         input: [{ type: "text", text: "actually, say pang" }],
       });
     },
@@ -152,9 +279,13 @@ export const TURN_BLOCKED_SCENARIOS: readonly QaScenario[] = [
     title: "the `userInput` round trip settles the prompt",
     vein: "approvals flow",
     async subject(host, sessionId) {
+      // `reason` is host-required (crates/session-server user_input/params.rs);
+      // without it the cancel dies at param validation and never reaches the
+      // userInput plane (#23111).
       await host.command("cancelInput", "userInput/cancel", {
         sessionId,
         userInputId: "00000000-0000-7000-8000-000000000000",
+        reason: "auto-qa --area sdk probes the cancel path while #19535 blocks a real prompt",
       });
     },
     willAssert:
@@ -175,7 +306,7 @@ export const TURN_BLOCKED_SCENARIOS: readonly QaScenario[] = [
     async run(): Promise<ScenarioOutcome> {
       return {
         runs: [],
-        blockerStillBites: true,
+        blockedVerdict: { bites: true },
         observed:
           "blocked: the harness speaks only MSP stdio, so it cannot mint the out-of-band write this arm requires",
         expected:

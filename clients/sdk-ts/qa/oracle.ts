@@ -12,7 +12,10 @@
  * track (charter decision 2):
  *  - `spec`   — a named requirement is violated: `bug` + `auto`.
  *  - `silent` — no spec constrains this, but an integrator will depend on it:
- *               a spec-gap issue that forces constrain-vs-document.
+ *               the spec-gap TRACK. It ALSO files as `bug` + `auto` — no
+ *               `spec-gap` label exists (owner ruling 2026-08-25, #23111) —
+ *               and names its owning spec in the body, which is the routing
+ *               that forces constrain-vs-document.
  */
 
 import type { WireFrame, WireLog } from "./tap.js";

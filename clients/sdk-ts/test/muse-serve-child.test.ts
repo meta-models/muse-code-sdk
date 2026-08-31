@@ -17,6 +17,8 @@ import type { ExitClassification } from "../src/index.js";
 import { ChildStdioTransport } from "../src/connection/spawn.js";
 import {
   announcedPidProbe,
+  awaitAnnouncedGrandchildPid,
+  awaitAnnouncedPid,
   COUNTS_SIGTERM,
   IGNORES_EOF,
   IGNORES_EOF_AND_SIGTERM,
@@ -27,6 +29,7 @@ import {
   settledWithin,
   sentinelHost,
   UNFLUSHABLE_WRITE,
+  WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD,
 } from "./helpers/host-lifetime.js";
 
 /** The built barrel, as a sub-process driver would import it. */
@@ -302,6 +305,83 @@ test("concurrent close() calls share ONE shutdown", { timeout: 60_000 }, async (
   assert.deepEqual(again.value, concurrent.value[0]);
   assert.equal(isAlive(pid), false, "close() leaves no orphaned host process");
 });
+
+// TEST-22777-1 (#22777). The escalation used to signal the child PID only,
+// and `exited` settles on Node's `close` event — which needs the child's
+// stdio CLOSED. A wrapper that leaves a grandchild holding the inherited
+// stdout therefore kept `close()` pending forever after the wrapper itself
+// was SIGKILLed, and the grandchild was never signalled at all. On POSIX the
+// SDK owns a process group for the host it spawns and escalates against the
+// group, so the whole subtree ends inside the same bound (FR-017b).
+test(
+  "close terminates the spawned host process group",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const child = MuseServeChild.spawn({
+      museBin: process.execPath,
+      args: ["-e", WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD],
+      shutdownTimeoutMs: 150,
+      onStderr: (chunk) => stderr.push(chunk),
+    });
+    const pid = await awaitAnnouncedPid(stderr);
+    const grandchildPid = await awaitAnnouncedGrandchildPid(stderr);
+    t.after(() => {
+      reap(grandchildPid);
+      reap(pid);
+    });
+    // Setup: the #22777 shape actually exists before close() runs.
+    assert.ok(isAlive(pid), "setup: the wrapper host is alive");
+    assert.ok(isAlive(grandchildPid), "setup: the stdout-holding grandchild is alive");
+
+    const outcome = await settledWithin(child.close(), 20_000);
+    assert.ok(
+      outcome.settled,
+      "close() must settle even when a grandchild holds the inherited stdout",
+    );
+    assert.deepEqual(outcome.value, {
+      kind: "crash",
+      exitCode: null,
+      exitSignal: "SIGKILL",
+      stderrTail: [`child_pid=${pid}`, `grandchild_pid=${grandchildPid}`],
+    });
+    assert.equal(isAlive(pid), false, "close() leaves no orphaned host process");
+    assert.equal(
+      isAlive(grandchildPid),
+      false,
+      "group escalation ends the stdout-holding grandchild too",
+    );
+  },
+);
+
+// TEST-22777-1's fallback arm (FR-017b). The bare catch in #signal is
+// normative — a group signal that fails for ANY reason must fall back to the
+// direct child, never rethrow out of the ladder. Only a scratch mutation
+// exercised it before this arm (review round). Driven through the transport
+// directly: the group capability is CLAIMED but the child was spawned
+// without `detached`, so its pid is not a pgid (a pid in use cannot be a
+// stale group's id either) and every group signal fails deterministically —
+// only the fallback can end the child.
+test(
+  "a failed group signal falls back to the direct child",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const transport = new ChildStdioTransport(
+      spawnChild(process.execPath, ["-e", IGNORES_EOF]),
+      (chunk) => stderr.push(chunk),
+      150,
+      true,
+    );
+    const pid = await awaitAnnouncedPid(stderr);
+    t.after(() => reap(pid));
+
+    const outcome = await settledWithin(transport.close(), 20_000);
+    assert.ok(outcome.settled, "a failed group signal must not gate the ladder");
+    assert.deepEqual(await transport.exited, { code: null, signal: "SIGTERM" });
+    assert.equal(isAlive(pid), false, "the direct-child fallback still ends the host");
+  },
+);
 
 test("close terminates a host that never reads stdin", { timeout: 60_000 }, async (t) => {
   // The P0 leg (PR #22819 review). Every arm above calls `process.stdin

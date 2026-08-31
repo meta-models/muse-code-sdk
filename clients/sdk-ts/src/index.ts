@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * `@muse/sdk` — the MSP TypeScript facade (tdd SS7.1).
+ * `@muse-code/sdk` — the MSP TypeScript facade (tdd SS7.1).
  *
  * (The tag above is load-bearing: without it TypeDoc attaches this header to
  * the first re-export, whose generated reference page then publishes this
@@ -134,7 +134,7 @@ export type { GapFillFailureHandler } from "./facade/gap-fill.js";
 
 // Trimmed deliberately (Constitution XI): `isAbnormalHostDeath`,
 // `isItemInProgress`, and `survivesHostDeath` are `Session`'s own internals
-// with no consumer, and a barrel export would freeze them into `@muse/sdk`'s
+// with no consumer, and a barrel export would freeze them into `@muse-code/sdk`'s
 // contract the moment #211 adopts the package.
 export { MuseHostDiedError, readSessionDurability } from "./facade/host-death.js";
 export type {
@@ -160,7 +160,7 @@ export type {
 // The two submit-side modules `Session` composes. `ApprovalRouter` and
 // `TurnSubmitter` themselves stay OFF the barrel (Constitution XI): they are
 // `Session`'s internals with no consumer, and exporting them would freeze two
-// more classes into `@muse/sdk`'s contract. Their TYPES are exported because a
+// more classes into `@muse-code/sdk`'s contract. Their TYPES are exported because a
 // consumer writes an `ApprovalHandler` and reads an `ApprovalFailure`.
 export type {
   ApprovalDecisionInput,

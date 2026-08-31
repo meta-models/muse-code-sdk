@@ -39,7 +39,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { InitializeResult, Item, ItemStartedParams, SourceRange } from "@muse/msp";
+import type { InitializeResult, Item, ItemStartedParams, SourceRange } from "@muse-code/msp";
 
 import type { FoldedItem } from "../src/index.js";
 import {

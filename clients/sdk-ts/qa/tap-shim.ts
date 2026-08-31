@@ -1,7 +1,7 @@
 /**
  * The wire tap, as a process.
  *
- * The harness never reaches inside `@muse/sdk` to see the wire (charter
+ * The harness never reaches inside `@muse-code/sdk` to see the wire (charter
  * decision 4: no SDK-internal imports). Instead the SDK is told to spawn THIS
  * shim, and the shim spawns the real MSP host. Every byte in both directions
  * is appended to a tap file before it is forwarded, so the recording is a
@@ -55,9 +55,22 @@ function record(direction: string, chunk: Buffer): void {
  * `cleanShutdown`, so a crashed host would pass as clean. A pending stdio
  * write keeps the loop alive on its own: everything still flushes, and the
  * child's status survives.
+ *
+ * The flip side (#23615): once the child is gone, nothing BUT that pending
+ * write may keep the loop alive. The SDK holds the shim's stdin open for as
+ * long as it is awaiting a response, so a still-listening stdin would spin the
+ * loop forever — the shim never exits, the SDK never sees EOF, and a pending
+ * request (`initialize` while the host dies pre-handshake — FM-QA-004's
+ * request-await half) deadlocks the
+ * whole QA pass. Release stdin and the write side to the dead child here; the
+ * loop then empties exactly when the tail has flushed, and the SDK observes
+ * EOF precisely as it does with no shim in between.
  */
 function exitAfterFlush(status: number): void {
   process.exitCode = status;
+  process.stdin.pause();
+  process.stdin.unref();
+  child.stdin.end();
 }
 
 const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });

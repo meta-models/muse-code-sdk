@@ -1,13 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Item, Notification } from "@muse/msp";
+import type { Item, Notification } from "@muse-code/msp";
 import type {
   ItemCompletedParams,
   ItemDeltaParams,
   ItemStartedParams,
   ItemUpdatedParams,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 import { ItemStore } from "../../src/index.js";
 

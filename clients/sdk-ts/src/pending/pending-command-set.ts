@@ -30,14 +30,14 @@ import type {
   MspErrorDataKind,
   TurnStartDisposition,
   TurnStartResult,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 import { MuseSessionDiscardedError } from "../errors.js";
 
 /**
  * The JSON-RPC code for a durable command rejection (tdd SS3.1.2, Appendix B).
  *
- * `@muse/msp` is a types-only package, so the registry's CODE cannot be
+ * `@muse-code/msp` is a types-only package, so the registry's CODE cannot be
  * imported the way its types can. It is named exactly once, here, and
  * `pending-command-wire-binding.test.ts` pins it to the `commandRejected` row
  * in `schema/msp/stable/msp.schema.json` — the same pin shape

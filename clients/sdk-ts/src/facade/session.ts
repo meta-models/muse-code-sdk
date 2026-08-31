@@ -58,7 +58,7 @@ import type {
   ItemKind,
   SessionResumeResult,
   SessionStartResult,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 /** Bound to the generated vocabulary so a misspelling fails `tsc`. */
 const USER_MESSAGE: Extract<ItemKind, "userMessage"> = "userMessage";

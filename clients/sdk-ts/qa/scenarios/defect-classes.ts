@@ -3,7 +3,7 @@
  * the SDK.
  *
  * The stdio pass found these by speaking raw NDJSON. Re-driving them through
- * `@muse/sdk` answers a different question: does the facade carry the defect
+ * `@muse-code/sdk` answers a different question: does the facade carry the defect
  * through unchanged, hide it, or add one of its own? That is why every
  * scenario here supplies an `attributeWith` plan — a finding without a
  * facade-vs-binary component sends the fix lane to the wrong package, which
@@ -15,7 +15,7 @@
  */
 
 import type { ObservedRun } from "../oracle.js";
-import { settlementOfRun } from "../recorder.js";
+import { initializeResultOf, settlementOfRun } from "../recorder.js";
 import {
   drivenAcrossRestart,
   drivenOnce,
@@ -318,11 +318,7 @@ const D21861: QaScenario = {
         });
       },
       observe: (run) => {
-        const durability = (
-          run.api.find((entry) => entry.kind === "initializeResult") as
-            | { result?: { sessionDurability?: unknown } }
-            | undefined
-        )?.result?.sessionDurability;
+        const durability = initializeResultOf(run)?.["sessionDurability"];
         return `durability:${String(durability)}|raise:${
           settledError(run, "raise") ? "refused" : "accepted"
         }|narrow:${settledError(run, "narrow") ? "refused" : "accepted"}`;
@@ -335,6 +331,36 @@ const D21861: QaScenario = {
 // ---------------------------------------------------------------------------
 // #19764 — CLOSED/FIXED (PR #22437). Kept as a regression guard.
 // ---------------------------------------------------------------------------
+
+/** The exact command D19764 runs; the guard's read assertion keys on it. */
+export const D19764_COMMAND_TEXT = "printf R371_CLEAN_MSP_USER_SHELL";
+
+/** Is D19764's item in a `session/read` result — `kind` and `commandText` both? */
+function d19764ItemIn(result: Record<string, unknown> | undefined): boolean {
+  const items = (result?.["history"] as { items?: unknown } | undefined)?.items;
+  return (
+    Array.isArray(items) &&
+    items.some(
+      (item) =>
+        (item as { kind?: unknown }).kind === "userShell" &&
+        (item as { commandText?: unknown }).commandText === D19764_COMMAND_TEXT,
+    )
+  );
+}
+
+/** Exported so the guard's observable is testable without a real host (#23111). */
+export function observeD19764(run: ObservedRun): string {
+  const granted = initializeResultOf(run)?.["grantedCapabilities"];
+  const hasGrant = Array.isArray(granted) && granted.includes("userShell");
+  const shell = settledError(run, "shell") ? settlementOfRun(run, "shell") : "accepted";
+  // The read the scenario issues is PART of the verdict: the guard's title is
+  // "its item survives `session/read`", and before #23111 a run whose read came
+  // back empty was still green because nothing here looked at it.
+  const read = d19764ItemIn(resultOfStep(run, "read")) ? "userShell-item" : "missing";
+  return `granted:${hasGrant ? "userShell" : "none"}|shell:${shell}|read:${read}`;
+}
+
+export const D19764_EXPECTED = "granted:userShell|shell:accepted|read:userShell-item";
 
 const D19764: QaScenario = {
   id: "D19764",
@@ -360,21 +386,22 @@ const D19764: QaScenario = {
         const sessionId = sessionIdOf(host.resultOf("start"));
         await host.command("shell", "session/userShell", {
           sessionId,
-          commandText: "printf R371_CLEAN_MSP_USER_SHELL",
+          commandText: D19764_COMMAND_TEXT,
         });
-        await host.request("read", "session/read", { sessionId, excludeItems: false });
+        // Assert the COMMITTED state, not a race with the flush: wait for the
+        // item's terminal, then poll the read to an ATTEMPT bound (#23109's
+        // read-side view materializes ~1.05s after item/completed, and a
+        // wall-clock bound would make the attribution replay run a different
+        // call sequence than the live run).
+        await host.waitForNotification("item/completed", 15_000);
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          await host.request("read", "session/read", { sessionId, excludeItems: false });
+          if (d19764ItemIn(host.resultOf("read"))) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
       },
-      observe: (run) => {
-        const granted = (
-          run.api.find((entry) => entry.kind === "initializeResult") as
-            | { result?: { grantedCapabilities?: unknown } }
-            | undefined
-        )?.result?.grantedCapabilities;
-        const hasGrant = Array.isArray(granted) && granted.includes("userShell");
-        const shell = settledError(run, "shell") ? settlementOfRun(run, "shell") : "accepted";
-        return `granted:${hasGrant ? "userShell" : "none"}|shell:${shell}`;
-      },
-      expected: "granted:userShell|shell:accepted",
+      observe: observeD19764,
+      expected: D19764_EXPECTED,
     });
   },
 };

@@ -1,8 +1,8 @@
-# `@muse/sdk`
+# `@muse-code/sdk`
 
 The MSP TypeScript facade (tdd SS7.1). Owning spec: `specs/14990-muse-sdk/`.
 
-**Zero runtime dependencies** (INV-009): pure TypeScript over `@muse/msp` plus
+**Zero runtime dependencies** (INV-009): pure TypeScript over `@muse-code/msp` plus
 the Node standard library. A proposed runtime dependency is an owner
 escalation under the #211 O-3 precedent — official protocol-owner SDKs,
 pinned exact, supply-chain reviewed — not a local decision.
@@ -32,7 +32,7 @@ notification's `method` paired with its generated params object — and read the
 fold:
 
 ```ts
-import { readSessionDurability, Session } from "@muse/sdk";
+import { readSessionDurability, Session } from "@muse-code/sdk";
 
 const session = new Session({
   sessionId,
@@ -88,7 +88,7 @@ host, runs the SS1.4 handshake, and reads `sessionDurability` off it, so a
 consumer never re-derives the SS2.13.1 profile by hand:
 
 ```ts
-import { MuseClient } from "@muse/sdk";
+import { MuseClient } from "@muse-code/sdk";
 
 const client = await MuseClient.spawn({
   museBin: "muse",
@@ -145,7 +145,7 @@ this SDK predates, and the absent-means-durable rule keys on the member being
 
 **Report defects here, not in the adapter.** A fold rule the core gets wrong
 is a #14990 bug; a fixture the fold cannot consume is a #210 fixture request.
-Neither is ever patched locally in `@muse/acp` (spec Sibling lanes).
+Neither is ever patched locally in `@muse-code/acp` (spec Sibling lanes).
 
 ## What is here (slices 1 and 2, and slice 3 in full)
 
@@ -181,10 +181,12 @@ Neither is ever patched locally in `@muse/acp` (spec Sibling lanes).
   escalation once `shutdownTimeoutMs` (default 30 s) has passed, and it
   resolves on the exit actually observed — so a wedged host is the crash row
   carrying the delivered signal, never a synthesized clean shutdown. It ends
-  once the child's stdio closes; a grandchild that inherited the host's
-  stdout can still stall that, which is deferred to
-  [#22777](https://github.com/mslsrc/tbh/issues/22777) and stated in the
-  spec's FM-15943-1 rather than promised away here.
+  once the child's stdio closes; on POSIX the SDK spawns the host as the
+  leader of an SDK-owned process group and the TERM/KILL stages signal that
+  group ([#22777](https://github.com/mslsrc/tbh/issues/22777)), so a
+  grandchild that inherited the host's stdout is ended with the host and
+  cannot stall the close. On Windows the ladder still signals only the
+  child — no subtree containment is claimed there (spec FR-017b).
 - `src/fold/session-fold.ts` — the two stores bound to the generated view
   types, plus the turn lifecycle and the approval/user-input view events as
   fold inputs. A compile-time assertion fails if a later #206 enrollment adds
@@ -208,7 +210,7 @@ Neither is ever patched locally in `@muse/acp` (spec Sibling lanes).
 
 `qa/` is **not part of the shipped facade**. It is a QA driver (issue #22764,
 spec 14990 Scenario 6) that plays an external integrator: it reaches
-`@muse/sdk` only through `src/index.ts`, spawns the real `tbh serve` binary
+`@muse-code/sdk` only through `src/index.ts`, spawns the real `tbh serve` binary
 over MSP stdio, and tees every wire byte so each finding can be stated as
 "public API said X, wire said Y". A finding without both halves is refused at
 construction, and the driver never files anything — the auto-qa procedure
@@ -259,7 +261,7 @@ The concrete item/event payload types are generated, not written here
 enrolled, so they state only the *algebraic precondition* each rule needs —
 an item has an identity and a revision — and take the payload as a type
 parameter. #14953 landed 2026-08-13, and `SessionFold` now binds those
-parameters to `@muse/msp`'s types with no change to the fold logic and no
+parameters to `@muse-code/msp`'s types with no change to the fold logic and no
 protocol shape ever restated locally.
 
 The same discipline is why `ItemStore.markEphemeralHostDeath` asks its caller

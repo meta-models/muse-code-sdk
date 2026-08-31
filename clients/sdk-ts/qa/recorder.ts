@@ -2,7 +2,7 @@
  * The recorder: drive one real host through the SDK's PUBLIC surface while the
  * tap records the wire, then hand both halves to the oracle.
  *
- * Everything this file touches is exported from `@muse/sdk`'s barrel. That is
+ * Everything this file touches is exported from `@muse-code/sdk`'s barrel. That is
  * the external-integrator lens (charter decision 1) made structural rather
  * than aspirational — `qa-discipline.test.ts` fails the build if a deeper
  * import ever appears.
@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { spawnMspConnection } from "../src/index.js";
 import type { MspHandshake, SpawnedMspConnection } from "../src/index.js";
-import type { InitializeParams } from "@muse/msp";
+import type { InitializeParams } from "@muse-code/msp";
 
 import { readTapPids, readWireLog, tappedSpawnOptions } from "./tap.js";
 import type { ApiObservation, ObservedRun } from "./oracle.js";
@@ -341,8 +341,9 @@ export class RecordedHost {
    * The pids come from the tap's `#` header because the SDK's public barrel
    * offers no pid and no kill, and the harness may not reach past it (charter
    * decision 4). They are signalled individually rather than as a process
-   * group: the shim is spawned into THIS process's group, so a group signal
-   * would take the QA run down with it.
+   * group: since FR-017b the shim leads its own SDK-owned group, so a group
+   * signal is no longer self-destructive — just unnecessary here, where the
+   * tap header already names both pids.
    */
   async #terminate(graceMs = 2_000): Promise<void> {
     const { shim, child } = await readTapPids(this.#tapFile);
@@ -374,6 +375,21 @@ export class RecordedHost {
  * projection cannot live on the host object alone. The result projection is
  * `resultOfStep` in `scenario-kit.ts`; there is deliberately only one.
  */
+/**
+ * The `initialize` handshake result this run captured, or `undefined`.
+ *
+ * One typed projection for the handshake so no reader re-implements the
+ * `kind === "initializeResult"` probe behind its own `as` cast: an ad-hoc
+ * cast compiles fine after the recorder's entry shape changes and then
+ * silently reports "unknown" (#23111 review).
+ */
+export function initializeResultOf(run: ObservedRun): Record<string, unknown> | undefined {
+  for (const entry of run.api) {
+    if (entry.kind === "initializeResult") return entry.result;
+  }
+  return undefined;
+}
+
 export function errorKindOfRun(run: ObservedRun, step: string): string | undefined {
   for (let index = run.api.length - 1; index >= 0; index -= 1) {
     const entry = run.api[index];

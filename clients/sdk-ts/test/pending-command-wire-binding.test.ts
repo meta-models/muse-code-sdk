@@ -23,7 +23,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { MspErrorDataKind, TurnStartDisposition, TurnStartResult } from "@muse/msp";
+import type { MspErrorDataKind, TurnStartDisposition, TurnStartResult } from "@muse-code/msp";
 
 import {
   COMMAND_REJECTED_CODE,
@@ -60,12 +60,12 @@ function registryRow(kind: string): ErrorRegistryRow {
 
 // ---- the source arms: nothing is restated locally -------------------------
 
-test("the pending set imports its ack/disposition vocabulary from @muse/msp (INV-001)", () => {
+test("the pending set imports its ack/disposition vocabulary from @muse-code/msp (INV-001)", () => {
   const source = read(PENDING_SOURCE_PATH);
-  const imports = /import type \{([^}]*)\} from "@muse\/msp";/s.exec(source);
+  const imports = /import type \{([^}]*)\} from "@muse-code\/msp";/s.exec(source);
   const names = imports?.[1];
   if (names === undefined) {
-    throw new Error(`${PENDING_SOURCE_PATH} must type-import from @muse/msp`);
+    throw new Error(`${PENDING_SOURCE_PATH} must type-import from @muse-code/msp`);
   }
   const imported = new Set(names.split(",").map((s) => s.trim()).filter(Boolean));
 
@@ -106,7 +106,7 @@ test("the disposition and ack types ARE the generated ones, asserted positively 
 });
 
 test("the settlement code is one named export, not an unchecked private literal", () => {
-  // The types-only `@muse/msp` package carries no VALUES, so the registry code
+  // The types-only `@muse-code/msp` package carries no VALUES, so the registry code
   // cannot be imported the way the types can. The discharge is that the SDK
   // names it exactly once, exports it, and a test pins that export to the
   // enrolled row below — the same shape as `EXPECTED_SCHEMA_FINGERPRINT`.

@@ -328,7 +328,7 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
   const outcome = (blockerStillBites: boolean): QaScenario["run"] =>
     async (): Promise<Awaited<ReturnType<QaScenario["run"]>>> => ({
       runs: [],
-      blockerStillBites,
+      blockedVerdict: { bites: blockerStillBites },
       observed: "o",
       expected: "e",
     });
@@ -356,6 +356,23 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
         throw new Error("the harness learned nothing");
       },
     },
+    {
+      // An explicit `refused: undefined` still compiles as the bites member;
+      // the verdict read discriminates on VALUE, so this hand-written shape
+      // must stay expected-block, never a misrouted `blocked` (#23324 review).
+      id: "F04",
+      title: "explicit refused: undefined still means bites",
+      vein: "fake",
+      expectBlocked: { blocker: "#3", because: "z".repeat(70) },
+      async run(): Promise<Awaited<ReturnType<QaScenario["run"]>>> {
+        return {
+          runs: [],
+          blockedVerdict: { bites: true, refused: undefined },
+          observed: "o",
+          expected: "e",
+        };
+      },
+    },
   ];
 
   const report = await runSdkQa({ museBin: "/unused", scenarios });
@@ -368,6 +385,7 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
     // An exception is BLOCKED, never a pass: a scenario that could not complete
     // taught the harness nothing about the host.
     F03: "blocked",
+    F04: "expected-block",
   });
   assert.match(
     report.scenarios.find((scenario) => scenario.id === "F03")?.blockedBecause ?? "",

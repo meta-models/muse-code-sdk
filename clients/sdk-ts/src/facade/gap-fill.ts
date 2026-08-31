@@ -26,7 +26,7 @@ import type { Connection } from "../connection/connection.js";
 import type { SessionFold } from "../fold/session-fold.js";
 import type { PendingRetirement } from "../pending/pending-command-set.js";
 
-import type { ViewPageParams, ViewPageResult } from "@muse/msp";
+import type { ViewPageParams, ViewPageResult } from "@muse-code/msp";
 
 /**
  * How many events one `view/page` asks for.

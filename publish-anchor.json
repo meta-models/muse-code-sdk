@@ -1,76 +1,78 @@
 {
-  "$comment": [
-    "Provenance for the source tree in this repository. Every file outside the",
-    "repo_meta.hand_authored list below is a verbatim copy of the named commit in",
-    "the producing repository; those mirrored files are not hand-maintained, and",
-    "corrections to them are made upstream and re-mirrored, never edited in place.",
-    "The hand_authored list is the exception, and it is machine-readable on",
-    "purpose: a republish MUST preserve those paths rather than replacing the tree",
-    "wholesale. See repo_meta.rationale."
+ "$comment": [
+  "Provenance for the source tree in this repository. Every file outside the",
+  "repo_meta.hand_authored list below is a verbatim copy of the named commit in",
+  "the producing repository; those mirrored files are not hand-maintained, and",
+  "corrections to them are made upstream and re-mirrored, never edited in place.",
+  "The hand_authored list is the exception, and it is machine-readable on",
+  "purpose: a republish MUST preserve those paths rather than replacing the tree",
+  "wholesale. See repo_meta.rationale."
+ ],
+ "artifact": "@muse-code/sdk source closure",
+ "source": {
+  "repository": "mslsrc/tbh",
+  "commit": "c0462aff7b0d3703bfa70033d0625e57ba9dfdf5",
+  "closure_manifest": "projects/tbh/scripts/sdk-source-closure.json"
+ },
+ "published_at": "2026-08-31T06:47:00Z",
+ "closure_paths": [
+  "clients/sdk-ts",
+  "clients/msp-ts",
+  "clients/sdk-cookbook",
+  "clients/sdk-quickstart",
+  "schema/msp/msp.d.ts",
+  "schema/msp/stable",
+  "schema/msp/transcripts",
+  "scripts/check-msp-ts-typecheck.sh",
+  "package.json",
+  "package-lock.json"
+ ],
+ "gates": {
+  "profile": "projects/tbh/scripts/check-source-audience.mjs",
+  "policy": "projects/tbh/docs/sdk-source-publication-profile.md",
+  "must_not_ship": 0,
+  "judgment_reported": 192,
+  "benign_for_source": 3033
+ },
+ "standalone_build": {
+  "command": "npm install && npm run build && npm test",
+  "build": "pass",
+  "tests": "343 pass / 4 fail / 2 skipped",
+  "known_failures": "the four real-binary arms in test/muse-serve-child.test.ts and test/spawn-handshake.test.ts spawn the Rust 'tbh serve' host, which is not part of this closure"
+ },
+ "npm_publication": "pending",
+ "license": {
+  "spdx": "MIT",
+  "status": "provisional",
+  "file": "LICENSE",
+  "note": [
+   "Owner ruling, session 2026-08-31: 'The license for the sdk will provisionally",
+   "be the MIT license.' Provisional means MIT applies to the source as published",
+   "here, but the licensing review has not formally concluded.",
+   "The package.json 'license' field is NOT set from this repository: package.json",
+   "and clients/*/package.json are closure_paths entries, so the field is set",
+   "upstream in mslsrc/tbh and arrives by mirror."
+  ]
+ },
+ "repo_meta": {
+  "hand_authored": [
+   ".github/",
+   ".nojekyll",
+   "LICENSE",
+   "README.md",
+   "publish-anchor.json"
   ],
-  "artifact": "@muse/sdk source closure",
-  "source": {
-    "repository": "mslsrc/tbh",
-    "commit": "70906b2ad1c09484091bb1eacefcb6fc83813898",
-    "closure_manifest": "projects/tbh/scripts/sdk-source-closure.json"
-  },
-  "published_at": "2026-08-30T21:03:44Z",
-  "closure_paths": [
-    "clients/sdk-ts",
-    "clients/msp-ts",
-    "schema/msp/msp.d.ts",
-    "schema/msp/stable",
-    "schema/msp/transcripts",
-    "scripts/check-msp-ts-typecheck.sh",
-    "package.json",
-    "package-lock.json"
-  ],
-  "gates": {
-    "profile": "projects/tbh/scripts/check-source-audience.mjs",
-    "policy": "projects/tbh/docs/sdk-source-publication-profile.md",
-    "must_not_ship": 0,
-    "judgment_reported": 192,
-    "benign_for_source": 3033
-  },
-  "standalone_build": {
-    "command": "npm install && npm run build && npm test",
-    "build": "pass",
-    "tests": "343 pass / 4 fail / 2 skipped",
-    "known_failures": "the four real-binary arms in test/muse-serve-child.test.ts and test/spawn-handshake.test.ts spawn the Rust 'tbh serve' host, which is not part of this closure"
-  },
-  "npm_publication": "pending",
-  "license": {
-    "spdx": "MIT",
-    "status": "provisional",
-    "file": "LICENSE",
-    "note": [
-      "Owner ruling, session 2026-08-31: 'The license for the sdk will provisionally",
-      "be the MIT license.' Provisional means MIT applies to the source as published",
-      "here, but the licensing review has not formally concluded.",
-      "The package.json 'license' field is NOT set from this repository: package.json",
-      "and clients/*/package.json are closure_paths entries, so the field is set",
-      "upstream in mslsrc/tbh and arrives by mirror."
-    ]
-  },
-  "repo_meta": {
-    "hand_authored": [
-      ".github/",
-      ".nojekyll",
-      "LICENSE",
-      "README.md",
-      "publish-anchor.json"
-    ],
-    "rationale": [
-      "These are repository-meta files that have no upstream counterpart: they",
-      "describe or govern THIS repository rather than the mirrored artifact, so",
-      "there is no upstream source to mirror them from. They are the sanctioned",
-      "hand-authored exception to the mirror doctrine, not drift.",
-      "A publisher that force-pushes or otherwise replaces the tree wholesale will",
-      "delete them silently and still report success. That failure mode is real and",
-      "has been observed on the gh-pages branch of this repository (mslsrc/tbh",
-      "issue 25904, where an automated publish would have dropped the hand-pushed",
-      "schema/msp pack). Preserve these paths, or publish them from a producer that",
-      "owns them."
-    ]
-  }
+  "rationale": [
+   "These are repository-meta files that have no upstream counterpart: they",
+   "describe or govern THIS repository rather than the mirrored artifact, so",
+   "there is no upstream source to mirror them from. They are the sanctioned",
+   "hand-authored exception to the mirror doctrine, not drift.",
+   "A publisher that force-pushes or otherwise replaces the tree wholesale will",
+   "delete them silently and still report success. That failure mode is real and",
+   "has been observed on the gh-pages branch of this repository (mslsrc/tbh",
+   "issue 25904, where an automated publish would have dropped the hand-pushed",
+   "schema/msp pack). Preserve these paths, or publish them from a producer that",
+   "owns them."
+  ]
+ }
 }

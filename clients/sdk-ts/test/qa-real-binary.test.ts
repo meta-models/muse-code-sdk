@@ -1,7 +1,7 @@
 /**
  * QA-TEST-008/009 — the harness end to end against the REAL `tbh serve`.
  *
- * QA-TEST-008 proves the harness runs: real `@muse/sdk`, real binary, real
+ * QA-TEST-008 proves the harness runs: real `@muse-code/sdk`, real binary, real
  * MSP stdio, real tap, real oracle.
  *
  * QA-TEST-009 is the one that makes 008 worth anything. It takes the SAME
@@ -22,9 +22,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  D19764_EXPECTED,
   ORACLE_CHECKS,
   RecordedHost,
   SDK_QA_SCENARIOS,
+  UNKNOWN,
+  blockedScenario,
   buildReport,
   renderReportMarkdown,
   resolveMuseBinary,
@@ -152,7 +155,9 @@ test(
     // --- the report the procedure consumes ---------------------------------
     const report = buildReport({
       binaryPath: BINARY.path,
-      binaryVersion: BINARY.source,
+      // No handshake to read here: this arm builds a report from hand-made
+      // scenario results. `buildReport` owns the absent-fact default.
+      resolvedVia: BINARY.source,
       scenarios: [
         { id: "S1", title: "handshake + read plane", verdict: "pass", findings: [] },
         { id: "M1", title: "mutated fingerprint", verdict: "finding", findings: fingerprintFindings },
@@ -177,7 +182,7 @@ test("QA-TEST-010: the shipped scenario set runs end to end on the real binary",
     t.skip(`REAL-BINARY ARM DID NOT RUN — this is NOT a pass. ${BINARY.reason}`);
     return;
   }
-  const report = await runSdkQa({ museBin: BINARY.path, museVersion: BINARY.source });
+  const report = await runSdkQa({ museBin: BINARY.path, resolvedVia: BINARY.source });
   assert.equal(report.scenarios.length, SDK_QA_SCENARIOS.length);
   const blocked = report.scenarios.filter((scenario) => scenario.verdict === "blocked");
   assert.deepEqual(
@@ -191,8 +196,90 @@ test("QA-TEST-010: the shipped scenario set runs end to end on the real binary",
       assert.ok(found.wireSaid.trim().length > 0, `${scenario.id}/${found.checkId} states the wire side`);
     }
   }
+  // The archived report must name the binary it tested. If the SDK's parsed
+  // `initializeResult` ever drifts from the shape `hostIdentityOf` expects it
+  // silently falls back to the absent-fact default, and every other assert
+  // here stays green while the report claims it captured no handshake
+  // (#23111 arm 3).
+  assert.notEqual(
+    report.binaryVersion,
+    UNKNOWN,
+    "every real-host scenario captures an initialize handshake, so the report carries the host's own identity",
+  );
+  // The shipped D19764 literal still carries the read-aware observable. The
+  // extracted helpers are unit-tested on synthesized runs; this is the one
+  // assert that fails if the SCENARIO is reverted to the pre-#23111 version.
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "D19764")?.expected,
+    D19764_EXPECTED,
+    "the shipped D19764 scenario must keep the read-aware contract, not just export it",
+  );
   assert.match(renderReportMarkdown(report), /## Track 1 — spec violations/);
 });
+
+/**
+ * QA-TEST-015d — the POSITIVE CONTROL for the expect-block refusal (#23111).
+ *
+ * Every other #23111 arm is a unit test over a synthesized run, so the shipped
+ * `blockedScenario` factory could be reverted to `runs.every(blockerStillBites)`
+ * with the whole suite still green. This drives a REAL host with a
+ * deliberately malformed subject — the exact pre-fix B04 traffic — and pins
+ * that the harness reports `blocked`, never `expected-block`.
+ */
+test(
+  "QA-TEST-015d: a real host rejecting the subject yields `blocked`, never `expected-block`",
+  { timeout: 120_000 },
+  async (t) => {
+    if (!BINARY.available) {
+      t.skip(`REAL-BINARY ARM DID NOT RUN — this is NOT a pass. ${BINARY.reason}`);
+      return;
+    }
+    const malformed = blockedScenario({
+      id: "B04-control",
+      title: "a subject the host rejects at param validation",
+      vein: "turn lifecycle over stdio",
+      async subject(host, sessionId) {
+        // `expectedTurnId` is host-required; omitting it is the exact shape
+        // that earned an unearned `expected-block` before #23111.
+        await host.command("steer", "turn/steer", {
+          sessionId,
+          input: [{ type: "text", text: "actually, say pang" }],
+        });
+      },
+      willAssert: "never — this scenario exists only as the refusal's control",
+    });
+    const report = await runSdkQa({
+      museBin: BINARY.path,
+      resolvedVia: BINARY.source,
+      scenarios: [malformed],
+    });
+    const result = report.scenarios[0];
+    assert.equal(
+      result?.verdict,
+      "blocked",
+      `a run whose subject the host rejected proves nothing about #19535 (got ${result?.verdict})`,
+    );
+    assert.match(result?.blockedBecause ?? "", /B04-control was rejected before reaching #19535/);
+    assert.match(result?.blockedBecause ?? "", /steer/);
+    // The refusal came back as a carried VALUE: the retired throw's catch
+    // path never sets `observed`, so this is the assert that path cannot
+    // satisfy. The findings-survive-refusal pin itself is the host-free
+    // QA-TEST-015b evidence arm, whose fixture guarantees a deviation; the
+    // routing-count mirror below binds only when a real refused capture
+    // carries one (#23324 review).
+    assert.ok(
+      result?.observed !== undefined,
+      "the refusal came back as a value, not an unwound throw",
+    );
+    assert.equal(
+      report.filing.bug.length + report.filing.specGap.length,
+      result?.findings.length,
+      "buildReport routes a blocked scenario's findings like any other's",
+    );
+    assert.equal(report.verdicts.blocked, 1);
+    assert.equal(report.verdicts["expected-block"], 0);
+  },
+);
 
 test("QA-TEST-009c: every oracle check declares a constraint and a filing track", () => {
   assert.ok(ORACLE_CHECKS.length > 0);

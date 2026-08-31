@@ -55,7 +55,7 @@ import type {
   SessionResumeResult,
   SessionStartParams,
   SessionStartResult,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 /**
  * The params this module builds. `commandId` is excluded because

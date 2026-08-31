@@ -1,0 +1,26 @@
+{
+  "name": "@muse-code/sdk-quickstart",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The runnable @muse-code/sdk first-session journey (issue #21932). Doubles as the SS7.1 consumption doc: README.md walks the same program this package executes against a release-built `tbh serve`. `npm test` is the binary-free half; `npm run journey:test` is the acceptance run and needs MUSE_BIN.",
+  "type": "module",
+  "main": "dist/src/journey.js",
+  "types": "dist/src/journey.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check": "tsc --build",
+    "journey": "npm run build && node dist/src/main.js",
+    "journey:test": "npm run build && node --test dist/test/journey.test.js",
+    "test": "npm run build && node --test dist/test/segments.test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@muse-code/msp": "*",
+    "@muse-code/sdk": "*",
+    "@muse-code/sdk-cookbook": "*",
+    "@types/node": "26.2.0"
+  }
+}

@@ -36,7 +36,7 @@ import type {
   TurnRetryScheduledParams,
   TurnStartedParams,
   TurnUnqueuedParams,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 import { isLaunchFailure, MuseForeignSessionError, MuseHostDiedError, Session } from "../src/index.js";
 import type { PendingCommandView, SessionFoldView } from "../src/index.js";

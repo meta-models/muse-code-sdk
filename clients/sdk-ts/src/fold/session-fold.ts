@@ -4,7 +4,7 @@
  *
  * `ItemStore` and `SessionStateStore` are generic because they were written
  * before the session-view plane entered the generated declarations. This
- * module is where the generic parameters are BOUND: items are `@muse/msp`'s
+ * module is where the generic parameters are BOUND: items are `@muse-code/msp`'s
  * `Item`, state-family values are the generated `session/*` params objects,
  * and every event this fold accepts is typed as the params object the wire
  * actually carries. Nothing here restates a wire shape (INV-001).
@@ -54,7 +54,7 @@ import type {
   UserInputRequestParams,
   UserInputSettledParams,
   ViewGapParams,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 import { ItemStore } from "./item-store.js";
 import type {

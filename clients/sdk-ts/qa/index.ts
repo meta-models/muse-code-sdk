@@ -1,7 +1,7 @@
 /**
- * `auto-qa --area sdk` — the black-box QA harness for `@muse/sdk`.
+ * `auto-qa --area sdk` — the black-box QA harness for `@muse-code/sdk`.
  *
- * It plays an EXTERNAL INTEGRATOR: the real `@muse/sdk`, reached only through
+ * It plays an EXTERNAL INTEGRATOR: the real `@muse-code/sdk`, reached only through
  * its public barrel, driving the real `tbh serve` binary over MSP stdio, with
  * a wire tap recording both directions so every finding can be stated as
  * "public API said X, wire said Y".
@@ -32,12 +32,13 @@ export {
   RecordedHost,
   errorKindOfRun,
   hermeticEnv,
+  initializeResultOf,
   scenarioWorkDir,
   settlementOfRun,
 } from "./recorder.js";
 export type { OpenHostOptions } from "./recorder.js";
 
-export { buildReport, classifyFinding, renderReportMarkdown } from "./report.js";
+export { UNKNOWN, buildReport, classifyFinding, renderReportMarkdown } from "./report.js";
 export type {
   DefectClass,
   ExpectedBlock,
@@ -50,7 +51,24 @@ export type {
 export { runSdkQa } from "./run.js";
 export type { RunOptions } from "./run.js";
 
-export { blockerStillBites } from "./scenarios/turn-blocked.js";
+export {
+  blockedRunEvidence,
+  blockedScenario,
+  blockedVerdictOf,
+  blockerStillBites,
+  foldBlockedEvidence,
+  subjectStepsOf,
+} from "./scenarios/turn-blocked.js";
+export type {
+  BlockedRunEvidence,
+  BlockedShape,
+  BlockedVerdict,
+} from "./scenarios/turn-blocked.js";
+export {
+  D19764_COMMAND_TEXT,
+  D19764_EXPECTED,
+  observeD19764,
+} from "./scenarios/defect-classes.js";
 export {
   CONFORMANCE_SCENARIOS,
   DEFECT_CLASS_SCENARIOS,

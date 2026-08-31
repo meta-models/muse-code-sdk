@@ -9,7 +9,8 @@
 import { attributeByReplay } from "./attribution.js";
 import type { Attribution } from "./attribution.js";
 import { runOracle } from "./oracle.js";
-import type { OracleFinding } from "./oracle.js";
+import type { ObservedRun, OracleFinding } from "./oracle.js";
+import { initializeResultOf } from "./recorder.js";
 import { buildReport } from "./report.js";
 import type { QaReport, ScenarioResult, ScenarioVerdict } from "./report.js";
 import type { QaScenario } from "./scenario-kit.js";
@@ -17,23 +18,57 @@ import { SDK_QA_SCENARIOS } from "./scenarios.js";
 
 export interface RunOptions {
   readonly museBin: string;
-  readonly museVersion?: string;
+  /** HOW the binary was picked (e.g. `MUSE_QA_SDK_BIN`) — a source, not a version. */
+  readonly resolvedVia?: string;
   readonly scenarios?: readonly QaScenario[];
+}
+
+/**
+ * The host's own identity, from the `initialize` handshake the run captured.
+ * The build id is already on the wire (`userAgent: "muse-build/0.3.0 (…;
+ * build cc9ad71fd28)"`), so an archived report can say WHICH binary it tested
+ * instead of which env var was set (#23111 arm 3).
+ */
+function hostIdentityOf(run: ObservedRun): string | undefined {
+  const result = initializeResultOf(run);
+  const serverInfo = result?.["serverInfo"] as { name?: unknown; version?: unknown } | undefined;
+  if (typeof serverInfo?.name !== "string" || typeof serverInfo.version !== "string") {
+    return undefined;
+  }
+  const userAgent = result?.["userAgent"];
+  const build =
+    typeof userAgent === "string" ? /\bbuild ([0-9A-Za-z.-]+)/.exec(userAgent)?.[1] : undefined;
+  return build === undefined
+    ? `${serverInfo.name} ${serverInfo.version}`
+    : `${serverInfo.name} ${serverInfo.version} (build ${build})`;
 }
 
 export async function runSdkQa(options: RunOptions): Promise<QaReport> {
   const results: ScenarioResult[] = [];
+  let hostIdentity: string | undefined;
   for (const scenario of options.scenarios ?? SDK_QA_SCENARIOS) {
-    results.push(await runOne(scenario, options.museBin));
+    const { result, runs } = await runOne(scenario, options.museBin);
+    results.push(result);
+    hostIdentity ??= runs.map(hostIdentityOf).find((identity) => identity !== undefined);
   }
+  // Absence is modelled ONCE, in `report.ts`: a fallback minted here would
+  // let the renderer's "from the initialize handshake" line drift away from
+  // the value it interprets (#23111 review).
   return buildReport({
     binaryPath: options.museBin,
-    binaryVersion: options.museVersion ?? "unknown",
+    binaryVersion: hostIdentity,
+    resolvedVia: options.resolvedVia,
     scenarios: results,
   });
 }
 
-async function runOne(scenario: QaScenario, museBin: string): Promise<ScenarioResult> {
+interface RunOneOutcome {
+  readonly result: ScenarioResult;
+  /** The scenario's captured runs, so the caller can read the handshake. */
+  readonly runs: readonly ObservedRun[];
+}
+
+async function runOne(scenario: QaScenario, museBin: string): Promise<RunOneOutcome> {
   const base = {
     id: scenario.id,
     title: `${scenario.title} (${scenario.vein})`,
@@ -48,10 +83,13 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<ScenarioRe
     // A scenario that could not complete is BLOCKED, never a pass: an
     // exception here means the harness learned nothing about the host.
     return {
-      ...base,
-      verdict: "blocked",
-      findings: [],
-      blockedBecause: `${(error as Error).name}: ${(error as Error).message}`,
+      result: {
+        ...base,
+        verdict: "blocked",
+        findings: [],
+        blockedBecause: `${(error as Error).name}: ${(error as Error).message}`,
+      },
+      runs: [],
     };
   }
 
@@ -81,13 +119,38 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<ScenarioRe
     // attributes too — a `filing.specGap` entry with no component would be the
     // one place the harness reverts to judgement.
     const attribution = findings.length > 0 ? await attribute() : undefined;
+    const blockedVerdict = outcome.blockedVerdict;
+    // Value-presence, not key-presence: `{ bites: true, refused: undefined }`
+    // still compiles as a BlockedVerdict, and an `in` check would misreport
+    // that biting outcome as `blocked` (#23324 review).
+    if (blockedVerdict?.refused !== undefined) {
+      // The drive reached the host but never reached the BLOCKER, so no
+      // expect-block verdict is earned. The findings above still travel: the
+      // capture is real traffic, and dropping its deviations was the cost of
+      // the earlier throw (#23111 review).
+      return {
+        result: {
+          ...base,
+          verdict: "blocked",
+          findings,
+          observed: outcome.observed,
+          expected: outcome.expected,
+          blockedBecause: blockedVerdict.refused,
+          ...(attribution === undefined ? {} : { attribution }),
+        },
+        runs: outcome.runs,
+      };
+    }
     return {
-      ...base,
-      verdict: outcome.blockerStillBites === true ? "expected-block" : "block-lifted",
-      findings,
-      observed: outcome.observed,
-      expected: outcome.expected,
-      ...(attribution === undefined ? {} : { attribution }),
+      result: {
+        ...base,
+        verdict: blockedVerdict?.bites === true ? "expected-block" : "block-lifted",
+        findings,
+        observed: outcome.observed,
+        expected: outcome.expected,
+        ...(attribution === undefined ? {} : { attribution }),
+      },
+      runs: outcome.runs,
     };
   }
 
@@ -100,11 +163,14 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<ScenarioRe
   const attribution = verdict === "pass" ? undefined : await attribute();
 
   return {
-    ...base,
-    verdict,
-    findings,
-    observed: outcome.observed,
-    expected: outcome.expected,
-    ...(attribution === undefined ? {} : { attribution }),
+    result: {
+      ...base,
+      verdict,
+      findings,
+      observed: outcome.observed,
+      expected: outcome.expected,
+      ...(attribution === undefined ? {} : { attribution }),
+    },
+    runs: outcome.runs,
   };
 }

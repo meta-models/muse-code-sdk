@@ -42,7 +42,7 @@ import {
   settleMicrotasks,
   waitForWrites,
 } from "./helpers/fake-duplex.js";
-import type { Item, TurnStartResult } from "@muse/msp";
+import type { Item, TurnStartResult } from "@muse-code/msp";
 
 const ARM_TIMEOUT = 10_000;
 
@@ -110,7 +110,7 @@ function nothingAdmitted(): Record<string, unknown> {
  * command's `turn/start` params in the submitter's replay memory forever — the
  * unbounded submit-then-abandon leak the `Session` wrappers exist to close.
  * Nothing else in the suite can see it: the pending set is already correct
- * either way, so deleting both `forgetRetired` calls left the whole `@muse/sdk`
+ * either way, so deleting both `forgetRetired` calls left the whole `@muse-code/sdk`
  * suite green.
  *
  * So make the memory speak. Re-seed the SAME `commandId` — an entry the

@@ -36,7 +36,7 @@ import type {
   ApprovalRequestParams,
   ApprovalUpdatedParams,
   SourceRange,
-} from "@muse/msp";
+} from "@muse-code/msp";
 
 const ARM_TIMEOUT = 10_000;
 const SESSION = "s-1";
