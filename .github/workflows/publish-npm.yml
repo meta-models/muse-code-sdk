@@ -1,0 +1,98 @@
+# Publish `@muse-code/sdk` to npm.
+#
+# This workflow is a THIN CALLER. It holds no publishing logic: every gate
+# (tree anchor, manifest identity, build, already-published check, tarball audit
+# against the files whitelist) lives in `scripts/publish-sdk-npm.sh`, which is
+# authored in the producing repository and mirrored here as part of the source
+# closure. Keeping one implementation means a manual publish from a maintainer's
+# Mac and a publish from CI run the identical gates.
+#
+# Prepared, not armed:
+#
+#  1. `workflow_dispatch` is the only trigger. No push, no tag, no schedule.
+#  2. `dry_run` defaults to TRUE, so a run started with the defaults invokes the
+#     script in its pack-only mode and publishes nothing.
+#  3. There is no credential here. Authentication is npm trusted publishing
+#     (OIDC): `id-token: write` below is the entire credential story, and
+#     `NODE_AUTH_TOKEN` / `NPM_TOKEN` / `secrets.*` appear nowhere in this file.
+#     (The script's other auth path, a Keychain-sourced granular automation
+#     token, is for manual runs only and is unreachable from here.)
+#
+# Owner one-timers, both tracked on mslsrc/tbh#25304 — until these exist the
+# publish arm cannot succeed, by design:
+#
+#  - Register the `@muse-code` scope on npmjs.com, and add this repository +
+#    `publish-npm.yml` as the TRUSTED PUBLISHER for `@muse-code/sdk`.
+#  - Flip this repository public. `--provenance` links the tarball to a source
+#    commit anyone can verify, so npm refuses to attest from a private repo.
+#    The script does not drop the flag to work around that; it fails loudly.
+
+name: publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every gate and pack only. Set to false to publish."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # A wall, not a budget: the dependency set is typescript plus types-only
+    # packages and there is no network beyond the install, so a long run has
+    # hung and is not coming back.
+    timeout-minutes: 15
+    # An empty environment auto-creates on first run with no protection. It
+    # exists so the owner has a place to attach a required reviewer to the
+    # publish arm without editing this file.
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm >= 11.5.1. The npm bundled with a given
+      # Node minor is not guaranteed to be new enough, and the failure mode if
+      # it is not is a confusing auth error rather than a version error.
+      - name: Use an npm that supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install from the committed lockfile
+        run: npm ci
+
+      # The script is a closure path mirrored from the producing repository. If
+      # a republish ever drops it, say so in one line instead of failing later
+      # with a confusing "command not found".
+      - name: Check the publish script was mirrored
+        run: |
+          if [ ! -x scripts/publish-sdk-npm.sh ]; then
+            echo "::error::scripts/publish-sdk-npm.sh is missing or not executable."
+            echo "::error::It is authored in mslsrc/tbh at projects/tbh/scripts/publish-sdk-npm.sh"
+            echo "::error::and must be listed in that repo's scripts/sdk-source-closure.json"
+            echo "::error::so the mirror republish carries it. See mslsrc/tbh#25304."
+            exit 1
+          fi
+
+      - name: Gate and pack (publishes nothing)
+        if: ${{ inputs.dry_run }}
+        run: scripts/publish-sdk-npm.sh --pack-only
+
+      # No `env:` block. No NODE_AUTH_TOKEN. The OIDC exchange is the auth.
+      - name: Gate, pack and publish
+        if: ${{ !inputs.dry_run }}
+        run: scripts/publish-sdk-npm.sh --publish

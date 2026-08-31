@@ -1,0 +1,50 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "provider-failure-turn",
+  "provenance": "hand-authored",
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [],
+  "seeds": {
+    "idSeed": 137013,
+    "clockStartMs": 1754592400000
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake, copied from the hand-authored capability-free cursor-retained baseline"
+    },
+    {
+      "lines": "4",
+      "cite": "tdd SS4.7.1 view/subscribe request, attaching after the healthy first turn's terminal (conformance-driver client line; spec 210 T066)"
+    },
+    {
+      "lines": "5",
+      "cite": "tdd SS4.7.1 subscribe ack: the real ViewServer's head cursor, driver-framed (spec 210 T066)"
+    },
+    {
+      "lines": "6-7",
+      "cite": "tdd SS3.2 the failing prompt's turn/start request and its admission ack: the real spec 207 handler's bytes on the production serve assembly, captured verbatim from turn-start-legs.ndjson by crates/session-server/tests/provider_failure_wire.rs, which re-drives the real assembly on every run (spec 210 T066, #22327; #211 journey 8 'the prompt request resolves as a single error card')"
+    },
+    {
+      "lines": "8-13",
+      "cite": "tdd SS4.5.1 turn/started, SS4.5.2 userMessage, SS4.5.5 toolCall lifecycle (started, output delta, completed), and the SS4.5.1 failed terminal with its {kind, message, retryable} error object: payloads and ordering from real ViewServer egress over the real #14653 fold of real runtime-session-log records; NDJSON framing and the fixed emittedAtMs are driver-assembled (spec 210 T066; #211 journey 8)"
+    },
+    {
+      "lines": "14-15",
+      "cite": "tdd SS3.2 the recovery prompt's turn/start request and its admission ack, same real spec 207 producer and capture as lines 6-7 (spec 210 T066, #22327; #211 journey 8 'the next prompt works')"
+    },
+    {
+      "lines": "16-19",
+      "cite": "tdd SS4.5.1/SS4.5.2/SS4.5.3 the recovery turn — journey 8's 'the next prompt works' half — from the same real fold and ViewServer egress (spec 210 T066; #211 journey 8)"
+    }
+  ]
+}

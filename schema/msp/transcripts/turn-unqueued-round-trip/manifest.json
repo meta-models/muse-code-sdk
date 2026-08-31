@@ -1,0 +1,52 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "turn-unqueued-round-trip",
+  "provenance": "hand-authored",
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId",
+    "params.turnId",
+    "params.itemId",
+    "result.session.sessionId"
+  ],
+  "seeds": {
+    "idSeed": 41,
+    "clockStartMs": 1754591400000
+  },
+  "source": [
+    {
+      "lines": "1-6",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake and SS2.5.1 session/start wire examples"
+    },
+    {
+      "lines": "7-10",
+      "cite": "tdd SS3.1.4, SS3.2, SS4.5.1-SS4.5.2 fresh turn and commandId-bearing userMessage"
+    },
+    {
+      "lines": "11-12",
+      "cite": "tdd SS3.2 queued turn/start ack with pre-minted turnId and disposition queued"
+    },
+    {
+      "lines": "13-14",
+      "cite": "tdd SS3.6 turn/unqueue addressed by the turnId the queueing ack minted (SS3.1.4: for a plain queued submit that id is the queueing commandId, #21243) and its accepted ack"
+    },
+    {
+      "lines": "15",
+      "cite": "tdd SS3.6 and SS4.5.1 turn/unqueued: the reclaim durably won, sourceRange cites the SESSION stream's reclaim record because a reclaimed turn never had a run stream, and commandId names the turn/start that queued it"
+    },
+    {
+      "lines": "16-17",
+      "cite": "tdd SS4.5.1/SS4.5.3 the ACTIVE turn is untouched by the reclaim and reaches its own completed terminal"
+    }
+  ]
+}

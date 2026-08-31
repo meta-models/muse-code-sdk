@@ -1,0 +1,47 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "gap-recovery-splice-fill",
+  "provenance": "hand-authored",
+  "regenerationJustification": {
+    "cite": "owner ruling on mslsrc/tbh#22785 comment 5417920913 (2026-08-25, Constitution IV directive record): the `view/page` result's `events` elements are nested `{method, params}` pairs; tdd SS4.7.3 and SS7.4",
+    "rationale": "The E1 contradiction resolved NESTED: SS7.4's spelling was correct and SS4.7.3's flattened text was the defect. `ServedEvent::to_wire_value` now emits the view notification minus `jsonrpc`/`emittedAtMs`, with `viewCursor` staying inside `params` where every view notification already carries it - nothing spliced, nothing re-inserted. The served event set, its order, and every field value are unchanged; only the element nesting moved.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+  },
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754500000123
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake, copied from the hand-authored capability-free cursor-retained baseline"
+    },
+    {
+      "lines": "4",
+      "cite": "tdd SS4.7.1 view/subscribe request (conformance-driver client line; spec 208 TEST-007)"
+    },
+    {
+      "lines": "5-13",
+      "cite": "tdd SS4.7.1/SS4.8 subscribe ack, throttled deliveries, and the coalesced small-hole view/gap: payloads and ordering from real ViewServer egress; NDJSON framing and the fixed emittedAtMs are driver-assembled (spec 208 TEST-007; T030/T034 rejection path)"
+    },
+    {
+      "lines": "14",
+      "cite": "tdd SS4.7.3 view/page fill request (conformance-driver client line; spec 208 TEST-007) Line 14 also carries an unknown request member (futureOptionalField) with the server response unchanged — the view-family ignore-unknown pin (spec 206 INV-015, D-042/#20009)."
+    },
+    {
+      "lines": "15",
+      "cite": "tdd SS4.7.3 splice-fill page result: the real PageResult wire serialization, driver-framed (spec 208 TEST-007)"
+    }
+  ]
+}

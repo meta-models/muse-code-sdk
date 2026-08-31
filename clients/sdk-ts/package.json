@@ -1,0 +1,23 @@
+{
+  "name": "@muse/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The MSP TypeScript facade (tdd SS7.1). Zero runtime dependencies: pure TypeScript over @muse/msp plus the Node standard library (spec 14990 INV-009).",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check": "tsc --build",
+    "test": "npm run build && node --test --test-timeout=300000 \"dist/test/**/*.test.js\"",
+    "qa:sdk": "npm run build && node dist/qa/bin.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@muse/msp": "*",
+    "@types/node": "26.2.0"
+  }
+}

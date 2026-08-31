@@ -1,0 +1,25 @@
+name: Question
+description: Ask how something works, or how to do something with the SDK or the protocol.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome. If the [Muse Developer Docs](https://meta-models.github.io/muse-code-sdk)
+        did not answer it, that is useful signal too — say so, and we will treat the gap as a docs bug.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like to know?
+      description: What you are trying to build, and where you got stuck.
+    validations:
+      required: true
+
+  - type: textarea
+    id: looked-at
+    attributes:
+      label: What have you already looked at?
+      description: Docs pages, types or tests you have read. Helps us point you somewhere new rather than somewhere you have been.
+    validations:
+      required: false

@@ -1,0 +1,57 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "pending-command-ack-reject",
+  "provenance": "hand-authored",
+  "regenerationJustification": {
+    "cite": "owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
+    "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+  },
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId",
+    "params.turnId",
+    "params.itemId",
+    "result.session.sessionId"
+  ],
+  "seeds": {
+    "idSeed": 33,
+    "clockStartMs": 1754591400000
+  },
+  "source": [
+    {
+      "lines": "1-6",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake and SS2.5.1 session/start wire examples"
+    },
+    {
+      "lines": "7-10",
+      "cite": "tdd SS3.1.4, SS3.2, SS4.5.1-SS4.5.2 fresh turn and commandId-bearing userMessage"
+    },
+    {
+      "lines": "11-12",
+      "cite": "tdd SS3.2 queued turn/start ack with pre-minted turnId and disposition queued"
+    },
+    {
+      "lines": "13-14",
+      "cite": "tdd SS4.13 Rejected queue-movement trigger after a running-turn item folds"
+    },
+    {
+      "lines": "15",
+      "cite": "tdd SS3.1.4 and SS4.5.1 deferred_start_failed pre-minted turn terminal: failed launchError without turn/started"
+    },
+    {
+      "lines": "16-17",
+      "cite": "tdd SS3.1.1 and SS4.13 Rejected: same-commandId replay returns commandRejected deferred_start_failed"
+    }
+  ]
+}

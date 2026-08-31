@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in the SDK, the protocol declarations or the docs is wrong or does not work.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. This repository is a mirror — the code is developed elsewhere
+        and copied here — so please report the problem rather than opening a pull request.
+        We read every issue and take the fix upstream.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - "@muse/sdk — the TypeScript SDK (clients/sdk-ts)"
+        - "The MSP protocol declarations or schema (schema/msp)"
+        - "The documentation site"
+        - "Something else / not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+      description: If you have one, a short snippet that reproduces it helps more than anything else.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: >
+        Your Node.js version, your OS, and the commit of this repository you built from
+        (`git rev-parse HEAD`). If the problem is in the docs, the page URL is enough.
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        **One known non-bug:** in a standalone checkout, four test arms in
+        `clients/sdk-ts/test/muse-serve-child.test.ts` and
+        `clients/sdk-ts/test/spawn-handshake.test.ts` fail with `could not find Cargo.toml`.
+        They spawn the Rust `tbh serve` host, which is not part of this repository, and
+        they are expected to fail here. Any *other* failure is a genuine one — please report it.
