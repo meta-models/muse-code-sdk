@@ -1,5 +1,5 @@
 /**
- * One owned `tbh serve` host, plus the notification recorder the streaming
+ * One owned `muse serve` host, plus the notification recorder the streaming
  * assertions wait on.
  *
  * Everything here goes through the shipped `@muse-code/sdk` public surface —
@@ -10,7 +10,7 @@
  */
 
 import { spawnMspConnection } from "@muse-code/sdk";
-import type { ConnectionOptions, SpawnedMspConnection } from "@muse-code/sdk";
+import type { SpawnedMspConnection } from "@muse-code/sdk";
 
 /** A JSON-RPC notification the host pushed at us. */
 export interface RecordedNotification {
@@ -39,7 +39,7 @@ export interface HostOptions {
 /**
  * The generic spawn shape behind {@link Host.start}. Cookbook recipes use it
  * to launch `muse-conformance serve-fixture` (the canned stdio host) with the
- * same recorder and bounded waits the quickstart journey uses for `tbh serve`.
+ * same recorder and bounded waits the quickstart journey uses for `muse serve`.
  */
 export interface HostSpawnSpec {
   /** The host executable. */
@@ -50,22 +50,6 @@ export interface HostSpawnSpec {
   readonly env: Record<string, string>;
   /** The clientInfo the MSP handshake announces. */
   readonly clientInfo: { readonly name: string; readonly version: string };
-  /**
-   * Forwarded verbatim to `spawnMspConnection`. Present for the one thing a
-   * fixture-driven recipe cannot do without: `serve-fixture` replays recorded
-   * server lines byte-exactly and never rewrites ids, so a transcript that
-   * recorded a client request id the SDK's default minter would not produce
-   * sends its response back under the RECORDED id, which the connection has
-   * nothing to correlate to. Such a recipe injects `connection.mintRequestId`
-   * to mint the recorded ids. Nothing here is guidance for a real client
-   * against a real host, where the SDK's own minting is correct.
-   *
-   * Narrowed to `mintRequestId` because that is exactly what FR-24225-6
-   * scopes the seam to: the full `ConnectionOptions` would also admit
-   * `mintCommandId`, letting a future recipe sidestep the explicit-commandId
-   * discipline the recipes teach (PR #25153 review).
-   */
-  readonly connection?: Pick<ConnectionOptions, "mintRequestId">;
 }
 
 /**
@@ -164,7 +148,6 @@ export class Host {
       args: [...spec.args],
       ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
       env: spec.env,
-      ...(spec.connection === undefined ? {} : { connection: spec.connection }),
       onStderr: (chunk) => stderr.push(chunk),
     });
 

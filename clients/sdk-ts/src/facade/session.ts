@@ -877,11 +877,10 @@ export class Session<I = unknown> {
       if (materialized !== undefined) retirements.push(materialized);
     }
     // `!= null`, not `!== undefined`: `userShell` items carry `turnId: null`
-    // on the wire (spec Edge Cases; tdd SS4.5.6 example) while the generated
-    // type says `turnId?: string`, so tsc cannot catch this one. A `!==
-    // undefined` guard let null through and minted a phantom turn keyed
-    // `null`, attributing the userShell item and its deltas to it.
-    const turnId = item.turnId ?? undefined;
+    // on the wire (spec Edge Cases; tdd SS4.5.6 example). A `!== undefined`
+    // guard let null through and minted a phantom turn keyed `null`,
+    // attributing the userShell item and its deltas to it (#23557).
+    const turnId = item.turnId;
     if (turnId != null) this.#handle(turnId).pushItem(item);
     const buffered = this.#unattributedDeltas.get(item.itemId);
     if (buffered === undefined) return;

@@ -1,7 +1,7 @@
 /**
  * Run every cookbook recipe and print the report.
  *
- *   node dist/src/main.js --bin <release-built-tbh> --conformance <muse-conformance>
+ *   node dist/src/main.js --bin <release-built-muse> --conformance <muse-conformance>
  *
  * (or set MUSE_BIN / MUSE_CONFORMANCE_BIN). Exit 0 means every recipe's
  * journey passed. Exit 1 means a recipe failed — including a recipe whose
@@ -36,7 +36,7 @@ function provided(flag: string, env: string): string | undefined {
 const museBin = provided("--bin", "MUSE_BIN");
 const conformanceBin = provided("--conformance", "MUSE_CONFORMANCE_BIN");
 
-// dist/src -> package root -> clients -> projects/tbh.
+// dist/src -> package root -> clients -> the repository root.
 const projectRoot = join(fileURLToPath(new URL("../..", import.meta.url)), "..", "..");
 
 const report = await runRecipes(selectRecipes(RECIPES, cliArgument("--only")), {

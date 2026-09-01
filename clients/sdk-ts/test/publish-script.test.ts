@@ -25,7 +25,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
+  mkdirSync,
+  readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
   cpSync,
   statSync,
@@ -220,19 +223,209 @@ test("the tarball audit fails when the files whitelist widens", () => {
 // BEHAVIOUR: renaming a variable, or moving auth to after `npm publish`, keeps
 // a grep green while breaking the real guarantee.
 
-test("--publish refuses a 0.x version: D-013 blocks the first publish", () => {
-  // The package is deliberately pinned inside 0.x, so without this interlock
-  // the first real publish would be exactly the one D-013 forbids.
+/**
+ * The 0.x README posture that D-053 makes a precondition of publishing. Written
+ * into the fixture rather than copied from the real README on purpose: these
+ * arms test the GATE, and reading the gate's input from the same tree the gate
+ * inspects would make them pass or fail on the README's editing history instead.
+ * The real README's wording is owned by #26157.
+ */
+const POSTURE_README =
+  "# `@muse-code/sdk`\n\n" +
+  "**This is a 0.x release and it is experimental.** There is no stability " +
+  "promise before 1.0: any release may change or remove API you are using.\n";
+
+test("a 0.x --publish is no longer blocked by a version floor (D-013 as amended by D-053)", () => {
+  // D-053 (2026-08-31) permits publishing at 0.x, and the interlock that
+  // refused every 0.x publish was deleted with it — its own comment bound the
+  // two together. What must NOT come back is a version floor: the run below is
+  // expected to die at the provenance interlock — which sits several gates
+  // further down, past build, registry state, and pack-and-audit — and never at
+  // the version.
   const pkg = fixtureWith(() => {});
-  const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg });
-  assert.notEqual(result.status, 0, "a 0.x --publish must not proceed");
-  assert.match(result.combined, /D-013/);
+  writeFileSync(join(pkg, "README.md"), POSTURE_README);
+  const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
+  assert.notEqual(result.status, 0, "outside Actions no publish can proceed at all");
+  assert.doesNotMatch(
+    result.combined,
+    /before 1\.0|version floor|D-013 forbids/i,
+    "a 0.x version must no longer be a reason to refuse; the only refusal left " +
+      `here is provenance:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /provenance/i,
+    `the run must get past the version check and reach the provenance ` +
+      `interlock further down:\n${result.combined}`,
+  );
+});
+
+/**
+ * Assert `--publish` at 0.x refuses this README **at the posture gate**.
+ *
+ * The refusal has to be pinned to the gate's own message, not to properties an
+ * ACCEPT run also has. Outside Actions every run dies at the provenance gate,
+ * so `status != 0` and "Nothing was published" are true either way — and the
+ * ACCEPT line itself says `ok: README states the 0.x ... (D-053)`, which
+ * supplies both /D-053/ and /README/. An assertion that all four survive is an
+ * assertion about nothing: with the predicate forced to accept, every arm below
+ * stayed green.
+ *
+ * So: match the refusal text, and require the acceptance line to be ABSENT.
+ */
+function assertPostureRefused(readme: string, why: string): void {
+  const pkg = fixtureWith(() => {});
+  writeFileSync(join(pkg, "README.md"), readme);
+  const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
+  assert.notEqual(result.status, 0, `${why}: the publish must not proceed`);
+  assert.match(
+    result.combined,
+    /publishing at 0\.x requires the README/,
+    `${why}: must die at the POSTURE gate, not merely somewhere downstream:\n${result.combined}`,
+  );
+  assert.doesNotMatch(
+    result.combined,
+    /ok: README states/,
+    `${why}: the gate reported the posture as satisfied`,
+  );
+  assert.match(result.combined, /D-053/, "the message must name the amendment it enforces");
   assert.match(result.combined, /Nothing was published/);
+}
+
+test("a 0.x --publish whose README omits the no-stability posture fails before the registry", () => {
+  // D-053 permits publishing at 0.x *because* the posture is stated where a
+  // registry reader will see it. Without that, publishing 0.x silently drops
+  // the principle the amendment kept — so the script refuses.
+  assertPostureRefused(
+    "# `@muse-code/sdk`\n\nA TypeScript SDK.\n",
+    "a README stating no posture at all",
+  );
+});
+
+// One arm per clause tdd SS7.1 makes normative, each holding the other two.
+//
+// Without these, the gate's clauses are not individually covered: a fixture
+// with none and a fixture with all of them leaves every single-clause mutant
+// alive, so a later edit could silently weaken the gate to one grep and every
+// arm would still pass.
+
+test("the posture gate refuses a README missing the experimental clause", () => {
+  assertPostureRefused(
+    "# `@muse-code/sdk`\n\nThere is no stability promise before 1.0: any " +
+      "release may change or remove API you are using.\n",
+    "no experimental clause",
+  );
+});
+
+test("the posture gate refuses a README missing the no-stability clause", () => {
+  assertPostureRefused(
+    "# `@muse-code/sdk`\n\nThis is a 0.x release and it is experimental. Any " +
+      "release may change or remove API you are using.\n",
+    "no no-stability clause",
+  );
+});
+
+test("the posture gate refuses a README missing the may-change clause", () => {
+  assertPostureRefused(
+    "# `@muse-code/sdk`\n\nThis is a 0.x release and it is experimental. " +
+      "There is no stability promise before 1.0.\n",
+    "no may-change clause",
+  );
+});
+
+test("the posture gate refuses a README asserting the OPPOSITE posture", () => {
+  // The markers are deliberately loose substring matches, which is what makes
+  // them survive a rewording — and exactly what a negation would exploit:
+  // "no longer experimental" contains the word "experimental". A gate a
+  // negation passes is not a gate.
+  assertPostureRefused(
+    "# `@muse-code/sdk`\n\nThis SDK is no longer experimental. There is no " +
+      "stability promise before 1.0 — but that may change, and nothing will " +
+      "change or remove API you are using.\n",
+    "an inverted posture",
+  );
+});
+
+test("the posture gate accepts the posture phrased as 'no stability promise applies'", () => {
+  // The counterexample that removed the second negation guard. This wording
+  // states the required posture and must publish; a guard keying on the
+  // substring "stability promise applies" killed it, which is the
+  // wording-sensitive outage loose markers exist to avoid.
+  //
+  // An ACCEPT arm needs the opposite proof from a REFUSE arm: outside Actions
+  // every run fails, so "it failed" says nothing. What distinguishes acceptance
+  // is WHERE it failed — at provenance, having first reported the posture ok.
+  const pkg = fixtureWith(() => {});
+  writeFileSync(
+    join(pkg, "README.md"),
+    "# `@muse-code/sdk`\n\nThis is an experimental 0.x release. No stability " +
+      "promise applies before 1.0: any release may change or remove API you " +
+      "are using.\n",
+  );
+  const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
+  assert.match(
+    result.combined,
+    /ok: README states the 0\.x/,
+    `this wording states the posture and must pass the gate:\n${result.combined}`,
+  );
+  assert.doesNotMatch(result.combined, /publishing at 0\.x requires the README/);
+  assert.match(
+    result.combined,
+    /provenance/i,
+    `and must then reach the provenance interlock further down:\n${result.combined}`,
+  );
+});
+
+test("the shipping README satisfies the posture gate today", () => {
+  // #26157's posture section is merged, so this is a green, stable arm rather
+  // than the merge-race hazard it would have been beforehand. It is the only
+  // check in CI that reads the REAL README: without it a PR rewording the
+  // posture (say "experimental" -> "early-stage") keeps every lane green and
+  // the break first surfaces as a refused publish run — an outage, not a red
+  // PR. Pack-only prints the same acceptance line as --publish, so no publish
+  // path is exercised here.
+  const result = run([]);
+  assert.match(
+    result.combined,
+    /ok: README states the 0\.x/,
+    `the shipping README must state the 0.x posture (tdd SS7.1):\n${result.combined}`,
+  );
+});
+
+test("the posture requirement applies to 0.x only, not to a 1.0 release", () => {
+  // The condition D-053 attaches is a 0.x condition. At 1.0 the promise is made
+  // rather than withheld, so requiring the withholding text there would be
+  // requiring the package to contradict itself.
+  const pkg = fixtureWith((m) => {
+    m.version = "1.0.0";
+  });
+  writeFileSync(join(pkg, "README.md"), "# `@muse-code/sdk`\n\nA TypeScript SDK.\n");
+  const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
+  assert.notEqual(result.status, 0, "outside Actions no publish can proceed at all");
+  assert.doesNotMatch(
+    result.combined,
+    /D-053/,
+    `the 0.x posture gate must not fire at 1.0:\n${result.combined}`,
+  );
+});
+
+test("pack-only never fails on the posture, whatever the README says", () => {
+  // The gate is a publish precondition, not a build one. Failing pack-only on it
+  // would couple this package's CI to the README edit that states the posture,
+  // and CI runs pack-only on every push.
+  const pkg = fixtureWith(() => {});
+  writeFileSync(join(pkg, "README.md"), "# `@muse-code/sdk`\n\nA TypeScript SDK.\n");
+  const result = run([], { SDK_PACKAGE_DIR: pkg });
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green without the posture text:\n${result.combined}`,
+  );
 });
 
 test("--publish in Actions without an OIDC token dies before the registry", () => {
   const pkg = fixtureWith((m) => {
-    m.version = "1.0.0"; // past the D-013 interlock, so auth is what is tested
+    m.version = "1.0.0"; // 1.0 carries no 0.x posture condition, so auth is what is tested
   });
   const result = run(["--publish"], {
     SDK_PACKAGE_DIR: pkg,
@@ -355,5 +548,179 @@ test("the script is idempotent: an already-published version is a clean no-op", 
   assert.ok(
     /npm view/.test(source),
     "the already-published check is `npm view`, run before any publish attempt",
+  );
+});
+
+// ---- the external-consumer arm -------------------------------------------
+//
+// Every arm above looks at the tarball from inside this repo, where
+// `@muse-code/msp` is a workspace devDependency and therefore always resolves.
+// A customer has no such package: it is private and not on the registry. So a
+// declaration that still names it is unresolvable the moment the tarball leaves
+// this workspace, and the only way to see that is to typecheck the packed
+// artifact from a directory that shares nothing with this repo.
+//
+// `skipLibCheck: false` is the whole point. The default `true` hides exactly
+// this class of defect — it was `true` in the consumer test that first shipped
+// 0.1.0, which is why eleven unresolvable imports reached npm.
+
+/**
+ * Pack a COPY of the package and unpack the tarball. Returns the package dir.
+ *
+ * Never the real package directory. `npm pack` fires the real `prepack`, which
+ * repoints every emitted declaration in the live `dist/` while the rest of the
+ * suite's `node --test` children are reading out of it.
+ *
+ * Today that is survivable rather than safe: `prepack` leaves the incremental
+ * build stamp alone (see `bundle-msp-types.mjs`), so its build is a no-op, only
+ * `.d.ts` files move, and nothing imported at runtime is touched. Make the
+ * stamp stale — by deleting it, as an earlier draft of this change did — and
+ * the same `prepack` becomes a full rebuild of every emitted `.js` underneath
+ * those children, which reads as a SyntaxError with nothing to blame.
+ *
+ * So this arm does not rely on that being true. It packs a copy, like the other
+ * arms, and the live tree is not in the blast radius either way.
+ *
+ * The copy keeps the real `clients/sdk-ts` layout because the bundling step
+ * resolves the generated declarations at `../../schema/msp/msp.d.ts`.
+ * `schema/msp` is COPIED — it is small, and the pack step reads one file out
+ * of it — while `node_modules` is symlinked, because copying it is not.
+ *
+ * That asymmetry is the point. The cleanup that removes these fixtures must
+ * not follow the symlink, and it does not: recursive `rmSync` lstats and
+ * unlinks a symlink rather than descending through it, verified before this
+ * was written. But defence in depth is cheap here — with `schema` copied, the
+ * worst a future cleanup regression could reach is a regenerable
+ * `node_modules`, never a committed file.
+ */
+function packAndExtract(): string {
+  const dir = mkdtempSync(join(tmpdir(), "sdk-consumer-"));
+  fixtureDirs.push(dir);
+  const root = join(dir, "workspace");
+  const pkg = join(root, "clients", "sdk-ts");
+  mkdirSync(join(root, "clients"), { recursive: true });
+  cpSync(realPackageDir, pkg, {
+    recursive: true,
+    filter: (src) => !src.includes("node_modules"),
+  });
+  symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
+  cpSync(join(projectRoot, "schema", "msp"), join(root, "schema", "msp"), { recursive: true });
+
+  const packDir = join(dir, "pack");
+  mkdirSync(packDir);
+  execFileSync("npm", ["pack", "--pack-destination", packDir], {
+    cwd: pkg,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"));
+  assert.ok(tarball, "npm pack produced no tarball");
+  execFileSync("tar", ["-xzf", join(packDir, tarball), "-C", dir], { stdio: "inherit" });
+  return join(dir, "package");
+}
+
+test("a consumer outside this workspace typechecks the tarball with skipLibCheck off", () => {
+  const packageDir = packAndExtract();
+  const consumer = dirname(packageDir);
+
+  // The consumer's own node_modules. `@types/node` is linked rather than
+  // vendored because the README now tells customers to install it themselves —
+  // this fixture is that instruction, executed.
+  const modules = join(consumer, "node_modules");
+  mkdirSync(join(modules, "@muse-code"), { recursive: true });
+  cpSync(packageDir, join(modules, "@muse-code", "sdk"), { recursive: true });
+  cpSync(join(projectRoot, "node_modules", "@types", "node"), join(modules, "@types", "node"), {
+    recursive: true,
+  });
+  // `@types/node` declares against `undici-types`, which npm installs alongside
+  // it. Omitting it would fail this arm on the fixture's own incompleteness
+  // rather than on anything the tarball did.
+  cpSync(join(projectRoot, "node_modules", "undici-types"), join(modules, "undici-types"), {
+    recursive: true,
+  });
+
+  writeFileSync(
+    join(consumer, "package.json"),
+    `${JSON.stringify({ name: "sdk-consumer-probe", private: true, type: "module" }, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(consumer, "tsconfig.json"),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: "es2023",
+          lib: ["es2023"],
+          types: ["node"],
+          module: "nodenext",
+          moduleResolution: "nodenext",
+          strict: true,
+          // Not a detail: with this on (the default) the whole defect is invisible.
+          skipLibCheck: false,
+          noEmit: true,
+        },
+        include: ["index.ts"],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // Importing the barrel pulls every shipped declaration into the program, so
+  // an unresolvable specifier anywhere under `dist/src` fails this arm.
+  writeFileSync(
+    join(consumer, "index.ts"),
+    [
+      'import { MuseClient, Session, readSessionDurability } from "@muse-code/sdk";',
+      "",
+      "export type Probe = [typeof MuseClient, typeof Session, typeof readSessionDurability];",
+      "",
+    ].join("\n"),
+  );
+
+  const tsc = join(projectRoot, "node_modules", "typescript", "bin", "tsc");
+  let status = 0;
+  let output = "";
+  try {
+    output = execFileSync(process.execPath, [tsc, "--noEmit", "-p", "tsconfig.json"], {
+      cwd: consumer,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const e = error as { status?: number; stdout?: string; stderr?: string };
+    status = e.status ?? -1;
+    output = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+  }
+
+  assert.ok(
+    !/TS2307/.test(output),
+    `no shipped declaration may import a module the customer cannot install:\n${output}`,
+  );
+  assert.equal(status, 0, `the packed tarball must typecheck in a strict consumer:\n${output}`);
+});
+
+test("no shipped declaration imports a package that is not on the registry", () => {
+  // The arm above is the behavioural proof. This one names the offender, so a
+  // regression reports which file came back rather than a wall of TS2307.
+  //
+  // The pattern matches the package as a MODULE, not as prose: several doc
+  // comments survive into the emitted declarations and say `@muse-code/msp`
+  // while explaining where the generated types come from, which stays true.
+  const asModule = /(from|import|require)\s*\(?\s*"@muse-code\/msp"/;
+  const packageDir = packAndExtract();
+  const offenders: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".d.ts") && asModule.test(readFileSync(full, "utf8")))
+        offenders.push(full.slice(packageDir.length + 1));
+    }
+  };
+  walk(join(packageDir, "dist"));
+  assert.deepEqual(
+    offenders,
+    [],
+    "`@muse-code/msp` is private and unpublished; its declarations must be bundled " +
+      "into this tarball, not imported from it",
   );
 });

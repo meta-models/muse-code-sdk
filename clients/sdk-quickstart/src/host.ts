@@ -3,7 +3,7 @@
  * cookbook kit (`clients/sdk-cookbook/src/kit/host.ts`, issue #24225) so the
  * quickstart journey and every cookbook recipe spawn and observe hosts the
  * same way. This module re-exports it unchanged: `Host.start` still launches
- * `tbh serve` with the same environment, budgets, and failure text.
+ * `muse serve` with the same environment, budgets, and failure text.
  */
 
 export {

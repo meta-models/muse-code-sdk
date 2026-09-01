@@ -1,6 +1,6 @@
 /**
  * The `@muse-code/sdk` first-session journey, end to end, against a release-built
- * `tbh serve`.
+ * `muse serve`.
  *
  * This is the acceptance artifact for issue #21932: it is cited as proof that
  * the SDK works, so it holds itself to two rules.
@@ -55,11 +55,11 @@ import type { JourneyReport, Segment } from "./segments.js";
  * Named at both spawn sites rather than defaulted in the kit, so a cookbook
  * recipe can never inherit the quickstart's identity by omission (T-24225-6).
  */
-const QUICKSTART_CLIENT_INFO = { name: "muse-sdk-quickstart", version: "0.0.0" };
+const QUICKSTART_CLIENT_INFO = { name: "muse_sdk_quickstart", version: "0.0.0" };
 
 /**
  * The artifact the approval prompt asks for. The provider-configured mode
- * routes its ONE scripted `shell` tool call on this name plus the tool's own,
+ * routes its ONE scripted `bash` tool call on this name plus the tool's own,
  * so the discriminator and the prompt can never drift apart.
  */
 const APPROVAL_ARTIFACT = "approved.txt";
@@ -631,7 +631,10 @@ export async function runConfiguredJourney(
   options: ConfiguredJourneyOptions,
 ): Promise<ConfiguredJourneyResult> {
   const provider = await startConfiguredProvider({
-    scriptedToolCallWhen: [APPROVAL_ARTIFACT, `"shell"`],
+    // `"bash"` because serve composes exec's managed shell tool family
+    // (FR-24146-1, PR #25012): the model-visible tool is `bash`, not the
+    // legacy raw `shell` this discriminator matched before (#26241).
+    scriptedToolCallWhen: [APPROVAL_ARTIFACT, `"bash"`],
     scriptedToolCallCommand: `printf yes > ${APPROVAL_ARTIFACT}`,
     replyText: REPLY_TEXT,
   });

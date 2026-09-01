@@ -13,7 +13,7 @@ import { formatReport } from "./kit/segments.js";
 
 /** The binaries a CI run provides once and every recipe shares. */
 export interface RecipeHosts {
-  /** Absolute path to the release-built `tbh` binary, when provided. */
+  /** Absolute path to the release-built `muse` binary, when provided. */
   readonly museBin?: string;
   /** Absolute path to the `muse-conformance` binary, when provided. */
   readonly conformanceBin?: string;

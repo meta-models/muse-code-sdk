@@ -22,14 +22,15 @@
  *
  * Fixture mechanics, so the code below reads honestly: serve-fixture matches
  * our frames structurally against the transcript's client lines and then
- * replays the recorded server lines byte-exactly. Our request ids unify, but
- * acks echo the RECORDED commandId — and `Connection.command` verifies that
- * echo — so each command below passes the transcript's commandId explicitly.
- * Values we learn from the wire (sessionId, approvalId, requirementId) are
- * used as received, exactly as a real client uses them.
+ * replays the recorded server lines byte-exactly — except that a reply to
+ * one of our requests comes back under the id WE sent (#25143), so the SDK's
+ * own request-id minting correlates replies here exactly as it does against
+ * a real host. Acks still echo the RECORDED commandId — and
+ * `Connection.command` verifies that echo — so each command below passes the
+ * transcript's commandId explicitly. Values we learn from the wire
+ * (sessionId, approvalId, requirementId) are used as received, exactly as a
+ * real client uses them.
  */
-
-import type { RequestId } from "@muse-code/msp";
 
 import { Host, arrayAt, equals, objectAt, requireHost, stringAt, within } from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
@@ -46,47 +47,6 @@ const PROMPT = "Update Cargo.toml to bump the version";
 const SESSION_START_COMMAND_ID = "0198f0ab-9999-7000-8000-0000000000c1";
 const TURN_START_COMMAND_ID = "018f6a1e-9b3c-7c21-a54a-2f30bd3c9f10";
 const APPROVAL_DECIDE_COMMAND_ID = "018f6a2a-3333-7abc-8def-00000000d001";
-
-/**
- * The client REQUEST ids both approval transcripts recorded, in order:
- * `initialize`, `session/start`, `turn/start`, `approval/decide`.
- *
- * serve-fixture unifies the id on a client request, so a client is free to
- * mint its own — but it replays recorded server lines byte-exactly and
- * "never rewrites ids" (`crates/conformance/src/serve_fixture.rs`). The ack
- * to `approval/decide` therefore comes back under the RECORDED id, `"b9"`,
- * where the SDK's default minter would have reached `4`; the connection would
- * have nothing to correlate that ack to and would wait on it until the host
- * exited. Minting the recorded ids is the only half of the pair a client
- * controls.
- *
- * This is fixture plumbing, and the docs page says so: against a real host
- * the SDK's own minting is correct and no recipe touches this seam. The other
- * cookbook transcripts recorded plain `1..n`, which is why only this recipe
- * needs it. Tracked as a harness gap on #25143.
- */
-export const RECORDED_REQUEST_IDS: readonly RequestId[] = [1, 2, 3, "b9"];
-
-/**
- * A minter that walks {@link RECORDED_REQUEST_IDS} once and then fails loud.
- * Exhaustion means the recipe grew a request the transcript never recorded —
- * silently falling back to a minted integer would turn that into the same
- * uncorrelatable-ack hang this exists to avoid, one segment later.
- */
-export function recordedRequestIds(): () => RequestId {
-  let next = 0;
-  return () => {
-    const id = RECORDED_REQUEST_IDS[next];
-    if (id === undefined) {
-      throw new Error(
-        `this recipe sent request ${String(next + 1)}, but the transcript recorded only ` +
-          `${String(RECORDED_REQUEST_IDS.length)} client requests`,
-      );
-    }
-    next += 1;
-    return id;
-  };
-}
 
 /** One arm of the recipe: the same round trip, a different answer. */
 interface Arm {
@@ -169,9 +129,6 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
             args: ["serve-fixture", "--transcript", `${context.transcriptRoot}/${arm.scenario}`],
             env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
             clientInfo: { name: "conformance", version: "0.0.0" },
-            // Fresh per arm: each arm is its own host, its own connection,
-            // and its own walk through the recorded ids.
-            connection: { mintRequestId: recordedRequestIds() },
           },
           HANDSHAKE_BUDGET_MS,
         );

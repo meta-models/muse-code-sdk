@@ -35,7 +35,6 @@ const transcriptRoot = resolve(projectRoot, "schema/msp/transcripts");
 function fixture(
   scenario: string,
   stderr: string[],
-  requestIds: Array<string | number> = [1],
   shutdownTimeoutMs?: number,
 ) {
   return spawnMspConnection({
@@ -54,13 +53,6 @@ function fixture(
       "--transcript",
       resolve(transcriptRoot, scenario),
     ],
-    connection: {
-      mintRequestId: () => {
-        const id = requestIds.shift();
-        assert.notEqual(id, undefined, `no deterministic request id left for ${scenario}`);
-        return id as string | number;
-      },
-    },
     onStderr: (chunk) => stderr.push(chunk),
   });
 }
@@ -131,7 +123,9 @@ test("TEST-009: handshake and typed errors over serve-fixture", { timeout: 120_0
   await expectFixtureExitZero(denied.exited, deniedStderr);
 
   const errorStderr: string[] = [];
-  const errorHandshake = fixture("usershell-without-grant", errorStderr, [1, "a1"]);
+  // The recording's second request id is "a1" while the SDK default is 2,
+  // so this leg exercises #25143 response-id write-back.
+  const errorHandshake = fixture("usershell-without-grant", errorStderr);
   const errorConnection = await initializeFixture(
     "usershell-without-grant",
     errorHandshake,
@@ -593,7 +587,7 @@ test("TEST-15943-1 control: the real serve-fixture still closes clean and unsign
   // A 10 s deadline the real host clears by orders of magnitude: if the
   // bounded wait ever failed to observe a graceful exit, this control would
   // report a signal instead of `{code: 0, signal: null}`.
-  const handshake = fixture("handshake-usershell-granted", stderr, [1], 10_000);
+  const handshake = fixture("handshake-usershell-granted", stderr, 10_000);
   const connection = await initializeFixture(
     "handshake-usershell-granted",
     handshake,

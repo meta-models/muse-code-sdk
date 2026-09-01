@@ -16,7 +16,7 @@
   "seeds": {
     "idSeed": 135272,
     "clockStartMs": 1754592500000,
-    "note": "Every id in this transcript comes from RuntimeSessionLogBuilder::with_seed(0x0002_1068) in crates/session-view-serve/tests/model_round_trip_corpus.rs, not from idSeed; idSeed is a replay-driver placeholder until the Stage B driver for this row derives its own --id-seed. The same seed fixes the session identity the command-leg capture targets (SESSION_ID in crates/session-server/tests/model_round_trip_wire.rs)."
+    "note": "Every id in this transcript comes from RuntimeSessionLogBuilder::with_seed(0x0002_1068) in crates/session-view-serve/tests/model_round_trip_corpus.rs, not from idSeed; idSeed is a replay-driver placeholder until the Stage B driver for this row derives its own --id-seed. The same seed fixes the session identity the command-leg capture targets (SESSION_ID in crates/session-server/tests/wire_contract_suites/model_round_trip_wire.rs)."
   },
   "source": [
     {
@@ -33,7 +33,7 @@
     },
     {
       "lines": "6-7",
-      "cite": "tdd SS3.8 model/list discovery request and its response: the real spec 207 T075 catalog projection's bytes on the production serve assembly, with the startup model as the active row. Captured verbatim from model-command-legs.ndjson by crates/session-server/tests/model_round_trip_wire.rs, which re-drives the real assembly on every run (spec 210 T068; #211 journey 9, TEST-010)"
+      "cite": "tdd SS3.8 model/list discovery request and its response: the real spec 207 T075 catalog projection's bytes on the production serve assembly, with the startup model as the active row. Captured verbatim from model-command-legs.ndjson by crates/session-server/tests/wire_contract_suites/model_round_trip_wire.rs, which re-drives the real assembly on every run (spec 210 T068; #211 journey 9, TEST-010)"
     },
     {
       "lines": "8-9",

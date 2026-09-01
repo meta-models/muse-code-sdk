@@ -71,7 +71,7 @@ touches your real sessions.
 
 ```ts
 const msp = await handshake.initialize({
-  clientInfo: { name: "my-app", version: "1.0.0" },
+  clientInfo: { name: "my_app", version: "1.0.0" },
 });
 ```
 
@@ -264,11 +264,15 @@ arrive quietly.
 
 ## One note about the SDK gate
 
-`tbh serve` is behind a default-off flag while the protocol is in Developer
-Preview, so the journey sets `MUSE_EXPERIMENTAL_SDK_ENABLED` on the child it
-spawns. **That is not advice for your application.** It is how this test
-harness launches a host today; #21033 owns retiring the gate. Build your client
-against `muse serve` as a supported command.
+Since the GA flip (#24410) `tbh serve` runs by default. The journey still sets
+`MUSE_EXPERIMENTAL_SDK_ENABLED` on the child it spawns, because the variable
+survives as the off-switch and pinning the run open keeps an operator's `off`
+in the environment from silently changing what the journey proves. **That is
+not advice for your application.** It is how this test harness launches a host
+today; the gate now stays as that off-switch by owner directive (spec 14404,
+"Amendment: GA"), so #21033 tracks its eventual retirement rather than a
+pending default flip. Build your client against `muse serve` as a supported
+command.
 
 ## Where things live
 

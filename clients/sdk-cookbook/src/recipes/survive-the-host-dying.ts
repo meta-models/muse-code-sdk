@@ -22,7 +22,7 @@
  *
  * Two arms, mirroring that fork:
  *
- *  - the DURABLE arm runs against the release-built `tbh serve`: it reads the
+ *  - the DURABLE arm runs against the release-built `muse serve`: it reads the
  *    durable profile off the real handshake, kills the host mid-session with
  *    SIGKILL, watches the SDK classify the exit as a crash, sees a live turn
  *    wait reject instead of hang, and then resumes the same session on a
@@ -129,7 +129,7 @@ async function spawnHost(
 ): Promise<{ client: MuseClient; stderr: () => string }> {
   let stderrText = "";
   const shared = {
-    clientInfo: { name: "muse-sdk-cookbook", version: "0.0.0" },
+    clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
     cwd: context.workspaceRoot,
     env: isolatedHostEnv(context.home),
     onStderr: (chunk: string) => {

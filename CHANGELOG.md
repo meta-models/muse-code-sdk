@@ -1,0 +1,393 @@
+# Changelog
+
+## Next release (pending release cut)
+<!-- changelog-cursor baseline=99df3dcf56e2 head=4abc46a5c7bd generated=2026-08-31 -->
+
+## 1.0.1
+
+### New
+
+- Resuming a session shows its progress — reading the session log, restoring the conversation — instead of a blank screen
+- Added a `SessionEnd` hook that runs when a session ends
+- Added a `Notification` hook that fires when the agent needs your approval, so a script can alert you
+- On macOS, sign-in credentials are stored in the system Keychain instead of a plaintext file
+- The agent is warned as it approaches its step budget, so it wraps up instead of stopping mid-task
+- Pressing Esc repeatedly in an empty session now tells you there is nothing to rewind
+- The agent no longer scaffolds a new project into your home directory or an already-populated folder
+- The TypeScript SDK is published: `npm install @muse-code/sdk`. Node 20 or newer, zero runtime dependencies
+- Developer documentation is public at https://meta-models.github.io/muse-code-sdk — quickstart, cookbook recipes, and a generated API reference
+- `muse serve` and `muse schema` are available by default; driving a session from your own program no longer needs an experimental switch
+- The session protocol has a published, stable v1 schema: connect to a session, drive turns, and fold the event stream against a documented contract
+- Two sessions on the same machine can message each other. The agent can list your other sessions and send one a message, and you approve the first message from each unverified sender before it lands. Name a session with `/name` so others can address it
+- Workflows, on Linux: the agent can write and run a deterministic script that fans a large job out across focused agents working in parallel, then folds their results into one answer. `/workflows` browses runs, `/tasks` shows each run's progress and its agents, and a setting controls whether a workflow may start on its own, only when you ask, or never
+- Slash commands complete inline as you type
+- Press Ctrl+O at an approval prompt to read the whole command before deciding
+- Output from a `!` shell command streams into the transcript while it runs instead of appearing only at the end
+- Programs driving a session can send a running task to the background, stop one, or stop them all
+- Programs driving a session can set, edit, clear and read a session goal, and are notified when it changes
+- Startup tells you when one project rules file is shadowing another
+- Dragging or pasting an image into the composer works under WSL
+
+### Improvements
+
+- Search treats your pattern as literal text by default, so punctuation-heavy queries match instead of erroring
+- Raised the per-turn step limit so long tasks are no longer cut short
+- Git commands against the repository you are working in now run under the managed sandbox instead of being blocked
+- Compaction clears eligible tool results from earlier runs in the session, not just the current one
+- Resuming a session restores the main conversation only; earlier side chats no longer reattach automatically
+- A typed draft is kept when you browse input history
+- Folded command groups preview the titles of the most recent commands inside them
+- The task tree shows a shell command's description instead of its raw wrapper text
+- Subagents that share a role are numbered, so duplicates are easy to tell apart
+- Removed the agent-profile notice that appeared at every startup
+- Raised the context budget for subagent delegation rules so larger guidance files are not truncated
+- The rewind picker explains why a point cannot be restored exactly, instead of only showing a count
+- Skills with unrecognized frontmatter fields warn instead of failing silently
+- The built-in git skill honors an explicit commit request stated anywhere in your task
+- Scheduled prompt activity shows a compact time relative to the current message
+- Background work started before a rewind is labeled as continuing under the original conversation
+- Clearer message when a stop or steering command sent to a subagent is rejected
+- `/usage` omits the cost figure when cost data is unavailable, and the model picker hides an empty pricing legend
+- The built-in Scope reminder is off by default
+- Clearer instructions for the shell tool
+- `/status` counts activity from live work, so its numbers match what is actually running
+- Subagent rows in `/tasks` show a stable number and description instead of a raw identifier
+- Task rows no longer spend width on columns they do not draw, and stray control characters are stripped from row tails
+- A finished subagent's timer freezes at its own runtime instead of ticking on
+- After Esc, the "still running" notice counts only the tasks that actually survived
+- The working-status indicator and its shimmer animate in step
+- A drawer tab summary that does not fit is truncated instead of blanked out
+- The footer stops offering "select" while there is a draft in the composer
+- A denied command header is ellipsized in a narrow terminal instead of overflowing
+- The read-only legend in the live-output view is no longer cut mid-marker
+- `/usage` refreshes your subscription details on the spot instead of showing cached numbers
+- `--worktree` with an empty value explains the fallback instead of refusing the command
+- Startup reports bundled skills that failed to materialize, and a sandbox scope that failed to build, instead of passing over them
+- An unreadable goal store reports the real reason — permissions, a held lock — instead of claiming the database is corrupt
+- A corrupt line in a session log is named exactly instead of failing anonymously
+- On exit, the resume hint falls back to a session id that works when the canonical one cannot be written
+- `trace inspect` reports a recording it cannot read as a failure, and labels each timeline so overlapping runs can be told apart
+- Long sessions driven over the session protocol compact their context the same way one-shot runs do, instead of growing until the provider rejects the request
+- Listing past sessions is index-backed and pages through large histories instead of scanning every session
+- Tool calls are accepted when an argument arrives as a string instead of a number or boolean, or as a single string wrapped in an array
+- Optional protocol fields accept both omission and an explicit null
+- A session command that misses now answers with the real state — already closed, wrong lane, nothing running — instead of a blanket "session not found"
+- Clients are told when a session closes because it went idle or the host shut down, instead of the connection just going quiet
+- An empty history reply says why it is empty
+- Message and tool output stream incrementally over the session protocol instead of arriving only at completion
+- Sessions created by older builds can be addressed by lifecycle commands again, and new session and command ids are time-ordered
+- A frame with no id can no longer reach a request handler
+- A session view observes only its own session's stream, so other sessions' events do not bleed into it
+- Stopping a turn when nothing is running is rejected honestly instead of acknowledging a turn that never existed
+- Re-sending an identical turn or steer that was already rejected returns the original rejection instead of a command-conflict error
+- A duplicate in-flight subagent steering command is reported as retryable rather than fatal
+- A queued follow-up task for a subagent carries its caller, so later attempts are accepted against the right parent
+- Notifications arrive in the order they were emitted even when they travel through separate outbound queues
+
+### Fixes
+
+- **Security:** credentials are withheld when a redirected or downgraded `--base-url` would send them to an untrusted host
+- **Security:** file read, edit, search, and write stay inside the workspace even when the sandbox is disabled
+- **Security:** a write that matches no approval rule is denied under a deny-by-default policy instead of being allowed
+- Quota-exhausted errors fail immediately with a clear status instead of being retried
+- Provider errors keep their real status when the error body can't be read, and no longer surface raw parser text
+- A response missing its model field no longer triggers an unnecessary retry
+- A generation failure immediately after a reasoning step is now retried
+- A transient provider error while summarizing no longer ends the whole run
+- Automatic summarization no longer fails when the provider uses a namespaced tool-call name
+- Hitting the context window no longer wedges the session; it retries once with a trimmed request
+- Context limits and conversation replay update correctly after switching models mid-session
+- The rate-limit indicator no longer clears incorrectly after you cancel a rate-limited request
+- Cancelling a response no longer emits a few leftover events afterwards
+- Tool calls are accepted when the model sends a boolean or duration as a string
+- `--help` and usage text show the name you actually invoked the binary as
+- Startup fails fast with a clear error when a settings or config file isn't a regular file
+- Startup no longer crashes when standard error is already closed
+- Startup no longer rejects a project path that is a symlink, or a workspace reached through an aliased path
+- Session worktrees keep track of a nested working directory when you start from a subdirectory
+- Startup falls through to the login screen instead of hard-failing when credential checks disagree
+- Login-failure messages no longer show internal wording when a saved login has expired
+- `/status` reports an in-session API key that failed to persist instead of naming the previous account
+- A misplaced command used with `--last` now gives an accurate error
+- Trusting a project from two places at once no longer loses one of the decisions
+- The workspace trust prompt renders non-printable characters in a path visibly
+- Startup no longer hangs when the session index is locked by another running instance
+- A corrupted image passed with `--image` no longer prints raw decoder internals
+- The Linux sandbox falls back to its embedded helper binary correctly, and reports a stale mount clearly instead of failing generically
+- Sandboxed Linux commands work when a cached sandbox image is retained
+- Approval prompts trigger correctly for `rg` with certain flags, and prompts for protected writes now appear promptly
+- The shell tool honors an external working directory when sandboxing is off for that command
+- The shell tool acts on the session's live permissions instead of stale approval state
+- The shell tool reports an error instead of silently accepting input after a session has finished
+- The file-editing tool accepts a patch whose leading chunk is context used to anchor a later change
+- Search no longer fails an entire multi-path request when one path doesn't exist
+- Resizing the terminal no longer stalls the redraw or flashes the screen
+- Scrollback is no longer erased by transient resizes or when you file a report
+- The terminal is restored cleanly if you exit while the app is still starting
+- Quitting with a double Ctrl-D no longer leaves stray escape sequences behind
+- Keyboard input is no longer occasionally dropped on Linux
+- The terminal no longer jitters while several tools run in parallel
+- Queued messages stay below the to-do list instead of overlapping it
+- A to-do update no longer erases scrollback when it collapses an unsent draft
+- Background capacity warnings no longer land inside your in-progress message
+- Scheduled-task warnings no longer corrupt the display while you type
+- The transcript shows the full text of a large pasted block
+- Tool call previews show formatted durations instead of raw values
+- Fixed a missing space in the goal status line, and spaces now appear while you edit a note in a prompt
+- An image sent with no accompanying text no longer disappears from the transcript
+- An image dragged into the terminal is no longer rejected when macOS hides its file metadata
+- A typed `@mention` that matches no file is treated as plain text, and Enter submits instead of doing nothing
+- A queued follow-up message no longer hangs instead of running
+- Cancelling a turn just as it starts no longer blocks a clean shutdown
+- A burst of queued background work no longer fails other in-progress turns in the same session
+- Input sent while a background run is being delivered is no longer dropped
+- A follow-up run now updates correctly after a live run in the foreground
+- Interrupting before the model produced any output now leaves a visible trace in the chat
+- A completed reply is no longer mislabeled as interrupted when you quit just as it finishes
+- Esc during the end-of-turn wait no longer interrupts a reply that was already committed
+- The prompt timeout no longer fires right after you interact with a prompt
+- Cancelling right after compaction no longer drops earlier conversation history
+- A stale "agent restarted" notice no longer appears after a manual compaction settles or fails
+- A finished subagent no longer stops delivering queued messages and appears stuck
+- Follow-up messages to a subagent are no longer rejected after a resume, or dropped when sent just before it finishes
+- A subagent's transcript no longer gets stuck and stops refreshing, and stale reads at the end of it are fixed
+- A subagent's final result no longer renders twice, and is no longer duplicated or dropped during a retry
+- Subagent results are no longer lost after a crash, and recovered results load fully before being selected
+- Resuming with more in-flight subagents than available capacity no longer crashes
+- Subagent identity is bound correctly when a spawn is replayed after a resume
+- `/exit` no longer abandons a subagent that had just been spawned, and exiting is no longer blocked by one that already finished
+- Commands that only work in the main conversation are properly rejected inside a subagent's view
+- Completed subagents are cleaned up in long sessions instead of accumulating
+- Resume no longer replays subagent tasks that had already completed
+- Follow-up messages are no longer lost when resuming a session that used subagents
+- Background task rows settle instead of staying stuck on "running", and a failed or cancelled task no longer shows as completed
+- Cancelled or retried tasks no longer leave stale entries in the task list
+- Task-tray rows no longer linger after you navigate into a rewound subagent conversation
+- Pending background tasks no longer block a clean session end
+- A queued but unstarted background command is no longer treated as an interrupted run on resume
+- Stale reminders no longer keep firing after a background task refreshes
+- Background task ownership is no longer confused after a mid-session restart
+- Output from `!` shell commands and background terminals keeps its place on resume
+- A subagent tree hint is no longer lost on resume, and stale queued-message rows no longer reappear
+- Pressing Enter during resume no longer submits before the session is ready
+- The resume picker no longer offers an already-active session, a stale preview, or an empty one
+- A forked session's resume preview shows its prior history, and resuming a forked session is no longer wrongly rejected
+- Resume no longer fails on an expected gap in checkpoint history, and falls back gracefully on an unsupported checkpoint format
+- Images sent earlier in a conversation no longer disappear from context after a resume or fork
+- A resumed session no longer stays stuck after hitting a no-progress limit
+- Sessions forked just before a crash are correctly recovered as crashed
+- Exiting a resumed side chat no longer overwrites the main session's saved history
+- Tool call results are no longer misrouted after a restart
+- Tool search history is preserved across resume and compaction
+- Resume no longer loses the conversation summary from an earlier compaction, and token usage carries across compaction-linked turns
+- Rewind keeps earlier turns that included image or pasted attachments
+- Rewind no longer loses prior chat history or shows duplicated, stale transcript content
+- Subagent history no longer disappears after rewinding and resuming a conversation
+- Rewind requires explicit refill text instead of silently reusing earlier input
+- A failed subagent-view load during a rewind can now be cancelled instead of getting stuck
+- Rewinding now hands off fully into the session it creates
+- Retained goals pause correctly when a session is reopened, and stale goal progress is rejected
+- The agent no longer misreads an earlier short reply as the answer to a question it asked later
+- Session permission settings carry over correctly when you fork a conversation
+- `/feedback` no longer asks you to resubmit feedback that was already received
+- Skills are readable when you run with a named toolset instead of the default one
+- A context-compaction override passed on the command line is applied instead of silently dropped
+- Terminal and one-shot sessions publish and serve their history; previously a new session failed closed at its first record and its history came back empty
+- Saved approval rules apply to sessions served over the protocol; previously every persisted rule was silently ignored there, and a corrupted rule store now fails startup instead of being skipped
+- Approvals in a freshly started served session are visible and decidable instead of parking invisibly until the turn was aborted
+- An approval accepted while a session is still starting advances the pending state on the wire, so a client's approval queue no longer stalls
+- Each approval resolution is emitted once, so clients no longer receive duplicate approval events
+- Queued turns, steers and approval decisions are acknowledged only after the record is durably on disk, so a crash right after submit cannot lose them
+- A rejected model change, approval-mode change or goal change is recorded against its own request, so a retry after a restart replays the original result instead of failing with a conflict
+- Starting a session records the approval mode actually in effect, and a session with an empty log reports its mode as a startup default rather than a replayed value
+- Starting a session without naming a model gets a server-chosen default instead of failing
+- A session reports the model actually in effect, not a stale startup selection
+- A read reflects the caller's own just-confirmed writes, so a client no longer reads back stale state right after a successful write
+- Resuming survives a hard crash, an unfinished subagent, or a task that was still in flight; a session store copied from another machine is refused with a clear message instead of silently attaching
+- Resuming a compacted session works: it loads, your next prompt stays its own turn, and the turn count is accurate
+- Resuming from the terminal restores your place, your queued drafts and your goal, and no longer replays the same startup work twice
+- A session created before the sidecar format builds its sidecar the first time it is opened
+- An unreadable session view reports "unavailable" instead of a bare internal-error code
+- A corrupt line in session history is skipped instead of breaking history loading
+- A forked session inherits the source's model, permission profile, committed message order and tool-call history
+- A fork that fails to start is fully removed, including its leftover database side files, instead of leaving a phantom resumable session; an oversized history budget is honored instead of ignored
+- **Security:** a workspace `.git` that is a broken symlink stays in the sandbox deny list instead of quietly dropping out of it
+- A provider that rejects the summarizing request no longer wedges the session: compaction falls back to a local summary instead of re-sending the same doomed request every turn
+- Compaction stops re-running when it cannot free more context, and no longer discards output that had not been delivered yet
+- Manual compaction keeps the same evidence every time instead of varying with incidental request details
+- A hook that returns malformed decision output, or a bare scalar where a decision was expected, fails closed instead of being read as an allow
+- A `PostToolUse` hook that asks to stop now stops after the finished tool result and any hook-supplied context are kept, instead of discarding them
+- MCP tool calls have a real transport deadline and cancel cleanly instead of hanging
+- Switching models mid-run no longer misses the selection anchor
+- A restarted queued turn answers the original start acknowledgement instead of minting a new one
+- A rate-limit response whose retry hint is an HTTP date is honored, so retries wait the advertised time
+- Token usage sent as a whole-number decimal decodes instead of failing the response
+- Wide characters — CJK, emoji — no longer misalign columns in the command drawer, the picker, the workbench and the task list
+- Emoji and other multi-character clusters no longer leave stale cells behind while the composer redraws
+- Backspace, delete and the arrow keys move over whole characters instead of splitting them
+- Text typed while watching a background command's live output stays with that view instead of leaking into the composer on exit
+- A running workflow no longer appears twice in the task list, a finished workflow whose agents failed says so instead of showing as a clean success, and an interrupted workflow resumes its in-flight agents instead of losing them
+- Repeated unanswered messages to the same session stop automatically instead of looping, and the limit is shown in the transcript
+- A session worktree removal cut short by its time budget completes instead of being recorded as failed
+- The session host no longer exits with a spurious error code when its input stream closes; shutdown drains cleanly
+
+### Performance
+
+- Long sessions no longer creep up in CPU and memory, which had been delaying scheduled reminders and background results
+- The interface no longer slows down or pegs the CPU once many subagents or completed background tasks have accumulated
+- Faster sessions with many subagents, by removing repeated full scans of the subagent list
+- Faster resume for sessions with long run histories
+- Resuming a session with no checkpoint no longer re-reads the whole session log many times over
+- Faster startup by reusing the cached model list instead of re-reading it from disk
+- Long sessions no longer slow down as they grow: session progress is tracked as new records arrive instead of being recomputed from the whole history each time
+- Turns start faster: what carries over from the previous session is worked out once instead of re-read every turn
+- Startup no longer stalls on terminal colour detection; the foreground and background probes overlap under a short cap
+- An MCP server whose output arrives in fragments is read incrementally instead of rescanned from the start
+- The skills catalog is built once at startup and reused, so skill lists stay consistent across the settings overlay, imports and slash commands
+- Startup opens the session lock once instead of repeatedly
+- Startup does less redundant work: one repository snapshot instead of repeated git subprocesses, the settings file read once, and the credential file opened once
+- Opening a session assembles its history once instead of several times
+- Starting a turn in a long-lived session no longer re-scans the whole session log first
+- Rechecking overdue background tasks no longer re-reads the session history
+- The task and subagent tree stays responsive as the number of tasks grows
+
+## 0.2.1
+
+### New
+
+- Rewind the conversation with a double Esc — pick an earlier point, confirm before anything is undone, and only safe rewind points are offered
+- Automatic approval pre-screening: a model-based reviewer clears tool requests it judges safe, so you see fewer prompts. Anything it doesn't clear still comes to you, and it can be disabled
+- When the sandbox blocks a command, the agent can ask for a one-time approval to run that exact command outside it
+- Added a "Review plan" action to step through long plans that overflow the panel
+- Added `muse config` to validate enterprise-managed configuration documents
+- Added a built-in skill for setting up isolated Python environments
+- Added a built-in skill for handing off and verifying browser apps the agent builds
+- Hook commands now receive a selected set of environment variables
+- The input box can show a short contextual hint after a turn finishes
+
+### Improvements
+
+- Approval dialogs wait for a pause in your typing before appearing, so they stop stealing keystrokes mid-sentence
+- Permission decisions are retained in the session log and restored on resume
+- The resume picker surfaces sessions that were previously hidden
+- `--model` accepts any model id; unknown ids use sensible assumed metadata instead of being rejected
+- Settings accept the standard `mcpServers` key, matching the common ecosystem format
+- MCP configuration across multiple files and scopes merges consistently
+- Clearer diagnostics when an MCP server fails to start, reported once instead of pinned in the interface
+- Optional MCP servers that fail at startup no longer spam the transcript
+- You can see which of your hooks are running in the live activity area
+- Messages sent as a turn finishes are delivered together in one follow-up turn
+- Text typed as part of a rewind is kept and restored
+- The agent can ask longer questions, up to 500 characters
+- The Write tool flags when a new file nearly duplicates an existing one
+- Sessions at Ultra reasoning effort default to maximum parallel-agent capacity unless you set a limit
+- Session export stitches in subagent transcripts that finish independently
+- Redesigned `/status` as a cleaner summary card
+- `/usage` and `/models` label costs explicitly as USD
+- Skill slash commands are highlighted while you type
+- Tables stay narrow enough to read in a terminal
+- The bundled plan skill researches sources first and presents the plan for review before starting work
+- Rewrote the built-in plan, doctor, and source-control skills with clearer guidance
+- The design skill reliably engages before the assistant writes visual web frontend code
+- Within a session, the agent remembers which skills it already read and avoids redundant re-reads
+- Skills with aliases appear once under their canonical name
+- `skills import --from` errors now list the accepted values
+
+### Fixes
+
+- **Security:** a malicious repository's git configuration can no longer run arbitrary commands
+- **Security:** git commands on your repos ignore repo-configured hooks, so a malicious repo can't run code through them
+- **Security:** skill text containing hidden terminal-control characters is rejected, preventing display spoofing
+- **Security:** Linux sandboxed commands can no longer reach host services through Unix-domain sockets
+- **Security:** a folder carrying both Mercurial and Sapling metadata is no longer probed for repository status
+- Fixed a crash when resuming a session whose background agent run couldn't be re-read
+- Fixed a panic when piping output into commands like `head`
+- Fixed a crash on non-UTF-8 command-line arguments
+- Partial model responses cut off mid-stream are kept and marked incomplete instead of lost
+- Model calls fail fast with a clear status when the network is down, instead of hanging through silent retries
+- The working indicator and retry countdown stay visible when a response drops mid-stream
+- Streamed answer text no longer appears in the wrong place before the response type is known
+- HTTP/HTTPS proxy environment variables are respected for all network traffic
+- Keystrokes are no longer lost while an approval decision is submitting
+- Multi-line pasted text stays together, including in terminals without bracketed-paste support
+- Fixed shifted keys being misread in older VS Code terminals
+- Prompts typed in quick succession while a run starts are accepted instead of dropped
+- Prompts appear in the transcript as soon as you submit them, even while the run is still starting
+- Ctrl-C withdraws queued messages that hadn't started yet
+- A steering message you already sent is no longer lost when you retract the turn
+- Retracting a turn just after a steering message went through no longer freezes the interface
+- Prompts entered when forking a session run in the forked session, not the original
+- Esc interrupts the end-of-turn reminder wait instead of appearing to hang
+- Tools no longer time out while waiting for you to answer an approval prompt
+- Resume restores permission prompts that were still awaiting an answer
+- Resumed sessions keep the approval mode you chose
+- Permission prompts stay visible when the side panel refreshes
+- Denying a network permission request now tells the agent and shows in the transcript
+- The automatic permission reviewer is more predictable, with consistent verdicts, retry caps, and timeouts
+- `/compact` compacts the session's real working set, including after forks and side chats
+- `/compact` runs in the background instead of blocking the session
+- Branching into a side chat after a restart no longer breaks conversation history
+- Resume replays subagent activity recorded in the parent session log, with the original identity
+- Resumed sessions keep subagent lifecycle events in their original order
+- Output from background subagents started before a resume is replayed instead of disappearing
+- Subagent results that finished before you pressed Esc are preserved instead of disappearing with the cancelled turn
+- Long-running background subagents reliably deliver their final answer
+- Input submitted just before the app stops is no longer stranded on resume
+- Resume no longer writes checkpoints from a half-replayed log, or breaks on expected gaps in the checkpoint log
+- Resume no longer risks adopting the wrong `/compact` result during recovery
+- Manual `/compact` runs are recorded durably and survive restarts
+- A log truncated mid-write no longer restores a partially written permission record
+- Session goals are restored with working controls after a kill and resume, and usage totals stay correct when a goal is replaced
+- Resumed session goals restore their usage totals instead of failing to resume
+- Session goals pause when successive turns stop making progress, instead of looping indefinitely
+- Exported sessions keep the full record of permission prompts and decisions
+- Sessions get a proper end record on normal exit, keeping history and resume listings accurate
+- Closing or losing your terminal is no longer misreported as a crash
+- Starting two sessions at the same moment no longer fails to open the local session store on a first run
+- Starting from a missing or unreadable folder fails immediately with a clear error
+- A prompt passed at startup is no longer occasionally captured as blank
+- Fixed a race at run start that could leave the session in a confused launch state
+- Headless runs pass your prompt text through unmodified by default
+- A `!` shell command whose process dies unexpectedly settles cleanly instead of leaving the session stuck
+- Background processes are cleaned up more reliably when a session exits
+- The agent gets correct guidance for backgrounding commands from the shell tool on macOS
+- Stopping a background task no longer hangs when two stop requests race
+- Background reminder checks are tied to their own run, so no activity lingers after it ends
+- Headless runs no longer hang after finishing because an older reminder task is still open
+- Background command and task ids are globally unique and time-ordered
+- Scheduled tasks with a timezone problem warn once instead of every tick
+- A corrupt scheduled-task database now warns at startup and identifies where the quarantined data was retained
+- A failed subagent launch no longer permanently consumes a capacity slot
+- Subagents that finish without a result show a proper final state
+- Notes typed in a subagent's view reach the running subagent
+- Subagent worktrees whose ownership can't be proven after a crash are quarantined instead of wrongly cleaned up
+- Status lines for cancelled and waiting agents show the agent name instead of a raw UUID
+- Messages with pasted images sent while the agent is busy arrive in order
+- Pasting an image alongside a pending rewind routes correctly
+- Hook output starting with a UTF-8 BOM has its allow/deny decision honored
+- Project hooks take effect as soon as you trust a folder, without a restart
+- Hooks triggered by `!` shell commands are durably recorded and survive resume and export
+- Structured JSON output from file hooks is preserved instead of flattened
+- Rejected hook output produces a bounded, readable diagnostic
+- Shell approval prompts keep the command's original line breaks
+- Invalid todo-list tool arguments produce a proper structured error
+- A malformed skill on/off value in settings is ignored gracefully instead of breaking loading
+- Prompt hints only suggest commands that exist in your session
+- A symlinked user config directory no longer breaks loading of project and built-in agent definitions
+- Fixed a settings file lock held longer than needed, which could block later writes
+- Ctrl-L clears the screen without redraw artifacts
+- `/help` shows the full shortcut list in an 80×24 terminal
+- Fixed a wildly wrong elapsed time in the activity row after reattaching to a session
+- The task panel no longer glitches while old checkpoints are retired
+- The Ultra reasoning-effort display and activation animation no longer pop, flicker, or dim
+- On Linux, the command sandbox is selected once at startup so behavior stays consistent for the session
+- The built-in doctor skill's session-evidence collection and redaction work correctly again
+
+### Performance
+
+- Faster startup with a large skill catalog, and an accurate count of skills dropped from the catalog
+- Git operations for isolated subagent worktrees no longer block the agent runtime
+
+---
+
+Also delivered in 0.1.x patches: attaching the session recording when reporting a bug as well as a bad result; correct truecolor detection for Ghostty over SSH; reliable replay of terminal command output in long sessions; subagent results shown once with the correct outcome; and a rollback of a built-in instruction change that had regressed answer quality.

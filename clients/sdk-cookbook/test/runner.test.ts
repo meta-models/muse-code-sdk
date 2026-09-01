@@ -23,7 +23,6 @@ import { runJourney, summarize } from "../src/kit/segments.js";
 import { formatCookbookReport, runRecipes, selectRecipes } from "../src/runner.js";
 import type { Recipe, RecipeHosts } from "../src/runner.js";
 import { RECIPES } from "../src/manifest.js";
-import { RECORDED_REQUEST_IDS, recordedRequestIds } from "../src/recipes/approve-or-deny.js";
 
 const HOSTS: RecipeHosts = {
   museBin: "/fake/tbh",
@@ -265,22 +264,4 @@ test("every cookbook page except the index is backed by exactly one recipe", asy
       `orphan cookbook page with no backing recipe: ${repoRelative} — register a recipe in src/manifest.ts or remove the page`,
     );
   }
-});
-
-/**
- * FR-24225-6's fail-loud clause, which nothing else reaches: the journey uses
- * exactly the recorded ids, so the exhaustion throw never fires in a passing
- * run. Softening it into a fallback would keep every check green and bring
- * back the uncorrelatable-ack hang the seam exists to prevent, with no red
- * naming the cause (PR #25153 review). The seam retires with #25143.
- */
-test("the recorded-request-id minter walks its ids once, then fails loud", () => {
-  const mint = recordedRequestIds();
-  const drained = RECORDED_REQUEST_IDS.map(() => mint());
-  assert.deepEqual(drained, [1, 2, 3, "b9"], "the minter yields the recorded ids in order");
-  assert.throws(
-    () => mint(),
-    /transcript recorded only/,
-    "a request past the recorded set must fail loud, never fall back to a minted id",
-  );
 });

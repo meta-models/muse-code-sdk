@@ -1,8 +1,8 @@
 /**
  * Run the journey and print the segment report.
  *
- *   node dist/src/main.js --bin <path-to-release-built-tbh>
- *   node dist/src/main.js --bin <path-to-release-built-tbh> --no-provider
+ *   node dist/src/main.js --bin <path-to-release-built-muse>
+ *   node dist/src/main.js --bin <path-to-release-built-muse> --no-provider
  *
  * The default is the provider-configured (acceptance) mode: the harness starts
  * a loopback fake first-party endpoint and points the host's HOME at it, so
@@ -31,9 +31,9 @@ function argument(name: string): string | undefined {
 const museBin = argument("--bin") ?? process.env["MUSE_BIN"];
 if (museBin === undefined || museBin.length === 0) {
   process.stderr.write(
-    "usage: node dist/src/main.js --bin <path-to-release-built-tbh> [--no-provider]\n" +
+    "usage: node dist/src/main.js --bin <path-to-release-built-muse> [--no-provider]\n" +
       "       (or set MUSE_BIN). Build it with:\n" +
-      "       cargo build --release -p tbh-cli --bin tbh\n",
+      "       install muse, then: MUSE_BIN=$(command -v muse)\n",
   );
   process.exit(2);
 }

@@ -39,5 +39,8 @@ shapes follow with their own enrollment slices. `@muse-code/sdk` binds to each a
 
 ## Nothing is published
 
-Repo-build-only during 0.x (tdd D-013, #211 O-5). `private: true` is the
-enforcement.
+Repo-build-only during 0.x (#211 O-5). `private: true` is the enforcement.
+D-053 permits `@muse-code/sdk` to publish at 0.x and touched nothing else: this
+package is types-only and re-exports a declaration file from outside its own
+root, so publishing it would ship a dangling type reference. The SDK tarball
+carries the declarations it needs instead.

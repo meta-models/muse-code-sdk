@@ -1,7 +1,7 @@
 {
   "name": "@muse-code/workspace",
   "private": true,
-  "description": "Repo-build-only TypeScript workspace for the MSP client tier (spec 14990-muse-sdk). Nothing here is published to npm before 1.0 (tdd D-013).",
+  "description": "TypeScript workspace for the MSP client tier (spec 14990-muse-sdk). Only @muse-code/sdk is published to npm, at 0.x with no stability promise (tdd D-013 as amended by D-053); every other package here is repo-build-only and private.",
   "workspaces": [
     "clients/msp-ts",
     "clients/sdk-ts",

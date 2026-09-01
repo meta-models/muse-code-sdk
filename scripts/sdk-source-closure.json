@@ -1,0 +1,67 @@
+{
+  "$comment": [
+    "The authoritative source closure for the `@muse-code/sdk` publication.",
+    "",
+    "Every path below is mirrored verbatim from this repository into the public",
+    "venue `meta-models/muse-code-sdk`, keeping its layout: a closure path",
+    "`clients/sdk-ts` here lands at `clients/sdk-ts` there, which is why the SDK",
+    "manifest's `repository.directory` is the same string on both sides. The",
+    "mirror's `publish-anchor.json` records which commit of this repository a",
+    "given republish carried, and names THIS file as its closure manifest.",
+    "",
+    "This file is the producer-side authority: a republish reads it to decide",
+    "what to carry. It is not a digest, a count, or a copy of anything the tree",
+    "derives — it is the list itself, and `clients/sdk-ts/test/sdk-source-closure.test.ts`",
+    "checks that every path in it still exists and is still explained.",
+    "",
+    "Adding a path is a deliberate act: the closure is published source, so",
+    "everything listed here is read by people outside this repository and is",
+    "subject to the external-audience posture."
+  ],
+  "artifact": "@muse-code/sdk source closure",
+  "producer": {
+    "repository": "mslsrc/tbh",
+    "root": "projects/tbh"
+  },
+  "mirror": {
+    "repository": "meta-models/muse-code-sdk",
+    "anchor": "publish-anchor.json",
+    "preserve_note": [
+      "Prose, not a path list — the list itself deliberately lives on one side only.",
+      "The mirror holds hand-authored repository-meta files that have no upstream",
+      "counterpart — its README, LICENSE, .github/, .nojekyll and publish-anchor.json.",
+      "The authoritative list is `repo_meta.hand_authored` in the mirror's own",
+      "publish-anchor.json, not a second copy here. A republish that replaces the",
+      "tree wholesale deletes them silently and still reports success; preserve",
+      "them (mslsrc/tbh#25904)."
+    ]
+  },
+  "closure_paths": [
+    "clients/msp-ts",
+    "clients/sdk-cookbook",
+    "clients/sdk-quickstart",
+    "clients/sdk-ts",
+    "package-lock.json",
+    "package.json",
+    "schema/msp/msp.d.ts",
+    "schema/msp/stable",
+    "schema/msp/transcripts",
+    "scripts/check-msp-ts-typecheck.sh",
+    "scripts/publish-sdk-npm.sh",
+    "scripts/sdk-source-closure.json"
+  ],
+  "path_notes": {
+    "clients/msp-ts": "The generated wire-types package the SDK compiles against. Private and never published on its own; it is in the closure so the mirror can build.",
+    "clients/sdk-cookbook": "The validated cookbook harness and its recipes. Published source: the docs site links readers straight at these programs.",
+    "clients/sdk-quickstart": "The quickstart journey a reader runs first. Published source, same reason as the cookbook.",
+    "clients/sdk-ts": "The SDK itself — the package `npm publish` ships, plus the QA harness and tests that prove it. Only `dist/src` reaches the tarball; the rest is closure source.",
+    "package-lock.json": "Pins the workspace install the mirror's `npm ci` performs. Without it a mirror build resolves different dependencies than this repository did.",
+    "package.json": "The workspace root. It declares the `clients/*` workspaces that make the mirrored tree installable as one unit.",
+    "schema/msp/msp.d.ts": "The generated MSP declarations the wire types re-export. The SDK tarball bundles a copy at publish time; the mirror needs the source.",
+    "schema/msp/stable": "The stable schema bundle the conformance oracle and the wire taps validate against.",
+    "schema/msp/transcripts": "The recorded wire transcripts the QA harness replays, so a mirror checkout can run the conformance arm offline.",
+    "scripts/check-msp-ts-typecheck.sh": "The typecheck gate `clients/msp-ts` runs, which resolves paths relative to the closure layout.",
+    "scripts/publish-sdk-npm.sh": "Every publish gate lives here, and the mirror's `publish-npm.yml` is a thin caller that invokes it by path. If a republish drops this file the publish workflow dead-ends before it reaches npm — the workflow says so in one line and names this manifest as the place it must be listed.",
+    "scripts/sdk-source-closure.json": "The closure carries its own definition: `clients/sdk-ts` is mirrored whole, including `test/sdk-source-closure.test.ts`, which reads this manifest at module load — a mirror without it crashes that guard with ENOENT before any arm runs."
+  }
+}

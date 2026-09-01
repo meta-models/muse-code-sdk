@@ -1534,7 +1534,10 @@
         },
         "turnId": {
           "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` only for `userShell` — the one kind outside a turn\n(tdd SS4.5.6).",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "usage": {
           "$ref": "#/$defs/TokenUsage",
@@ -2480,7 +2483,7 @@
       "type": "object"
     },
     "SessionConfig": {
-      "description": "`session/start`'s reserved `config` object (tdd SS2.5.1): no members in\nv1.\n\nSS2.5.1 also ratifies \"unknown keys are rejected, not ignored\". That is\n#22785 E6b, ruled and NOT exported: spec 206 INV-015 forbids it\ncategorically and TEST-024 enforces that. The model carries the opt-in\nmechanism; this type does not opt in, so the published surface is\nunchanged. See [#23456](https://github.com/mslsrc/tbh/issues/23456).",
+      "description": "`session/start`'s reserved `config` object (tdd SS2.5.1): no members in\nv1.\n\nUnknown keys are ignored on the wire, never rejected (tdd SS1.5.4, spec\n206 INV-015; D-052 resolving\n[#23456](https://github.com/mslsrc/tbh/issues/23456)): the live decoder\nis D-042's tolerant path, and TEST-024 keeps every exported bundle free\nof `additionalProperties: false`. The Rust typed model's\n`deny_unknown_fields` is internal and never exported — the #22785 E6b\nclosedness export applies nowhere, and the `x-msp-closed` opt-in\nmechanism stays inert. Typo detection belongs to the #210 conformance\nharness as a test posture, not the protocol.",
       "properties": {},
       "type": "object"
     },

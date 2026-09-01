@@ -3,13 +3,16 @@
  * an `npm publish` is even runnable (owner launch ruling 4, hub #24410; the
  * long-pole item 1 of #25304).
  *
- * This file pins PREPARATION, not publication. D-013 ("no published SDK before
- * 1.0", `specs/13929-msp-activation/tdd.md`) is still the operative decision and
- * this PR does not amend it: the manifest below is publishable-shaped, and the
- * act of publishing stays behind the owner steps recorded on #25304. The pins
- * here exist so that the shape cannot silently regress between now and then,
- * and so the tarball's contents are a checked contract rather than whatever
- * `dist/` happened to hold on the publishing machine.
+ * This file pins the PACKAGE SHAPE, not the decision to publish. D-013's
+ * "no published SDK before 1.0" was amended on 2026-08-31 by D-053
+ * (`specs/13929-msp-activation/decision.md`): publishing at 0.x is permitted,
+ * the stability promise is still withheld, and the published README must say so
+ * — a condition `scripts/publish-sdk-npm.sh` gates on rather than one this file
+ * asserts. What remains behind owner steps on #25304 is the registry side: the
+ * `@muse-code` scope and the trusted publisher. The pins here exist so the
+ * shape cannot silently regress, and so the tarball's contents are a checked
+ * contract rather than whatever `dist/` happened to hold on the publishing
+ * machine.
  *
  * The `files` whitelist is the load-bearing one. `tsc --build` emits `dist/qa`
  * and `dist/test` beside `dist/src`, and the QA harness carries the conformance
@@ -78,9 +81,10 @@ test("the version stays inside 0.x", () => {
   assert.match(
     manifest.version,
     /^0\./,
-    "D-013 withholds the stability promise until 1.0; a prepared package stays " +
-      "in 0.x so the version itself never implies a compatibility claim. " +
-      "Leaving 0.x is the D-013 amendment's job, not a version bump's",
+    "D-013 withholds the stability promise until 1.0, and D-053 did not give it " +
+      "back — it permitted PUBLISHING at 0.x, so the version itself is what " +
+      "keeps a released package from implying a compatibility claim. Leaving " +
+      "0.x is D-022's single leave-0.x/declare-v1 event, not a version bump",
   );
 });
 
@@ -155,11 +159,21 @@ test("the tarball's entry points resolve inside the whitelisted directory", () =
 });
 
 test("packing builds first, so a clean checkout cannot publish a stale dist", () => {
-  assert.equal(
-    manifest.scripts?.prepack,
-    "npm run build",
+  const prepack = manifest.scripts?.prepack ?? "";
+  assert.match(
+    prepack,
+    /\bnpm run build\b/,
     "`dist/` is gitignored; without prepack, `npm pack` on a fresh clone " +
       "produces a tarball with no code in it and npm reports no error",
+  );
+  // The tarball also has to carry the MSP declarations it names, and that step
+  // runs on the build output — so it belongs after the build, in prepack, not
+  // in `build` where an ordinary `npm run build` would rewrite `dist/`.
+  assert.match(
+    prepack,
+    /bundle-msp-types\.mjs$/,
+    "`@muse-code/msp` is private and unpublished, so the pack step must bundle " +
+      "its declarations; without this the tarball ships unresolvable imports",
   );
 });
 

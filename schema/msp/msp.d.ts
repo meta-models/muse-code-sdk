@@ -562,7 +562,7 @@ export interface Item {
   /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`); the durable full text remains in the log (tdd SS4.5.4). */
   truncated?: boolean;
   /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` only for `userShell` — the one kind outside a turn (tdd SS4.5.6). */
-  turnId?: string;
+  turnId?: string | null;
   /** `subagent`: **transitive** observed usage — the child and its own descendants; updated in place, absent until first observation; never folded into `session/tokenUsage.cumulative` (tdd SS4.6.5). */
   usage?: TokenUsage;
   /** `toolCall`/`userShell`: bounded transcript-visible result text (budget per tdd SS4.5.4); streams via `item/delta` field `"output"`. */
@@ -934,7 +934,7 @@ export interface SessionCompactResult {
   status: CompactStatus;
 }
 
-/** `session/start`'s reserved `config` object (tdd SS2.5.1): no members in v1.  SS2.5.1 also ratifies "unknown keys are rejected, not ignored". That is #22785 E6b, ruled and NOT exported: spec 206 INV-015 forbids it categorically and TEST-024 enforces that. The model carries the opt-in mechanism; this type does not opt in, so the published surface is unchanged. See [#23456](https://github.com/mslsrc/tbh/issues/23456). */
+/** `session/start`'s reserved `config` object (tdd SS2.5.1): no members in v1.  Unknown keys are ignored on the wire, never rejected (tdd SS1.5.4, spec 206 INV-015; D-052 resolving [#23456](https://github.com/mslsrc/tbh/issues/23456)): the live decoder is D-042's tolerant path, and TEST-024 keeps every exported bundle free of `additionalProperties: false`. The Rust typed model's `deny_unknown_fields` is internal and never exported — the #22785 E6b closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism stays inert. Typo detection belongs to the #210 conformance harness as a test posture, not the protocol. */
 export interface SessionConfig {
 }
 

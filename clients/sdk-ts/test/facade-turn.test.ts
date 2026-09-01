@@ -446,10 +446,10 @@ test("TEST-012: a userShell item's null turnId mints no phantom turn", { timeout
 
   s.apply(turnStarted("t-1", "v:1"));
   // `userShell` is the one kind carrying `turnId: null` (spec Edge Cases; tdd
-  // SS4.5.6 wire example). The generated type says `turnId?: string`, so tsc
-  // cannot catch a `!== undefined` guard letting null through — which minted a
-  // turn keyed `null` and attributed the item and its deltas to it.
-  const shell = { ...item("i-shell", 1), kind: "userShell", turnId: null } as unknown as Item;
+  // SS4.5.6 wire example; `turnId?: string | null` since #23557). A `!==
+  // undefined` guard let null through — which minted a turn keyed `null` and
+  // attributed the item and its deltas to it.
+  const shell = item("i-shell", 1, { kind: "userShell", turnId: null });
   s.apply(itemStarted(shell, "v:2"));
   s.apply(itemDelta("i-shell", "output", "v:3"));
   s.apply(turnCompleted("t-1", "completed", "v:4"));
@@ -468,7 +468,7 @@ test("TEST-012: an unattributed delta whose item turns out turn-less is dropped 
 
   s.apply(turnStarted("t-1", "v:1"));
   s.apply(itemDelta("i-shell", "early", "v:2"));
-  const shell = { ...item("i-shell", 1), kind: "userShell", turnId: null } as unknown as Item;
+  const shell = item("i-shell", 1, { kind: "userShell", turnId: null });
   s.apply(itemStarted(shell, "v:3"));
   s.apply(turnCompleted("t-1", "completed", "v:4"));
 

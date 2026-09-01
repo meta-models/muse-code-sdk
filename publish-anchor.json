@@ -11,21 +11,24 @@
  "artifact": "@muse-code/sdk source closure",
  "source": {
   "repository": "mslsrc/tbh",
-  "commit": "c0462aff7b0d3703bfa70033d0625e57ba9dfdf5",
-  "closure_manifest": "projects/tbh/scripts/sdk-source-closure.json"
+  "commit": "6df00c971944ef00105be74794244180fad180d4",
+  "closure_manifest": "scripts/sdk-source-closure.json (mirrored in-tree)"
  },
- "published_at": "2026-08-31T06:47:00Z",
+ "published_at": "2026-09-01T13:5xZ",
  "closure_paths": [
-  "clients/sdk-ts",
   "clients/msp-ts",
   "clients/sdk-cookbook",
   "clients/sdk-quickstart",
+  "clients/sdk-ts",
+  "package-lock.json",
+  "package.json",
   "schema/msp/msp.d.ts",
   "schema/msp/stable",
   "schema/msp/transcripts",
   "scripts/check-msp-ts-typecheck.sh",
-  "package.json",
-  "package-lock.json"
+  "scripts/publish-sdk-npm.sh",
+  "scripts/sdk-source-closure.json",
+  "CHANGELOG.md"
  ],
  "gates": {
   "profile": "projects/tbh/scripts/check-source-audience.mjs",

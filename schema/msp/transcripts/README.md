@@ -191,7 +191,9 @@ The harness plays the transcript's server side (FR-007):
 - **Matching is structural.** Your frame is compared against the
   transcript's next `client` line as parsed JSON — key order and whitespace
   are free — and on a match the recorded `server` lines that follow are
-  emitted **byte-exactly** from `raw`.
+  emitted **byte-exactly** from `raw`, with one exception: a response to
+  one of your requests comes back under the id YOU put on that request
+  (see id unification below).
 - **Id unification, for the values you mint.** Exactly two declared paths
   are yours: the `id` on your own requests, and `params.commandId`. Those
   do not have to reproduce the recorded values — the first sighting pairs
@@ -217,11 +219,12 @@ The harness plays the transcript's server side (FR-007):
   byte-exactly, so your echo has no freedom. Answering the wrong request,
   or cancelling the wrong turn, is a correlation bug and fails the run
   rather than being unified away.
-- **Server frames are never rewritten.** Responses carry the transcript's
-  recorded ids and UUIDs, not yours (byte-identity is the point of the
-  corpus). To exercise your correlation logic strictly, start your id
-  counter where the transcript does (1), or correlate through the same
-  unification mapping.
+- **Responses answer YOUR request ids** (#25143). A response to one of
+  your requests is written under the id you sent — the other half of the
+  unification pairing above — so your normal correlation logic just works;
+  you never have to reproduce the recorded ids. Every other server byte is
+  the recording: server-initiated requests, notifications, and every
+  server-minted id and UUID inside any frame stay exactly as recorded.
 - **Off-transcript frames are never answered.** A harness that improvises
   replies is a second server implementation (tdd SS7.5); an unexpected
   frame while the script is live stops the run with a typed failure

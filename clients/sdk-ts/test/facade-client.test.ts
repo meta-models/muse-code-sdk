@@ -615,7 +615,7 @@ test(
     const client = await MuseClient.spawn({
       museBin: process.execPath,
       args: ["-e", inlineHostSource("ephemeral")],
-      clientInfo: { name: "sdk-test", version: "0.0.0" },
+      clientInfo: { name: "sdk_test", version: "0.0.0" },
       // The env forward is proved through the handshake: the inline host
       // echoes SDK_TEST_MARK as its serverInfo.version, so a silently dropped
       // `env` spread reads back as "0.0.0" here. `process.env` rides along
@@ -649,7 +649,7 @@ test(
     const client = await MuseClient.spawn({
       museBin: process.execPath,
       args: ["-e", inlineHostSource("ephemeral", "exitAfterSessionStart")],
-      clientInfo: { name: "sdk-test", version: "0.0.0" },
+      clientInfo: { name: "sdk_test", version: "0.0.0" },
     });
     const session = await client.startSession({ workspaceRoot: "/w" });
     session.pending.submitted({ commandId: "cmd-a", input: "hi" });
@@ -684,7 +684,7 @@ test(
     const client = await MuseClient.spawn({
       museBin: process.execPath,
       args: ["-e", inlineHostSource("ephemeral", "wedged")],
-      clientInfo: { name: "sdk-test", version: "0.0.0" },
+      clientInfo: { name: "sdk_test", version: "0.0.0" },
       shutdownTimeoutMs: 0,
       onStderr,
     });
@@ -721,7 +721,7 @@ test(
     const client = await MuseClient.spawn({
       museBin: process.execPath,
       args: ["-e", inlineHostSource("durable", "streamsTurn")],
-      clientInfo: { name: "sdk-test", version: "0.0.0" },
+      clientInfo: { name: "sdk_test", version: "0.0.0" },
     });
     try {
       const session = await client.startSession({ workspaceRoot: "/w" });
@@ -752,7 +752,7 @@ test(
       MuseClient.spawn({
         museBin: process.execPath,
         args: ["-e", inlineHostSource("ephemeral", "initializeError")],
-        clientInfo: { name: "sdk-test", version: "0.0.0" },
+        clientInfo: { name: "sdk_test", version: "0.0.0" },
         onStderr,
       }),
       /initialize refused/,

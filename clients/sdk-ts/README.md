@@ -7,7 +7,22 @@ the Node standard library. A proposed runtime dependency is an owner
 escalation under the #211 O-3 precedent — official protocol-owner SDKs,
 pinned exact, supply-chain reviewed — not a local decision.
 
-**Nothing is published to npm** before 1.0 (tdd D-013).
+## Install
+
+```sh
+npm install @muse-code/sdk
+npm install -D @types/node   # required: the declarations reference Node's stdlib
+```
+
+Node 20 or newer. `@types/node` is a peer of your own toolchain rather than a
+dependency of this package, so a TypeScript consumer installs it explicitly —
+without it the declarations that name `ChildProcess`, `Readable` and friends do
+not resolve. The MSP wire declarations are **bundled into the tarball**, so
+nothing else is needed to typecheck against the published package.
+
+**This is a 0.x release and it is experimental.** There is no stability promise
+before 1.0: any release may change or remove API you are using. Pin an exact
+version, and read the changelog before moving off it.
 
 ## The loop
 

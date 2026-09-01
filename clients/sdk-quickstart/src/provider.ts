@@ -1,6 +1,6 @@
 /**
  * The journey's provider-configured mode: a loopback fake first-party endpoint
- * plus the `HOME` that points `tbh serve` at it.
+ * plus the `HOME` that points `muse serve` at it.
  *
  * This is the TypeScript twin of `FakeMetaEndpoint` in
  * `crates/cli/tests/msp_serve_assembly.rs` (issue #23555). It serves the same
@@ -9,7 +9,7 @@
  *
  *   `GET  <base>/muse-code/models` -> one visible, dated row, so the host's
  *                                     `pick_default_model_from` yields a model.
- *   `POST <base>/responses`        -> a text SSE turn, or ONE scripted `shell`
+ *   `POST <base>/responses`        -> a text SSE turn, or ONE scripted `bash`
  *                                     tool call (see below).
  *   `$HOME/.config/muse/settings.json` -> `endpoint_transport` at that base URL
  *                                         with `auth: "bearer"`.
@@ -54,7 +54,7 @@ export interface FakeProviderOptions {
    * toolset cannot call it.
    */
   readonly scriptedToolCallWhen: readonly string[];
-  /** The command the scripted `shell` tool call asks to run. */
+  /** The command the scripted `bash` tool call asks to run. */
   readonly scriptedToolCallCommand: string;
   /** The text every other completion answers with. */
   readonly replyText: string;
@@ -149,7 +149,9 @@ function completionHead(text: string): string {
   );
 }
 
-/** The head of the scripted `shell` tool call. */
+/** The head of the scripted `bash` tool call (serve composes exec's managed
+ * shell tool family, FR-24146-1: the model-visible tool is `bash`, whose
+ * strict schema also requires `description` under the default titles gate). */
 function toolCallHead(callId: string, command: string): string {
   return (
     sse({
@@ -162,9 +164,9 @@ function toolCallHead(callId: string, command: string): string {
       sequence_number: 2,
       output_index: 0,
       item_id: `fc_${callId}`,
-      name: "shell",
+      name: "bash",
       call_id: callId,
-      arguments: JSON.stringify({ command }),
+      arguments: JSON.stringify({ command, description: "Write the approval artifact" }),
     })
   );
 }

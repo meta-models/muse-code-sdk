@@ -9,7 +9,7 @@
  * against a newer host, so surface the warning and keep going.
  *
  * Two arms:
- *  - the MATCH arm runs against the release-built `tbh serve` and proves the
+ *  - the MATCH arm runs against the release-built `muse serve` and proves the
  *    served fingerprint equals the SDK's pin, so no warning is raised;
  *  - the MISMATCH arm feeds a synthetic newer-host fingerprint through the
  *    same `checkServedFingerprint` the connection machinery uses, and proves
@@ -50,7 +50,7 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
           workspaceRoot: await mkdtemp(join(tmpdir(), "muse-cookbook-ws-")),
           // Announce the cookbook, not the quickstart, in the host's
           // session/audit attribution (PR #24319 review).
-          clientInfo: { name: "muse-sdk-cookbook", version: "0.0.0" },
+          clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
         },
         HANDSHAKE_BUDGET_MS,
       );
