@@ -1,0 +1,33 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "cursor-truncated",
+  "provenance": "hand-authored",
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 1024
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId"
+  ],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754590931000
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake"
+    },
+    {
+      "lines": "4-5",
+      "cite": "tdd SS2.5.2 stale-cursor over-budget arm and SS4.11 trigger (b): typed viewTruncated with cursor and earliestCursor, never history.mode none"
+    }
+  ]
+}

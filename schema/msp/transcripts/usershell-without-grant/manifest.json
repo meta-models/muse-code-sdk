@@ -1,0 +1,38 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "usershell-without-grant",
+  "provenance": "host-generated",
+  "fingerprint": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId"
+  ],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754590931000
+  },
+  "regenerationJustification": {
+    "cite": "specs/210-msp-conformance-testkit/DECISIONS.md 2026-08-17 (owner session 01a011b2-e2d4-7492-8c4a-7e69dd737637); tdd SS1.6 and SS7.5",
+    "rationale": "The seeded live host is authoritative for JSON member order; the compared error value is unchanged.",
+    "trackingIssue": "https://github.com/par-msl/tbh/issues/210"
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake, no capability requested"
+    },
+    {
+      "lines": "4-5",
+      "cite": "tdd SS1.6 full wire example: session/userShell without the grant -> -32010 capabilityRequired (the one capability-gated exchange a v1 host produces; SS7.5 pins this fixture)"
+    }
+  ]
+}

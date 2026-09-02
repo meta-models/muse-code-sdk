@@ -1,0 +1,36 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "handshake-usershell-granted",
+  "provenance": "host-generated",
+  "fingerprint": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id"
+  ],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754590931000
+  },
+  "source": [
+    {
+      "lines": "1",
+      "cite": "tdd SS1.4.1 initialize params (requestedCapabilities registry: userShell); spec 210 O-1 line format"
+    },
+    {
+      "lines": "2",
+      "cite": "tdd SS1.4.1 InitializeResult schema and grant subset rule; real #207 deterministic serde_json wire order captured by #210 TEST-005"
+    },
+    {
+      "lines": "3",
+      "cite": "tdd SS1.4.2 initialized notification (no params)"
+    }
+  ]
+}

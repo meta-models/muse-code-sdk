@@ -1,0 +1,65 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "approval-deny-round-trip",
+  "provenance": "hand-authored",
+  "regenerationJustification": {
+    "cite": "owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
+    "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+  },
+  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId",
+    "params.turnId",
+    "params.itemId",
+    "result.session.sessionId"
+  ],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754590931000
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake"
+    },
+    {
+      "lines": "4-6",
+      "cite": "tdd SS2.5.1 wire example"
+    },
+    {
+      "lines": "7-10",
+      "cite": "tdd SS3.2 and SS4.5.1-SS4.5.2 turn start and user message"
+    },
+    {
+      "lines": "11",
+      "cite": "tdd SS4.5.5 toolCall item/started with approvalId linkage"
+    },
+    {
+      "lines": "12-14",
+      "cite": "tdd SS5.3, SS5.3.2, SS5.3.3, and SS5.14.1 server-minted approval menu plus presentation receipt"
+    },
+    {
+      "lines": "15-17",
+      "cite": "tdd SS5.4, SS5.5, and SS5.14.1 abort choice, accepted command, and durable deny resolution"
+    },
+    {
+      "lines": "18",
+      "cite": "tdd SS4.5.5 and SS5.4 rejected linked tool terminal with model-visible denial"
+    },
+    {
+      "lines": "19-22",
+      "cite": "tdd SS4.5.1, SS4.5.3, SS5.11, and freeze journey 3 turn continuation after typed denial"
+    }
+  ]
+}

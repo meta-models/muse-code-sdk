@@ -1,0 +1,1008 @@
+{
+  "kind": "mspChangelog",
+  "schemaVersion": 1,
+  "acknowledgments": [
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:4a2314eb50d29206907185e6c046d58356bf7b4fded00e676720811405e04514",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Record the owner-approved pageEventTooLarge override kind on the existing -32603 row.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:b90ff0b6fdc5c2fdc3840ab9179fec43bd3464b79fd361f559fe03ce80530e3f",
+      "fingerprintTo": "sha256:4a2314eb50d29206907185e6c046d58356bf7b4fded00e676720811405e04514",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "Existing transcripts do not exercise pageEventTooLarge and remain valid under the owner-approved schema step.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:83017ed5ecd97417cecc84517c4f04d5fc551205f589cf57aa8c81f7623a123c",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry #208's owner-approved -32603 override kinds forward across the merged schema and #207's additive resource-limit error shape, which moved the stable fingerprint.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:c0395b60df76ef03186491db69176f11e96d9f9cfcd006a58893b936d2195884",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the two owner-approved -32603 override kinds (pageEventTooLarge, and outputResultTooLarge per spec 208 D-17214-1) forward onto the merged #208 schema step that combines the paging and readOutput slices.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:7ad9975ef52a3adc529aaace9c0e4aa27e6ab81b4eb9a03dd6bc09bfd1369019",
+      "fingerprintTo": "sha256:c0395b60df76ef03186491db69176f11e96d9f9cfcd006a58893b936d2195884",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "Existing transcripts exercise neither pageEventTooLarge nor outputResultTooLarge and remain valid under the merged owner-approved schema step (spec 208 D-17214-1).",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:f2d32f49f5f436adeaa05b91a23a5867869f5457eff55e1f8b83be507f0dc8f9",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward across the additive typed ErrorData.alignedNextOffset field (FR-016b/D-17214-2, PR #17214 review), which moved the stable fingerprint.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:7ad9975ef52a3adc529aaace9c0e4aa27e6ab81b4eb9a03dd6bc09bfd1369019",
+      "fingerprintTo": "sha256:f2d32f49f5f436adeaa05b91a23a5867869f5457eff55e1f8b83be507f0dc8f9",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "Existing transcripts exercise no misaligned-readOutput error and remain valid under the additive typed ErrorData.alignedNextOffset field (FR-016b/D-17214-2, PR #17214 review).",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:3a27fff40bbeb74304cdf6464d2d01c66bd0946a14b937b47ca82501f06479b1",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 page/output budget override acknowledgment forward across #208 T028's additive -32042 boundary enrollment.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:f2d32f49f5f436adeaa05b91a23a5867869f5457eff55e1f8b83be507f0dc8f9",
+      "fingerprintTo": "sha256:3a27fff40bbeb74304cdf6464d2d01c66bd0946a14b937b47ca82501f06479b1",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "Existing transcripts do not exercise the new -32042 boundary error and remain valid under #208 T028's owner-approved additive enrollment.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:675f686c77122457bc98f61a1259516366c48469b388c67b1ede0db1e2ff588f",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 page/output budget override acknowledgment forward across the #16876 merge that unions #207's backpressured admission error with the landed -32042 boundary family (stable fingerprint moved by the merged variant set).",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:0d12eb5c0be54bb90bb90a9633aa7fb391f193fe2a997d3e69b4f528be2ad98b",
+      "fingerprintTo": "sha256:675f686c77122457bc98f61a1259516366c48469b388c67b1ede0db1e2ff588f",
+      "changes": [
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json"
+      ],
+      "rationale": "The cursor-classification transcripts exercise neither the owner-approved -32603 override kinds, readOutput alignment, the #209 user-input fold shapes, fork boundaries, the -32042 boundary family, nor #207's backpressured admission error, and remain valid across the merged #208/#209 schema steps, the intervening #14653 SourceRange-description step, and the #16876 union step (spec 208 D-17214-1/D-17214-2).",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:15aadd3e2873bfc44066bf24ce7de7b944e44167ee1a243052f4d2ad2fea3df4",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward across #207 T072's additive typed ErrorData.commandId field (D-036): commandRejected errors now pair the rejected commandId with reason per specs/13929-msp-activation/tdd.md SS3.6, which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#207"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:b1e059f62cb74a35f0c838bf495abd6ae54d0dfb004c14ecc57f215da7b54950",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward across #20900's additive view/page serving step: enrolling viewTruncated (-32040) and the typed ErrorData earliestCursor/anchor/latestBoundaryCursor members (tdd SS4.11) moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#20900"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:ef800772169da5ae6197208e7488119e720b37179d8a0395f7614176355d0b69",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward across the FM-005 explicit-null preservation step (PR #21007 review): the ErrorData earliestCursor/anchor/latestBoundaryCursor members are now presence-tracked \u2014 the schema keeps their null arm and the descriptions state the served -32040/-32042 nulls are present on the wire \u2014 moving the stable fingerprint. The -32603 row itself is unchanged.",
+      "trackingIssue": "#20900"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:834e77f84ae9eb70511515adcbf5c3823820da30b61a011abef1d4f9e312c07c",
+      "fingerprintTo": "sha256:ef800772169da5ae6197208e7488119e720b37179d8a0395f7614176355d0b69",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "Re-pin every recorded transcript across the FM-005 presence-tracked widening (PR #21007 review P0): ErrorData anchor/earliestCursor/latestBoundaryCursor gain their null arm so served -32040/-32042 explicit nulls validate. The widening only adds a legal value; every recorded frame remains a valid instance, verified by muse-conformance validate.",
+      "trackingIssue": "#20900"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:97db1995ad5306b3c6e86aebaa9b59c1fa0f91f3249dda6a074e8184346f84f9",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across #14405's additive session/contextUsage notification (the seventh session-state family, tdd SS4.6.6), which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14405"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:9ec35f0f9c22692fdde36524396f5ebf665e10b8b3047c7d293c78dbde850b04",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across the #20900 x #14405 integration bundle (PR #21007's merge of main): the regenerated stable bundle unions #20900's view/page serving surface (viewTruncated -32040, the presence-tracked ErrorData cursor members) with #14405's session/contextUsage family, which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#20900"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:0eeed927ee02c36084f76dca1418767dc61642a74335ac8f6994d801ac923431",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Re-record the owner-approved pageEventTooLarge/outputResultTooLarge override kinds on the existing -32603 row for the #14412 bundle advance (additive turn/retryScheduled notification), recorded against the release baseline after folding origin/main, so the transition covers #14405's session/contextUsage and this lane's turn/retryScheduled together. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14412"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:617d9189fa8cacf2fdefd58bf5341d80a574c8b61c2d6c583917d54de30eef1d",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across the #20900 x #14412 integration bundle (PR #21007's merge of main): the regenerated stable bundle unions #20900's view/page serving surface with #14412's additive turn/retryScheduled notification (and the prior #14405 session/contextUsage family), which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#20900"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:0125e270d404a3e9d3b6df82acacf00f5ec2a2136a0670b0dfbb44301584f420",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across the #19923 error-table advance: the regenerated stable bundle enrols the fifteen SS2/SS3/SS5 error codes a v1 host already emits (-32020..-32024, -32030, -32031, -32050..-32057), which is purely additive but moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#19923"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:c567ced4f48bec0736ad3e244f6d1538669be500c133774bb18dfa14f31ff7a2",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across the #19923 error-table advance: the regenerated stable bundle enrols the fifteen SS2/SS3/SS5 error codes a v1 host already emits (-32020..-32024, -32030, -32031, -32050..-32057), which is purely additive but moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#19923"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:b90ff0b6fdc5c2fdc3840ab9179fec43bd3464b79fd361f559fe03ce80530e3f",
+      "fingerprintTo": "sha256:4a2314eb50d29206907185e6c046d58356bf7b4fded00e676720811405e04514",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json"
+      ],
+      "rationale": "Existing transcripts do not exercise pageEventTooLarge and remain valid under the owner-approved schema step.",
+      "trackingIssue": "#208"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward across the #14409 subagent steering family's additive step (eight subagent/* methods, four param/result types, two additive commandRejected reasons), which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:2e7bd5b38cf2726bd07d89672b54d77ca5b618fa906a975f008dfbef2bdac69f",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/framing-tolerance-cr-input/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-granted/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/usershell-without-grant/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum, PR #21550 review): the retype is classified non-additive, but every recorded ack frame carries \"accepted\"/\"noop\" - both members of the closed vocabulary - so the committed transcripts remain valid instances of the moved bundle. Regeneration is pending the scripted-child fixture host (Stage B, #210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:2e7bd5b38cf2726bd07d89672b54d77ca5b618fa906a975f008dfbef2bdac69f",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward to the #14409 ack-status tightening step's bundle (CommandAcceptedResult.status closed to the SS3.1.2 accepted/noop vocabulary; release-baseline comparison). The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:f55c8620c78ec6f8bb294d556d11d6af231d337051c893874ca703a716a4970c",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum, PR #21550 review), re-minted for the post-#21512-squash rebase bundle (the #21118-union context): the retype is classified non-additive, but every recorded ack frame carries \"accepted\"/\"noop\" - both members of the closed vocabulary - so the committed transcripts remain valid instances of the moved bundle. Regeneration is pending the scripted-child fixture host (Stage B, #210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:f55c8620c78ec6f8bb294d556d11d6af231d337051c893874ca703a716a4970c",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward to the #14409 ack-status tightening step's bundle (CommandAcceptedResult.status closed to the SS3.1.2 accepted/noop vocabulary), regenerated after rebasing onto the merged #21512 parent (the union with main's goal-control, contextUsage, and turn-retry surfaces; release-baseline comparison). The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum, PR #21550 review), re-minted for the bundle step that folds main's #22903 advance into the #14409 union: the retype is classified non-additive, but every recorded ack frame carries \"accepted\"/\"noop\" - both members of the closed vocabulary - so the four committed steering transcripts remain valid instances of the moved bundle. Regeneration is pending the scripted-child fixture host (Stage B, #210, #22343); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward to the bundle unioning the #14409 subagent steering family with main's #22903 advance (release-baseline comparison). The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:130d928e78559b429c64ed923b224161950ed4bc9257bb50903658c1a59057d5",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward across the #19922 spelling-correction bundle re-unioned with main 12c5bce3c348 (PR #23092 merge of main): the regenerated stable bundle applies the ratified -32052/-32053 spelling correction (approvalChoiceInvalid/approvalRequirementStale; #19922 decision record, specs/209-msp-approval-boundary/decisions/19922-approval-kind-spellings.md) on top of the current main wire types, which moved the stable fingerprint. The -32603 row itself gains no new override kind.",
+      "trackingIssue": "#19922"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:f678357e92da8e6958b0daf50c4b88db921d6c34c2346c5394b0fb6367b15632",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum, PR #21550 review), re-minted for the bundle step that unions this restore with main after the served-command-plane registration fold (#22785, PR #22946) advanced the stable fingerprint: the retype is classified non-additive, but every recorded ack frame carries \"accepted\"/\"noop\" - both members of the closed vocabulary - no steering transcript exercises either renamed approval kind, and the fold's remaining changes are additive at both tiers, so the four committed steering transcripts remain valid instances of the moved bundle. Regeneration is pending the scripted-child fixture host (Stage B, #210, #22343); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:7efa8c1b960039eb2de2e68a0cdfd8030a75a872cbef71895dbd8a90e2f653fd",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds forward to the bundle folding main into spec 206 Phase 11 (#22772, PR #23045). The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step. Everything else this fold changes is additive at both tiers: the turn/unqueued notification row with its TurnUnqueuedParams $defs entry, and the three ack $defs types TurnStartResult/CommandAckStatus/TurnStartDisposition, of which CommandAckStatus is the single definition shared with #14409 rather than a second one.",
+      "trackingIssue": "#22772"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:130d928e78559b429c64ed923b224161950ed4bc9257bb50903658c1a59057d5",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 Appendix B approval-error-kind rename (approvalInvalidChoice -> approvalChoiceInvalid plus the requirement-stale kind, landed via #23092): the step is classified non-additive because two ErrorKind variants are removed, but the two committed workflow transcripts carry no ErrorKind instance at all (admission acks and commandRejected reason strings only), so they remain valid instances of the moved bundle. Regeneration is pending the corpus executor's workflow-launching driver (#22866, Stage B/#210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14410"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:7efa8c1b960039eb2de2e68a0cdfd8030a75a872cbef71895dbd8a90e2f653fd",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver re-minted for the next bundle step (main advanced the stable bundle past 130d928e with the same #19922 approval-error-kind rename in the diff to this pin): the step remains non-additive only in ErrorKind variants, and the two committed workflow transcripts carry no ErrorKind instance at all (admission acks and commandRejected reason strings only), so they remain valid instances of the moved bundle. Regeneration is pending the corpus executor's workflow-launching driver (#22866, Stage B/#210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14410"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:f678357e92da8e6958b0daf50c4b88db921d6c34c2346c5394b0fb6367b15632",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle that registers the served command plane (#22785) folded with main. The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#22785"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:f678357e92da8e6958b0daf50c4b88db921d6c34c2346c5394b0fb6367b15632",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness acknowledgment for the #22785 command-plane registration. The step is classified non-additive by exactly one change, /$defs/TurnStartResult/properties/status \u2014 field retyped: rooting the METHODS_V1 turn/start row's result (method::turn::TurnStartResult, status CommandStatus) subsumes the #23045 stopgap root (command::TurnStartResult, status CommandAckStatus), which cannot also be rooted because both types spell schema_name() == \"TurnStartResult\". The retype applies the ratified E2 ruling that server-produced result vocabularies are OPEN (#22946 comment 5427147831, mirrored #22785 comment 5427148159) and matches tdd SS3.1.2, which reserves \"noop\" to session/compact. Every committed transcript remains a valid instance of the moved bundle: all 17 recorded turn/start acks carry status \"accepted\", which CommandStatus admits, and no transcript records \"noop\" on a turn/start ack. command::CommandAckStatus is unchanged and still governs command::CommandAcceptedResult, which stays rooted. Cross-lane coordination for the now-narrower reach of command::CommandAckStatus is recorded on the spec-206 record for #22772.",
+      "trackingIssue": "#22785"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:e3ae47ac1271c980a5282de5abcd5c861e3861acd7960d5bad701a5f32ea0d93",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum), re-minted for the bundle step that enrolls the #208 delivery marker `view/gap` in NOTIFICATIONS_V1 (#24021). This lane's own change is additive at both tiers - one new notification row plus its ViewGapParams type - and adds nothing these four steering transcripts record, so they remain valid instances of the moved bundle for exactly the same reason the previous step's waiver gave. Regeneration is still pending the scripted-child fixture host (Stage B, #210, #22343); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:e3ae47ac1271c980a5282de5abcd5c861e3861acd7960d5bad701a5f32ea0d93",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 Appendix B approval-error-kind rename (approvalInvalidChoice -> approvalChoiceInvalid plus the requirement-stale kind), re-minted for the bundle step that enrolls the #208 delivery marker `view/gap` in NOTIFICATIONS_V1 (#24021). The two committed workflow transcripts carry no ErrorKind instance at all (admission acks and commandRejected reason strings only), and this lane's change is additive - one new notification row plus its ViewGapParams type - so they remain valid instances of the moved bundle. Regeneration is still pending the corpus executor's workflow-launching driver (#22866, Stage B/#210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#22785"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:e3ae47ac1271c980a5282de5abcd5c861e3861acd7960d5bad701a5f32ea0d93",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle that enrolls the #208 delivery marker `view/gap` (#24021). The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step, whose only wire change is the additive `view/gap` notification row and its ViewGapParams type.",
+      "trackingIssue": "#24021"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum), re-minted for the bundle step that adds the #21802 sessionStreamMismatch error kind. The step's own wire change is additive - one new ErrorKind variant and its -32025 code - and no steering transcript carries an ErrorKind instance, so the four committed transcripts remain valid instances of the moved bundle. Regeneration is still pending the scripted-child fixture host (Stage B, #210, #22343); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 Appendix B approval-error-kind rename (approvalInvalidChoice -> approvalChoiceInvalid plus the requirement-stale kind), re-minted for the bundle step that adds the #21802 sessionStreamMismatch error kind. The two committed workflow transcripts carry no ErrorKind instance at all (admission acks and commandRejected reason strings only), and this lane's change is additive - one new ErrorKind variant and its -32025 code - so they remain valid instances of the moved bundle. Regeneration is still pending the corpus executor's workflow-launching driver (#22866, Stage B/#210); this waiver names each committed manifest for exactly this fingerprint step.",
+      "trackingIssue": "#22785"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle that adds the #21802 sessionStreamMismatch kind. The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step. A moved/renamed store now settles as the dedicated -32025 sessionStreamMismatch instead of a generic internal error, so this step REMOVES a reachable -32603 case rather than adding one.",
+      "trackingIssue": "#21802"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:2ca24d36e08f2f2abac430a0637de723efa378f7396c5ada881f9094065b1a99",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle publishing the #23468 owner-ruled ((c), comment 5435303834) null-tolerant params shape: the six E5b client-authored members become optional AND nullable. The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#23468"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:2ca24d36e08f2f2abac430a0637de723efa378f7396c5ada881f9094065b1a99",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 Appendix B approval-error-kind rename (approvalInvalidChoice -> approvalChoiceInvalid plus the requirement-stale kind), re-minted across the #23468 null-tolerant params step (owner ruling (c)) for the two spec-14410 workflow fixtures, which stay pending their workflow-launching driver: their recorded frames exercise neither the renamed approval error kinds, the retyped turn/start ack status (#22785), nor the six null-tolerant members, and they remain valid instances of the moved bundle (muse-conformance validate: 0 failures on this step).",
+      "trackingIssue": "#22785"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:2ca24d36e08f2f2abac430a0637de723efa378f7396c5ada881f9094065b1a99",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum), re-minted across the #23468 null-tolerant params step (owner ruling (c)): the four subagent steering fixtures stay pending their scripted-child driver (#22343), their recorded frames exercise neither the tightened ack status, the renamed approval error kinds, nor the six null-tolerant members, and they remain valid instances of the moved bundle (muse-conformance validate: 0 failures on this step).",
+      "trackingIssue": "#14409"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "fingerprintTo": "sha256:2ca24d36e08f2f2abac430a0637de723efa378f7396c5ada881f9094065b1a99",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/goal-clear-idle/manifest.json",
+        "schema/msp/transcripts/goal-edit-busy-steer/manifest.json",
+        "schema/msp/transcripts/goal-edit-paused-no-wake/manifest.json",
+        "schema/msp/transcripts/goal-interrupt-auto-pause/manifest.json",
+        "schema/msp/transcripts/goal-missing-goal-rejection/manifest.json",
+        "schema/msp/transcripts/goal-pause-idle/manifest.json",
+        "schema/msp/transcripts/goal-replayed-command/manifest.json",
+        "schema/msp/transcripts/goal-resume-wake/manifest.json",
+        "schema/msp/transcripts/goal-set-round-trip/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/model-round-trip/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/provider-failure-turn/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-nested-lifecycle/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/turn-retry-scheduled/manifest.json",
+        "schema/msp/transcripts/turn-unqueued-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-lifecycle/manifest.json"
+      ],
+      "rationale": "D-019 staleness acknowledgment for the #23468 null-tolerant params step (owner ruling (c), comment 5435303834): the six E5b client-authored members (SessionStartParams.providerId/.approvalMode, SessionResumeParams.cursor, SessionListParams.cursor, ModelSelection.profileId, ApprovalDecideParams.feedback) widen from optional non-nullable to optional nullable, which the drift classifier counts non-additive (field retyped). Accepting explicit null only widens the accepted instance set, and no recorded frame spells null for these members, so every listed transcript remains a valid instance of the moved bundle (muse-conformance validate: 0 failures on this step). The listed manifests are the hand-authored and sdk-tolerance fixtures the seeded host cannot regenerate (T061 corpus conversion pending); the three host-generated transcripts are regenerated to the new fingerprint in this same step instead of waived, because the tbh-conformance parity gate requires committed host-generated transcripts to regenerate byte-identically.",
+      "trackingIssue": "#23468"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:8c69d0bda7696ef21896c3870eaf4a8a33ee56ecb99b14f84e04dde158147184",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle that adds the optional history.noneReason member (#19734, D-043). The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:8c69d0bda7696ef21896c3870eaf4a8a33ee56ecb99b14f84e04dde158147184",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness acknowledgment carrying the two workflow manifests' 5cf30d92 pin forward to the bundle that adds the optional history.noneReason member (#19734, D-043 \u2014 an additive change: one optional SessionHistory member plus the open HistoryNoneReason enum). The step classifies non-additive only because the carried 5cf30d92 base predates the #22785 TurnStartResult retype and the ErrorKind narrowing already acknowledged for f678357e; this move introduces no new non-additive change. Both transcripts remain valid instances of the moved bundle, and both now carry the required noneReason on their mode:none frames.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:f0edc4755c3bd3f9485f4f2a5a278a5e9200d99235777831a88185298e6e435d",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening (string -> the closed SS3.1.2 CommandAckStatus enum), re-minted for the merge-integration bundle that folds the optional history.noneReason member (#19734, D-046) into main's view/gap-enrolled bundle (#24021). This step's own change is additive at both tiers - one optional SessionHistory member plus the open HistoryNoneReason enum - and adds no CommandAcceptedResult change; the four subagent transcripts still predate the status tightening exactly as the prior 9ee1819c waivers record.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:f0edc4755c3bd3f9485f4f2a5a278a5e9200d99235777831a88185298e6e435d",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 Appendix B approval-error-kind rename (approvalInvalidChoice -> approvalChoiceInvalid plus the requirement-stale kind), re-minted for the merge-integration bundle that folds the optional history.noneReason member (#19734, D-046) into main's view/gap-enrolled bundle (#24021). The step classifies non-additive only because the carried 5cf30d92 base predates the #22785 TurnStartResult retype and the ErrorKind narrowing already acknowledged for earlier bundles; this move introduces no new non-additive change, and both workflow transcripts carry no ErrorKind instance at all.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:f0edc4755c3bd3f9485f4f2a5a278a5e9200d99235777831a88185298e6e435d",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the merge-integration bundle folding the optional history.noneReason member (#19734, D-046) into main's view/gap-enrolled bundle (#24021). The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:03312c213efd14277a0e0a102f70adeae497a469ca4edf7242f479953ed758b7",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the folded bundle that combines #23468's optional-and-nullable params members with #19734's additive history.noneReason member (D-050). The -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "fingerprintTo": "sha256:03312c213efd14277a0e0a102f70adeae497a469ca4edf7242f479953ed758b7",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/goal-clear-idle/manifest.json",
+        "schema/msp/transcripts/goal-edit-busy-steer/manifest.json",
+        "schema/msp/transcripts/goal-edit-paused-no-wake/manifest.json",
+        "schema/msp/transcripts/goal-interrupt-auto-pause/manifest.json",
+        "schema/msp/transcripts/goal-missing-goal-rejection/manifest.json",
+        "schema/msp/transcripts/goal-pause-idle/manifest.json",
+        "schema/msp/transcripts/goal-replayed-command/manifest.json",
+        "schema/msp/transcripts/goal-resume-wake/manifest.json",
+        "schema/msp/transcripts/goal-set-round-trip/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/model-round-trip/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/provider-failure-turn/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-nested-lifecycle/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/turn-retry-scheduled/manifest.json",
+        "schema/msp/transcripts/turn-unqueued-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-lifecycle/manifest.json"
+      ],
+      "rationale": "D-019 staleness acknowledgment for the folded #23468 + #19734 schema step: the six owner-ruled client-authored params members remain optional AND nullable, while SessionHistory gains the additive optional noneReason member and open HistoryNoneReason enum (D-050). No listed transcript spells null for the retyped params members, and the folded noneReason transcript edits validate against the combined bundle; every listed frame remains a valid instance (muse-conformance validate: 0 failures).",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:03312c213efd14277a0e0a102f70adeae497a469ca4edf7242f479953ed758b7",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening, re-minted for the folded #23468 + #19734 bundle. The four subagent steering transcripts exercise neither the six null-tolerant params members nor SessionHistory.noneReason and remain valid instances of the combined bundle (muse-conformance validate: 0 failures).",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:03312c213efd14277a0e0a102f70adeae497a469ca4edf7242f479953ed758b7",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 approval-error-kind rename and #22785 TurnStartResult retype, re-minted for the folded #23468 + #19734 bundle. The two workflow transcripts exercise neither the six null-tolerant params members nor SessionHistory.noneReason and remain valid instances of the combined bundle (muse-conformance validate: 0 failures).",
+      "trackingIssue": "#19734"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:90552f713d6dac9edcc17985f7b3efb26b5eb3e6685b2a915168e316d0b27eb5",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the bundle step that records the D-052 must-ignore resolution in the SessionConfig description (#23456; description-only at both tiers, atop the folded #23468 + #19734 bundle). The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#23456"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "fingerprintTo": "sha256:90552f713d6dac9edcc17985f7b3efb26b5eb3e6685b2a915168e316d0b27eb5",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/goal-clear-idle/manifest.json",
+        "schema/msp/transcripts/goal-edit-busy-steer/manifest.json",
+        "schema/msp/transcripts/goal-edit-paused-no-wake/manifest.json",
+        "schema/msp/transcripts/goal-interrupt-auto-pause/manifest.json",
+        "schema/msp/transcripts/goal-missing-goal-rejection/manifest.json",
+        "schema/msp/transcripts/goal-pause-idle/manifest.json",
+        "schema/msp/transcripts/goal-replayed-command/manifest.json",
+        "schema/msp/transcripts/goal-resume-wake/manifest.json",
+        "schema/msp/transcripts/goal-set-round-trip/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/model-round-trip/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/provider-failure-turn/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-nested-lifecycle/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/turn-retry-scheduled/manifest.json",
+        "schema/msp/transcripts/turn-unqueued-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-lifecycle/manifest.json"
+      ],
+      "rationale": "D-019 staleness acknowledgment re-minting the #23468 null-tolerant params acknowledgment (owner ruling (c), comment 5435303834) across the bundle step that records the D-052 must-ignore resolution in the SessionConfig description (#23456; description-only at both tiers, atop the folded #23468 + #19734 bundle). The drift to these pins is unchanged in kind: the six E5b client-authored members (SessionStartParams.providerId/.approvalMode, SessionResumeParams.cursor, SessionListParams.cursor, ModelSelection.profileId, ApprovalDecideParams.feedback) widen from optional non-nullable to optional nullable, which the drift classifier counts non-additive (field retyped); accepting explicit null only widens the accepted instance set, no recorded frame spells null for these members, and the description change adds no structural constraint, so every listed transcript remains a valid instance of the moved bundle (muse-conformance validate: 0 failures on this step). The listed manifests are the hand-authored and sdk-tolerance fixtures the seeded host cannot regenerate (T061 corpus conversion pending); the three host-generated transcripts are repinned to the new fingerprint in this same step instead of waived, because their drift from the previous bundle is description-only (additive).",
+      "trackingIssue": "#23456"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:90552f713d6dac9edcc17985f7b3efb26b5eb3e6685b2a915168e316d0b27eb5",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #14409 CommandAcceptedResult.status tightening, re-minted for the bundle step that records the D-052 must-ignore resolution in the SessionConfig description (#23456; description-only at both tiers, atop the folded #23468 + #19734 bundle). The four subagent steering transcripts exercise neither the six null-tolerant params members, SessionHistory.noneReason, nor the SessionConfig description and remain valid instances of the moved bundle (muse-conformance validate: 0 failures).",
+      "trackingIssue": "#23456"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:90552f713d6dac9edcc17985f7b3efb26b5eb3e6685b2a915168e316d0b27eb5",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver for the #19922 approval-error-kind rename and #22785 TurnStartResult retype, re-minted for the bundle step that records the D-052 must-ignore resolution in the SessionConfig description (#23456; description-only at both tiers, atop the folded #23468 + #19734 bundle). The two workflow transcripts exercise neither the six null-tolerant params members, SessionHistory.noneReason, nor the SessionConfig description and remain valid instances of the moved bundle (muse-conformance validate: 0 failures).",
+      "trackingIssue": "#23456"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+      "fingerprintTo": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+      "changes": [
+        "schema/msp/transcripts/approval-deny-round-trip/manifest.json",
+        "schema/msp/transcripts/approval-round-trip/manifest.json",
+        "schema/msp/transcripts/cancel-mid-turn/manifest.json",
+        "schema/msp/transcripts/compact-command-noop/manifest.json",
+        "schema/msp/transcripts/compact-command-round-trip/manifest.json",
+        "schema/msp/transcripts/cursor-never-existed/manifest.json",
+        "schema/msp/transcripts/cursor-retained/manifest.json",
+        "schema/msp/transcripts/cursor-truncated/manifest.json",
+        "schema/msp/transcripts/gap-recovery-reanchor/manifest.json",
+        "schema/msp/transcripts/gap-recovery-splice-fill/manifest.json",
+        "schema/msp/transcripts/goal-clear-idle/manifest.json",
+        "schema/msp/transcripts/goal-edit-busy-steer/manifest.json",
+        "schema/msp/transcripts/goal-edit-paused-no-wake/manifest.json",
+        "schema/msp/transcripts/goal-interrupt-auto-pause/manifest.json",
+        "schema/msp/transcripts/goal-missing-goal-rejection/manifest.json",
+        "schema/msp/transcripts/goal-pause-idle/manifest.json",
+        "schema/msp/transcripts/goal-replayed-command/manifest.json",
+        "schema/msp/transcripts/goal-resume-wake/manifest.json",
+        "schema/msp/transcripts/goal-set-round-trip/manifest.json",
+        "schema/msp/transcripts/handshake-usershell-not-granted/manifest.json",
+        "schema/msp/transcripts/model-round-trip/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-launch/manifest.json",
+        "schema/msp/transcripts/pending-command-ack-reject/manifest.json",
+        "schema/msp/transcripts/provider-failure-turn/manifest.json",
+        "schema/msp/transcripts/reconciliation-refold/manifest.json",
+        "schema/msp/transcripts/resume-after-cursor/manifest.json",
+        "schema/msp/transcripts/session-start/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-approval/manifest.json",
+        "schema/msp/transcripts/snapshot-suffix-pending-userinput/manifest.json",
+        "schema/msp/transcripts/subagent-nested-lifecycle/manifest.json",
+        "schema/msp/transcripts/text-run-single-turn/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-item-kind/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-state-method/manifest.json",
+        "schema/msp/transcripts/tolerance-unknown-stream-kind/manifest.json",
+        "schema/msp/transcripts/turn-retry-scheduled/manifest.json",
+        "schema/msp/transcripts/turn-unqueued-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-answer-round-trip/manifest.json",
+        "schema/msp/transcripts/userinput-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-lifecycle/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver re-minted for the merged #23557 Item.turnId null-arm bundle folded with main post-#23942 (D-052): the pinned transcripts exercise neither the Item.turnId retype nor the members changed by the folds they already acknowledged, and remain valid instances of the merged bundle.",
+      "trackingIssue": "#23557"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:5cf30d9223199709016d74f98f39e23a1a8386a9c0869aaf49a1f773dd516bd9",
+      "fingerprintTo": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+      "changes": [
+        "schema/msp/transcripts/workflow-cancel-round-trip/manifest.json",
+        "schema/msp/transcripts/workflow-child-control-skip/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver re-minted for the merged #23557 Item.turnId null-arm bundle folded with main post-#23942 (D-052): the pinned transcripts exercise neither the Item.turnId retype nor the members changed by the folds they already acknowledged, and remain valid instances of the merged bundle.",
+      "trackingIssue": "#23557"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:9ee1819cc72261ae6e5b8c7f944985be6bf51050f9d194214c8e664a5b2610d5",
+      "fingerprintTo": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+      "changes": [
+        "schema/msp/transcripts/subagent-close-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-sendmessage-round-trip/manifest.json",
+        "schema/msp/transcripts/subagent-steering-duplicate-replay/manifest.json",
+        "schema/msp/transcripts/subagent-steering-rejection/manifest.json"
+      ],
+      "rationale": "D-019 staleness waiver re-minted for the merged #23557 Item.turnId null-arm bundle folded with main post-#23942 (D-052): the pinned transcripts exercise neither the Item.turnId retype nor the members changed by the folds they already acknowledged, and remain valid instances of the merged bundle.",
+      "trackingIssue": "#23557"
+    },
+    {
+      "kind": "changelogAcknowledgment",
+      "fingerprintFrom": "sha256:28ef2488d457d2cd071a3d620ba3821711f0a5120b32dd7408fbf465c1500402",
+      "fingerprintTo": "sha256:cfd31ee77d78fdada9febc4edccd29b0434ff8f6bf157c7c03fd0ecfcbc29f5a",
+      "changes": [
+        "/errors/-32603"
+      ],
+      "rationale": "Carry the owner-approved -32603 override kinds (D-036) forward to the merged bundle that keeps Item.turnId's null arm (#23557) folded with main post-#23942. The release-baseline comparison reports /errors/-32603 non-additive on every fingerprint move because each carry binds to exactly one (fingerprintFrom, fingerprintTo) pair; the -32603 row itself gains no new override kind in this step.",
+      "trackingIssue": "#23557"
+    }
+  ]
+}

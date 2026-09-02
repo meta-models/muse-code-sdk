@@ -1,0 +1,514 @@
+{
+  "$defs": {
+    "CapabilityName": {
+      "description": "A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry\njoins this domain as an additive open-enum extension when SS6 un-defers\n(#13929, Scenario 5 AS-3) — closed would make that a retype.",
+      "enum": [
+        "userShell"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ClientCapabilities": {
+      "description": "The client's requested capability posture (SS1.4.1). Every member\ndefaults; an absent `capabilities` object means all defaults.",
+      "properties": {
+        "experimentalApi": {
+          "description": "Opt into experimental methods, fields, and variants (default `false`).",
+          "type": "boolean"
+        },
+        "optOutNotificationMethods": {
+          "description": "Exact notification method names the client declines; no wildcards;\nunknown names accepted and ignored; the protected set (SS1.7) cannot\nbe opted out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requestedCapabilities": {
+          "description": "Names from the capability registry. Unknown entries are not an error\nand simply do not appear in `grantedCapabilities` — which is why this\nis a list of free strings rather than of registry names.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ClientInfo": {
+      "description": "Client identification inside `initialize` params (SS1.4.1). Diagnostics\nand telemetry attribution only; never an authority claim (SS1.10).",
+      "properties": {
+        "name": {
+          "description": "Machine identifier, `[a-z0-9_]+` (SS1.4.1).",
+          "pattern": "^[a-z0-9_]+$",
+          "type": "string"
+        },
+        "title": {
+          "description": "Human display name.",
+          "type": "string"
+        },
+        "version": {
+          "description": "Client version string.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ErrorData": {
+      "description": "The optional `error.data` object (SS1.6). All members additive-optional;\n`kind` is always present when `data` is.",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/CapabilityName",
+          "description": "The missing capability, on `capabilityRequired` errors. Typed on the\ngrantable registry, so `rawLog` is outside the v1 domain and joins it\nas an additive open-enum extension when SS6 un-defers (TEST-009)."
+        },
+        "descriptor": {
+          "description": "SS1.5.1 descriptor, on `experimentalRequired` errors.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Free-form additive detail.",
+          "properties": {},
+          "type": "object"
+        },
+        "kind": {
+          "$ref": "#/$defs/ErrorKind",
+          "description": "The stable camelCase category clients branch on."
+        },
+        "limitBytes": {
+          "description": "The exceeded byte limit, on `inputTooLarge` errors.",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "Failure detail vocabulary (e.g. `\"missingAnchor\"` on `notFound` for a\nmissing view-cursor anchor).",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether retrying can succeed (e.g. `overloaded`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ErrorKind": {
+      "description": "A stable `error.data.kind` category (SS1.6): camelCase, the value clients\nbranch on. Open: SS2–SS5 lanes add kinds additively as their methods land\n(Appendix B already registers them), and the spec's edge-case rule makes a\nnew `kind` additive only because this domain is declared open.",
+      "enum": [
+        "parseError",
+        "invalidRequest",
+        "notInitialized",
+        "alreadyInitialized",
+        "methodNotFound",
+        "invalidParams",
+        "experimentalRequired",
+        "internal",
+        "overloaded",
+        "inputTooLarge",
+        "capabilityRequired",
+        "notFound",
+        "interrupted",
+        "cancelled"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ErrorObject": {
+      "description": "The `error` member of an error response (SS1.2 §2.4).",
+      "properties": {
+        "code": {
+          "description": "Registry code (Appendix B). Typed as a plain integer on the wire; the\nvalue domain is the registry below (INV-018).",
+          "type": "integer"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData",
+          "description": "Structured detail; carries `kind` when present."
+        },
+        "message": {
+          "description": "Human-readable message. Never a branch point (SS1.6).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "description": "An error response frame (SS1.2 §2.4). Exactly one of `result` or `error`\nappears on a response; this type is the `error` half.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorObject",
+          "description": "The error payload (Appendix B registry)."
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Echo of the request id; `null` **only** for an unrecoverable parse\nerror whose offending id could not be recovered (SS1.3). Always\nserialized, so `None` renders as `null` rather than being omitted —\nrequired-but-nullable (see [`require_nullable_id`])."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "The literal `\"2.0\"`."
+        }
+      },
+      "required": [
+        "error",
+        "id",
+        "jsonrpc"
+      ],
+      "type": "object"
+    },
+    "InitializeParams": {
+      "description": "`initialize` request params (SS1.4.1).",
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/ClientCapabilities",
+          "description": "Capability posture; absent means all defaults."
+        },
+        "clientInfo": {
+          "$ref": "#/$defs/ClientInfo",
+          "description": "Client identification."
+        }
+      },
+      "required": [
+        "clientInfo"
+      ],
+      "type": "object"
+    },
+    "InitializeResult": {
+      "description": "The `initialize` result (SS1.4.1).",
+      "properties": {
+        "experimentalApi": {
+          "description": "Echo of the effective negotiated experimental setting.",
+          "type": "boolean"
+        },
+        "grantedCapabilities": {
+          "description": "Subset of the requested capabilities, plus policy-implicit grants.\nFixed for the connection lifetime (INV-009).",
+          "items": {
+            "$ref": "#/$defs/CapabilityName"
+          },
+          "type": "array"
+        },
+        "museHome": {
+          "description": "Absolute path of the muse home directory.",
+          "type": "string"
+        },
+        "platformFamily": {
+          "$ref": "#/$defs/PlatformFamily",
+          "description": "Server runtime platform family."
+        },
+        "platformOs": {
+          "$ref": "#/$defs/PlatformOs",
+          "description": "Server operating system."
+        },
+        "schema": {
+          "$ref": "#/$defs/SchemaInfo",
+          "description": "Envelope schema version and stable-surface fingerprint."
+        },
+        "serverInfo": {
+          "$ref": "#/$defs/ServerInfo",
+          "description": "Server identification."
+        },
+        "userAgent": {
+          "description": "Exact user-agent string presented to upstream model providers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "experimentalApi",
+        "grantedCapabilities",
+        "museHome",
+        "platformFamily",
+        "platformOs",
+        "schema",
+        "serverInfo",
+        "userAgent"
+      ],
+      "type": "object"
+    },
+    "JsonRpcVersion": {
+      "description": "The literal `\"2.0\"` every frame carries (SS1.2).",
+      "enum": [
+        "2.0"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "Notification": {
+      "description": "A notification frame, either direction (SS1.2 §2.2). No `id`; a\nnotification is never answered.",
+      "properties": {
+        "emittedAtMs": {
+          "description": "Emission time in Unix milliseconds, recorded once at emission;\nserver→client notifications only (SS1.2.5). Optional on the wire so\ndecoders tolerate older servers.",
+          "type": "integer"
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "The literal `\"2.0\"`."
+        },
+        "method": {
+          "description": "Notification method name.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Method-specific parameters; omitted entirely when empty.",
+          "properties": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "type": "object"
+    },
+    "PlatformFamily": {
+      "description": "The server runtime's platform family (SS1.4.1); may differ from the\nclient's. Closed: SS1.4.1 fixes the value set, so widening it is a\ndeliberate, gate-visible protocol change rather than a silent addition\n(a later `Closed`→`Open` flip is itself additive, data-model.md §5.2).",
+      "enum": [
+        "unix",
+        "windows"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "PlatformOs": {
+      "description": "The server's operating system (SS1.4.1). Closed, for the same reason as\n[`PlatformFamily`].",
+      "enum": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "Request": {
+      "description": "A request frame, either direction (SS1.2 §2.1).",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "Client-chosen id, unique among that client's in-flight requests."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "The literal `\"2.0\"`."
+        },
+        "method": {
+          "description": "Slash-namespaced camelCase method name.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Method-specific parameters; omitted entirely when empty, never `null`.",
+          "properties": {},
+          "type": "object"
+        },
+        "trace": {
+          "$ref": "#/$defs/TraceContext",
+          "description": "W3C trace passthrough (SS1.8); requests only."
+        }
+      },
+      "required": [
+        "id",
+        "jsonrpc",
+        "method"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "description": "A request id (SS1.3): client-chosen string or integer. `1` and `\"1\"` do\nnot compare equal; each direction owns its own id space.",
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "SchemaInfo": {
+      "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
+      "properties": {
+        "fingerprint": {
+          "description": "`sha256:<64 lower hex>` content hash of this server binary's\nstable-surface bundle (INV-003). A mismatch is a warning condition,\nnot an error (SS1.4.1).",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "version": {
+          "description": "Envelope schema version; `1` in v1, expected to stay `1` for a long\ntime (SS1.4.1).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ServerInfo": {
+      "description": "Server identification inside [`InitializeResult`].",
+      "properties": {
+        "name": {
+          "description": "Server name.",
+          "type": "string"
+        },
+        "version": {
+          "description": "Server version string.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "SuccessResponse": {
+      "description": "A success response frame (SS1.2 §2.3).",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "Echo of the request id."
+        },
+        "jsonrpc": {
+          "$ref": "#/$defs/JsonRpcVersion",
+          "description": "The literal `\"2.0\"`."
+        },
+        "result": {
+          "description": "Always a JSON object, possibly `{}`, never a bare scalar — so every\nresult can grow additive-optional members (SS1.2).",
+          "properties": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "jsonrpc",
+        "result"
+      ],
+      "type": "object"
+    },
+    "TraceContext": {
+      "description": "Optional W3C trace context, on requests in both directions only — never on\nresponses or notifications (SS1.8).",
+      "properties": {
+        "traceparent": {
+          "description": "W3C `traceparent` string; receivers that do not trace ignore it.",
+          "type": "string"
+        },
+        "tracestate": {
+          "description": "W3C `tracestate` string.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "capabilities": {
+    "grantable": [
+      "userShell"
+    ],
+    "reserved": [
+      {
+        "name": "rawLog",
+        "reference": "#13929"
+      }
+    ]
+  },
+  "description": "Muse Session Protocol (MSP) v1 wire schema bundle, rendered from the tbh-protocol schema model (spec 206). Generated; do not edit.",
+  "errors": [
+    {
+      "code": -32700,
+      "kind": "parseError",
+      "retryable": false
+    },
+    {
+      "code": -32600,
+      "kind": "invalidRequest",
+      "overrideKinds": [
+        "notInitialized",
+        "alreadyInitialized"
+      ],
+      "retryable": false
+    },
+    {
+      "code": -32601,
+      "kind": "methodNotFound",
+      "overrideKinds": [
+        "experimentalRequired"
+      ],
+      "retryable": false
+    },
+    {
+      "code": -32602,
+      "kind": "invalidParams",
+      "overrideKinds": [
+        "experimentalRequired"
+      ],
+      "retryable": false
+    },
+    {
+      "code": -32603,
+      "kind": "internal",
+      "retryable": false
+    },
+    {
+      "code": -32001,
+      "kind": "overloaded",
+      "retryable": true
+    },
+    {
+      "code": -32002,
+      "kind": "inputTooLarge",
+      "retryable": false
+    },
+    {
+      "code": -32010,
+      "kind": "capabilityRequired",
+      "retryable": false
+    },
+    {
+      "code": -32011,
+      "kind": "notFound",
+      "retryable": false
+    },
+    {
+      "code": -32013,
+      "kind": "interrupted"
+    },
+    {
+      "code": -32014,
+      "kind": "cancelled"
+    }
+  ],
+  "methods": {
+    "initialize": {
+      "description": "Opens the connection: client identification, capability requests, and the experimental opt-in; the reply carries the envelope schema version and the stable-surface fingerprint (SS1.4.1).",
+      "params": {
+        "$ref": "#/$defs/InitializeParams"
+      },
+      "result": {
+        "$ref": "#/$defs/InitializeResult"
+      }
+    }
+  },
+  "notifications": {
+    "initialized": {
+      "description": "Client-to-server notification closing the handshake; no params (SS1.4.2)."
+    }
+  },
+  "reserved": [
+    {
+      "identifier": "-32060..-32069",
+      "reference": "#13929 — SS6 raw log & projections error block, deferred whole; a v1 host never emits it"
+    },
+    {
+      "identifier": "-32012",
+      "reference": "SS1.6: deliberately never assigned; command_id_conflict is commandRejected"
+    },
+    {
+      "identifier": "deprecationNotice",
+      "reference": "#13929 — reserved notification, no producer before 1.0"
+    }
+  ]
+}
