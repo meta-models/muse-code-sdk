@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { spawnMspConnection } from "../src/index.js";
+import type { ConnectionOptions } from "../src/index.js";
 import type { InitializeParams } from "@muse-code/msp";
 
 import { readTapPids, readWireLog, runOracle, tappedSpawnOptions } from "../qa/index.js";
@@ -38,7 +39,10 @@ interface DriveResult {
  * Drive the scripted host through the SDK's PUBLIC surface only, recording
  * what a README-level integrator can see. No SDK internals are touched.
  */
-async function driveScriptedHost(arm: string): Promise<DriveResult> {
+async function driveScriptedHost(
+  arm: string,
+  connection?: ConnectionOptions,
+): Promise<DriveResult> {
   const workDir = await mkdtemp(join(tmpdir(), "muse-qa-tap-"));
   const tapFile = join(workDir, "wire.tap.jsonl");
   const observations: ApiObservation[] = [];
@@ -48,6 +52,7 @@ async function driveScriptedHost(arm: string): Promise<DriveResult> {
       tapFile,
       command: process.execPath,
       args: [SCRIPTED_HOST, arm],
+      ...(connection === undefined ? {} : { connection }),
     }),
   );
   handshake.onNotification((notification) => {
@@ -116,6 +121,17 @@ test("QA-TEST-001: the tap records BOTH directions of real child traffic", async
     assert.equal(run.wire.trailing.hostToClient, "");
   } finally {
     await rm(workDir, { recursive: true, force: true });
+  }
+});
+
+test("TEST-26363-1: spawn forwards ConnectionOptions to the real connection", async () => {
+  const driven = await driveScriptedHost("faithful", { mintRequestId: () => "x1" });
+  try {
+    const wire = await readWireLog(driven.tapFile);
+    assert.equal(wire.outbound[0]?.json?.["method"], "initialize");
+    assert.equal(wire.outbound[0]?.json?.["id"], "x1");
+  } finally {
+    await rm(driven.workDir, { recursive: true, force: true });
   }
 });
 

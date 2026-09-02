@@ -232,7 +232,19 @@ export type FoldOutcome =
   | { readonly kind: "item"; readonly outcome: ItemApplyOutcome }
   | { readonly kind: "itemDelta"; readonly outcome: DeltaApplyOutcome }
   | { readonly kind: "turn"; readonly turnId: string; readonly state: TurnState }
-  | { readonly kind: "sessionState"; readonly outcome: StateApplyOutcome<SessionStateParams> }
+  /**
+   * `outcome` is sealed for the same reason every getter is (D-14): the
+   * store hands back the very object it just stored, so an unsealed
+   * `current` is a live handle into fold state — `out.outcome.current
+   * .modelId = "..."` would mutate the fold with no cast and break INV-002
+   * replay equality. This is the one `FoldOutcome` arm that carries a
+   * params object; every other arm carries only ids, numbers, and booleans,
+   * which is why D-14 missed it (#23556 item 2).
+   */
+  | {
+      readonly kind: "sessionState";
+      readonly outcome: DeepReadonly<StateApplyOutcome<SessionStateParams>>;
+    }
   | { readonly kind: "approvalPending"; readonly approvalId: string }
   | {
       readonly kind: "approvalResolved";

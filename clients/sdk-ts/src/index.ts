@@ -47,6 +47,13 @@ export type { StateApplyOutcome, StateValue } from "./fold/state-store.js";
 
 export { SessionFold } from "./fold/session-fold.js";
 export type {
+  /**
+   * Exported because it is CONSUMER SURFACE, not an internal pin: every
+   * getter on `SessionFold` returns `DeepReadonly<…>`, so a consumer naming
+   * one of those values needs the type. Without it they are stuck with
+   * `ReturnType<>` gymnastics or a deep `dist/` import (#23556 item 4).
+   */
+  DeepReadonly,
   FoldItems,
   FoldOutcome,
   FoldSessionState,

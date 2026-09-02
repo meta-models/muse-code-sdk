@@ -47,7 +47,15 @@ import type {
 } from "@muse-code/msp";
 
 import { SessionFold } from "../src/index.js";
-import type { FoldItems, SessionStateMethod, ViewEvent } from "../src/index.js";
+// `DeepReadonly` comes from the package index, not a deep `dist/` path —
+// which is only possible because #23556 item 4 re-exported it. This import
+// is itself the consumer-surface proof for that item.
+import type {
+  DeepReadonly,
+  FoldItems,
+  SessionStateMethod,
+  ViewEvent,
+} from "../src/index.js";
 
 const SOURCE: SourceRange = {
   first: { id: "e-1", sequence: 1 },
@@ -868,9 +876,14 @@ test("session-state events fold into the store keyed by their method name", () =
   };
   fold.apply({ method: "session/goalChanged", params: goal });
 
-  // NO CAST. `get` is generic in the family, so this is already typed as the
-  // model family's params — the cast that used to be here was the tell that
-  // the return was still the 7-way union (PR #23087 review round).
+  // D-15 PIN — DO NOT ADD A CAST, DO NOT DELETE AS REDUNDANT.
+  // This un-cast read IS the D-15 guard. `get` is generic in the family, so
+  // it is already typed as the model family's params; revert `get` to the
+  // 7-way union and THIS LINE is the TS2339. The wrong-family
+  // `@ts-expect-error` probes below do NOT pin D-15 — property access on the
+  // union is an error either way, so they stay consumed. Verified by mutation
+  // (#23556 item 1): reverting the generic `get` yields TS2339 x2 here and at
+  // the sibling marker in the wrong-family test, and ZERO TS2578.
   assert.equal(fold.sessionState.get("session/modelChanged")?.modelId, "muse-large");
   assert.ok(
     fold.sessionState.has("session/goalChanged"),
@@ -1053,14 +1066,23 @@ test("a wrong-family read is a compile error, not a silent wrong shape", () => {
   };
   fold.apply({ method: "session/modelChanged", params: model });
 
-  // The family key narrowing closed the ARGUMENT side; this closes the return
+  // The family key narrowing closed the ARGUMENT side; these close the return
   // side. While `get` returned the 7-way union, reading one family as another
   // was a legal narrowing cast and silently produced the wrong shape.
+  //
+  // THESE TWO PROBES ARE NOT THE D-15 PIN, despite reading like it. Property
+  // access on the 7-way union is an error with or without the generic `get`,
+  // so reverting `get` leaves them CONSUMED, not unused — they contribute
+  // zero TS2578. What they document is the wrong-family intent; what actually
+  // pins D-15 is the un-cast read marked below (#23556 item 1).
   // @ts-expect-error — `totalTokens` is the tokenUsage family, not modelChanged
   fold.sessionState.get("session/modelChanged")?.totalTokens;
   // @ts-expect-error — `modelId` is not on the goal family
   fold.sessionState.get("session/goalChanged")?.modelId;
 
+  // D-15 PIN — DO NOT ADD A CAST, DO NOT DELETE AS REDUNDANT.
+  // Sibling of the marked read in the state-families test; reverting the
+  // generic `get` makes this the second of the two TS2339s.
   assert.equal(fold.sessionState.get("session/modelChanged")?.modelId, "muse-large");
 });
 
@@ -1075,24 +1097,61 @@ test("snapshot getters are deep-readonly: a field write is a compile error", () 
     viewCursor: "v:s:4",
   };
   fold.apply({ method: "item/started", params: started });
+  // A FAILED turn, so `turn()`/`turns()` have a stored `TurnError` for the
+  // nested probes to write into; `a-1`/`u-1` stay pending for the pending
+  // probes, so the retiring pair below is deliberately a SECOND approval and
+  // prompt rather than those two.
+  fold.apply(
+    turnCompleted("turn-2", "failed", "v:s:5", {
+      kind: "modelError",
+      message: "boom",
+      retryable: false,
+    }),
+  );
+  fold.apply(approvalRequested("a-2", "v:s:6"));
+  fold.apply(approvalResolved("a-2", "approved", "v:s:7"));
+  fold.apply(userInputRequested("u-2", "v:s:8"));
+  fold.apply(userInputSettled("u-2", "answered", "v:s:9"));
 
   // Read the true values FIRST. The probes below really do write — see the
   // note under them — so asserting after them would assert the corruption.
   assert.equal(fold.pendingUserInputs()[0]?.userInputId, "u-1");
   assert.equal(fold.turn("turn-1")?.state, "running");
   assert.equal(fold.items.get("i-1")?.revision, 5);
+  assert.equal(fold.turn("turn-2")?.error?.message, "boom");
+  assert.equal(fold.resolvedApprovals()[0]?.decision, "approved");
+  assert.equal(fold.settledUserInputs()[0]?.outcome, "answered");
 
-  // Hiding the store MUTATORS was only half the seal. These accessors hand
-  // back the fold's own stored objects and the generated wire types carry no
-  // `readonly`, so each of these writes used to typecheck AND STICK — the
-  // item one defeats the INV-003 revision guard outright, and all of them
-  // break INV-002 replay equality through the read surface.
+  // Hiding the store MUTATORS was only half the seal. These accessors reach
+  // the fold's own stored objects and the generated wire types carry no
+  // `readonly`, so each of these writes used to typecheck.
+  //
+  // WHETHER A WRITE STICKS DEPENDS ON DEPTH, and the seal is worth having
+  // either way. `turns()`/`turn()` build a fresh `#turnSnapshot` per call, so
+  // a TOP-LEVEL write there lands on a throwaway — which is exactly why the
+  // probe below is NESTED, into the stored `TurnError`. The item and
+  // approval writes reach stored objects directly and do stick, defeating
+  // the INV-003 revision guard and INV-002 replay equality respectively.
+  // (An earlier revision of this comment claimed all of them stick; #23556
+  // item 3 caught that.)
+  //
+  // A NESTED probe is also the only kind that pins anything on a field the
+  // fold already declares `readonly` itself: `TurnEntry.state` is natively
+  // readonly, so an `@ts-expect-error` on it is consumed with or without
+  // `DeepReadonly` and pins nothing. Do not "simplify" any nested probe here
+  // to a top-level one — that silently un-pins the seal.
   // @ts-expect-error — pendingUserInputs() elements are deep-readonly
   fold.pendingUserInputs()[0]!.userInputId = "hijacked";
   // @ts-expect-error — pendingApprovals() entries are deep-readonly, nested included
   fold.pendingApprovals()[0]!.requested.toolName = "hijacked";
-  // @ts-expect-error — turn entries are deep-readonly
-  fold.turn("turn-1")!.state = "settled";
+  // @ts-expect-error — turn() is deep-readonly; NESTED (see above), never `.state`
+  fold.turn("turn-2")!.error!.message = "hijacked";
+  // @ts-expect-error — turns() elements too, not just turn(); NESTED for the same reason
+  fold.turns()[1]!.error!.message = "hijacked";
+  // @ts-expect-error — resolvedApprovals() elements are deep-readonly
+  fold.resolvedApprovals()[0]!.decision = "denied";
+  // @ts-expect-error — settledUserInputs() elements are deep-readonly
+  fold.settledUserInputs()[0]!.outcome = "cancelled";
   // @ts-expect-error — items are deep-readonly: this one defeated the revision guard
   fold.items.get("i-1")!.revision = 0;
   // @ts-expect-error — list() elements too, not just get()
@@ -1108,13 +1167,58 @@ test("snapshot getters are deep-readonly: a field write is a compile error", () 
   assert.equal(fold.items.get("i-1")?.revision, 0);
 });
 
+test("apply()'s sessionState outcome is deep-readonly (#23556 item 2)", () => {
+  // The store returns the very object it just stored, so before the seal
+  // `out.outcome.current.modelId = "HIJACKED"` mutated fold state with zero
+  // casts — the one `FoldOutcome` arm carrying a params object, which is why
+  // D-14's getter sweep missed it. Every other arm carries only ids,
+  // numbers, and booleans.
+  const fold = new SessionFold();
+  const model: SessionModelChangedParams = {
+    modelId: "muse-large",
+    sessionId: SESSION,
+    source: "user",
+    sourceRange: SOURCE,
+    viewCursor: "v:s:1",
+  };
+  const out = fold.apply({ method: "session/modelChanged", params: model });
+  assert.equal(out.kind, "sessionState");
+  if (out.kind !== "sessionState") return;
+
+  // NARROW BY GUARD, NEVER BY CAST. Two traps stacked here, both of them the
+  // #23556 item 1 lesson:
+  //   1. `current` is the 7-way family union, so a bare `.modelId` is a
+  //      TS2339 that consumes the directive whether or not the seal exists;
+  //   2. narrowing with `as DeepReadonly<…>` would pin the CAST instead —
+  //      the write then fails because the annotation says readonly, sealed
+  //      outcome or not. (First draft of this test did exactly that; the
+  //      mutation run below is what caught it.)
+  // An `in` guard preserves whatever modifier the outcome type really has,
+  // so the directive is consumed by the seal and by nothing else.
+  const current = out.outcome.current;
+  assert.ok(current !== null && "modelId" in current);
+  // @ts-expect-error — the sessionState outcome is deep-readonly
+  current.modelId = "HIJACKED";
+
+  // `FoldSessionState.get` is the fifth unpinned read path (#23556 item 3);
+  // it narrows by family already, so no cast is needed here.
+  // @ts-expect-error — sessionState.get(...) is deep-readonly
+  fold.sessionState.get("session/modelChanged")!.modelId = "HIJACKED";
+});
+
 test("the items surface is an ALLOWLIST: it cannot fail open as the store grows", () => {
   // `Omit` never checks its keys against the type, so a renamed mutator
   // (`seed` -> `reseed`) re-appears under the new name and any mutator added
-  // to `ItemStore` later lands on this exported surface silently. `Pick`
-  // constrains its keys to `keyof ItemStore`, so a rename is a compile error
-  // at the definition and a new member simply never enters. This pins the
-  // resulting key set so widening it is a deliberate edit, not a side effect.
+  // to `ItemStore` later lands on this exported surface silently.
+  //
+  // `FoldItems` was a `Pick` for exactly one round. D-14 replaced it with an
+  // EXPLICIT INTERFACE, because `Pick` copies member types verbatim and so
+  // cannot rewrite `get`/`list` to return `DeepReadonly`. The allowlist
+  // property therefore no longer comes from `Pick` constraining its keys to
+  // `keyof ItemStore` — it comes from THIS test: the `Exactly<>` assertion
+  // below is what makes widening the key set a deliberate edit rather than a
+  // side effect. (#23556 item 5 — the old `Pick` explanation outlived the
+  // `Pick`, here and in sdk-surface.md.)
   type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
   const itemKeysArePinned: Exactly<
     keyof FoldItems,
