@@ -1,0 +1,173 @@
+# Publish `muse-code-msp` and `muse-code-sdk` to PyPI.
+#
+# This workflow is a THIN CALLER, the publish-npm.yml pattern. It holds no
+# publishing logic: every gate (tree anchor, manifest identity, build, wheel
+# audit, per-wheel compatibility rows) lives in
+# `python/scripts/publish-sdk-pypi.sh`, which is authored in the producing
+# repository and mirrored here as part of the Python source closure. The
+# script stages the audited distributions and never contacts a registry; the
+# upload step below is the only network-touching arm.
+#
+# Prepared, not armed:
+#
+#  1. `workflow_dispatch` is the only trigger. No push, no tag, no schedule.
+#  2. `dry_run` defaults to TRUE, so a run started with the defaults invokes
+#     the script in its build-only mode and publishes nothing.
+#  3. There is no credential here. Authentication is PyPI trusted publishing
+#     (OIDC): `id-token: write` on each publishing job is the entire
+#     credential story, and no token or `secrets.*` appears in this file.
+#
+# Two jobs, one per package, because PyPI pending publishers discriminate by
+# ENVIRONMENT: one (owner, repository, workflow, environment) tuple maps to
+# one project name. The registered tuples this file MUST match exactly
+# (mslsrc/tbh#29534, owner receipts 2026-09-14):
+#
+#   muse-code-msp -> environment `pypi`
+#   muse-code-sdk -> environment `pypi-sdk`
+#
+# muse-code-msp publishes FIRST: the facade is meaningless without the wire
+# types. Each job runs the full gate script (the gates cover both packages,
+# all-or-nothing) and uploads only its own package's distributions — the
+# OIDC token an environment mints is valid only for its bound project.
+#
+# The publish act is owner-run (producing repo: ADR 638 D6; permitted by
+# D-065, ADR 29534 D1). After a real publish, commit the printed per-wheel
+# rows to clients/sdk-py/published-wheels.json UPSTREAM (the publish
+# integration commit) — never by hand-editing values.
+
+name: publish-pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every gate and build only. Set to false to publish."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-pypi
+  cancel-in-progress: false
+
+jobs:
+  muse-code-msp:
+    runs-on: ubuntu-latest
+    # A wall, not a budget: two pure-Python offline builds; a longer run has
+    # hung and is not coming back.
+    timeout-minutes: 15
+    # The registered pending-publisher environment for muse-code-msp.
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The script is a closure path mirrored from the producing repository.
+      # If a republish ever drops it, say so in one line instead of failing
+      # later with a confusing "command not found".
+      - name: Check the publish script was mirrored
+        run: |
+          if [ ! -x python/scripts/publish-sdk-pypi.sh ]; then
+            echo "::error::python/scripts/publish-sdk-pypi.sh is missing or not executable."
+            echo "::error::It is authored in mslsrc/tbh at projects/tbh/scripts/publish-sdk-pypi.sh"
+            echo "::error::and is a Python closure entry in that repo's scripts/sdk-source-closure.json,"
+            echo "::error::so the mirror republish carries it. See mslsrc/tbh#29534."
+            exit 1
+          fi
+
+      # The exact-pinned dev lock: the mirror builds with the same build and
+      # setuptools the producing CI proved, or the wheels are not the ones
+      # the gates vouch for.
+      - name: Install the pinned build tooling
+        run: python -m pip install -r python/clients/py-dev-requirements.txt
+
+      - name: Gate and build (publishes nothing)
+        if: ${{ inputs.dry_run }}
+        run: python/scripts/publish-sdk-pypi.sh --build-only
+
+      - name: Gate, build and stage
+        if: ${{ !inputs.dry_run }}
+        run: python/scripts/publish-sdk-pypi.sh --publish
+
+      # The staged tree holds BOTH packages (the gates are all-or-nothing);
+      # this environment's OIDC token is valid only for muse-code-msp, so
+      # only its sdist + wheel go to the upload dir.
+      - name: Keep only this job's package
+        if: ${{ !inputs.dry_run }}
+        run: |
+          mkdir -p dist-upload
+          cp python/dist/sdk-py-publish/muse_code_msp-* dist-upload/
+          ls -l dist-upload
+
+      # No token. The OIDC exchange against the `pypi` environment's pending
+      # publisher is the auth.
+      - name: Publish muse-code-msp (trusted publishing)
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-upload
+
+  muse-code-sdk:
+    # The facade rides second, and not at all if the wire types did not land.
+    needs: muse-code-msp
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The registered pending-publisher environment for muse-code-sdk.
+    environment: pypi-sdk
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the publish script was mirrored
+        run: |
+          if [ ! -x python/scripts/publish-sdk-pypi.sh ]; then
+            echo "::error::python/scripts/publish-sdk-pypi.sh is missing or not executable."
+            echo "::error::It is authored in mslsrc/tbh at projects/tbh/scripts/publish-sdk-pypi.sh"
+            echo "::error::and is a Python closure entry in that repo's scripts/sdk-source-closure.json,"
+            echo "::error::so the mirror republish carries it. See mslsrc/tbh#29534."
+            exit 1
+          fi
+
+      - name: Install the pinned build tooling
+        run: python -m pip install -r python/clients/py-dev-requirements.txt
+
+      - name: Gate and build (publishes nothing)
+        if: ${{ inputs.dry_run }}
+        run: python/scripts/publish-sdk-pypi.sh --build-only
+
+      - name: Gate, build and stage
+        if: ${{ !inputs.dry_run }}
+        run: python/scripts/publish-sdk-pypi.sh --publish
+
+      - name: Keep only this job's package
+        if: ${{ !inputs.dry_run }}
+        run: |
+          mkdir -p dist-upload
+          cp python/dist/sdk-py-publish/muse_code_sdk-* dist-upload/
+          ls -l dist-upload
+
+      - name: Publish muse-code-sdk (trusted publishing)
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-upload
+
+      # The rows the publish integration commit appends upstream to
+      # clients/sdk-py/published-wheels.json (mslsrc/tbh, FR-638-028).
+      - name: Surface the per-wheel rows for the publish integration commit
+        if: ${{ !inputs.dry_run }}
+        run: cat python/dist/sdk-py-wheel-rows.json

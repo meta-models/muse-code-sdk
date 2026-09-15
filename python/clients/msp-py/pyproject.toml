@@ -1,0 +1,38 @@
+[build-system]
+# >=77: the floor that understands PEP 639 (SPDX license + license-files).
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muse-code-msp"
+version = "1.3.0"
+description = "Generated MSP wire types for Muse Code. No hand-written protocol types, ever (specs/638-muse-sdk-python INV-638-01)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+# Zero runtime dependencies (INV-638-03): stdlib typing only.
+dependencies = []
+classifiers = [
+    # Alpha states the withheld promise: D-065 (ADR 29534 D1) permits the
+    # publish, but D-013's stability promise and conformance claim stay
+    # withheld — experimental surfaces may change (ADR 25304 D3).
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Typing :: Typed",
+]
+
+[project.urls]
+# The mirror is the one public venue (ADR 638 D6); a published manifest never
+# names the private producer repository.
+Homepage = "https://github.com/meta-models/muse-code-sdk"
+Repository = "https://github.com/meta-models/muse-code-sdk"
+Issues = "https://github.com/meta-models/muse-code-sdk/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+muse_code_msp = ["py.typed"]

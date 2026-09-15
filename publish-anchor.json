@@ -77,5 +77,36 @@
    "schema/msp pack). Preserve these paths, or publish them from a producer that",
    "owns them."
   ]
+ },
+ "python_tree": {
+  "$comment": [
+   "Provenance for the python/ tree (the Python SDK publication closure,",
+   "mslsrc/tbh scripts/sdk-source-closure.json entries marked 'Python",
+   "closure', landing under python/ per that manifest's mirror.python_tree",
+   "note). Anchored independently of the TS closure above: the python/",
+   "tree is a verbatim copy of the commit named here, and corrections to",
+   "it are made upstream and re-mirrored, never edited in place.",
+   "python/schema/msp/stable rides here beyond the manifest's",
+   "Python-closure markings: the per-wheel row gate reads",
+   "schema/msp/stable/manifest.json relative to the python/ tree, and the",
+   "root schema/ is anchored at the TS closure's (older) commit, so the",
+   "python/ copy keeps the tree self-contained at one commit."
+  ],
+  "source": {
+   "repository": "mslsrc/tbh",
+   "commit": "99735106089a8ff928e0e4652cee0e7c62d62e0c"
+  },
+  "published_at": "2026-09-15T08:35:00Z",
+  "closure_paths": [
+   "python/clients/msp-py",
+   "python/clients/py-dev-requirements.txt",
+   "python/clients/sdk-cookbook-py",
+   "python/clients/sdk-py",
+   "python/clients/sdk-quickstart-py",
+   "python/schema/msp/stable",
+   "python/scripts/publish-sdk-pypi.sh",
+   "python/scripts/sdk-py-wheel-rows.py"
+  ],
+  "pypi_publication": "pending (owner-run: dispatch .github/workflows/publish-pypi.yml; muse-code-msp -> environment pypi, muse-code-sdk -> environment pypi-sdk)"
  }
 }
