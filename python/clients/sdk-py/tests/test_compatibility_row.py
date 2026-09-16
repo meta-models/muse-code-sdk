@@ -22,9 +22,10 @@ manifest, wheel filename from the manifest's own name and version — and the
 publish gate script runs it before anything could ship. Published rows
 accumulate in ``clients/sdk-py/published-wheels.json`` (a bot-owned
 generated artifact committed at publish integration, never hand-typed), the
-extractor's compatibility emit carries them, and the page renders them; no
-wheel is published yet, so the committed record is empty and the page keeps
-saying so.
+extractor's compatibility emit carries them, and the page renders them. The
+first owner-run publish (mirror workflow run 35056045080, 2026-09-16)
+appended the 1.3.0 rows; the record is append-only, so a published wheel's
+row must never disappear from it.
 """
 
 from __future__ import annotations
@@ -168,17 +169,43 @@ def test_the_published_wheels_record_rides_the_docs_build() -> None:
     # The accumulated record of published wheels is the committed
     # integration-time artifact the docs build reads: the compatibility emit
     # carries its rows verbatim, and the page component renders them (or the
-    # explicit no-wheel-yet statement while it is empty). No wheel is
-    # published yet — the publish is owner-run (permitted by D-065,
-    # ADR 29534 D1) and none has happened — so today the record is empty.
+    # explicit no-wheel-yet statement while it is empty). The record is
+    # append-only: the first owner-run publish (permitted by D-065,
+    # ADR 29534 D1; mirror publish-pypi.yml run 35056045080, source commit
+    # 94e98141a8074d50d2ac418de7acb5b16d8024fa, 2026-09-16) appended the
+    # 1.3.0 rows, and a published wheel's row must never disappear or be
+    # hand-edited afterwards — the row dicts below are the run's generated
+    # output verbatim (scripts/sdk-py-wheel-rows.py), not hand-typed values.
     record = json.loads(
         (PROJECT_ROOT / "clients" / "sdk-py" / "published-wheels.json").read_text()
     )
     assert record["schemaVersion"] == 1
-    assert record["wheels"] == [], (
-        "a wheel row appeared without a publish: rows are appended by the "
-        "publish integration commit, never by hand (FR-638-028)"
-    )
+    published_1_3_0 = [
+        {
+            "distribution": "muse-code-msp",
+            "importName": "muse_code_msp",
+            "version": "1.3.0",
+            "wheel": "muse_code_msp-1.3.0-py3-none-any.whl",
+            "requiresPython": ">=3.10",
+            "hostVersion": "1.3.0",
+            "schemaFingerprint": "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852",
+        },
+        {
+            "distribution": "muse-code-sdk",
+            "importName": "muse_code",
+            "version": "1.3.0",
+            "wheel": "muse_code_sdk-1.3.0-py3-none-any.whl",
+            "requiresPython": ">=3.10",
+            "hostVersion": "1.3.0",
+            "schemaFingerprint": "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852",
+        },
+    ]
+    for row in published_1_3_0:
+        assert row in record["wheels"], (
+            f"the published {row['wheel']} lost its row: the record is "
+            "append-only — rows are appended by the publish integration "
+            "commit and never removed or hand-edited (FR-638-028)"
+        )
     assert _emitted_row()["wheels"] == record["wheels"]
     component = (
         DOCS_ROOT / "src" / "components" / "PythonCompatibilityRow.astro"
