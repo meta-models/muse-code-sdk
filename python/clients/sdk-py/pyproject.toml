@@ -1,0 +1,43 @@
+[build-system]
+# >=77: the floor that understands PEP 639 (SPDX license + license-files).
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muse-code-sdk"
+version = "1.3.0"
+description = "Muse Code SDK for MSP: asyncio-first facade over the generated wire types (muse-code-msp), with a thin sync wrapper."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+# Exactly ONE runtime dependency, exact-pinned: the ADR 638 D2 supply-chain
+# exception (#211 O-3 form). Any second dependency is an owner escalation;
+# bumps are deliberate reviewed PRs (see the ADR's review policy).
+# muse-code-msp is deliberately NOT declared: it is not on the registry yet,
+# and promoting it is the owner escalation decided with the first publish
+# (the @muse-code/msp devDependency precedent; test_publish_shape pins this).
+dependencies = ["pydantic==2.13.5"]
+classifiers = [
+    # Alpha states the withheld promise: D-065 (ADR 29534 D1) permits the
+    # publish, but D-013's stability promise and conformance claim stay
+    # withheld — experimental surfaces may change (ADR 25304 D3).
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Typing :: Typed",
+]
+
+[project.urls]
+# The mirror is the one public venue (ADR 638 D6); a published manifest never
+# names the private producer repository.
+Homepage = "https://github.com/meta-models/muse-code-sdk"
+Repository = "https://github.com/meta-models/muse-code-sdk"
+Issues = "https://github.com/meta-models/muse-code-sdk/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+muse_code = ["py.typed"]

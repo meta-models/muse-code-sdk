@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "The accumulated record of PUBLISHED Python wheels — the compatibility",
+    "page's per-wheel half (specs/638-muse-sdk-python FR-638-028): host",
+    "version and schema fingerprint per published wheel, rendered by",
+    "developer-docs/src/components/PythonCompatibilityRow.astro through the",
+    "extractor's compatibility emit.",
+    "",
+    "Rows are GENERATED, never hand-typed: scripts/publish-sdk-pypi.sh emits",
+    "each release's rows via scripts/sdk-py-wheel-rows.py, and the publish",
+    "integration commit appends them here (the bot-owned generated-artifact",
+    "shape). No wheel is published yet — the publish is owner-run (ADR 638",
+    "D6; permitted by D-065, ADR 29534 D1) and none has happened — so the",
+    "list is empty, and clients/sdk-py/tests/test_compatibility_row.py holds",
+    "it empty until a real owner-run publish appends its rows."
+  ],
+  "schemaVersion": 1,
+  "wheels": []
+}
