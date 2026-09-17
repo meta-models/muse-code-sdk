@@ -2,41 +2,43 @@
 """External-audience gate for the published Python packages and their
 public source tree.
 
-The PyPI 1.3.0 publish shipped long descriptions (the package READMEs), a
+The first PyPI publish shipped long descriptions (the package READMEs), a
 pyproject ``description``, and module docstrings that cite artifacts only
-this private repository resolves — spec paths, ADR/issue numbers, INV/FR
-ids, tdd section refs, internal dev loops. A PyPI reader has the published
-package, the public mirror, and the public docs site — nothing else — so
-every such reference is a dead end at best and a disclosure at worst.
+the producing repository resolves — spec paths, ADR/issue numbers,
+requirement ids, protocol-spec section refs, internal dev loops — and a
+follow-up sweep found the same class in ledger notes, script comments, and
+test fixtures. A PyPI reader has the published package, the public mirror,
+and the public docs site — nothing else — so every such reference is a
+dead end at best and a disclosure at worst.
 
-Two modes, one pattern table:
+Two modes, two pattern tiers:
 
-  (default)         check the committed sources under --repo-root: each
-                    package's README.md, its pyproject ``description``, and
-                    the module-level docstring of every .py under src/. This
-                    is what the pytest suite runs on every CI ride.
-  --dist DIR        check built distributions: each wheel's METADATA
-                    (summary + long description) and the module-level
-                    docstring of every packaged .py, plus each sdist's
-                    PKG-INFO. This is the publish gate: it audits what the
-                    upload step would actually ship, so a leak can never
-                    reach the registry again (scripts/publish-sdk-pypi.sh
-                    runs it after the build).
+  (default)         check the committed sources under --repo-root: package
+                    METADATA surfaces (each README.md, each pyproject
+                    ``description``, every src module-level docstring) with
+                    the full table, plus a TREE walk of every hand-written
+                    closure file with the tree tier. This is what the
+                    pytest suite runs on every CI ride.
+  --dist DIR        check built distributions: each wheel's METADATA and
+                    packaged module docstrings with the full table, every
+                    hand-written packaged .py whole (the sdist ships the
+                    tests/ tree), and each sdist's PKG-INFO. This is the
+                    publish gate: it audits what the upload step would
+                    actually ship, so a leak can never reach the registry
+                    again (scripts/publish-sdk-pypi.sh runs it after the
+                    build).
 
-The pattern table is derived from the repository's citation-class table
-(the producing repository's docs-site citation-class table) plus the
-classes observed in
-the 1.3.0 leak; it is deliberately a Python restatement, not an import —
-this gate runs where only the dev-lock Python exists (the pytest lane and
-the mirror's publish workflow), with no Node available. Scope is likewise
-deliberate: METADATA and MODULE-LEVEL docstrings only. Inner (class and
-function) docstrings citing specs follow the mirrored-SOURCE posture
-(scripts/check-source-audience.mjs: reviewed policy treats source-comment
-citations as benign) and are tracked separately.
+The METADATA tier bans every repository path; the TREE tier bans only
+identifiers that resolve nowhere outside the producing repository, so
+closure-internal paths stay legal in tree files. The table is derived from
+the producing repository's docs-site citation-class table plus the classes
+observed in the leaks; it is deliberately a Python restatement, not an
+import — this gate runs where only the dev-lock Python exists (the pytest
+lane and the mirror's publish workflow), with no Node available.
 
-Deeper docstrings in the generated ``muse_code_msp`` modules come from the
-MSP schema bundle descriptions; scrubbing those means changing the schema
-export, not this package — also tracked separately.
+The generated ``muse_code_msp`` modules (beyond their module docstrings)
+and the committed schema bundle render schema description text; their
+sanitization seam is the schema export / codegen, tracked separately.
 """
 
 from __future__ import annotations
@@ -82,8 +84,8 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # audience profile (the `pkill -f 'tbh-[g]ate'` trick).
     ("dev-loop-path", re.compile(r"\bprojects/tb[h]\b")),
     ("private-repo", re.compile(r"\b(?:mslsrc|par-msl)/tb[h]\b")),
-    # Internal workflow/crate names (tbh-muse-sdk-py, tbh-devtools). The
-    # public vocabulary is `muse`/`muse-code-*`; nothing external is `tbh-*`.
+    # Names carrying the internal product prefix (workflow and crate names).
+    # The public vocabulary is `muse`/`muse-code-*`.
     ("internal-name", re.compile(r"\btbh-[a-z][a-z0-9-]*")),
     # Spec-plan slice labels ("S0 skeleton", "plan slice S3"): internal
     # delivery vocabulary that also rots — the 1.3.0 description still called
