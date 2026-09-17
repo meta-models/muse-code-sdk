@@ -1,6 +1,6 @@
-"""The FR-638-019b approval round trip: inbound ``approval/requested`` → the
-consumer's handler → outbound ``approval/decide`` (spec 638 T031, carrying
-spec 14990 FR-019; tdd SS5.4). Port of ``clients/sdk-ts/src/facade/approval.ts``.
+"""The approval round trip: inbound ``approval/requested`` → the consumer's
+handler → outbound ``approval/decide``. Port of the TypeScript SDK's
+approval router.
 
 Split out of ``session.py`` rather than added to it: the router owns a
 handler, a per-stage latch, and a decision-shaping guard chain that have
@@ -10,9 +10,9 @@ largest module.
 SHAPE NOTE, established from the bundle rather than assumed. ``approval/request``
 as a SERVER REQUEST is not enrolled for the view stream this router rides —
 the schema carries ``approval/requested`` as a NOTIFICATION — so the round
-trip is notification-in / command-out, which is exactly the pair FR-019
-names. The server-request form would be a #206 enrollment request
-(INV-638-01), never a local interface.
+trip is notification-in / command-out, which is exactly the pair the
+protocol names. The server-request form would be a protocol enrollment
+request upstream, never a local interface.
 """
 
 from __future__ import annotations

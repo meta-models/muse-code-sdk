@@ -1,11 +1,10 @@
-"""The item half of the SS4 client fold: upsert-by-revision plus delta
-accumulation (spec 638 FR-638-007 carrying spec 14990 FR-007,
-INV-003/INV-004).
+"""The item half of the client fold: upsert-by-revision plus delta
+accumulation.
 
 Items are the generated ``muse_code_msp`` shapes at runtime — plain dicts
 carrying at least ``itemId`` and ``revision`` (the algebraic precondition the
 rules need). The store reads only those two members, so it stays
-wire-shape-blind exactly as the TS ``ItemStore`` is (INV-638-01/02); the
+wire-shape-blind exactly as the TS ``ItemStore`` is; the
 ``SessionFold`` binding supplies wire-aware probes where a rule needs one.
 """
 

@@ -1,18 +1,17 @@
-"""``MuseClient`` — the SS7.1 facade's session-opening half (spec 638
-FR-638-019a / T030, FR-638-019d / T033). Port of
-``clients/sdk-ts/src/facade/client.ts``.
+"""``MuseClient`` — the facade's session-opening half. Port of the TypeScript
+SDK's client module.
 
 It turns the two v1 session verbs into correctly-shaped ``session/start`` /
 ``session/resume`` params and hands back a WIRED ``Session``. It frames
 nothing and mints nothing: ``Connection.command()`` stamps the ``commandId``
-from the single injected mint, so INV-013's single-minter property is
+from the single injected mint, so the protocol's single-minter property is
 preserved by DELEGATION rather than re-implemented here.
 
-It owns two facts no other layer holds, which is why T030's obligations (b)
-and (c) live here rather than on ``Session``:
+It owns two facts no other layer holds, which is why these obligations live
+here rather than on ``Session``:
 
 - WHETHER A CLOSE WAS OURS. ``Connection`` is duplex-generic; a transport
-  cannot tell a peer's hang-up from its own shutdown. SS2.13.3b counts
+  cannot tell a peer's hang-up from its own shutdown. The protocol counts
   "process exit OR transport EOF" as a death, so somebody has to know the
   difference, and only the layer that owns ``close()`` does.
 - WHAT AN EARLIER DEATH DISCARDED. :class:`DiscardedSessions` is

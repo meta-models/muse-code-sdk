@@ -1,19 +1,18 @@
-"""The two C-638-2 pydantic seams: inbound frame parsing and spawn options.
+"""The two pydantic seams: inbound frame parsing and spawn options.
 
-Owner ruling #31276, arm (a) (Constitution IV record in the issue comment):
-the seams spec 638 C-638-2 names validate through pydantic models and reject
-with the SDK's typed :class:`~muse_code.errors.MuseValidationError` wrapping
-pydantic's ``ValidationError`` — never a bare ``isinstance`` check, an
+Both seams validate through pydantic models and reject with the SDK's typed
+:class:`~muse_code.errors.MuseValidationError` wrapping pydantic's
+``ValidationError`` — never a bare ``isinstance`` check, an
 ``AttributeError``/``KeyError``, or a silent partial object. pydantic is the
-package's one exact-pinned runtime dependency (ADR 638 D2, INV-638-03); this
-module is where that grant earns its keep.
+package's one exact-pinned runtime dependency; this module is where that
+grant earns its keep.
 
 The frame models are NARROWED views: they validate exactly the members this
-facade dereferences (INV-638-02 — narrow and compose, never restate). A
-full-fidelity pydantic restatement of the generated ``InitializeResult`` is
-the arm C-638-2 forbids and routes back to the owner; deriving a validator
-from the generated declaration is off the table too, because pydantic
-refuses stdlib ``typing.TypedDict`` on the 3.10 floor. Unknown members pass
+facade dereferences (narrow and compose, never restate). A full-fidelity
+pydantic restatement of the generated ``InitializeResult`` is deliberately
+ruled out; deriving a validator from the generated declaration is off the
+table too, because pydantic refuses stdlib ``typing.TypedDict`` on the 3.10
+floor. Unknown members pass
 through untouched (``extra="allow"``), so the frame a consumer indexes stays
 the generated shape.
 """

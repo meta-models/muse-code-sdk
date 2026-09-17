@@ -1,11 +1,10 @@
-"""Duplex-agnostic MSP NDJSON connection (spec 638 FR-638-011..015).
+"""Duplex-agnostic MSP NDJSON connection.
 
-Faithful asyncio port of ``clients/sdk-ts/src/connection/connection.ts``
-(spec 14990 FR-012/014/015/016). The transport supplies decoded UTF-8 text
-chunks; chunks may be empty and may split anywhere — Python strings are
-whole code points, so the TS surrogate-pair byte reconciliation has no twin
-here (spec 638 Edge Cases): the running byte count is exact by construction
-and stays O(bytes) per chunk.
+Faithful asyncio port of the TypeScript SDK's connection module. The
+transport supplies decoded UTF-8 text chunks; chunks may be empty and may
+split anywhere — Python strings are whole code points, so the TS
+surrogate-pair byte reconciliation has no twin here: the running byte count
+is exact by construction and stays O(bytes) per chunk.
 
 One deliberate adaptation, noted per the port rules: in TS "invoking
 ``write()`` IS submission" because the transport's synchronous prefix runs

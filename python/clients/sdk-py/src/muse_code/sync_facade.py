@@ -1,5 +1,4 @@
-"""The sync wrapper: a loop-runner over the asyncio facade (spec 638
-FR-638-021 / T034, INV-638-07; Scenario 7).
+"""The sync wrapper: a loop-runner over the asyncio facade.
 
 All protocol machinery lives once, in the async facade. This surface owns a
 PRIVATE event loop and delegates: every blocking verb runs its async twin to
@@ -7,19 +6,18 @@ completion on that loop, and the two turn iterators are the async iterators
 pumped one element per call. It re-implements nothing — the wire frames, the
 fold, and the typed errors are the async facade's own.
 
-The one machine this module introduces is the sync boundary (spec 638 "The
-close ladder and the sync boundary"): a verb called from a thread whose event
-loop is RUNNING is refused with an exact error naming the async facade
-(FM-638-4) — running the private loop there would nest loops or deadlock the
-caller's. A second concurrent VERB from another thread serializes on the
-private loop instead (Scenario 7 Edge Cases); ``close()`` is the one
+The one machine this module introduces is the sync boundary: a verb called
+from a thread whose event loop is RUNNING is refused with an exact error
+naming the async facade — running the private loop there would nest loops or
+deadlock the caller's. A second concurrent VERB from another thread
+serializes on the private loop instead; ``close()`` is the one
 exception — it refuses rather than queue behind a verb still pumping the
-loop (FM-638-8), because the queue-behind can be unbounded and the shutdown
+loop, because the queue-behind can be unbounded and the shutdown
 it carries is the only thing that would end it.
 
 This is the plain-script surface. Jupyter/IPython cells already run inside an
 event loop, so use :class:`~muse_code.facade.MuseClient` with top-level
-``await`` there — this wrapper refuses from async contexts (FM-638-4), as do
+``await`` there — this wrapper refuses from async contexts, as do
 long-lived programs already inside ``asyncio``.
 """
 

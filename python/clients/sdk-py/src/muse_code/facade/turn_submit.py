@@ -1,10 +1,9 @@
-"""``turn/start`` submission and same-``commandId`` replay (spec 638
-FR-638-019a carrying spec 14990 FR-018 obligations (a) and (d); tdd SS3.1.1,
-SS3.2, SS4.13). Port of ``clients/sdk-ts/src/facade/turn-submit.ts``.
+"""``turn/start`` submission and same-``commandId`` replay. Port of the
+TypeScript SDK's turn-submit module.
 
 It holds the ONE piece of state :class:`~muse_code.pending.PendingCommandSet`
 deliberately cannot: the ``turn/start`` params per ``commandId``. The set
-stores the COMPOSER input and is wire-blind by design (INV-638-01), so a
+stores the COMPOSER input and is wire-blind by design, so a
 replay — which must re-send the SAME logical command to be the sanctioned
 retry rather than a double execution — needs the params on this side of that
 boundary.

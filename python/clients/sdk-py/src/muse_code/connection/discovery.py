@@ -1,13 +1,13 @@
-"""Host discovery for the UNBUNDLED wheel (spec 638 FR-638-020, INV-638-08).
+"""Host discovery for the UNBUNDLED wheel.
 
-The wheel carries no host binary and no code path assumes one (#29216 fence).
-Exactly the two ruled tiers, first hit wins: an explicit ``muse_bin``
-argument, then a ``muse`` on ``PATH``. The LIBRARY reads no environment
-variable (TS parity: ``spawn.ts`` takes a required command; ``MUSE_BIN`` is
-a knob of the quickstart/cookbook HARNESSES, which read it themselves and
-pass the explicit parameter down — PR #29277 review, thread 6). No
-discoverable host fails BEFORE any process is spawned, with an exact error
-naming the parameter and the compatibility page.
+The wheel carries no host binary and no code path assumes one. Exactly the
+two ruled tiers, first hit wins: an explicit ``muse_bin`` argument, then a
+``muse`` on ``PATH``. The LIBRARY reads no environment variable (TS parity:
+the TS spawn module takes a required command; ``MUSE_BIN`` is a knob of the
+quickstart/cookbook HARNESSES, which read it themselves and pass the
+explicit parameter down). No discoverable host fails BEFORE any process is
+spawned, with an exact error naming the parameter and the compatibility
+page.
 """
 
 from __future__ import annotations

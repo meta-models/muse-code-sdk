@@ -1,17 +1,16 @@
-"""``TurnHandle`` — one turn's view of the fold (spec 638 FR-638-019a,
-INV-638-04 carrying spec 14990 INV-014; tdd SS3.1.4). Port of
-``clients/sdk-ts/src/facade/turn-handle.ts``.
+"""``TurnHandle`` — one turn's view of the fold. Port of the TypeScript SDK's
+turn-handle module.
 
-A handle owns two things: the SS3.1.4 turn-wait, and the async iterators that
+A handle owns two things: the turn-wait, and the async iterators that
 ride the fold for this turn. It authors no wire traffic and holds no durable
 state — :class:`~muse_code.facade.session.Session` feeds it folded events and
 it fans them out.
 
-INV-006 governs the wait: the SDK never locally times out, fails, or completes
+One rule governs the wait: the SDK never locally times out, fails, or completes
 a turn. Every settlement below traces to a server-authored fact, with one
 sanctioned exception that is not a terminal at all — terminal-unknown after an
-ephemeral host death, which SS2.13.3b makes a client MUST ("stop waiting for a
-terminal") and which stays an annotation rather than a synthesized event.
+ephemeral host death, which the protocol makes a client MUST ("stop waiting for
+a terminal") and which stays an annotation rather than a synthesized event.
 """
 
 from __future__ import annotations

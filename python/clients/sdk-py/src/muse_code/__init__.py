@@ -1,18 +1,18 @@
 """Muse Code SDK for MSP: the asyncio-first Python facade.
 
-Owning spec: ``specs/638-muse-sdk-python`` (governing ADR
-``docs/adr/638-muse-sdk-python.md``). Wire shapes are imported from the
-generated ``muse_code_msp`` package, never restated here (INV-638-01/02).
+Wire shapes are imported from the generated ``muse_code_msp`` package,
+never restated here.
 
-S1 (the transport-less core) is in: the SS4 fold (``muse_code.fold``), the
-SS4.13 pending set (``muse_code.pending``), the transcript replay runner
+The transport-less core: the client fold (``muse_code.fold``), the pending
+command set (``muse_code.pending``), the transcript replay runner
 (``muse_code.replay``), and the typed error family (``muse_code.errors``).
-S2 is in: the NDJSON connection machine, the owned-process spawn path, host
-discovery, and the strict fingerprint gate (``muse_code.connection``). S3 is in:
-the asyncio facade (``muse_code.facade`` — ``MuseClient``, ``Session``,
-``Turn``) with the host-death discharge, the approval/user-input round trip,
-the SS4.8 gap splice-fill, and the sync loop-runner wrapper
-(``muse_code.sync_facade`` — ``SyncMuseClient``).
+The connection plane: the NDJSON connection machine, the owned-process spawn
+path, host discovery, and the strict fingerprint gate
+(``muse_code.connection``). The surface: the asyncio facade
+(``muse_code.facade`` — ``MuseClient``, ``Session``, ``Turn``) with the
+host-death discharge, the approval/user-input round trip, the gap
+splice-fill, and the sync loop-runner wrapper (``muse_code.sync_facade`` —
+``SyncMuseClient``).
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ __all__ = [
 ]
 
 EXPECTED_SCHEMA_FINGERPRINT: Final[str] = (
-    "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852"
+    "sha256:ff200831326be2646ec0997e26eb287c20e600ecd966a11b2f6589531d777da2"
 )
 """The stable schema-bundle fingerprint this SDK was built against.
 

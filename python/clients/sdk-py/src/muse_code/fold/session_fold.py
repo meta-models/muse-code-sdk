@@ -1,11 +1,9 @@
-"""``SessionFold`` — the SS4 client fold, bound to the generated wire types
-(spec 638 FR-638-007 carrying spec 14990 FR-007).
+"""``SessionFold`` — the client fold, bound to the generated wire types.
 
 The two stores compose here, bound to ``muse_code_msp``'s shapes: items are
 the generated ``Item`` dicts, state-family values are the generated
 ``session/*`` params objects, and every event this fold accepts is the params
-object the wire actually carries. Nothing here restates a wire shape
-(INV-638-01/02).
+object the wire actually carries. Nothing here restates a wire shape.
 
 Beyond the two-store composition, the fold owns the parts of the view that
 are neither an item nor a state family:
@@ -17,10 +15,10 @@ are neither an item nor a state family:
   and their first durable terminal. The decision flow (choosing and sending a
   resolution) is the facade's, not the fold's;
 - the DELIVERY marker ``view/gap`` — it seeds no store, it moves the fold's
-  CURRENCY (``pending_gap``/``current``, FM-003). The recovery that fills the
+  CURRENCY (``pending_gap``/``current``). The recovery that fills the
   hole needs client-to-server I/O and is therefore the facade's.
 
-INV-006 governs all of it: the fold never invents a terminal. A retract and a
+One rule governs all of it: the fold never invents a terminal. A retract and a
 reclaim are not ``TurnTerminal`` values and are never rendered as one, an
 unrecognized ``TurnTerminal`` is kept verbatim, and a second resolution never
 displaces the first durable one.

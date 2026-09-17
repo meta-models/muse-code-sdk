@@ -1,13 +1,13 @@
-"""The owned-process stdio binding and type-state handshake (spec 638 S2).
+"""The owned-process stdio binding and type-state handshake.
 
-Port of ``clients/sdk-ts/src/connection/spawn.ts``: ``MuseServeChild`` owns
-one spawned MSP host with SS2.11 diagnostics (stderr ring from birth, total
-exit mapping) and the bounded close ladder (14990 FR-017a/b semantics,
-FR-638-016/017/018): stdin EOF first, one shared shutdown budget, ``SIGTERM``,
-one ``SIGKILL`` escalation after a fixed grace, resolution on the observed
-exit, POSIX process-group ownership with a direct-child fallback.
+Port of the TypeScript SDK's spawn module: ``MuseServeChild`` owns one
+spawned MSP host with lifecycle diagnostics (stderr ring from birth, total
+exit mapping) and the bounded close ladder: stdin EOF first, one shared
+shutdown budget, ``SIGTERM``, one ``SIGKILL`` escalation after a fixed
+grace, resolution on the observed exit, POSIX process-group ownership with
+a direct-child fallback.
 
-Python observation rule (spec 638 FR-638-017): asyncio exposes ONE
+Python observation rule: asyncio exposes ONE
 ``returncode`` — ``>= 0`` is the exit-code row for that code, ``< 0`` is the
 crash row carrying signal ``-returncode``.
 """

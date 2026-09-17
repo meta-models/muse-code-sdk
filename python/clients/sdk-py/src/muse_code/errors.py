@@ -6,7 +6,7 @@ rather than bare ``Exception`` because each names a STATE an embedder must
 branch on; the only alternative is matching message text, which silently
 turns those strings into the package's contract.
 
-Port of ``clients/sdk-ts/src/errors.ts`` (spec 638 INV-638-04 parity).
+Port of the TypeScript SDK's error family.
 """
 
 from __future__ import annotations

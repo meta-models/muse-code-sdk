@@ -1,11 +1,11 @@
-"""The transcript replay runner (spec 638 FR-638-009, Scenario 1).
+"""The transcript replay runner.
 
-Parses the #210 golden-transcript format (``{"dir","raw"}`` NDJSON, see
-``schema/msp/transcripts/README.md``), feeds the server-side notifications
-to a :class:`muse_code.fold.SessionFold`, and exposes the client lines for
-frame-level assertions. Usable as a library by the corpus suite, the
-quickstart journey, and the cookbook harnesses; it authors no fixtures of
-its own — a missing scenario is a #210 fixture request.
+Parses the golden-transcript format (``{"dir","raw"}`` NDJSON), feeds the
+server-side notifications to a :class:`muse_code.fold.SessionFold`, and
+exposes the client lines for frame-level assertions. Usable as a library by
+the corpus suite, the quickstart journey, and the cookbook harnesses; it
+authors no fixtures of its own — a missing scenario is a fixture request
+against the upstream transcript corpus.
 """
 
 from __future__ import annotations

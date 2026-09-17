@@ -1,20 +1,19 @@
-"""SS4.8 gap recovery by splice-fill (spec 638 FR-638-019c / T032, carrying
-spec 14990 FR-020; tdd SS4.8). Port of ``clients/sdk-ts/src/facade/gap-fill.ts``.
+"""Gap recovery by splice-fill. Port of the TypeScript SDK's gap-fill module.
 
 Split out of ``session.py`` for the same reason ``approval.py`` and
 ``turn_submit.py`` were: this is a delivery-plane concern with its own buffer,
 page walk, and failure vocabulary, and ``Session`` was already the package's
 largest module.
 
-THE RECIPE, verbatim from tdd SS4.8 and unchanged here: buffer live events at
-cursors at or after ``next`` as they arrive; page forward from ``after`` with
-``view/page`` until the walk reaches ``next``; discard the paged events the
-buffer already holds; splice the buffer after the paged prefix. D-030's second
-sanctioned path (drop state and re-anchor at the latest compaction snapshot)
-is NOT built here — it is the #208 lane's spec work, and building both would
-be a second concrete path for one current use.
+THE RECIPE, verbatim from the protocol's gap-recovery rule and unchanged
+here: buffer live events at cursors at or after ``next`` as they arrive;
+page forward from ``after`` with ``view/page`` until the walk reaches
+``next``; discard the paged events the buffer already holds; splice the
+buffer after the paged prefix. The protocol's second sanctioned path (drop
+state and re-anchor at the latest compaction snapshot) is NOT built here —
+building both would be a second concrete path for one current use.
 
-CURSORS STAY OPAQUE (tdd SS4.1). Nothing below orders two cursors: "at or
+CURSORS STAY OPAQUE. Nothing below orders two cursors: "at or
 after ``next``" is delivery ORDER, not a comparison — every live frame that
 arrives after the gap marker is, by the server's own delivery contract, at or
 after ``next``. The walk stops on cursor EQUALITY with the target or on the

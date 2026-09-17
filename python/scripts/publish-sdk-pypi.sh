@@ -312,6 +312,20 @@ AUDIT
 done
 
 # ---------------------------------------------------------------------------
+# Gate 4b — external audience. What the upload step ships is public: the
+# wheel METADATA (summary + long description, i.e. the README), every
+# packaged module docstring, and the sdist PKG-INFO must not reference
+# artifacts only this private repository resolves (#36888: the 1.3.0 publish
+# shipped spec paths, ADR/issue numbers, INV/FR ids and an internal dev
+# loop in both long descriptions). Audits the BUILT distributions, not the
+# tree, so it gates exactly what would ship.
+# ---------------------------------------------------------------------------
+step "gate: external audience"
+"$PYTHON" "$REPO_ROOT/scripts/check-sdk-py-external-audience.py" --dist "$DISTDIR" ||
+  die "the built distributions reference private repository artifacts; rewrite for the PyPI audience (#36888)"
+ok "no private repository references in what would ship"
+
+# ---------------------------------------------------------------------------
 # Gate 5 — the per-wheel compatibility rows (FR-638-028's release-cut half).
 # Derived from the tree and verified against the built wheels; the first
 # published wheel cannot ship without its row on the compatibility page.

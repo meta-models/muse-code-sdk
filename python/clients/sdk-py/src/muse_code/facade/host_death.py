@@ -1,15 +1,14 @@
-"""The ephemeral-profile host-death discard obligation, client side (spec 638
-FR-638-019d carrying spec 14990 FM-002 / Scenario 4.3; tdd SS2.13, SS4.4.3).
+"""The ephemeral-profile host-death discard obligation, client side.
 
-Port of ``clients/sdk-ts/src/facade/host-death.ts``. Slice S1/S2 landed the
-two STORE-LEVEL primitives with no production callers:
+Port of the TypeScript SDK's host-death module. The stores landed the
+two STORE-LEVEL primitives first, with no production callers:
 :meth:`~muse_code.pending.PendingCommandSet.discard_ephemeral` and
 :meth:`~muse_code.fold.ItemStore.mark_ephemeral_host_death`. This module holds
 the two facts the stores deliberately do not know — which durability profile
 the handshake declared, and whether a given process exit was abnormal — and
 :class:`~muse_code.facade.session.Session` composes them into the discharge.
 
-The stores stay wire-shape-blind (INV-638-01): the ``Item`` probe lives here,
+The stores stay wire-shape-blind: the ``Item`` probe lives here,
 where it reads the generated ``ItemStatus`` vocabulary.
 """
 

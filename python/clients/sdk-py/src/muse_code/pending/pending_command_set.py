@@ -1,29 +1,28 @@
 """``PendingCommand``: the client-side fold over pending commands.
 
-Normative source: tdd SS4.13 (owned by decision record D-032). This module
+Normative source: the protocol's pending-command rules. This module
 implements that subsection and does not re-derive it; every rule below
 quotes or cites the clause it realizes. It is **client state only** — no
-wire event, method, snapshot member, or durable record (14990 INV-007,
-carried by spec 638 INV-638-04), and it never crosses the wire.
+wire event, method, snapshot member, or durable record — and it never
+crosses the wire.
 
 The full fold is ``S' = f(S, server events, pending client events)``: server
 events remain the only source of durable truth, and a ``PendingCommand``
 entry is a rendering of the client's own intent.
 
 The entry itself is client-local by ruling, and its join keys (``commandId``,
-``turnId``, ``itemId``) are opaque strings by protocol rule (SS3.1.4, SS4.1).
+``turnId``, ``itemId``) are opaque strings by protocol rule.
 The wire vocabulary it touches is fully generated: the ``turn/start`` ack and
-the ``-32030`` ``commandRejected`` registry row come from ``muse_code_msp``
-(spec 206 Phase 11, #22772), so nothing below restates a wire shape
-(INV-638-01/02).
+the ``-32030`` ``commandRejected`` registry row come from ``muse_code_msp``,
+so nothing below restates a wire shape.
 
 Where the TS module binds its constants to closed generated UNIONS so a typo
 fails ``tsc``, the Python rendering exposes the registry as the generated
-``ERRORS`` table instead — ``tests/test_pending_command_wire_binding.py``
-pins ``COMMAND_REJECTED_CODE``/``COMMAND_REJECTED_KIND`` to that table's
+``ERRORS`` table instead — the wire-binding test pins
+``COMMAND_REJECTED_CODE``/``COMMAND_REJECTED_KIND`` to that table's
 ``commandRejected`` row, the same shape ``EXPECTED_SCHEMA_FINGERPRINT`` uses.
 
-Faithful port of ``clients/sdk-ts/src/pending/pending-command-set.ts``.
+Faithful port of the TypeScript SDK's pending-command-set module.
 """
 
 from __future__ import annotations

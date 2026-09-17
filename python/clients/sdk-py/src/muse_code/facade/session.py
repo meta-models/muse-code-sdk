@@ -1,15 +1,14 @@
-"""``Session`` — the SS7.1 facade's composition of the transport-less core
-(spec 638 FR-638-019a / T030, FR-638-019d / T033). Port of the session half of
-``clients/sdk-ts/src/facade/session.ts``.
+"""``Session`` — the facade's composition of the transport-less core. Port of
+the session half of the TypeScript SDK's facade.
 
 It owns a :class:`~muse_code.fold.SessionFold` and a
 :class:`~muse_code.pending.PendingCommandSet`, routes folded view events to
 per-turn handles, and discharges the ephemeral host-death obligation. Like
-everything else in this SDK it holds no durable state (INV-638-05): every fact
+everything else in this SDK it holds no durable state: every fact
 it reports came from a server event or from the two stores it composes.
 
-The FR-638-019b approval round trip lives in ``approval.py`` (T031) and the
-FR-638-019c SS4.8 splice-fill in ``gap_fill.py`` (T032); this layer composes
+The approval round trip lives in ``approval.py`` and the gap
+splice-fill in ``gap_fill.py``; this layer composes
 both because the round trips need client->server I/O and the buffer the fill
 splices is the same routing path the iterators read.
 """

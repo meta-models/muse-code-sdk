@@ -1,21 +1,20 @@
-"""The session-state half of the SS4 client fold (spec 638 FR-638-007
-carrying spec 14990 FR-007, INV-005).
+"""The session-state half of the client fold.
 
 State events are NOT items: they carry replace-wholesale session facts,
-cursor-ordered, latest-wins (tdd SS4.6). An explicit ``None`` is a fact — it
+cursor-ordered, latest-wins. An explicit ``None`` is a fact — it
 clears the family — never "unchanged" (the ``session/goalChanged`` and
 ``session/branchChanged`` rules). ``session/tokenUsage`` is the one
 accumulate-only family; its running totals arrive server-computed in
-``cumulative``, so the client stores rather than sums (tdd SS4.6.5).
+``cumulative``, so the client stores rather than sums.
 
 The family KEY is the notification method name — protocol vocabulary treated
-as an opaque string, so a family added additively (tdd SS1.5.4) folds without
+as an opaque string, so a family added additively folds without
 a code change.
 
 Absent versus cleared, the Python spelling: ``get`` answers ``None`` for
 both, and ``has`` distinguishes — ``has(family)`` is ``False`` when no fact
 has ever landed and ``True`` when a fact (including an explicit clear)
-holds. Absent is never fabricated (tdd SS4.9.1). (The TS store spells the
+holds. Absent is never fabricated. (The TS store spells the
 same three states as ``undefined`` / ``null`` / value.)
 """
 
