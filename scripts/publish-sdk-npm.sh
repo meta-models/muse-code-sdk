@@ -9,10 +9,12 @@
 # Publishing requires the explicit `--publish` flag. There is no way to publish
 # by forgetting an argument.
 #
-# Version posture: publishing at 0.x IS permitted, since D-053 (2026-08-31)
-# amended D-013. The stability promise is still withheld until 1.0 — the
-# amendment preserved it by requiring the published README to state the
-# experimental / no-stability posture, which `--publish` gates on below.
+# Version posture: the package versions in LOCKSTEP with the host — D-063
+# (2026-09-13, ADR 25304) amended D-013/D-053. The release train sets
+# clients/sdk-ts to the crates/cli version in the same commit, `--publish`
+# gates on that equality (upstream via crates/cli/Cargo.toml, in the mirror via
+# publish-anchor.json's host_version), and the published README must state the
+# lockstep / product-stability posture, which `--publish` also gates on below.
 #
 # ---------------------------------------------------------------------------
 # OWNER ONE-TIMERS — none of these can be done by an agent, and nothing
@@ -120,10 +122,11 @@ Flags:
   --pack-only   Run every gate and build the tarball. Publishes nothing. DEFAULT.
   --publish     Run every gate, then publish. Only works inside GitHub Actions:
                 npm cannot generate provenance anywhere else, and provenance is
-                required. Publishing at 0.x is permitted (D-013 as amended by
-                D-053) provided the published README states the experimental /
-                no-stability posture; --publish checks that and refuses without
-                it.
+                required. The version must be the host version (D-063 lockstep,
+                ADR 25304: crates/cli/Cargo.toml upstream, publish-anchor.json
+                host_version in the mirror) and the published README must state
+                the lockstep / product-stability posture; --publish checks both
+                and refuses without them.
   --help        This text.
 EOF
 }
@@ -207,58 +210,104 @@ VERSION="$(field version)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "version '$VERSION' is not semver"
 ok "version $VERSION"
 
-# The 0.x posture condition. D-013 read "no stability promise, no published SDK,
-# no conformance claim before 1.0", and the version interlock that used to sit
-# here refused every 0.x publish on the strength of it. D-053 (2026-08-31, owner
-# ruling "(c)" on hub #24410; specs/13929-msp-activation/decision.md) amended
-# that: publishing at 0.x is PERMITTED. The interlock was deleted in the same PR
-# that landed the amendment, as its own comment required.
+# The lockstep version condition (D-063; ADR 25304 D1). The version is set by
+# the release train in the same commit that bumps crates/cli, so the manifest
+# must equal the host version of the tree it ships from. Upstream that carrier
+# is crates/cli/Cargo.toml itself; in the public mirror — whose tree is exactly
+# the source closure and carries no crates/* path — the re-sync writes the
+# carried commit's host version into the mirror's own publish-anchor.json
+# (`host_version`), and the gate reads it from there.
 #
-# What the amendment did NOT do is delete the principle. It moved it onto the
-# artifact: a registry reader never opens a decision record, so the published
-# README has to say, in the reader's own terms, that this is a 0.x experimental
-# release with no stability promise before 1.0. That is the condition on which
-# publishing is permitted, so it is a gate here rather than a review note.
+# Publish-only on purpose, like the posture gate below: pack-only runs in CI on
+# every sdk-lane PR, and the same-tree equality already lives in
+# clients/sdk-ts/test/npm-publication.test.ts, which reds a diverging PR in
+# the path-filtered tbh-muse-sdk-ts lane (the upstream carrier file is on
+# that lane's path list precisely so a carrier-only edit still runs it).
+host_version_carrier=""
+HOST_VERSION=""
+if [[ -f "$REPO_ROOT/crates/cli/Cargo.toml" ]]; then
+  host_version_carrier="crates/cli/Cargo.toml"
+  HOST_VERSION="$(awk '
+    /^\[package\]$/ { in_p=1; next }
+    /^\[/ && in_p { exit }
+    in_p && $1 == "version" && $2 == "=" { gsub(/"/, "", $3); print $3; exit }
+  ' "$REPO_ROOT/crates/cli/Cargo.toml")"
+elif [[ -f "$REPO_ROOT/publish-anchor.json" ]]; then
+  host_version_carrier="publish-anchor.json"
+  # Tolerant parse: a malformed anchor must not crash pack-only with a raw
+  # Node stack (Constitution XIII scoped failure) — an empty HOST_VERSION
+  # routes it to the same "names no version" refusal on --publish and a note
+  # on pack-only.
+  HOST_VERSION="$(node -e '
+    const a = require(process.argv[1]);
+    process.stdout.write(typeof a.host_version === "string" ? a.host_version : "");
+  ' "$REPO_ROOT/publish-anchor.json" 2>/dev/null || true)"
+fi
+
+if [[ -n "$HOST_VERSION" && "$VERSION" == "$HOST_VERSION" ]]; then
+  if [[ "$host_version_carrier" == "publish-anchor.json" ]]; then
+    ok "version $VERSION matches the mirror publish anchor host_version (D-063 lockstep)"
+  else
+    ok "version $VERSION matches the host (crates/cli) version (D-063 lockstep)"
+  fi
+elif [[ "$MODE" == "publish" ]]; then
+  if [[ -z "$host_version_carrier" ]]; then
+    die "no host-version carrier: neither crates/cli/Cargo.toml nor a publish-anchor.json with host_version exists in this tree, so the D-063 lockstep condition cannot be checked. In the mirror, the re-sync writes host_version into publish-anchor.json; a publish from a tree that names no host version is a publish of an unverifiable version."
+  elif [[ -z "$HOST_VERSION" ]]; then
+    die "the host-version carrier $host_version_carrier names no version; the D-063 lockstep condition cannot be checked"
+  else
+    die "manifest version $VERSION does not match the host version $HOST_VERSION (from $host_version_carrier). D-063 lockstep (ADR 25304 D1): only the release train moves these versions, in one commit; a hand bump is a gate failure, not a release."
+  fi
+else
+  if [[ -z "$HOST_VERSION" ]]; then
+    echo "    note: no host-version carrier found, so --publish would refuse (D-063). Pack-only does not."
+  else
+    echo "    note: manifest version $VERSION does not match the host version $HOST_VERSION, so --publish would refuse (D-063). Pack-only does not; the always-on equality lives in npm-publication.test.ts."
+  fi
+fi
+
+# The published posture condition (D-063; ADR 25304 D3). D-053's 0.x
+# experimental / no-stability posture was superseded when the lockstep landed:
+# the published README now states the product posture instead — the version
+# tracks the Muse Code release (lockstep), the stable MSP surface follows the
+# product's compatibility posture, and experimental (x-msp-openness) surfaces
+# may change. A registry reader never opens a decision record, so the posture
+# has to travel with the artifact; that is the condition on which publishing is
+# permitted, so it is a gate here rather than a review note.
 #
 # Publish-only on purpose. Pack-only must stay green whatever the README says —
 # CI runs pack-only on every push, and coupling this package's build to a
 # documentation edit would red the workspace for a reason that has nothing to do
 # with whether the tarball is correct.
-readme_states_0x_posture() {
+readme_states_product_posture() {
   local readme="$PACKAGE_DIR/README.md"
   [[ -f "$readme" ]] || return 1
   # One marker per clause tdd SS7.1 makes normative, not one pinned sentence:
   # the requirement is that the posture is STATED, and pinning exact wording
   # here would make every README edit a publish outage.
   #
-  #   1. this is an experimental release,
-  #   2. there is no stability promise before 1.0,
-  #   3. a release may change or remove API in use.
+  #   1. the version is the Muse Code release it ships with (lockstep),
+  #   2. the stable surface carries the product's compatibility posture,
+  #   3. experimental-marked surfaces may change or be removed.
+  grep -qiE 'lockstep|version (tracks|matches|follows|is) (the )?(muse|host)' "$readme" || return 1
+  grep -qiE 'stable (msp )?surface|compatibility (posture|promise)' "$readme" || return 1
   grep -qiE '(^|[^a-z])experimental' "$readme" || return 1
-  grep -qiE 'no stability promise|no stability guarantee|not stable|no compatibility promise' "$readme" || return 1
   grep -qiE 'may change|change or remove|subject to change' "$readme" || return 1
   # Loose markers are substring matches, so a README asserting the OPPOSITE
-  # posture could otherwise satisfy clause 1 — "this SDK is no longer
-  # experimental" contains the word. Reject that inversion explicitly: a gate
-  # that a negation passes is not a gate.
-  #
-  # ONE guard, deliberately. A second guard on "the stability promise applies"
-  # was tried and removed: it also matched the correct posture stated as "no
-  # stability promise applies before 1.0" and killed the publish on natural
-  # wording — the wording-sensitive outage loose markers exist to avoid. Other
-  # inversions (a README promising nothing will ever change) are caught by
-  # review, which is what tdd SS7.1's "markers are a floor" sentence says.
-  ! grep -qiE '(no longer|not|nolonger)[[:space:]]+experimental' "$readme" || return 1
+  # posture could otherwise satisfy clause 1 — "no longer in lockstep" contains
+  # the word. Reject that inversion explicitly: a gate that a negation passes
+  # is not a gate. ONE guard, deliberately (the D-053-era gate's lesson: a
+  # second guard killed correct natural wording); other inversions are caught
+  # by review, which is what tdd SS7.1's "markers are a floor" sentence says.
+  ! grep -qiE '(no longer|not)[[:space:]]+(in[[:space:]]+)?lockstep' "$readme" || return 1
 }
 
-if [[ "${VERSION%%.*}" == "0" ]]; then
-  if readme_states_0x_posture; then
-    ok "README states the 0.x experimental / no-stability posture (D-053)"
-  elif [[ "$MODE" == "publish" ]]; then
-    die "publishing at 0.x requires the README to state the experimental / no-stability posture explicitly, and $PACKAGE_DIR/README.md does not. D-013 as amended by D-053 (specs/13929-msp-activation/tdd.md SS7.1) permits this publish BECAUSE the artifact carries the posture; without it the publish quietly drops the principle the amendment kept. All three clauses must be there, and none of them negated: this is an experimental release; there is no stability promise before 1.0; a release may change or remove API in use."
-  else
-    echo "    note: the README does not state the 0.x experimental / no-stability posture yet, so --publish would refuse (D-053). Pack-only does not."
-  fi
+if readme_states_product_posture; then
+  ok "README states the lockstep / product-stability posture (D-063)"
+elif [[ "$MODE" == "publish" ]]; then
+  die "publishing requires the README to state the lockstep / product-stability posture explicitly, and $PACKAGE_DIR/README.md does not. D-013 as amended by D-053 and D-063 (specs/13929-msp-activation/tdd.md SS7.1; ADR 25304 D3) permits this publish BECAUSE the artifact carries the posture; without it the publish quietly drops the principle the amendments kept. All three clauses must be there, and none of them negated: the version is the Muse Code release it ships with; the stable surface follows the product's compatibility posture; experimental-marked surfaces may change or be removed."
+else
+  echo "    note: the README does not state the lockstep / product-stability posture yet, so --publish would refuse (D-063). Pack-only does not."
 fi
 
 ACCESS="$(field publishConfig.access)"

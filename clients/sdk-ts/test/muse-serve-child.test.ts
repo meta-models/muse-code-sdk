@@ -22,6 +22,7 @@ import {
   COUNTS_SIGTERM,
   IGNORES_EOF,
   IGNORES_EOF_AND_SIGTERM,
+  endedWithin,
   isAlive,
   NEVER_READS_STDIN,
   reap,
@@ -346,10 +347,16 @@ test(
       stderrTail: [`child_pid=${pid}`, `grandchild_pid=${grandchildPid}`],
     });
     assert.equal(isAlive(pid), false, "close() leaves no orphaned host process");
+    // #26323: the grandchild is reparented when the wrapper dies, so its
+    // reaping is init's asynchronous business — after SIGKILL it can linger as
+    // a zombie that still answers kill(pid, 0). Poll until it has ENDED
+    // (unprobeable or zombie) instead of sampling one racy instant; a
+    // grandchild the escalation missed stays live and still fails here.
+    const grandchildEnd = await endedWithin(grandchildPid, 5_000);
     assert.equal(
-      isAlive(grandchildPid),
-      false,
-      "group escalation ends the stdout-holding grandchild too",
+      grandchildEnd.ended,
+      true,
+      `group escalation ends the stdout-holding grandchild too (last observed: ${grandchildEnd.lastState})`,
     );
   },
 );

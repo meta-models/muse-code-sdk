@@ -66,6 +66,8 @@ export type ApiObservation =
         readonly message: string;
         readonly code?: number;
         readonly kind?: string;
+        /** The typed `data.reason`, when the settlement carried one (e.g. SS3.7's `missing_run`). */
+        readonly reason?: string;
       };
     }
   | { readonly kind: "notification"; readonly method: string; readonly params: unknown }

@@ -68,8 +68,9 @@ type ResumeParams = Omit<SessionResumeParams, "commandId">;
 type AssertNever<T extends never> = T;
 
 /**
- * Every `StartParams` member `startSession` forwards. `config` is allow-listed
- * as intentionally unforwardable: [`SessionConfig`] declares no members yet.
+ * Every `StartParams` member `startSession` forwards. `config` is temporarily
+ * excluded until the facade can pair forwarding with the required
+ * `sessionMcp` grant check.
  */
 const START_FORWARDED = [
   "approvalMode",
@@ -82,23 +83,27 @@ type _StartIsExhaustive = AssertNever<
   Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config">
 >;
 
-/** Every `ResumeParams` member `resumeSession` forwards. */
+/**
+ * Every `ResumeParams` member `resumeSession` forwards. `config` has the same
+ * temporary capability-check boundary as the start facade above.
+ */
 const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history"] as const;
 type _ResumeIsExhaustive = AssertNever<
-  Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number]>
+  Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number] | "config">
 >;
 
 /**
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
- * `config` is excluded as well as `commandId`: [`SessionConfig`] declares no
- * members and is reserved for a future Configuration section, so there is
- * nothing a caller could put in it today.
+ * `config` is excluded as well as `commandId` until the facade implements the
+ * required `sessionMcp` grant check and forwarding.
  */
 export type StartSessionOptions = Readonly<Omit<SessionStartParams, "commandId" | "config">>;
 
 /** Caller-facing options for `session/resume` (tdd SS2.5.2). */
-export type ResumeSessionOptions = Readonly<Omit<SessionResumeParams, "commandId">>;
+export type ResumeSessionOptions = Readonly<
+  Omit<SessionResumeParams, "commandId" | "config">
+>;
 
 /**
  * Options for building a `MuseClient` around a connection you already own.

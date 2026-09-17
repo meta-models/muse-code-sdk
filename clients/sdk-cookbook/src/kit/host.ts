@@ -109,6 +109,81 @@ export async function within<T>(
   }
 }
 
+/**
+ * The drain window every cookbook host runs under — OWNED, not restated.
+ *
+ * `close()` takes no budget: the drain window is fixed when the host is
+ * spawned. So instead of hand-copying the SDK's unexported
+ * `DEFAULT_SHUTDOWN_TIMEOUT_MS` (a copy with no drift gate — the SDK raising
+ * its default would have left the bound below flooring at a stale value, PR
+ * #25986 review), every spawn in this cookbook except classify-serve-exits'
+ * raw hosts passes THIS constant as `shutdownTimeoutMs`: `Host.spawn`
+ * below, and the `MuseClient.spawn` calls in resume-and-verify and
+ * survive-the-host-dying. Those hosts then drain for exactly this window,
+ * whatever the SDK's internal default does. (classify-serve-exits spawns raw
+ * hosts on the SDK default; their closes never reach this bound.)
+ */
+export const HOST_DRAIN_WINDOW_MS = 30_000;
+
+/**
+ * Slack over that window, so this helper's timer can only fire once the SDK
+ * has ALREADY failed to reclaim the child — which is the only state worth a
+ * warning. It covers the SDK's fixed post-drain SIGTERM→SIGKILL grace (2s,
+ * not spawn-configurable) with margin: a bound equal to the drain window
+ * expires while the escalation is still legitimately running, and reports a
+ * leaked child seconds before the SDK kills it.
+ */
+const SHUTDOWN_ESCALATION_SLACK_MS = 10_000;
+
+/**
+ * The floor a drain bound must clear, whatever the caller asked for.
+ *
+ * Taking the MAX is what makes the coupling structural: the bound cleared the
+ * SDK's ladder only because every recipe's close budget happens to equal the
+ * drain window, so the first recipe to pass a smaller one would have warned
+ * "did not drain cleanly" while the SDK was still mid-drain — the exact
+ * misleading report this helper was rewritten to stop (PR #25986 review).
+ * The floor is the same owned constant the spawns pass, so it cannot drift
+ * from the window the SDK actually honours.
+ */
+function drainBoundMs(budgetMs: number): number {
+  return Math.max(budgetMs, HOST_DRAIN_WINDOW_MS) + SHUTDOWN_ESCALATION_SLACK_MS;
+}
+
+/**
+ * Ask a host to drain, and SAY SO rather than pretend when it will not.
+ *
+ * The failure path every journey needs. Since #15943 the SDK owns termination —
+ * EOF, then a bounded drain, then SIGTERM/SIGKILL — so a host that ignores
+ * stdin EOF is reclaimed rather than orphaned, and what this reports is that
+ * the drain was not CLEAN, not that a child leaked. Saying otherwise sent a
+ * reader hunting for a process the SDK had already killed (PR #25986 review).
+ *
+ * `close` is the RAW close; the bound is applied here, over the SDK's own via
+ * {@link drainBoundMs}, so there is one timer and one warning sentence. Shared
+ * rather than hand-copied because a recipe holding a `MuseClient` cannot reach
+ * {@link Host.abandon}.
+ */
+export async function drainQuietly(
+  what: string,
+  budgetMs: number,
+  close: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    // The label reaches the TIMEOUT text too, not just the warning. A journey
+    // with two children alive would otherwise print one line naming two
+    // subjects — "the resume host did not drain (TimeoutError: the host's
+    // orderly drain and exit …)" — precisely when which child hung is the only
+    // thing the reader needs (PR #25986 review).
+    await within(`${what}'s orderly drain and exit`, drainBoundMs(budgetMs), close());
+  } catch (error) {
+    process.stderr.write(
+      `warning: ${what} did not drain cleanly (${String(error)}); the SDK escalates to ` +
+        `SIGTERM/SIGKILL, so the child is reclaimed even when the drain is not.\n`,
+    );
+  }
+}
+
 export class Host {
   readonly msp: SpawnedMspConnection;
   readonly stderr: string[];
@@ -148,6 +223,9 @@ export class Host {
       args: [...spec.args],
       ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
       env: spec.env,
+      // The owned window, not the SDK's unexported default: see
+      // HOST_DRAIN_WINDOW_MS.
+      shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
       onStderr: (chunk) => stderr.push(chunk),
     });
 
@@ -233,20 +311,13 @@ export class Host {
   /**
    * Best-effort teardown for a failure path. Never throws.
    *
-   * There is no second move if the drain does not finish: the shipped SDK
-   * surface has no kill path, so a host that ignores stdin EOF is left to the
-   * operating system. #15943 owns giving `close()` a bound and a kill; until
-   * it lands this prints what happened rather than pretending it cleaned up.
+   * The whole behaviour lives in {@link drainQuietly}, which a `MuseClient`
+   * recipe with no `Host` calls directly; this is the same drain under the
+   * name the journeys already reach for. The raw `msp.close()` is handed over
+   * rather than `this.close()` so the bound is applied once, by the helper.
    */
   async abandon(budgetMs: number): Promise<void> {
-    try {
-      await this.close(budgetMs);
-    } catch (error) {
-      process.stderr.write(
-        `warning: the host did not drain (${String(error)}). The SDK exposes no kill path, ` +
-          `so this child may outlive the journey.\n`,
-      );
-    }
+    await drainQuietly("the host", budgetMs, () => this.msp.close());
   }
 }
 

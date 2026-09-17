@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { TestContext } from "node:test";
@@ -185,6 +186,54 @@ export function isAlive(pid: number): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** #26323: the poll's terminal observation, carried for failure messages. */
+export type ProcessEndObservation = {
+  readonly ended: boolean;
+  /** The LAST probe's classification, so a timeout names what it saw. */
+  readonly lastState: string;
+};
+
+/**
+ * #26323: a zombie still answers signal probes. A SIGKILLed process that was
+ * reparented (the stdout-holding grandchild after its wrapper died) stays a
+ * zombie answering `kill(pid, 0)` until init/subreaper reaps it — a kernel
+ * step that is asynchronous to `close()` settling. Linux exposes the state;
+ * elsewhere the poll rides on reaping making the pid unprobeable.
+ */
+function observeProcessEnd(pid: number): ProcessEndObservation {
+  if (!isAlive(pid)) return { ended: true, lastState: "unprobeable" };
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // State is the first field after the parenthesized comm (which may itself
+    // contain spaces and parentheses — search from the LAST close paren).
+    const state = stat.slice(stat.lastIndexOf(")") + 2).charAt(0) || "?";
+    return state === "Z"
+      ? { ended: true, lastState: "zombie (awaiting reaper)" }
+      : { ended: false, lastState: `probeable, /proc state ${state}` };
+  } catch {
+    return { ended: false, lastState: "probeable (no /proc state available)" };
+  }
+}
+
+/**
+ * #26323: poll until `pid` has ENDED — unprobeable, or a zombie awaiting its
+ * reaper — instead of sampling one racy instant. A process that survived the
+ * kill (the defect class: close() failing to escalate to the group) stays in
+ * a live state and the poll times out, so the oracle keeps its strength; the
+ * returned observation names the last-seen state for the failure message.
+ */
+export async function endedWithin(
+  pid: number,
+  budgetMs: number,
+): Promise<ProcessEndObservation> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const observed = observeProcessEnd(pid);
+    if (observed.ended || Date.now() >= deadline) return observed;
+    await new Promise((resolve) => realSetTimeout(resolve, 25));
   }
 }
 

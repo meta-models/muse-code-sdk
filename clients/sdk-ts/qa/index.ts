@@ -33,6 +33,7 @@ export {
   errorKindOfRun,
   hermeticEnv,
   initializeResultOf,
+  rejectionReasonOfRun,
   scenarioWorkDir,
   settlementOfRun,
 } from "./recorder.js";
@@ -67,7 +68,9 @@ export type {
 export {
   D19764_COMMAND_TEXT,
   D19764_EXPECTED,
+  D19778_EXPECTED,
   observeD19764,
+  observeD19778,
 } from "./scenarios/defect-classes.js";
 export {
   CONFORMANCE_SCENARIOS,

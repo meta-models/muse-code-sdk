@@ -1,7 +1,239 @@
 # Changelog
 
-## Next release (pending release cut)
-<!-- changelog-cursor baseline=99df3dcf56e2 head=4abc46a5c7bd generated=2026-08-31 -->
+## 1.2.1
+
+### New
+
+- Voice input is on by default on macOS: press `Option+V` to dictate, and manage it with `/voice`
+- Added a `/rewind` command that rewinds the conversation to an earlier input — same picker as double `Esc`
+- Pasted and dropped images get `[Image #N]` labels the model can see, so you can ask about a specific image by number; labels and their source paths survive resume, rewind, and forks
+- `/mcp` shows a live inventory of connected MCP servers and their tools in the transcript
+- Added a bundled `migrate` skill that imports your Claude Code or Codex memory notes and MCP servers into Muse Code
+- Set `MUSE_TRANSPORT_TRACE=1` to print raw provider request and response lines to stderr for debugging model calls; credentials are scrubbed
+- Sessions can be renamed over the session protocol with `session/rename` (with `session/nameChanged` notifications), and `session/list` carries display metadata — title, first user prompt, and branch
+- Edit-tool calls on the session protocol carry a structured diff fact — `patchSummary` line counts plus a durable `patchRef` — so clients can render what an edit changed
+- Programs driving a session can set a session-wide reasoning-effort default with `session/setReasoningEffort`, inherited across resume and fork
+- Workflows now run in `muse serve` sessions, matching what `muse exec` supports
+
+### Improvements
+
+- New sessions start in the Auto-review permission profile: the same access as Ask me, with an automated reviewer deciding eligible approval requests; it falls back to asking you when the reviewer is unavailable
+- Permission selections are remembered and applied to new sessions
+- MCP tools whose server declares them read-only run without an approval prompt under on-request approvals
+- MCP server configs support `${VAR}` environment interpolation, and stdio MCP servers receive `MUSE_SESSION_ID`
+- The MCP handshake advertises protocol version 2025-06-18 on both transports
+- Hook payloads include the session's canonical `model_provider`, so hooks can branch on the active provider
+- Clearer, typed guidance when a sandboxed command is denied listening on a network port
+- Messaging local Claude Code sessions is more robust: interrupted sends cancel cleanly, stale late replies are rejected, and peer discovery shows whether a peer supports read receipts
+- `session/resume` runs the same startup reconciliation as a fresh launch, so work orphaned by a crash settles instead of staying stuck
+- Launching a subagent with an unknown agent type or an invalid task name is rejected with an explanation of what was wrong and which targets are valid
+- Every non-Main viewer's footer shows `Ctrl+C` to return, even when the view isn't focused
+- Scheduled-task rows keep long prompts to a single header line, and creation receipts are one line, with detail available on expand
+
+### Fixes
+
+- **Security:** commands launched through wrappers like `env` and `setsid` are reviewed as the command they actually launch
+- **Security:** changing the permission mode mid-session now applies to already-running tools at their next action
+- **Security:** MCP tool grants in custom agent definitions are validated against the prepared toolset instead of falling back to a legacy path
+- **Security:** the Unrestricted permission profile now behaves exactly like `--yolo`
+- Only the main and side sessions can prompt for user input; subagents no longer can
+- Smoother `/clear` and `/new`: the screen no longer blanks before the new session's first frame, keystrokes typed during the restart are kept and replayed in order, and a `Ctrl-C` in the restart window no longer kills the app
+- `/clear` and `/new` refuse trailing text on the command line with a usage hint instead of silently discarding it
+- MCP servers that fail to start after `/clear` or `/new` now surface the failure instead of staying silent
+- Double `Ctrl-D` over a pending approval opens the exit confirmation instead of force-quitting past running background work
+- With an approval prompt open and text in the composer, `Enter` goes to your message instead of being swallowed by the approval panel
+- Each guarded call in a parallel tool batch gets its own approval prompt
+- Permission selections committed during a session survive resume
+- Pending approvals survive a headless restart instead of inheriting the predecessor's abort
+- After a crash, a tool approval that was still waiting for your answer shows as unresolved on resume — never as already executed
+- Saving settings preserves the file's permissions and symlinks, and no longer writes an all-default `tui` block
+- MCP `startup_timeout_sec` is honored, and slow servers that emit newline-delimited JSON are admitted
+- An MCP server's `required` flag follows the winning configuration layer
+- An MCP server's `cwd` setting now sets the stdio server's working directory
+- Resuming is more reliable: resume no longer fails after compaction has pruned older history, on a session saved mid-way through parallel tool calls, on a checkpoint taken while a workflow was paused, on a checkpoint that went stale while the session kept running, or with "duplicate or non-monotonic" sequence errors; a run that cannot be rebuilt is set aside instead of blocking the whole session, and an empty saved session file is refused with a named reason instead of opening broken
+- A malformed tool call from the model no longer poisons the session: the model gets a clear error it can retry from, and sessions already saved with such a call resume cleanly
+- Forks and side chats are more reliable: they stay available after resuming from a checkpoint, keep messages and attachments that used to be dropped from the new branch, open on histories that previously failed with a read error, and branches created in quick succession keep their creation order
+- Your model and reasoning effort choices stick: forks and side chats start on the parent's model and effort, a per-turn effort applies to that turn's model requests, and turns the runtime starts on its own (like background-work wake-ups) use your settings instead of the startup defaults
+- Stopping and cancelling subagents is dependable across restarts: a stop or cancel in flight when the app closes is completed on the next launch instead of forgotten, stays in force after the agent is closed and reopened, and is not reopened by a late result from the agent's own children; restart recovery no longer revives, duplicates, or corrupts agents it should leave alone, and closing an agent's whole subtree no longer wakes the agents being closed
+- Background work reports in reliably: a live view opened before a background task produced output now fills in instead of staying blank, messages for a subagent's own subagents reach the right agent, and a finished subagent whose session can no longer accept results settles instead of waiting forever
+- Workflows start and finish cleanly: an invalid workflow source is rejected before anything launches (and `muse exec` JSON output stays clean), a finished workflow agent with a missing or invalid report settles instead of leaving the workflow waiting, and resuming mid-workflow replays already-completed steps correctly
+- Workflow progress narration shows in the conversation on the default view, not only inside `/workflows`
+- Goals handle blocked work honestly: a goal denied by session policy ends with a clear final message naming what was blocked instead of empty output, and progress that was blocked resumes correctly when the goal continues
+- `muse exec` no longer exits with an error when the process reading its stderr goes away during shutdown
+- Finished shell commands clean up fully: releasing a captured terminal no longer injects a stray blank line into the command's output, and long sessions no longer accumulate runtime resources from completed commands
+- Session storage is more robust: listing sessions no longer intermittently fails with "session index unavailable: database is locked", and a full disk no longer crashes the app before it can restore your terminal and print the session id and resume command
+- Pastes into `!` shell mode stay literal — image file paths are no longer rewritten into `[Image #N]` attachments
+- Long assistant replies stay within the collapsed row cap while streaming, and `Ctrl+O` mid-stream no longer garbles the elided view
+- Tool rows in narrow terminals keep their expand hint instead of dropping it when the header runs out of room
+- `/settings` refreshes its rows when a side chat starts or returns, so the Reasoning effort row can't go stale and the highlight can't act on the wrong row
+- Messages parked in a side chat no longer linger in the main session's queued-messages panel after returning
+- After `/side`, `/status` and `/tasks` count only the visible session's work instead of leaking the other session's subagents and pending items
+- `/tasks` preview of a finished terminal shows the same status wording as its drawer row instead of "no output yet"
+- Keys pressed while the rewind loading screen is up are absorbed instead of leaking into the composer; `Esc` and `Ctrl-C` still cancel
+- Resuming a session by exact id warns when its declared predecessor session is missing from the store instead of resuming silently
+- A freshly launched session no longer vanishes from other terminals' resume pickers until it exits
+- `/stop` always renders a verdict — a background task that never confirms now reads as a failed stop instead of leaving `/stop` silent
+- `muse serve`: `session/list` includes sessions loaded on the answering host with fresh metadata so a new session appears immediately after `session/start`; session recency ignores internal bookkeeping writes, so crashed old sessions no longer jump above newer work; page cursors bind to the listing that minted them, and cursors from live streaming and durable reads share one space instead of being rejected as unknown; `session/setModel` acknowledges only after the change is durable; omitting `providerId` on `session/start` resolves to the host's composed provider; a brand-new session can no longer be pruned out from under its own start; and stopping the server with SIGTERM or SIGINT winds down cleanly, closing sessions durably instead of crashing them
+- `muse serve`: a rejected `session/resume` no longer leaves a stray view subscription; resuming with a cursor delivers pending approval and user-input requests instead of an empty list; live view updates re-arm after a `view/unsubscribe`; approval modes selected over the wire are honored for shell commands instead of being clamped; setting the model to the same provider no longer bricks a resumed session; subagent results recorded before a resume are readable again; follow-up turns spawned from a carried-forward `turn/steer` can be interrupted and steered; the `retryable` flag on `turn/completed` errors reflects the provider's real classification; reminder-spawned child tasks show their real lifecycle instead of appearing completed at spawn; and sessions started without a workspace root can still prompt via `request_user_input` when the client supports dialogs
+
+### Performance
+
+- Opening or resuming a long session is dramatically faster: startup work now scales with the size of the session log rather than multiplying by the number of turns
+- `item/readOutput` no longer scans the whole session per read — dramatically faster on long sessions
+- Re-attaching a live session view over `muse serve` is now constant-time, independent of how many events streamed since load
+
+## 1.1.1
+
+### New
+
+- Added `muse mcp login <server>` and `muse mcp logout <server>`: OAuth 2.1 sign-in for remote MCP servers, in the browser or headless. Tokens are kept in the auth store and refreshed automatically, a login done in another terminal is picked up without a restart, and a startup or mid-session 401 now tells you the exact `muse mcp login` command to run. Set `mcp_oauth_dynamic_client_registration: false` to turn off automatic client registration
+- Markdown links render as clickable labels in terminals that support hyperlinks, with automatic fallback (including under tmux); exported transcripts keep the full URL, and links survive redraws and scrollback
+- `/theme` gains a Terminal background row: Left/Right cycles auto, light, and dark and re-derives the picker live, a notice appears when your choice contradicts what the terminal reported, Enter saves it as `tui.terminal_background`, and Esc reverts
+- The agent can check on and stop its own background work (workflows, subagents, and background commands) with the new `work_status` and `work_stop` tools, using the same work ids it is shown
+- Todo reminders are on by default: the model is nudged to create and update a todo list during complex multi-step work
+- Two new built-in skills, on by default: one has the agent ask about an unresolved product decision before committing to it, the other keeps a focused regression test with each bug fix or behavior change
+- Added a bundled Three.js skill (`/threejs`) with references for scenes, geometry, materials, lighting, textures, animation, loaders, shaders, post-processing, and interaction
+- Added a `PostToolUseFailure` hook that fires when a tool call fails or crashes
+- After a rewind or fork, the status bar warns while tasks from the original conversation are still running, and the new branch's transcript notes the background work that stayed behind
+- Press `s` in a workflow's detail view under `/workflows` to save the running workflow under a name so you can run it again
+- Programs driving a session can declare `capabilities.userInputDialogs` at `initialize`; sessions whose client can show a dialog get the ask-the-user tool, and a client that opts out has such calls rejected cleanly instead of hanging
+- Programs driving a session can read an item's stored tool output by reference with `item/readOutput`, and re-attach a live view with `view/subscribe` after `view/unsubscribe` on a still-loaded session, replaying the gap from a cursor
+
+### Improvements
+
+- Memory, Skill, Todo, and Scope reminder child logs now default to **Memory only**, so a long session no longer accumulates one `subagent/<id>/session.jsonl` per model step. Choose **Saved** under TBH Reminders → Settings to keep writing them; Goal and Verify are unchanged
+- A forced `max` reasoning effort (`--reasoning-effort max`, settings, `/effort max`) is now sent to the model as-is on every model instead of being silently downgraded, so an unsupported value shows the provider's error; `max` is also accepted as a `reasoningEffort` on `turn/start` and `turn/steer` over the session protocol
+- The Scope reminder is on by default in sessions using muse-spark-1.2
+- Tuned the built-in instructions: the agent asks one grouped question before scaffolding when a request leaves a material product decision open, never claims a server is up without a fresh check, confirms decisive values (versions, config values, paths, counts) by a second route, surfaces degraded external causes in the deliverable itself, resolves which file a correction refers to before editing, and reports rather than refuses safety concerns about explicitly requested changes
+- The goal reminder no longer steers the agent toward faking, bypassing, or disabling a test to satisfy a goal; it names the honest blocker instead
+- Workflow scripts steer child agents to inherit the parent model unless a task clearly needs a different tier, and research children inspect the source and tests behind each claim instead of stopping after a fixed number of tool batches
+- The built-in `grill` skill now records each settled decision in your project docs and closes with a written scope contract (what is in and out of scope, and what done means); the separate `grill-and-record` skill was removed
+- The `plan` skill asks about open product preferences up front when you request a collaborative planning checkpoint, instead of leaving them as open questions at the end
+- The composer prompt uses a heavier `❯` glyph
+- `/new` and `/clear` prepare the new session before shutting down the old one, so both stay resumable if the process dies mid-restart; `/new` now clears the visible thread like `/clear`, both share one palette description, and quitting after keeping background tasks across them warns that those tasks will be stopped
+- `--disable-sandbox` no longer prints a startup notice on its own or changes your selected permission profile; startup warns that profile filesystem and network restrictions are not enforced for direct shell commands, and `/status` shows a Sandbox row when it was disabled at launch
+- Commands you run yourself with `!` (and `session/userShell` over `muse serve`) no longer trigger approval prompts, including for network access; hard policy denials still apply and stay visible
+- Tool calls that fail only because a path does not exist are shown quietly in a dimmed style instead of as loud errors
+- Tool cells with several attachments draw one continuous tree guide from the header to the last attachment, and wrapped continuations no longer land at column zero
+- The "Worked for" line also shows the local time the turn finished, e.g. `Worked for 1m 01s · 10:15 AM`
+- The Plan panel appears only while a run is active and hides while a prompt is waiting for your answer
+- When a session wakes for a peer message, the text it writes before calling a tool is folded into that tool row (expand with `ctrl+o`) instead of a separate transcript cell
+- Startup notices say exactly what was trimmed: a memory truncation names the file and the limit that fired, and a skill catalog over its size limit keeps every skill's name visible and reports how many entries were cut
+- `muse exec` prints once on stderr why subagent delegation is unavailable
+- Spawning a subagent whose definition (prompt, skills, memory) already exceeds the context budget is refused up front with a clear diagnostic instead of failing later
+- Resuming a session refuses with a named reason and remedy when the saved state cannot be trusted (identity mismatch, another live writer, unreadable state, unrebuildable history) instead of silently degrading
+- Resumed sessions describe the current sandbox and permission posture to the model instead of the posture recorded when the session was first started
+- The agent's subagent-tree status can page through completed history, oldest first
+- `--worktree` sessions remove their Git worktree on close when it is clean and its commits are already on the default remote; unique or unproven work is kept
+- Sessions you open and quit before sending anything no longer linger in the resume list or on disk, including zero-turn `muse serve` sessions whose owner process died
+- Removed the confusing "model … not in catalog — using assumed limits" notice at startup
+- In `/workflows`, press `f` inside a workflow's agent view to filter agent cards by label; the phase drill-down filter is offered only while agents are live and clears itself when the last one finishes
+- A turn that fails because no usable credential is available ends with a distinct `authRequired` error over the session protocol and in the SDKs, instead of a generic model error
+- SDK: `apply()` session-state outcomes are deeply read-only, and the `DeepReadonly` type is exported
+- Shell output containing invalid UTF-8 now notes how many bytes were replaced instead of being rewritten silently
+- Selecting the `max` reasoning effort in the Effort drawer plays a gold activation animation, and the gold prompt and rail stay settled across model switches
+
+### Fixes
+
+- **Security:** Closed a gap where `rm -fr`, `rm --force`, and wrapper-nested variants slipped past the dangerous-command check that guards destructive shell commands
+- **Security:** Model-authored subagent names and objectives, text read back from an external editor, and provider error messages are stripped of terminal control sequences before they reach the terminal or the session log; provider errors are also scrubbed of credentials
+- Sending an image with no text no longer makes every later message in the session fail with "Message not sent", including after resume
+- New prompts are no longer rejected after a restart when the session's replay evidence is missing or unreadable, and "Message not sent — projection failed" no longer follows a turn that ran several tools at once and had its results cleared
+- A background delivery whose submission keeps failing no longer retries forever or starves your own messages ("Message not sent — runtime admission timed out"): retries are single-flight and a poison item is quarantined after three failures
+- Sessions whose log can no longer be fully replayed, whose checkpoint records a wrong message count, or whose saved runtime snapshot is invalid now resume from the last valid checkpoint or a safe reopen instead of failing to open
+- Resuming after a checkpoint no longer fails on the next turn, leaves a gap that breaks the next checkpoint, or fails on the first write after a compaction had already summarized a superseded marker
+- Resuming no longer aborts when one subagent's log is unreadable, drops the answer the agent gave after a retried turn, shows an interrupted MCP call as completed, or loses a running workflow's agent tree after a compaction
+- A resume that fails before it is ready no longer writes partial records to the session log, and a resume forced to fall back after an invalid checkpoint recovers with a single recovery checkpoint
+- Reminder-agent logs that end in a blank line no longer fail to replay on resume
+- The session list refresh no longer races sessions that are still being written, and keeps a session's cached title and details when its lock cannot be opened instead of showing an "unreadable" placeholder
+- The `--resume` picker stays responsive while sessions are still being discovered on a cold start, and resuming from it or after a session-in-use notice shows startup progress instead of a blank pane
+- Resume and `muse export` report a permission-blocked session directory as unreadable, with a `chmod` remedy, instead of claiming the session has no saved log
+- Running `resume` without a terminal now points to the headless remedy (`exec --session-id <uuid>`), and the export picker names its real `--last` and `--session` flags
+- `muse exec --resume` works for sessions created with `--worktree`, records the crash before adopting a crashed session, and `muse exec --no-session-log` starts when subagent delegation is enabled
+- Nested subagents (a subagent's own subagents) now open their session logs, write their control records, and recover in the right place across restarts, so their results survive a resume and are not duplicated
+- Subagent results no longer point at the wrong transcript when several subagents run at once; interrupting a subagent before its first model call takes effect immediately; waiting on a worktree-isolated subagent after cancelling it no longer errors; reading a subagent's transcript works after its log crosses a checkpoint; and messages a subagent rejects are recorded with the reason
+- The subagent panel keeps a Finished marker that arrives out of order, shows the selected subagent's own activity while it waits on the model, expires a finished row you parked the cursor on, names agents by label in steering acknowledgments, keeps its place when paging a completed transcript after a status refresh, and counts each subagent's tokens the same way `/usage` does
+- An invalid `subagent_type` value, or a default subagent definition that fails to load, now gets a rejection naming the real cause instead of a generic argument or selection error
+- The task inventory shown for a child conversation lists only that conversation's workflows, subagents, and terminals instead of the parent's
+- Paused workflows survive: cancelling a turn no longer marks a paused workflow cancelled, and a paused workflow keeps its owner, children, capacity slot, completion state, and resume handoff across `--resume`
+- Workflow children report reliably: a child that fails shows its final status live, a finished child stays finished, cancelled children show no error receipt, follow-up subagent results reach the workflow, results are no longer held back behind a long main turn, messages sent to a child before it is live are queued instead of rejected, children woken after a restart no longer stall on reminders, and children keep their memory tools after recovery
+- Quitting cleanly while a workflow still has live child work leaves that work recoverable on the next launch, the same as after a crash
+- Subagents spawned by a workflow child no longer clutter the main transcript with spawn and finish rows
+- Steering a running turn no longer drops Workflow mode when the steer lands as a fresh turn
+- `/workflows` shows a short run id next to unnamed workflows so identical-looking rows can be told apart
+- Saving a named workflow no longer overwrites a file a concurrent save just wrote, cleans up its staging file on failure, and names the target path in the error
+- On Linux, workflow script syntax errors report the real message and source line, keep `--json` output clean, and scripts whose default export is an expression are detected correctly
+- Goal controls accepted in the final moments of a turn, or just before a cancelled turn restarted, are no longer left queued; interrupting a run with an active goal reliably shows the goal-paused notice; Esc stops the turn even when goal storage is unavailable; goals closed automatically when a run ends are recorded and announced; and a rolled-back fork no longer leaves goal store files behind
+- Rewinding to a point mid-conversation works again; rewind branches from the exact point you chose; a window holding a queued steer or an in-flight run no longer fails after you confirm; sessions compacted mid-turn can be rewound; and a finished task whose result is still being delivered no longer counts as active work
+- `/side` no longer fails on a session compacted after its checkpoint, on a log with only bookkeeping records since the last checkpoint, or when resuming a side chat created on an earlier day; a prompt sent right after returning from `/side` is queued instead of rejected as busy
+- `session/fork` preserves the source turn and item identities, accepts the source session's real turn ids as the cut point, reports the child's own turn count, and forked sessions over `muse serve` start their MCP servers instead of failing with "MCP startup audit failed"
+- Failed turns no longer count as phantom turns in session listings, reads, resumes, and rewinds
+- Manual `/compact` summarizes with the model you switched to via `/model` instead of the launch-time model
+- `/new` and `/clear` no longer break every following turn with "MCP startup audit failed" when MCP servers are configured, and `/clear` refuses to start a new session when the session log cannot be retained instead of minting one that would lose history
+- Enabling or disabling a skill now takes effect on background and reminder-driven turns immediately, not only on your next prompt
+- Re-running `/skills import` reports already-imported skills as skipped instead of counting them again (`--dry-run` shows the same rows); a project copy of a bundled skill with identical content is no longer listed twice; and a skill whose manifest cannot be read reports the real filesystem error
+- The skill reminder no longer fires in sessions where the `read_skill` tool is unavailable
+- One mistyped entry under `skills.activation.projects` or `hooks.state` no longer discards the rest of the map (a startup warning names the bad key); settings and credential writes follow a symlinked config file instead of replacing the link; and a rules directory that cannot be searched is reported by name with a remedy
+- `PostCompact` hooks fire exactly once for background compactions adopted after a turn ends; a `PostLLMCall` hook that keeps returning `additionalContext` stops re-driving the turn after 8 continuations; and hook trust and enable state no longer collide between argv-style hooks whose arguments join to the same string
+- MCP tool calls keep their server attribution through live refreshes and after closing a rewind overlay; the per-server `tool_timeout_sec` setting applies to tool calls, resource reads, and prompt fetches on both transports; and a server that requires an OAuth sign-in says so at startup, with HTTP 403 reported as an authentication failure instead of a generic initialization error
+- Interrupting a running `bash` command returns the output it had already produced; a background command's exit status is shown once; input sent to a non-interactive background command points at `terminate`; starting a second `!` command while one is running names the running command and keeps your draft; and denied `!` commands report output truncation correctly
+- Search results in JSON mode return invalid-UTF-8 lines as base64 `bytes` instead of silently rewriting them
+- Runaway loops that repeat the identical command with identical output are stopped even when compactions happen mid-loop
+- Cron jobs created during a fresh `muse exec` run are bound to that session; queued cron wake-ups are no longer lost when a session is resumed after a compaction; and `muse serve` sessions expose the scheduled-task and goal tools that were advertised but never reached the model
+- `muse exec` text output no longer loses the answer when a background wake starts a second run; `exec` no longer hangs on a protected write it cannot get approved; `--max-tool-output-bytes` rejects values below the readable floor (`0` disables the cap); and a failed model-catalog fetch is no longer retried a second time on a cold cache
+- Startup no longer fails when the temp directory is unusable (it warns and continues); on Linux the startup warning about a missing system `bwrap` is gone; and `muse init` no longer hangs on a package manifest that is a FIFO
+- Meta Model API requests that fail with HTTP 402 are not retried, and retry status reads in plain words, e.g. `rate limited (HTTP 429) · retrying in 60s · attempt 2/10`; a transient token-refresh failure during `web_search` is reported as a connection problem instead of an authentication failure
+- Ctrl-B and Ctrl-D edit text when the draft is non-empty and the exit hint follows remapped keys; fast-typed or terminal-buffered text no longer arrives out of order around character-form shortcuts or Tab; cutting a large paste with Ctrl-W and yanking it back restores the content; the cursor no longer drifts after Indic spacing-mark clusters; and an image path in the middle of a sentence stays as text
+- Typing no longer stalls right after resuming a long session; idle sessions no longer churn CPU after a turn ends and the terminal cursor blinks again; and opening or answering an ask-question prompt no longer blanks and redraws the whole terminal
+- Collapsed read and search summaries always show the `ctrl+o` hint; wrapped lines no longer tear emoji sequences or overflow the pane; narrow panes keep the state cell and timer visible for long task labels; the live-follow view for a background command uses the full pane width; an external tool's failure details render once; and tool rows rejected for bad arguments switch to `rejected` promptly
+- Run failures caused by step limits, configuration, environment, or workflow launch errors no longer carry a misleading `model failed` prefix; the context-usage notice no longer reports almost nothing remaining on an implausible token count; and the notice shown when resuming a session that did not shut down cleanly no longer tells you to run `reset`
+- `--worktree` sessions no longer fail intermittently when several sessions create worktrees in the same repository at once, and resuming one no longer hits a worktree collision after an earlier removal was interrupted
+- `muse export --out` writes to a temporary sibling and renames it into place, so a failed export never truncates an existing file
+- Pending approvals no longer flash into the approval list while the automated reviewer is still deciding
+- `@muse-code/sdk` bundles its protocol type declarations, so consumers typecheck with `skipLibCheck` off; `Item.turnId` is typed as nullable to match what the server sends
+- `muse serve`: protected-write approvals wait for the subscribed client's `approval/decide` instead of aborting right after prompting; `session/resume` re-issues pending approval and user-input requests so a reconnecting client can answer them after a crash; a resume with a cursor no longer lets a live event reach the client before the replayed suffix; and views restored after a restart match the live view when a reply was still streaming at checkpoint time
+- `muse serve`: `session/list`, `session/read`, and `session/resume` report `running` and the active `turnId` while a turn is in flight; a session whose cached view history is unreadable reports history as unavailable instead of failing every read; failed, cancelled, and timed-out tool calls include the tool's final output; `session/start` ignores unknown keys inside `config` instead of failing; rejected `userShell` commands are settled durably so an identical retry gets the original answer; and a queued follow-up left stranded when the connection closed mid-admission is no longer executed on the next load
+- Scheduled (cron) deliveries run as one bounded turn: the end-of-turn goal reminder no longer fires on a scheduled run, which had kept a single delivery looping through phantom ticks every few seconds
+- A `muse serve` host that started logged out now picks up a later device-code login on the next session start, resume, or fork instead of answering "auth required" until the host restarts
+
+### Performance
+
+- `view/page` on long sessions is dramatically faster over `muse serve`: page reads are linear in session size and repeat pages on a loaded session are served from cache
+- Faster startup and resume: multi-megabyte checkpoint lines are read in linear time, session-index housekeeping and crash-recovery scans run after the prompt is ready, the trust store is read once per launch, a turn submitted into a resumed session no longer replays history older than the last compaction, and `session/resume` over `muse serve` loads from the latest checkpoint instead of replaying the whole log
+- Rewind evaluates and applies from an in-memory window of the current conversation (back to the latest compaction checkpoint) instead of re-reading the session log, so the picker opens faster in long sessions
+
+---
+
+Also delivered in 1.0.x patches: the `tui.terminal_background` setting (`auto`, `light`, or `dark`); `muse serve` sessions expose the same `bash` tools as `muse exec`, `model/list` lists only the models a session can route to, `session/resume` from a cursor delivers the retained events after it, an oversized `session/start` workspace path is refused and `session/list` pages large listings, `initialize` rejects a malformed `clientInfo.name`, and `muse serve` exits with code 3 when settings or credentials cannot be loaded; forking carries compacted permission state into the fork; forked and side sessions show their real creation time instead of 1970; web search reads compressed responses; logging out clears the cached feature configuration; the skill reminder is active again in default `muse exec` runs and no longer repeats its loaded notice; the blocking verify reminder header reads "Double checking"; resume tolerates a blank line in the session log; checkpoint and explicit saves no longer stall behind background flushing; memory writes survive a stale temp file left by a crash; subagent results and goal reminders arrive as developer context; the search tool routes filename lookups to `glob`; Esc exits input-history browsing and restores your draft; `/resume` inside the app shows startup progress instead of a frozen screen; the `/tasks` drawer lists only the visible session's tasks; a retried `turn/interrupt` after a restart no longer records a duplicate rejection; and two security fixes: on-request approval mode requires approval when shell arguments cannot be fully parsed, and provider error messages no longer include the credential that failed.
+
+## 1.0.3
+
+### New
+
+- Added a `max` reasoning effort for the muse-spark-1.3 family: pick it with `--reasoning-effort max`, `/effort max`, the Effort drawer, or `/settings`
+
+### Fixes
+
+- The `ultra` reasoning effort is temporarily unavailable: a configured `ultra` (setting, flag, `/effort`, or managed default) now runs as `xhigh` with a one-line startup notice, and the Effort drawer no longer lists it
+- **Security:** `muse serve` now applies the `permissions.default_profile` setting from settings.json; a profile configured there (such as read-only) was previously ignored, letting served sessions write files with no diagnostics
+- Completed tool calls from non-streaming tools (file reads, searches, MCP tools) include the tool's output on the session protocol, so clients can show what the tool returned
+- A session that ended abnormally can be read back and resumed instead of failing to load
+- `session/compact` works on resumed sessions instead of failing every time
+- A session's approval mode is readable without attaching: fresh-session acknowledgements, broadcasts, and `session/read` now carry it
+- Forking a session keeps a user message that arrived mid-turn instead of dropping it from the fork
+- Messages received but not started when a session ended are settled as abandoned on reload instead of being re-executed
+- Compaction items report whether compaction was manual or automatic; manual compaction was always reported as automatic
+- Turns skipped over unsupported or oversized content no longer change which run `session/compact` targets after a restart
+- Startup no longer stalls silently for many seconds probing Git storage; a pinned-storage problem is reported as a diagnostic instead
+- Resuming a session works when the goals database file is absent instead of failing every resume
+- An account-restriction error from the model API shows support guidance instead of a bare policy-violation failure
+- Long-running sessions no longer fail with "runtime command acknowledgement timed out": flushing the terminal audit log no longer blocks command handling
+
+## 1.0.2
+
+### Improvements
+
+- The agent treats a change as done only after the repo's own tests for the touched area pass in-session, and checks every requested behavior against the real code before finishing
 
 ## 1.0.1
 

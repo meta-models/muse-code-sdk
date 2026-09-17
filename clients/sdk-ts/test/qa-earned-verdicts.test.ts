@@ -11,21 +11,30 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import {
   D19764_COMMAND_TEXT,
   D19764_EXPECTED,
+  D19778_EXPECTED,
   MUSE_QA_SDK_BIN,
+  RecordedHost,
   blockedRunEvidence,
   blockedVerdictOf,
   blockerStillBites,
   errorKindOfRun,
   foldBlockedEvidence,
   observeD19764,
+  observeD19778,
+  rejectionReasonOfRun,
   renderReportMarkdown,
   runSdkQa,
+  scenarioWorkDir,
   subjectStepsOf,
 } from "../qa/index.js";
+
+const SCRIPTED_HOST = fileURLToPath(new URL("./helpers/qa-scripted-host.js", import.meta.url));
 import type { ApiObservation, ObservedRun, QaScenario, WireLog } from "../qa/index.js";
 
 /** Observable-level arms never read the wire; an empty log keeps them honest. */
@@ -407,4 +416,314 @@ test("QA-TEST-015c: the report identifies the tested binary from the handshake",
     "the resolution source is reported AS a source, with the value the caller supplied",
   );
   assert.match(markdown, /host version: `muse 0\.3\.0 \(build cc9ad71fd28\)` — from the initialize handshake/);
+});
+
+// ---------------------------------------------------------------------------
+// QA-TEST-016 — D19778 reads SS3.7 CLASSIFICATION, not "any error" (#19778
+// 2026-09-02 reopen). The guard reported `defect-reproduced` against a binary
+// whose `session/compact` classification is conformant, because its only
+// probe landed on a no-run session — where tdd SS3.7's params note MANDATES
+// the typed `commandRejected`/`missing_run` refusal — and its observable
+// folded every `err:*` into the defect. Fixtures mirror the raw frames a
+// current-main binary served on the reopen rig (echo provider, hermetic XDG).
+// ---------------------------------------------------------------------------
+
+const compactStartOk: ApiObservation = {
+  kind: "requestOk",
+  step: "start",
+  method: "session/start",
+  result: { session: { sessionId: "01a0609d-13ec-7cb3-b9c3-cafd54f4b57d" } },
+};
+
+/** tdd SS3.7 no-resolvable-run arm, verbatim from the reopen-rig capture. */
+const compactMissingRun: ApiObservation = {
+  kind: "requestError",
+  step: "compact",
+  method: "session/compact",
+  error: {
+    name: "MspError",
+    message: "session/compact command 01a0609d-1461-7d98-9f38-40868d0a6440 rejected: missing_run",
+    code: -32030,
+    kind: "commandRejected",
+    reason: "missing_run",
+  },
+};
+
+/** The seeded #19778 defect signature — the OP's exact admission death. */
+const compactInternal: ApiObservation = {
+  kind: "requestError",
+  step: "compact",
+  method: "session/compact",
+  error: {
+    name: "MspError",
+    message:
+      "session/compact runtime admission failed: background task failed: retained Session runtime cannot persist manual compaction command facts",
+    code: -32603,
+    kind: "internal",
+  },
+};
+
+/**
+ * The post-turn settlement the reopen rig actually serves: echo composes no
+ * context budget, so admission classifies `compaction_unavailable` — a typed
+ * SS3.7 outcome the pre-#21244 binary could not reach (its durable rejection
+ * append died `-32603 internal`, the OP's report).
+ */
+const afterTurnTyped: ApiObservation = {
+  kind: "requestError",
+  step: "compactAfterTurn",
+  method: "session/compact",
+  error: {
+    name: "MspError",
+    message:
+      "session/compact command 01a0609d-1692-7aae-b6ca-8b62cc5a115d rejected: compaction_unavailable",
+    code: -32030,
+    kind: "commandRejected",
+    reason: "compaction_unavailable",
+  },
+};
+
+const afterTurnInternal: ApiObservation = {
+  ...compactInternal,
+  step: "compactAfterTurn",
+};
+
+/** The completed echo turn that arms the defect class's actual surface. */
+const compactTurnOk: ApiObservation = {
+  kind: "requestOk",
+  step: "turn",
+  method: "turn/start",
+  result: {
+    commandId: "01a0609d-1462-7eb2-b724-031d711ba755",
+    status: "accepted",
+    turnId: "01a0609d-1462-7eb2-b724-031d711ba755",
+  },
+};
+const compactTurnCompleted: ApiObservation = {
+  kind: "notification",
+  method: "turn/completed",
+  params: {
+    sessionId: "01a0609d-13ec-7cb3-b9c3-cafd54f4b57d",
+    terminal: "completed",
+    turnId: "01a0609d-1462-7eb2-b724-031d711ba755",
+  },
+};
+
+const compactRequested = ["session/start", "session/compact", "turn/start"];
+
+test("QA-TEST-016a: SS3.7's mandated missing_run refusal on a no-run session is classification, not the defect", () => {
+  const run: ObservedRun = {
+    api: [compactStartOk, compactMissingRun, compactTurnOk, compactTurnCompleted, afterTurnTyped],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  // Target: this run is a spec-conformant binary answering both arms with
+  // typed SS3.7 outcomes. Reading it as anything but the guard's expected
+  // value is the 2026-09-02 false reopen.
+  assert.equal(
+    observeD19778(run),
+    D19778_EXPECTED,
+    "the guard read tdd SS3.7's mandated missing_run classification as the reopened defect",
+  );
+});
+
+test("QA-TEST-016b (control): the seeded internal admission death still reproduces on the no-run arm", () => {
+  const run: ObservedRun = {
+    api: [compactStartOk, compactInternal, compactTurnOk, compactTurnCompleted, afterTurnTyped],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(observeD19778(run), "compact:internal-admission-failure|afterTurn:classified");
+});
+
+test("QA-TEST-016c: the completed-run arm — the defect class's actual trigger — is read, and its internal death reproduces", () => {
+  const run: ObservedRun = {
+    api: [compactStartOk, compactMissingRun, compactTurnOk, compactTurnCompleted, afterTurnInternal],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  // Target: pre-rework the guard never issued a turn and never read this
+  // step, so a fact-retention death AFTER a completed run — the OP's exact
+  // surface (#21244's fix) — was invisible to it.
+  assert.equal(
+    observeD19778(run),
+    "compact:missing_run|afterTurn:internal-admission-failure",
+    "the guard must read the post-turn compact settlement — the arm the defect class actually bites on",
+  );
+});
+
+// The arms below kill the one-line mutants that survived 016a/b/c: reading
+// the KIND instead of the reason on the no-run arm, dropping the
+// turn-never-completed guard, and letting the drain loop's own timeout pass
+// (#27227 review).
+
+/** A no-run refusal that is typed but NOT the reason SS3.7 mandates here. */
+const compactInvalidTarget: ApiObservation = {
+  ...compactMissingRun,
+  error: { ...compactMissingRun.error, reason: "invalid_target" },
+} as ApiObservation;
+
+test("QA-TEST-016d: the no-run arm pins the REASON, not just the kind — a typed `invalid_target` there is a deviation", () => {
+  const run: ObservedRun = {
+    api: [compactStartOk, compactInvalidTarget, compactTurnOk, compactTurnCompleted, afterTurnTyped],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  // Kills `settlement === "err:commandRejected"` → `missing_run`: SS3.7's
+  // params note mandates `missing_run` on a no-run session, so #17389's
+  // `invalid_target` face leaking onto MSP must report, not pass.
+  assert.equal(
+    observeD19778(run),
+    "compact:err:commandRejected/invalid_target|afterTurn:classified",
+  );
+});
+
+test("QA-TEST-016e: a no-run session answered OK is a deviation — SS3.7 mandates the refusal", () => {
+  const run: ObservedRun = {
+    api: [
+      compactStartOk,
+      { kind: "requestOk", step: "compact", method: "session/compact", result: { status: "accepted" } },
+      compactTurnOk,
+      compactTurnCompleted,
+      afterTurnTyped,
+    ],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(
+    observeD19778(run),
+    "compact:ok-but-SS3.7-mandates-missing_run|afterTurn:classified",
+  );
+});
+
+test("QA-TEST-016f: a turn that never completed reads `turn-never-completed`, never a pass", () => {
+  // Kills deleting `if (!turnRan) return "turn-never-completed"`: with the
+  // notification absent the post-turn probe proves nothing about the arm the
+  // defect class bites on (QA-TEST-015's earned-verdict rule).
+  const run: ObservedRun = {
+    api: [compactStartOk, compactMissingRun, compactTurnOk, afterTurnTyped],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(observeD19778(run), "compact:missing_run|afterTurn:turn-never-completed");
+  assert.notEqual(observeD19778(run), D19778_EXPECTED);
+});
+
+test("QA-TEST-016g: any typed post-turn reason is classification — the guard must not enumerate `wire_word`", () => {
+  // `summarizer_failed` and `runtime_closed` are real
+  // `ManualCompactionReason::wire_word` values that an enumerated subset
+  // omitted, so a conformant typed answer read as the defect — the very
+  // misread this guard exists to prevent. The third value is in NO current
+  // vocabulary on purpose: it kills the enumerate-everything mutant (a Set
+  // of all ten present-day words), which would re-create the false reopen
+  // the next time `ManualCompactionReason` gains a variant — tdd SS3.1.2
+  // says an unknown reason is still a terminal rejection.
+  for (const reason of ["summarizer_failed", "runtime_closed", "reason_minted_after_this_test"]) {
+    const run: ObservedRun = {
+      api: [
+        compactStartOk,
+        compactMissingRun,
+        compactTurnOk,
+        compactTurnCompleted,
+        { ...afterTurnTyped, error: { ...afterTurnTyped.error, reason } } as ApiObservation,
+      ],
+      wire: EMPTY_WIRE,
+      requestedMethods: compactRequested,
+    };
+    assert.equal(observeD19778(run), D19778_EXPECTED, `${reason} is typed classification`);
+  }
+});
+
+test("QA-TEST-016h: a drain loop that expires still holding `run_active` is not a pass", () => {
+  // The drive re-probes until the runtime frees the active-run slot. If it
+  // never does, the loop exits at its deadline with `run_active` as the last
+  // settlement — the state `serve_assembly.rs` treats as a hard failure, so
+  // it must not read as classification.
+  const run: ObservedRun = {
+    api: [
+      compactStartOk,
+      compactMissingRun,
+      compactTurnOk,
+      compactTurnCompleted,
+      { ...afterTurnTyped, error: { ...afterTurnTyped.error, reason: "run_active" } } as ApiObservation,
+    ],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(observeD19778(run), "compact:missing_run|afterTurn:run-slot-never-released");
+  assert.notEqual(observeD19778(run), D19778_EXPECTED);
+});
+
+/** One drained probe: the slot is still held, so the drive re-asks. */
+const afterTurnRunActive: ApiObservation = {
+  ...afterTurnTyped,
+  error: { ...afterTurnTyped.error, reason: "run_active" },
+} as ApiObservation;
+
+test("QA-TEST-016j: drained `run_active` probes before the typed answer are not the verdict — only the LAST post-turn settlement is read", () => {
+  // The complement of 016h. The drive re-probes `compactAfterTurn` while the
+  // runtime still answers `run_active` (the #21244 drain race), so a real
+  // run records several post-turn settlements; the observable must read the
+  // newest. Flipping `rejectionReasonOfRun`/`settlementOfRun` to first-wins
+  // would read the first drained probe and report `run-slot-never-released`
+  // against a conformant host — the false reopen this guard exists to stop.
+  const run: ObservedRun = {
+    api: [
+      compactStartOk,
+      compactMissingRun,
+      compactTurnOk,
+      compactTurnCompleted,
+      afterTurnRunActive,
+      afterTurnRunActive,
+      afterTurnTyped,
+    ],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(observeD19778(run), D19778_EXPECTED);
+});
+
+test("QA-TEST-016k: a post-turn `missing_run` is the runtime losing the run it just completed, never a pass", () => {
+  // The probe omits `turnId`, so tdd SS3.7 resolves the latest run, and
+  // `serve_assembly.rs` pins that same compact `accepted` after one completed
+  // turn. A typed `missing_run` there is therefore a deviation with its own
+  // face (like `run_active`), not "any reason is classification".
+  const run: ObservedRun = {
+    api: [
+      compactStartOk,
+      compactMissingRun,
+      compactTurnOk,
+      compactTurnCompleted,
+      { ...afterTurnTyped, error: { ...afterTurnTyped.error, reason: "missing_run" } } as ApiObservation,
+    ],
+    wire: EMPTY_WIRE,
+    requestedMethods: compactRequested,
+  };
+  assert.equal(observeD19778(run), "compact:missing_run|afterTurn:completed-run-not-resolvable");
+  assert.notEqual(observeD19778(run), D19778_EXPECTED);
+});
+
+test("QA-TEST-016i: a real `MspError`'s `data.reason` reaches the observation", async () => {
+  // 016a-h hand-write `error.reason` into fixtures, so the recorder spread
+  // that actually captures it is unbacked: delete it and they all stay green
+  // while the shipped guard silently returns to `compact:err:commandRejected`.
+  // This drives a real child host and a real `MspError` through
+  // `RecordedHost`, which is the only thing that pins the capture.
+  const workDir = await scenarioWorkDir("d19778-reason");
+  try {
+    const host = await RecordedHost.open({
+      museBin: process.execPath,
+      argv: [SCRIPTED_HOST, "typedRejection"],
+      workDir,
+      label: "typedRejection",
+    });
+    await host.initialize();
+    await host.command("compact", "session/compact", { sessionId: "s" });
+    const run = await host.finish();
+    assert.equal(rejectionReasonOfRun(run, "compact"), "missing_run");
+    // …and the shipped observable reads that captured reason, not the kind.
+    assert.equal(observeD19778(run), "compact:missing_run|afterTurn:turn-never-completed");
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
 });

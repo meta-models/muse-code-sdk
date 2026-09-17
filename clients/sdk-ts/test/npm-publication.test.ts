@@ -71,20 +71,38 @@ test("the manifest is not marked private", () => {
   );
 });
 
-test("the version stays inside 0.x", () => {
-  // Deliberately a ratchet, not an equality. `assert.equal(version, "0.1.0")`
-  // would be a hand-copy of the value in package.json — the content-pin rule —
-  // and the first legitimate 0.1.1 would red this file for no behavioural
-  // reason. The durable contract is the 0.x posture, which is what D-013
-  // actually withholds; the specific 0.1.0 the owner ruled is enforced where it
-  // is load-bearing, by scripts/publish-sdk-npm.sh's already-published gate.
-  assert.match(
+test("the version is the host version (D-063 lockstep)", () => {
+  // ADR 25304 D1/D2 (as pointed to by D-063): the SDK package version IS the
+  // `crates/cli` version, set by the release-cut version commit. This is an
+  // equality between two files in one tree — derived, never a hand pin — and
+  // it replaced the 0.x ratchet: the manifest crossing 1.0 under lockstep is
+  // NOT D-022's leave-0.x/declare-v1 protocol event, so the version no longer
+  // encodes the protocol posture at all.
+  const cliManifest = readFileSync(
+    join(packageRoot, "..", "..", "crates", "cli", "Cargo.toml"),
+    "utf8",
+  );
+  const hostVersion = /^\[package\][\s\S]*?^version = "([^"]+)"/m.exec(cliManifest)?.[1];
+  assert.ok(hostVersion, "crates/cli/Cargo.toml must declare a version");
+  assert.equal(
     manifest.version,
-    /^0\./,
-    "D-013 withholds the stability promise until 1.0, and D-053 did not give it " +
-      "back — it permitted PUBLISHING at 0.x, so the version itself is what " +
-      "keeps a released package from implying a compatibility claim. Leaving " +
-      "0.x is D-022's single leave-0.x/declare-v1 event, not a version bump",
+    hostVersion,
+    "ADR 25304 D1: clients/sdk-ts/package.json versions in lockstep with " +
+      "crates/cli; only the release train (scripts/bump-main-version.sh) may " +
+      "move either, in the same commit",
+  );
+  // The sibling the train also tracks (ADR 25304 D4): without this arm a hand
+  // bump of msp-ts merges green and first surfaces as the next release cut's
+  // "is not part of the bump" STOP.
+  const mspManifest = JSON.parse(
+    readFileSync(join(packageRoot, "..", "msp-ts", "package.json"), "utf8"),
+  ) as { version: string };
+  assert.equal(
+    mspManifest.version,
+    hostVersion,
+    "ADR 25304 D4: clients/msp-ts/package.json rides the same version train " +
+      "(unpublished, but its manifest must stay lockstep so a future " +
+      "publication is born aligned)",
   );
 });
 
@@ -206,5 +224,33 @@ test("preparing for npm did not smuggle in a runtime dependency (INV-009)", () =
   assert.ok(
     !JSON.stringify(manifest).includes('"@muse/'),
     "no @muse/* specifier may survive the scope rename anywhere in the manifest",
+  );
+});
+
+test("@types/node is a declared optional peer, not a prose-only requirement (#26465, ADR 25304 D5)", () => {
+  // The published declarations name `node:child_process` and the `NodeJS`
+  // namespace, so a `skipLibCheck: false` consumer without ambient Node types
+  // fails with TS2307/TS2503. The README mandated the install in prose only;
+  // D5 turns that into machine-readable metadata. A types-only optional peer
+  // installs nothing at runtime, so INV-009 (zero runtime dependencies) is
+  // untouched — and the INV-009 arm above keeps proving `dependencies` empty.
+  const peers = (manifest as { peerDependencies?: Record<string, string> })
+    .peerDependencies;
+  assert.ok(
+    peers?.["@types/node"],
+    "peerDependencies must declare @types/node so package managers surface " +
+      "the requirement the declarations actually have",
+  );
+  const meta = (
+    manifest as {
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    }
+  ).peerDependenciesMeta;
+  assert.equal(
+    meta?.["@types/node"]?.optional,
+    true,
+    "the peer must be marked optional: a JavaScript consumer needs no types, " +
+      "and a hard peer would fail their install for a requirement they do not " +
+      "have",
   );
 });

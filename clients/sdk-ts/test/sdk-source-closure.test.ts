@@ -31,7 +31,7 @@ const PUBLISH_SCRIPT = "scripts/publish-sdk-npm.sh";
 interface ClosureManifest {
   artifact: string;
   producer: { repository: string; root: string };
-  mirror: { repository: string };
+  mirror: { repository: string; python_tree?: string[] };
   closure_paths: string[];
   path_notes: Record<string, string>;
 }
@@ -62,6 +62,40 @@ test("the publish script is in the closure and is executable", () => {
   assert.ok(
     statSync(join(projectRoot, PUBLISH_SCRIPT)).mode & 0o111,
     "the mirror checks the execute bit, so it has to survive the mirror",
+  );
+});
+
+/** The Python publish path (#638 S6): the gate script the mirror's
+ * publish-pypi.yml calls by path, and the row generator it calls in turn.
+ * Same silent failure mode as PUBLISH_SCRIPT: dropped from the closure, the
+ * next republish produces a mirror whose Python publish dead-ends. The
+ * tree->list direction (which Python paths must be here at all) lives with
+ * the Python suite, clients/sdk-py/tests/test_source_closure.py. */
+const PYPI_PUBLISH_SCRIPTS = ["scripts/publish-sdk-pypi.sh", "scripts/sdk-py-wheel-rows.py"];
+
+test("the Python publish scripts are in the closure and executable", () => {
+  for (const script of PYPI_PUBLISH_SCRIPTS) {
+    assert.ok(
+      manifest.closure_paths.includes(script),
+      `${script} must be a closure path: the mirror's publish-pypi.yml holds ` +
+        "no publishing logic and calls the gate script by path, and the gate " +
+        "script calls the row generator by path",
+    );
+    assert.ok(
+      statSync(join(projectRoot, script)).mode & 0o111,
+      `${script}: the mirror checks the execute bit, so it has to survive the mirror`,
+    );
+  }
+});
+
+test("the mirror section states the python/ destination for the Python closure", () => {
+  // The Python closure lands under the mirror's python/ tree, unlike the TS
+  // paths' verbatim layout. The bridge operator reads this manifest, so the
+  // divergence has to be stated here, not remembered.
+  assert.match(
+    (manifest.mirror.python_tree ?? []).join(" "),
+    /python\//,
+    "the manifest no longer explains where the Python closure lands in the mirror",
   );
 });
 

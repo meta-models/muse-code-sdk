@@ -533,12 +533,15 @@ export class Session<I = unknown> {
       case "userInput/requested":
       case "userInput/settled":
       case "session/modelChanged":
+      case "session/reasoningEffortChanged":
       case "session/goalChanged":
       case "session/todoListChanged":
       case "session/branchChanged":
       case "session/tokenUsage":
       case "session/contextUsage":
       case "session/approvalModeChanged":
+      case "session/modelRouteUnserved":
+      case "session/nameChanged":
         break;
 
       default: {

@@ -35,11 +35,23 @@ cd "$ROOT" || {
 }
 
 DECLS="schema/msp/msp.d.ts"
+EXPERIMENTAL_DECLS="schema/msp/experimental/msp.d.ts"
 
-if [ ! -f "$DECLS" ]; then
-  echo "FAIL: $DECLS is missing — nothing to typecheck, failing closed."
-  exit 2
+# The stable declarations are always required. The experimental twin ships
+# only where its bundle ships: the published SDK mirror
+# (scripts/sdk-source-closure.json) carries the stable surface only, and this
+# script must keep working there (#28711 review).
+FILES=("$DECLS")
+if [ -d "schema/msp/experimental" ]; then
+  FILES+=("$EXPERIMENTAL_DECLS")
 fi
+
+for file in "${FILES[@]}"; do
+  if [ ! -f "$file" ]; then
+    echo "FAIL: $file is missing — nothing to typecheck, failing closed."
+    exit 2
+  fi
+done
 
 if ! command -v npx >/dev/null 2>&1; then
   echo "FAIL: npx not found — cannot run the pinned TypeScript compiler, failing closed."
@@ -55,13 +67,16 @@ if [ "$?" -ne 0 ] || [ "$reported" != "Version ${TYPESCRIPT_VERSION}" ]; then
   exit 2
 fi
 
-if output="$(npx --yes --package "typescript@${TYPESCRIPT_VERSION}" tsc --strict --noEmit "$DECLS" 2>&1)"; then
-  echo "OK: ${DECLS} typechecks under tsc ${TYPESCRIPT_VERSION} --strict --noEmit."
-  exit 0
-fi
-
-echo "FAIL: ${DECLS} does not typecheck under tsc ${TYPESCRIPT_VERSION} --strict --noEmit:"
-echo "$output"
-echo "The file is generated (crates/protocol, spec 206) — fix the renderer and"
-echo "regenerate; never hand-edit the declarations."
-exit 1
+# Typecheck each surface separately so a failure names the file it came from.
+for file in "${FILES[@]}"; do
+  if output="$(npx --yes --package "typescript@${TYPESCRIPT_VERSION}" tsc --strict --noEmit "$file" 2>&1)"; then
+    echo "OK: ${file} typechecks under tsc ${TYPESCRIPT_VERSION} --strict --noEmit."
+  else
+    echo "FAIL: ${file} does not typecheck under tsc ${TYPESCRIPT_VERSION} --strict --noEmit:"
+    echo "$output"
+    echo "The file is generated (crates/protocol, spec 206) — fix the renderer and"
+    echo "regenerate; never hand-edit the declarations."
+    exit 1
+  fi
+done
+exit 0

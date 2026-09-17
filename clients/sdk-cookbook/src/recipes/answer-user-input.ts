@@ -150,6 +150,13 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     title: "Resume the session and find the question waiting in pendingRequests",
     async run(context) {
       const host = requireHost(context);
+      // The recorded client discovers the model catalog BEFORE the resume —
+      // one sessionless read-only `model/list` (SS3.10: "a client may list
+      // before it has a session"; the spec 211 T041 posture the reference
+      // ACP adapter ships). Taught in depth by
+      // list-models-and-switch-mid-session; the resume result's own
+      // `modelId` then names the model in force.
+      await host.msp.connection.request("model/list", {});
       const resumed = await host.msp.connection.command(
         "session/resume",
         { sessionId: SESSION_ID, excludeItems: true },

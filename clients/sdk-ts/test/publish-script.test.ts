@@ -224,50 +224,51 @@ test("the tarball audit fails when the files whitelist widens", () => {
 // a grep green while breaking the real guarantee.
 
 /**
- * The 0.x README posture that D-053 makes a precondition of publishing. Written
- * into the fixture rather than copied from the real README on purpose: these
- * arms test the GATE, and reading the gate's input from the same tree the gate
- * inspects would make them pass or fail on the README's editing history instead.
- * The real README's wording is owned by #26157.
+ * The lockstep / product-stability posture that D-063 (ADR 25304 D3) makes a
+ * precondition of publishing. Written into the fixture rather than copied from
+ * the real README on purpose: these arms test the GATE, and reading the gate's
+ * input from the same tree the gate inspects would make them pass or fail on
+ * the README's editing history instead.
  */
 const POSTURE_README =
   "# `@muse-code/sdk`\n\n" +
-  "**This is a 0.x release and it is experimental.** There is no stability " +
-  "promise before 1.0: any release may change or remove API you are using.\n";
+  "**This package versions in lockstep with Muse Code**: the SDK version is " +
+  "the Muse Code release it ships with. The stable MSP surface follows the " +
+  "product's compatibility posture; surfaces marked experimental " +
+  "(`x-msp-openness`) may change or be removed with a changelog entry.\n";
 
-test("a 0.x --publish is no longer blocked by a version floor (D-013 as amended by D-053)", () => {
-  // D-053 (2026-08-31) permits publishing at 0.x, and the interlock that
-  // refused every 0.x publish was deleted with it — its own comment bound the
-  // two together. What must NOT come back is a version floor: the run below is
-  // expected to die at the provenance interlock — which sits several gates
-  // further down, past build, registry state, and pack-and-audit — and never at
-  // the version.
+test("an aligned --publish passes both version gates and dies only at provenance", () => {
+  // D-063 (ADR 25304 D1): the only version condition left is lockstep with the
+  // host. The unmutated fixture carries the aligned version, so the run below
+  // must pass the lockstep gate and the posture gate and die at the provenance
+  // interlock — which sits several gates further down, past build, registry
+  // state, and pack-and-audit — and never at the version.
   const pkg = fixtureWith(() => {});
   writeFileSync(join(pkg, "README.md"), POSTURE_README);
   const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
   assert.notEqual(result.status, 0, "outside Actions no publish can proceed at all");
   assert.doesNotMatch(
     result.combined,
-    /before 1\.0|version floor|D-013 forbids/i,
-    "a 0.x version must no longer be a reason to refuse; the only refusal left " +
+    /does not match the host version|version floor|D-013 forbids/i,
+    "an aligned version must not be a reason to refuse; the only refusal left " +
       `here is provenance:\n${result.combined}`,
   );
   assert.match(
     result.combined,
     /provenance/i,
-    `the run must get past the version check and reach the provenance ` +
+    `the run must get past the version gates and reach the provenance ` +
       `interlock further down:\n${result.combined}`,
   );
 });
 
 /**
- * Assert `--publish` at 0.x refuses this README **at the posture gate**.
+ * Assert `--publish` refuses this README **at the posture gate**.
  *
  * The refusal has to be pinned to the gate's own message, not to properties an
  * ACCEPT run also has. Outside Actions every run dies at the provenance gate,
  * so `status != 0` and "Nothing was published" are true either way — and the
- * ACCEPT line itself says `ok: README states the 0.x ... (D-053)`, which
- * supplies both /D-053/ and /README/. An assertion that all four survive is an
+ * ACCEPT line itself says `ok: README states the lockstep ... (D-063)`, which
+ * supplies both /D-063/ and /README/. An assertion that all four survive is an
  * assertion about nothing: with the predicate forced to accept, every arm below
  * stayed green.
  *
@@ -280,7 +281,7 @@ function assertPostureRefused(readme: string, why: string): void {
   assert.notEqual(result.status, 0, `${why}: the publish must not proceed`);
   assert.match(
     result.combined,
-    /publishing at 0\.x requires the README/,
+    /requires the README to state the lockstep/,
     `${why}: must die at the POSTURE gate, not merely somewhere downstream:\n${result.combined}`,
   );
   assert.doesNotMatch(
@@ -288,14 +289,14 @@ function assertPostureRefused(readme: string, why: string): void {
     /ok: README states/,
     `${why}: the gate reported the posture as satisfied`,
   );
-  assert.match(result.combined, /D-053/, "the message must name the amendment it enforces");
+  assert.match(result.combined, /D-063/, "the message must name the amendment it enforces");
   assert.match(result.combined, /Nothing was published/);
 }
 
-test("a 0.x --publish whose README omits the no-stability posture fails before the registry", () => {
-  // D-053 permits publishing at 0.x *because* the posture is stated where a
-  // registry reader will see it. Without that, publishing 0.x silently drops
-  // the principle the amendment kept — so the script refuses.
+test("a --publish whose README omits the posture entirely fails before the registry", () => {
+  // D-063 keeps publication conditioned on the artifact stating its own
+  // posture where a registry reader will see it — now the lockstep /
+  // product-stability posture instead of the 0.x disclaimer.
   assertPostureRefused(
     "# `@muse-code/sdk`\n\nA TypeScript SDK.\n",
     "a README stating no posture at all",
@@ -309,66 +310,63 @@ test("a 0.x --publish whose README omits the no-stability posture fails before t
 // alive, so a later edit could silently weaken the gate to one grep and every
 // arm would still pass.
 
-test("the posture gate refuses a README missing the experimental clause", () => {
+test("the posture gate refuses a README missing the lockstep clause", () => {
   assertPostureRefused(
-    "# `@muse-code/sdk`\n\nThere is no stability promise before 1.0: any " +
-      "release may change or remove API you are using.\n",
-    "no experimental clause",
+    "# `@muse-code/sdk`\n\nThe stable MSP surface follows the product's " +
+      "compatibility posture; experimental surfaces may change or be removed.\n",
+    "no lockstep clause",
   );
 });
 
-test("the posture gate refuses a README missing the no-stability clause", () => {
+test("the posture gate refuses a README missing the stable-surface clause", () => {
   assertPostureRefused(
-    "# `@muse-code/sdk`\n\nThis is a 0.x release and it is experimental. Any " +
-      "release may change or remove API you are using.\n",
-    "no no-stability clause",
+    "# `@muse-code/sdk`\n\nThis package versions in lockstep with Muse Code. " +
+      "Experimental surfaces may change or be removed.\n",
+    "no stable-surface clause",
   );
 });
 
-test("the posture gate refuses a README missing the may-change clause", () => {
+test("the posture gate refuses a README missing the experimental caveat", () => {
   assertPostureRefused(
-    "# `@muse-code/sdk`\n\nThis is a 0.x release and it is experimental. " +
-      "There is no stability promise before 1.0.\n",
-    "no may-change clause",
+    "# `@muse-code/sdk`\n\nThis package versions in lockstep with Muse Code. " +
+      "The stable MSP surface follows the product's compatibility posture.\n",
+    "no experimental caveat",
   );
 });
 
 test("the posture gate refuses a README asserting the OPPOSITE posture", () => {
   // The markers are deliberately loose substring matches, which is what makes
   // them survive a rewording — and exactly what a negation would exploit:
-  // "no longer experimental" contains the word "experimental". A gate a
-  // negation passes is not a gate.
+  // "no longer in lockstep" contains the word "lockstep". A gate a negation
+  // passes is not a gate.
   assertPostureRefused(
-    "# `@muse-code/sdk`\n\nThis SDK is no longer experimental. There is no " +
-      "stability promise before 1.0 — but that may change, and nothing will " +
-      "change or remove API you are using.\n",
+    "# `@muse-code/sdk`\n\nThis package is no longer in lockstep with Muse " +
+      "Code. The stable MSP surface follows the product's compatibility " +
+      "posture; experimental surfaces may change or be removed.\n",
     "an inverted posture",
   );
 });
 
-test("the posture gate accepts the posture phrased as 'no stability promise applies'", () => {
-  // The counterexample that removed the second negation guard. This wording
-  // states the required posture and must publish; a guard keying on the
-  // substring "stability promise applies" killed it, which is the
-  // wording-sensitive outage loose markers exist to avoid.
-  //
-  // An ACCEPT arm needs the opposite proof from a REFUSE arm: outside Actions
-  // every run fails, so "it failed" says nothing. What distinguishes acceptance
-  // is WHERE it failed — at provenance, having first reported the posture ok.
+test("the posture gate accepts the posture phrased without the word 'lockstep'", () => {
+  // The markers are a floor, not a wording pin: a README that states the same
+  // posture in different words must publish. An ACCEPT arm needs the opposite
+  // proof from a REFUSE arm: outside Actions every run fails, so "it failed"
+  // says nothing. What distinguishes acceptance is WHERE it failed — at
+  // provenance, having first reported the posture ok.
   const pkg = fixtureWith(() => {});
   writeFileSync(
     join(pkg, "README.md"),
-    "# `@muse-code/sdk`\n\nThis is an experimental 0.x release. No stability " +
-      "promise applies before 1.0: any release may change or remove API you " +
-      "are using.\n",
+    "# `@muse-code/sdk`\n\nThe SDK version tracks the Muse Code release it " +
+      "ships with. The stable MSP surface carries the product's compatibility " +
+      "promise; experimental surfaces are subject to change.\n",
   );
   const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
   assert.match(
     result.combined,
-    /ok: README states the 0\.x/,
+    /ok: README states the lockstep/,
     `this wording states the posture and must pass the gate:\n${result.combined}`,
   );
-  assert.doesNotMatch(result.combined, /publishing at 0\.x requires the README/);
+  assert.doesNotMatch(result.combined, /requires the README to state the lockstep/);
   assert.match(
     result.combined,
     /provenance/i,
@@ -377,42 +375,66 @@ test("the posture gate accepts the posture phrased as 'no stability promise appl
 });
 
 test("the shipping README satisfies the posture gate today", () => {
-  // #26157's posture section is merged, so this is a green, stable arm rather
-  // than the merge-race hazard it would have been beforehand. It is the only
-  // check in CI that reads the REAL README: without it a PR rewording the
-  // posture (say "experimental" -> "early-stage") keeps every lane green and
-  // the break first surfaces as a refused publish run — an outage, not a red
-  // PR. Pack-only prints the same acceptance line as --publish, so no publish
-  // path is exercised here.
+  // This is the only check in CI that reads the REAL README: without it a PR
+  // rewording the posture keeps every lane green and the break first surfaces
+  // as a refused publish run — an outage, not a red PR. Pack-only prints the
+  // same acceptance line as --publish, so no publish path is exercised here.
   const result = run([]);
   assert.match(
     result.combined,
-    /ok: README states the 0\.x/,
-    `the shipping README must state the 0.x posture (tdd SS7.1):\n${result.combined}`,
+    /ok: README states the lockstep/,
+    `the shipping README must state the lockstep posture (tdd SS7.1):\n${result.combined}`,
   );
 });
 
-test("the posture requirement applies to 0.x only, not to a 1.0 release", () => {
-  // The condition D-053 attaches is a 0.x condition. At 1.0 the promise is made
-  // rather than withheld, so requiring the withholding text there would be
-  // requiring the package to contradict itself.
+test("--publish refuses a manifest version that is not the host version (D-063 lockstep)", () => {
+  // ADR 25304 D1: the version is set by the release train; publishing a
+  // version the host tree does not carry fails before the registry.
   const pkg = fixtureWith((m) => {
-    m.version = "1.0.0";
+    m.version = "9.9.9";
   });
-  writeFileSync(join(pkg, "README.md"), "# `@muse-code/sdk`\n\nA TypeScript SDK.\n");
+  writeFileSync(join(pkg, "README.md"), POSTURE_README);
   const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
-  assert.notEqual(result.status, 0, "outside Actions no publish can proceed at all");
+  assert.notEqual(result.status, 0, "a diverged version must not publish");
+  assert.match(
+    result.combined,
+    /does not match the host version/,
+    `must die at the lockstep gate:\n${result.combined}`,
+  );
+  assert.match(result.combined, /D-063/, "the message must name the amendment it enforces");
+  assert.match(result.combined, /Nothing was published/);
   assert.doesNotMatch(
     result.combined,
-    /D-053/,
-    `the 0.x posture gate must not fire at 1.0:\n${result.combined}`,
+    /provenance/i,
+    "the run must stop at the lockstep gate, before the provenance interlock",
+  );
+});
+
+test("pack-only tolerates a diverged version with a note; the always-on equality lives in npm-publication.test.ts", () => {
+  // Same CI-decoupling rationale as the posture gate: pack-only runs on every
+  // push, and the in-repo equality is already enforced by the
+  // npm-publication.test.ts lockstep arm, which reds the PR that diverges.
+  const pkg = fixtureWith((m) => {
+    m.version = "9.9.9";
+  });
+  const result = run([], { SDK_PACKAGE_DIR: pkg });
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green on a diverged version:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /does not match the host version|note:.*host/i,
+    "pack-only must still SAY the version is diverged",
   );
 });
 
 test("pack-only never fails on the posture, whatever the README says", () => {
-  // The gate is a publish precondition, not a build one. Failing pack-only on it
-  // would couple this package's CI to the README edit that states the posture,
-  // and CI runs pack-only on every push.
+  // The gate is a publish precondition, not a build one. Failing pack-only on
+  // it would couple this package's CI to the README edit that states the
+  // posture, and CI runs pack-only on every push (ADR 25304 D3 keeps the
+  // D-053-era decoupling).
   const pkg = fixtureWith(() => {});
   writeFileSync(join(pkg, "README.md"), "# `@muse-code/sdk`\n\nA TypeScript SDK.\n");
   const result = run([], { SDK_PACKAGE_DIR: pkg });
@@ -424,9 +446,9 @@ test("pack-only never fails on the posture, whatever the README says", () => {
 });
 
 test("--publish in Actions without an OIDC token dies before the registry", () => {
-  const pkg = fixtureWith((m) => {
-    m.version = "1.0.0"; // 1.0 carries no 0.x posture condition, so auth is what is tested
-  });
+  // The unmutated fixture is aligned and its real README states the posture,
+  // so auth is what is tested.
+  const pkg = fixtureWith(() => {});
   const result = run(["--publish"], {
     SDK_PACKAGE_DIR: pkg,
     GITHUB_ACTIONS: "1",
@@ -444,9 +466,7 @@ test("--publish in Actions without an OIDC token dies before the registry", () =
 test("--publish outside Actions refuses: provenance is impossible there", () => {
   // npm generates provenance only inside a supported CI provider, so a manual
   // run cannot satisfy the ruling's --provenance requirement at all.
-  const pkg = fixtureWith((m) => {
-    m.version = "1.0.0";
-  });
+  const pkg = fixtureWith(() => {});
   const result = run(["--publish"], { SDK_PACKAGE_DIR: pkg, GITHUB_ACTIONS: "" });
   assert.notEqual(result.status, 0);
   assert.match(result.combined, /provenance/i);
@@ -723,4 +743,162 @@ test("no shipped declaration imports a package that is not on the registry", () 
     "`@muse-code/msp` is private and unpublished; its declarations must be bundled " +
       "into this tarball, not imported from it",
   );
+});
+
+// ---- the mirror-anchor gate arm (ADR 25304 D1) -----------------------------
+//
+// The registry is only contacted from the meta-models mirror, whose tree is
+// exactly the source closure and carries no `crates/*` path. There the
+// lockstep gate's host-version carrier is the mirror's own
+// `publish-anchor.json` (`host_version`, written by the re-sync). These arms
+// prove that arm on a mirror-shaped fixture: the script copied to a root with
+// no `crates/`, a committed clean tree, and an anchor to read.
+
+function mirrorFixture(anchor: Record<string, unknown> | string | null): {
+  script: string;
+  pkg: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), "sdk-publish-mirror-"));
+  fixtureDirs.push(root);
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  cpSync(script, join(root, "scripts", "publish-sdk-npm.sh"));
+  const pkg = join(root, "clients", "sdk-ts");
+  cpSync(realPackageDir, pkg, {
+    recursive: true,
+    filter: (src) => !src.includes("node_modules"),
+  });
+  const manifestPath = join(pkg, "package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+  const scripts = (manifest.scripts ?? {}) as Record<string, string>;
+  scripts.build = "true";
+  scripts.prepack = "true";
+  manifest.scripts = scripts;
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(join(pkg, "README.md"), POSTURE_README);
+  if (anchor !== null) {
+    const body = typeof anchor === "string" ? anchor : `${JSON.stringify(anchor, null, 2)}\n`;
+    writeFileSync(join(root, "publish-anchor.json"), body);
+  }
+  // The real mirror is a git checkout and --publish's tree-anchor gate demands
+  // one, clean; commit the fixture so the run reaches the version gates.
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", root, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  git("init", "-q", ".");
+  // Concatenated so the fixture identity never forms an address shape in the
+  // published source (the source-audience employee-identifier rule; same
+  // dodge as the pre-rename package-name arm above).
+  git("config", "user.email", ["t", "example.invalid"].join("@"));
+  git("config", "user.name", "t");
+  git("add", "-A");
+  git("commit", "-q", "-m", "mirror fixture");
+  return { script: join(root, "scripts", "publish-sdk-npm.sh"), pkg };
+}
+
+function runMirror(
+  fixture: { script: string; pkg: string },
+  args: string[] = ["--publish"],
+): RunResult {
+  try {
+    const stdout = execFileSync(fixture.script, args, {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        npm_config_registry: OFFLINE_REGISTRY,
+        ...NO_RETRY,
+        ACTIONS_ID_TOKEN_REQUEST_URL: "",
+        GITHUB_ACTIONS: "",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { status: 0, stdout, stderr: "", combined: stdout };
+  } catch (error) {
+    const e = error as { status?: number; stdout?: string; stderr?: string };
+    const stdout = e.stdout ?? "";
+    const stderr = e.stderr ?? "";
+    return { status: e.status ?? -1, stdout, stderr, combined: `${stdout}\n${stderr}` };
+  }
+}
+
+test("mirror shape: --publish reads the host version from publish-anchor.json and proceeds on a match", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const result = runMirror(mirrorFixture({ host_version: manifest.version }));
+  assert.match(
+    result.combined,
+    /publish anchor/,
+    `a matching anchor must satisfy the lockstep gate:\n${result.combined}`,
+  );
+  assert.doesNotMatch(result.combined, /does not match the host version/);
+  assert.match(
+    result.combined,
+    /provenance/i,
+    `and the run must then reach the provenance interlock:\n${result.combined}`,
+  );
+});
+
+test("mirror shape: --publish refuses when the manifest differs from the anchor", () => {
+  const result = runMirror(mirrorFixture({ host_version: "9.9.9" }));
+  assert.notEqual(result.status, 0, "a diverged anchor must not publish");
+  assert.match(result.combined, /does not match the host version/);
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(result.combined, /provenance/i);
+});
+
+test("mirror shape: --publish refuses when no host-version carrier exists at all", () => {
+  const result = runMirror(mirrorFixture(null));
+  assert.notEqual(result.status, 0, "no carrier, no publish");
+  assert.match(
+    result.combined,
+    /no host-version carrier/,
+    `the message must say what is missing:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+});
+
+test("mirror shape: an anchor without host_version refuses at the lockstep gate", () => {
+  // Exactly the shape a re-sync bug would produce: the file exists, the
+  // version does not.
+  const result = runMirror(mirrorFixture({}));
+  assert.notEqual(result.status, 0, "an empty anchor must not publish");
+  assert.match(
+    result.combined,
+    /names no version/,
+    `the message must say the carrier is empty:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+});
+
+test("mirror shape: a malformed anchor refuses --publish cleanly, never a raw parse crash", () => {
+  // Constitution XIII scoped failure: pack-only must not depend on the
+  // anchor at all, so the parse failure surfaces as the empty-version
+  // refusal on --publish, with the script's own FAILED message.
+  const result = runMirror(mirrorFixture("{ malformed\n"));
+  assert.notEqual(result.status, 0, "a malformed anchor must not publish");
+  assert.match(
+    result.combined,
+    /names no version/,
+    `the refusal must be the gate's own, not a Node stack:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(result.combined, /SyntaxError/);
+});
+
+test("mirror shape: pack-only never depends on the anchor, malformed or not", () => {
+  // The other Constitution XIII half: the scoped refusal is --publish's; a
+  // pack-only run over the same malformed anchor must pass every gate with a
+  // note, so an edit widening the lockstep die to both modes cannot land
+  // green.
+  const result = runMirror(mirrorFixture("{ malformed\n"), []);
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green under a malformed anchor:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Pack-only does not/);
+  assert.doesNotMatch(result.combined, /SyntaxError/);
 });

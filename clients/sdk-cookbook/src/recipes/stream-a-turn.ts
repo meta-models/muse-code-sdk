@@ -112,6 +112,11 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       const session = objectAt(result, "session", "session/start result");
       equals(session["status"], "idle", "a fresh session's status");
       context.sessionId = stringAt(session, "sessionId", "session/start session");
+      // The recorded client discovers the model catalog right at session
+      // acquisition (the T041 posture the reference ACP adapter ships) — one
+      // read-only `model/list`, taught in depth by the
+      // list-models-and-switch-mid-session recipe.
+      await host.msp.connection.request("model/list", { sessionId: context.sessionId });
     },
   },
   {

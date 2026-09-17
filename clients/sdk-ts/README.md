@@ -14,15 +14,21 @@ npm install @muse-code/sdk
 npm install -D @types/node   # required: the declarations reference Node's stdlib
 ```
 
-Node 20 or newer. `@types/node` is a peer of your own toolchain rather than a
-dependency of this package, so a TypeScript consumer installs it explicitly —
-without it the declarations that name `ChildProcess`, `Readable` and friends do
-not resolve. The MSP wire declarations are **bundled into the tarball**, so
-nothing else is needed to typecheck against the published package.
+Node 20 or newer. `@types/node` is declared as an **optional peer dependency**
+(#26465): a JavaScript consumer needs nothing, while a TypeScript consumer
+installs it explicitly — without it the declarations that name `ChildProcess`,
+`Readable` and friends do not resolve. The MSP wire declarations are **bundled
+into the tarball**, so nothing else is needed to typecheck against the
+published package.
 
-**This is a 0.x release and it is experimental.** There is no stability promise
-before 1.0: any release may change or remove API you are using. Pin an exact
-version, and read the changelog before moving off it.
+**This package versions in lockstep with Muse Code**: the SDK version is the
+Muse Code release it ships with, set by the release cut — `@muse-code/sdk
+X.Y.Z` pairs with Muse Code `X.Y.Z`. The stable MSP surface follows the
+product's compatibility posture: evolution is additive, and a breaking change
+follows a documented deprecation and changelog path. Surfaces marked
+experimental (`x-msp-openness`) may change or be removed with a changelog
+entry and no deprecation window. Pin an exact version, and read the changelog
+before moving off it.
 
 ## The loop
 

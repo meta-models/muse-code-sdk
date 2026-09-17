@@ -42,6 +42,9 @@ import type {
   SessionContextUsageParams,
   SessionGoalChangedParams,
   SessionModelChangedParams,
+  SessionModelRouteUnservedParams,
+  SessionNameChangedParams,
+  SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
   TurnCompletedParams,
@@ -72,6 +75,8 @@ export type SessionStateParams =
   | SessionContextUsageParams
   | SessionGoalChangedParams
   | SessionModelChangedParams
+  | SessionNameChangedParams
+  | SessionReasoningEffortChangedParams
   | SessionTodoListChangedParams
   | SessionTokenUsageParams;
 
@@ -92,6 +97,10 @@ export type ViewEvent =
   | { readonly method: "userInput/requested"; readonly params: UserInputRequestParams }
   | { readonly method: "userInput/settled"; readonly params: UserInputSettledParams }
   | { readonly method: "session/modelChanged"; readonly params: SessionModelChangedParams }
+  | {
+      readonly method: "session/reasoningEffortChanged";
+      readonly params: SessionReasoningEffortChangedParams;
+    }
   | { readonly method: "session/goalChanged"; readonly params: SessionGoalChangedParams }
   | { readonly method: "session/todoListChanged"; readonly params: SessionTodoListChangedParams }
   | { readonly method: "session/branchChanged"; readonly params: SessionBranchChangedParams }
@@ -100,6 +109,18 @@ export type ViewEvent =
   | {
       readonly method: "session/approvalModeChanged";
       readonly params: SessionApprovalModeChangedParams;
+    }
+  | {
+      readonly method: "session/nameChanged";
+      readonly params: SessionNameChangedParams;
+    }
+  /**
+   * The one-shot login-swap route disclosure (#25603, tdd SS4.6.8): routed to
+   * its own non-storing outcome — a notice, never sticky session state.
+   */
+  | {
+      readonly method: "session/modelRouteUnserved";
+      readonly params: SessionModelRouteUnservedParams;
     }
   /**
    * The delivery-plane marker (tdd SS4.8). A `ViewEvent` since spec 14990
@@ -122,16 +143,44 @@ export type ViewEvent =
 
 /**
  * Compile-time coverage: every `MspNotification` except the handshake's
- * `initialized` is a fold input. A #206 enrollment that adds a view
- * notification fails HERE rather than being silently ignored at runtime.
+ * `initialized` and the live host-state projections is a fold input. A #206
+ * enrollment that adds a view notification fails HERE rather than being
+ * silently ignored at runtime.
  *
- * `initialized` is the sole remaining exclusion, and it is a HANDSHAKE
- * notification rather than a view one — it is answered by `MspHandshake`
- * before this fold exists. The `view/gap` exclusion D-24021-1 recorded was
- * removed by spec 14990 T032 when the marker became the `ViewEvent` arm above.
+ * The exclusions, each excluded because it is NOT a view event:
+ * - `initialized` is a HANDSHAKE notification, answered by `MspHandshake`
+ *   before this fold exists. (The `view/gap` exclusion D-24021-1 recorded
+ *   was removed by spec 14990 T032 when the marker became the `ViewEvent`
+ *   arm above.)
+ * - `session/viewHealthChanged` (#32557, ADR 32557) is a COMMAND-PLANE
+ *   health push, not a view-fold event: it reports that the live view
+ *   stream stopped, so it carries no cursor and folds into no transcript
+ *   state. A consumer handles it out of band (mark the session view
+ *   unhealthy), never through this fold.
+ * - `usage/changed` (ADR 32563 D3, tdd SS3.23) is a live HOST-STATE push
+ *   outside the view altitude: no `viewCursor`, no `sourceRange`, nothing
+ *   seeded into either store; it reaches consumers through the ordinary
+ *   notification hook, not this fold.
+ * - `skill/changed` (ADR 32471 D3, tdd SS3.22.2) is a live host-state
+ *   projection carrying `sessionId` only — no `viewCursor`, no
+ *   `sourceRange`, nothing durable to fold. The SDK consumer's reaction is
+ *   an ACTION (re-issue `skill/list`), not fold state, so it rides the
+ *   client's notification callback rather than this fold.
  */
 type AssertNever<T extends never> = T;
-type UnfoldedViewNotification = Exclude<MspNotification, "initialized" | ViewEvent["method"]>;
+// `session/statusChanged` (tdd SS4.6.10, ADR 31983 D2) is a live host-state
+// projection too: a command-plane broadcast over the session table, not a view
+// event — no `sourceRange`, not subscription-gated, folds no view state. The
+// SDK's session-table surface for it is #31983 follow-up work.
+type LiveHostStateProjection = "skill/changed" | "usage/changed" | "session/statusChanged";
+type NonFoldNotification =
+  | "initialized"
+  | "session/viewHealthChanged"
+  | LiveHostStateProjection;
+type UnfoldedViewNotification = Exclude<
+  MspNotification,
+  NonFoldNotification | ViewEvent["method"]
+>;
 export type EveryViewNotificationIsFolded = AssertNever<UnfoldedViewNotification>;
 
 /**
@@ -150,7 +199,7 @@ export type NoStaleViewArm = AssertNever<StaleViewArm>;
  * vocabulary (the PR #23087 rule, applied to this file's only other
  * hand-typed method set).
  */
-type StaleExclusion = Exclude<"initialized", MspNotification>;
+type StaleExclusion = Exclude<NonFoldNotification, MspNotification>;
 export type NoStaleExclusion = AssertNever<StaleExclusion>;
 
 /**
@@ -274,6 +323,13 @@ export type FoldOutcome =
       readonly after: string;
       readonly next: string;
     }
+  /**
+   * The one-shot login-swap route disclosure (#25603, tdd SS4.6.8): a NOTICE,
+   * not a state family — it seeds no store (a repair via `session/setModel`
+   * would never clear a stored copy, and a snapshot reseed would wipe it), so
+   * the params ride the outcome verbatim for the consumer to render once.
+   */
+  | { readonly kind: "modelRouteUnserved"; readonly params: SessionModelRouteUnservedParams }
   | { readonly kind: "ignoredUnrecognizedMethod"; readonly method: string }
   | {
       /**
@@ -574,13 +630,18 @@ export class SessionFold {
       case "view/gap":
         return this.#deliveryGap(typed.params);
 
+      case "session/modelRouteUnserved":
+        return { kind: "modelRouteUnserved", params: typed.params };
+
       case "session/modelChanged":
+      case "session/reasoningEffortChanged":
       case "session/goalChanged":
       case "session/todoListChanged":
       case "session/branchChanged":
       case "session/tokenUsage":
       case "session/contextUsage":
       case "session/approvalModeChanged":
+      case "session/nameChanged":
         return {
           kind: "sessionState",
           outcome: this.#sessionStateStore.apply(

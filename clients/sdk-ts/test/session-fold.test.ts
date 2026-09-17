@@ -33,6 +33,8 @@ import type {
   SessionContextUsageParams,
   SessionGoalChangedParams,
   SessionModelChangedParams,
+  SessionNameChangedParams,
+  SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
   SourceRange,
@@ -1365,6 +1367,19 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     sessionId: SESSION,
     viewCursor: "v:t:1",
   };
+  const nameChanged: SessionNameChangedParams = {
+    name: "lease-fix",
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    viewCursor: "v:t:21",
+  };
+  const reasoningEffort: SessionReasoningEffortChangedParams = {
+    reasoningEffort: "high",
+    sessionId: SESSION,
+    source: "user",
+    sourceRange: SOURCE,
+    viewCursor: "v:t:22",
+  };
   const byMethod: Record<ViewEvent["method"], ViewEvent> = {
     "item/started": { method: "item/started", params: started },
     "item/updated": { method: "item/updated", params: itemUpdated },
@@ -1384,12 +1399,29 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     "userInput/requested": userInputRequested("u-t", "v:t:12"),
     "userInput/settled": userInputSettled("u-t", "answered", "v:t:13"),
     "session/modelChanged": { method: "session/modelChanged", params: model },
+    "session/reasoningEffortChanged": {
+      method: "session/reasoningEffortChanged",
+      params: reasoningEffort,
+    },
     "session/goalChanged": { method: "session/goalChanged", params: goal },
     "session/todoListChanged": { method: "session/todoListChanged", params: todo },
     "session/branchChanged": { method: "session/branchChanged", params: branch },
     "session/tokenUsage": { method: "session/tokenUsage", params: tokens },
     "session/contextUsage": { method: "session/contextUsage", params: context },
     "session/approvalModeChanged": { method: "session/approvalModeChanged", params: approvalMode },
+    "session/nameChanged": { method: "session/nameChanged", params: nameChanged },
+    "session/modelRouteUnserved": {
+      method: "session/modelRouteUnserved",
+      params: {
+        commandId: "cmd-u",
+        installedProviderId: "meta",
+        modelId: "gpt-standing",
+        providerId: "openai",
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        viewCursor: "v:t:21",
+      },
+    },
     // The delivery marker is a routed arm since T032 (FR-020): it changes no
     // store, but it MUST NOT reach the `ignoredUnrecognizedMethod` default —
     // that report is reserved for a newer host's genuinely unknown method.

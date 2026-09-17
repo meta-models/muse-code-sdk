@@ -120,9 +120,11 @@ export async function runSegment<Context>(
  * Run a journey's segments in order, ALWAYS run `teardown`, then summarize.
  *
  * This is the loop every recipe would otherwise hand-copy, and the copy's
- * risky part is the `finally`: the SDK has no kill path (#15943), so a
- * recipe that forgets it leaks a spawned host child on the first failing
- * segment (PR #24319 review). Teardown is a callback because the kit does
+ * risky part is the `finally`: a recipe that forgets it never asks its spawned
+ * host to shut down, so the child lives until the journey's own process exits
+ * (PR #24319 review). Since #15943 the SDK terminates the hosts it owns, so
+ * this is about ending them PROMPTLY and reporting an unclean drain rather
+ * than about preventing an orphan. Teardown is a callback because the kit does
  * not know what a journey's context owns.
  */
 export async function runJourney<Context>(

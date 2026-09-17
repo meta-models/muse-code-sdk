@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 
 import {
   D19764_EXPECTED,
+  D19778_EXPECTED,
   ORACLE_CHECKS,
   RecordedHost,
   SDK_QA_SCENARIOS,
@@ -213,6 +214,15 @@ test("QA-TEST-010: the shipped scenario set runs end to end on the real binary",
     report.scenarios.find((scenario) => scenario.id === "D19764")?.expected,
     D19764_EXPECTED,
     "the shipped D19764 scenario must keep the read-aware contract, not just export it",
+  );
+  // Same guard for D19778: QA-TEST-016 exercises the exported helpers on
+  // synthesized runs, so reverting the SCENARIO to its pre-#27227 inline
+  // observe and `"compact:classified"` keeps that whole file green (#27227
+  // review). This is the assert that fails on that revert.
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "D19778")?.expected,
+    D19778_EXPECTED,
+    "the shipped D19778 scenario must keep the two-arm SS3.7 contract",
   );
   assert.match(renderReportMarkdown(report), /## Track 1 — spec violations/);
 });
