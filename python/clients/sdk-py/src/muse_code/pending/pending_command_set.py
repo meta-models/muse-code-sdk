@@ -37,7 +37,7 @@ from muse_code.errors import MuseSessionDiscardedError
 I = TypeVar("I")
 
 COMMAND_REJECTED_CODE: Final[int] = -32030
-"""The JSON-RPC code for a durable command rejection (tdd SS3.1.2, Appendix B).
+"""The JSON-RPC code for a durable command rejection.
 
 Named exactly once, here; ``tests/test_pending_command_wire_binding.py``
 pins it to the generated ``muse_code_msp.ERRORS`` row for
@@ -48,17 +48,17 @@ instead of silently leaving the SDK settling on a dead code.
 COMMAND_REJECTED_KIND: Final[str] = "commandRejected"
 """The registry row's ``kind``, pinned to the generated table by test.
 
-The generated Python rendering keeps open enums as ``str`` (SS1.5.4), so the
+The generated Python rendering keeps open enums as ``str``, so the
 TS compile-time ``Extract<...>`` binding has no Python twin; the wire-binding
 test is the misspelling guard here.
 """
 
 _QUEUED_DISPOSITION: Final[str] = "queued"
-"""The ``"queued"`` disposition (SS3.2); pinned to the generated
+"""The ``"queued"`` disposition; pinned to the generated
 ``TURN_START_DISPOSITION_KNOWN_VALUES`` by the wire-binding test."""
 
 PendingDisposition = TurnStartDisposition
-"""The ack's disposition — the generated SS3.2 vocabulary.
+"""The ack's disposition — the generated wire vocabulary.
 
 Open: an unrecognized value is "acked, not otherwise classified" and holds
 like a started turn.
@@ -84,8 +84,7 @@ class CommandErrorResponse:
     Attributes:
         code: The JSON-RPC error code.
         kind: The ``error.data.kind`` (the open generated ``ErrorKind``).
-        reason: ``commandRejected`` reason, verbatim snake_case (tdd SS1.6
-            casing exemption); ``None`` when the error carried none.
+        reason: ``commandRejected`` reason, verbatim snake_case; ``None`` when the error carried none.
     """
 
     code: int
@@ -108,7 +107,7 @@ class ReplayError:
 
 
 ReplayAnswer = Union[ReplayAck[I], ReplayError]
-"""The answer to an idempotent ``commandId`` replay (tdd SS3.1.1)."""
+"""The answer to an idempotent ``commandId`` replay."""
 
 
 @dataclass(frozen=True)
@@ -116,13 +115,12 @@ class PendingCommandEntry(Generic[I]):
     """An entry, as a consumer sees it: an immutable snapshot of internal state.
 
     Attributes:
-        command_id: The client-minted ``commandId`` (opaque, SS3.1.4).
+        command_id: The client-minted ``commandId``.
         input: The submitted input, held for composer restoration.
         anchor_after_item_id: The item the entry renders AFTER — the last
             item present in the client's fold at submission time (``None`` =
             before every item). Fixed at insertion: server events folding in
-            afterwards MUST NOT relocate it (SS4.13 "Insertion point and
-            ordering"). A snapshot join may re-anchor a kept queued entry;
+            afterwards MUST NOT relocate it. A snapshot join may re-anchor a kept queued entry;
             nothing else moves it.
         submission_index: Monotonic submission order.
         display_text: Optional composer display text.
@@ -142,7 +140,7 @@ class PendingCommandEntry(Generic[I]):
 
 @dataclass(frozen=True)
 class MaterializedRetirement:
-    """The command materialized (SS4.13 "Materialized").
+    """The command materialized.
 
     ``matched_by == "userMessage"``: the ``commandId``-bearing ``userMessage``
     folded in and ``item_id`` is that item's OWN id (item ids and command ids
@@ -171,7 +169,7 @@ class RejectedRetirement(Generic[I]):
 
 @dataclass(frozen=True)
 class ReclaimedRetirement(Generic[I]):
-    """Reclaimed (D-024): the turn never launched. Restore the input."""
+    """Reclaimed: the turn never launched. Restore the input."""
 
     command_id: str
     input: I
@@ -181,7 +179,7 @@ class ReclaimedRetirement(Generic[I]):
 
 @dataclass(frozen=True)
 class AbandonedRetirement(Generic[I]):
-    """Restart recovery settled the intake ``abandoned`` (SS3.1.3)."""
+    """Restart recovery settled the intake ``abandoned``."""
 
     command_id: str
     input: I
@@ -193,7 +191,7 @@ class AbandonedRetirement(Generic[I]):
 class RetryAbandonedByClientRetirement(Generic[I]):
     """The client itself stopped retrying a nothing-admitted error.
 
-    SS4.13: "a client that stops retrying MUST retire the entry back to its
+    The protocol: "a client that stops retrying MUST retire the entry back to its
     composer rather than leave a durable-looking echo behind."
     """
 
@@ -205,7 +203,7 @@ class RetryAbandonedByClientRetirement(Generic[I]):
 
 @dataclass(frozen=True)
 class TerminalUnknownRetirement(Generic[I]):
-    """Ephemeral-profile host death (SS2.13 / SS4.4.3 carve-out).
+    """Ephemeral-profile host death.
 
     The client does not know what happened and MUST NOT invent it.
     """
@@ -226,7 +224,7 @@ PendingRetirement = Union[
 """Why an entry left the set.
 
 Every retirement is triggered by a server-authored fact; the set never
-invents one (INV-006, SS3.1.3).
+invents one.
 """
 
 
@@ -253,7 +251,7 @@ class UserMessageRef:
 
 @dataclass(frozen=True)
 class SnapshotJoinFacts:
-    """Facts a snapshot supplies for the join (tdd SS4.9.1 ``state`` members).
+    """Facts a snapshot supplies for the join.
 
     Attributes:
         active_turn: The running turn, when any.
@@ -274,7 +272,7 @@ class SnapshotJoinFacts:
 class PendingJoinPlan(Generic[I]):
     """The work a join leaves for the caller.
 
-    The set is transport-less: it names the I/O the SS4.13 MUSTs require and
+    The set is transport-less: it names the I/O the protocol MUSTs require and
     the caller performs it, then feeds the answers back through
     ``replay_answered`` / ``acked``.
 
@@ -285,7 +283,7 @@ class PendingJoinPlan(Generic[I]):
         must_resubmit: Unacked entries the caller MUST resubmit with the
             SAME ``commandId`` before any retire-to-composer — demanded once
             per plan (the single ordered pass that builds a plan visits each
-            entry once), re-demanded on each new join; SS3.1.1 idempotency
+            entry once), re-demanded on each new join; the protocol idempotency
             makes the re-demand safe. A fresh-``commandId`` re-send is the
             double execution this ordering prevents.
         kept: Entries kept as server-confirmed pending, in their new render
@@ -318,15 +316,15 @@ def is_settlement(error: CommandErrorResponse) -> bool:
     """Whether an error response durably settles a command.
 
     Only a durable ``commandRejected`` (``-32030``) settles; everything else
-    admitted nothing (SS4.13).
+    admitted nothing.
 
     The registry binds ``-32030`` <-> ``commandRejected`` one-to-one
-    (SS3.1.2 Appendix B), so a response where the two fields DISAGREE is a
+    , so a response where the two fields DISAGREE is a
     server fault in which one field still asserts the durable rejection.
-    Either signal settles (OR): SS3.1.2's stated bias for unfamiliar
+    Either signal settles (OR): the protocol's stated bias for unfamiliar
     vocabulary is toward terminal ("treat unknown reasons as terminal
     rejections"), and holding forever on a half-asserted rejection strands
-    the entry as the durable-looking echo SS4.13 forbids (FM-008).
+    the entry as the durable-looking echo the protocol forbids.
 
     Args:
         error: The error response to classify.
@@ -347,13 +345,12 @@ class PendingCommandSet(Generic[I]):
     per conversation; read it through the session's pending view.
 
     A client that never renders optimistically simply holds no entries and
-    the fold degenerates to SS4.1 — that is a supported mode, not a degraded
+    the fold degenerates to the protocol — that is a supported mode, not a degraded
     one.
 
     Attributes:
         discarded_command_ids: Where ``discard_ephemeral()`` records the ids
-            it retired, and where every replay guard reads (SS2.13.3b "do
-            not replay the session's ``commandId``\\ s"). Injected BY
+            it retired, and where every replay guard reads. Injected BY
             REFERENCE so one client can share a single set across the
             sessions it opens: the clause constrains what this CLIENT does
             next, and a per-instance set would let a FRESH session replay a
@@ -369,7 +366,7 @@ class PendingCommandSet(Generic[I]):
     def submitted(
         self,
         command_id: str,
-        input: I,  # noqa: A002 - the SS4.13 name
+        input: I,  # noqa: A002 - the wire name
         *,
         display_text: str | None = None,
         anchor_after_item_id: str | None = None,
@@ -381,7 +378,7 @@ class PendingCommandSet(Generic[I]):
             input: The submitted input, held for composer restoration.
             display_text: Optional composer display text.
             anchor_after_item_id: The last item present in the client's fold
-                right now (SS4.13 insertion point).
+                right now.
         """
         # Replay check FIRST: for an id this set actually retired, "cannot be
         # replayed against a new host" is the precise diagnosis, and the
@@ -391,11 +388,11 @@ class PendingCommandSet(Generic[I]):
         # after an ephemeral host died would otherwise be accepted and retired
         # terminalUnknown by the next discharge — "we don't know whether this
         # ran" about input provably never sent to any host, which is the
-        # fabricated annotation SS2.13.3b exists to forbid.
+        # fabricated annotation the protocol exists to forbid.
         self._assert_session_active()
         if command_id in self._entries:
             # A resubmit of the same commandId is the sanctioned exactly-once
-            # retry (SS3.1.1); it does not create a second entry and MUST NOT
+            # retry; it does not create a second entry and MUST NOT
             # move the original's anchor.
             return
         entry: _InternalEntry[I] = _InternalEntry(
@@ -422,10 +419,9 @@ class PendingCommandSet(Generic[I]):
         """The submit (or a replay) answered with an error.
 
         Only a durable ``commandRejected`` (``-32030``) is a settlement.
-        Every other error admits nothing — the other SS3.1.2 admission
-        errors and SS1's envelope errors, ``inputTooLarge`` among them — so
-        the entry HOLDS while the client retries with the same ``commandId``
-        (SS4.13 "Nothing-admitted errors are not settlements").
+        Every other error admits nothing — the other the protocol admission
+        errors and the protocol's envelope errors, ``inputTooLarge`` among them — so
+        the entry HOLDS while the client retries with the same ``commandId``.
 
         Returns:
             The retirement when the error settles; ``"held"`` otherwise.
@@ -440,7 +436,7 @@ class PendingCommandSet(Generic[I]):
     def stop_retrying(self, command_id: str) -> PendingRetirement[I] | None:
         """The client has decided to stop retrying a nothing-admitted error.
 
-        The entry must not linger as a durable-looking echo (SS4.13).
+        The entry must not linger as a durable-looking echo.
 
         Returns:
             The composer-restoring retirement, or ``None`` for no entry.
@@ -459,7 +455,7 @@ class PendingCommandSet(Generic[I]):
         """A ``userMessage`` item carrying this ``commandId`` folded in.
 
         The entry materialized and the item replaces it at the item's own
-        transcript position (SS4.13 "Materialized").
+        transcript position.
 
         Multi-client echo de-duplication falls out of the same join: a
         ``userMessage`` with no matching local entry is another client's
@@ -481,9 +477,9 @@ class PendingCommandSet(Generic[I]):
     def observed_reclaim(self, command_id: str) -> PendingRetirement[I] | None:
         """A reclaim this client actually observed.
 
-        Its own reclaim ack, or any live fold D-024's lane charters. Retire
+        Its own reclaim ack, or any live fold the governing decision lane charters. Retire
         immediately — same composer restore, without waiting for a snapshot
-        join (SS4.13 "Reclaimed").
+        join.
 
         Returns:
             The reclaimed retirement, or ``None`` for no matching entry.
@@ -498,12 +494,12 @@ class PendingCommandSet(Generic[I]):
     def observed_queue_movement(self, turn_id: str) -> tuple[str, ...]:
         """Queue movement: a turn event for a turn that is NOT the entry's own.
 
-        SS4.3 carries no view event for a command-intake settlement, so a
+        The protocol carries no view event for a command-intake settlement, so a
         post-ack rejection reaches a live client only by replay: on each such
         event a client holding an acked-QUEUED entry MUST re-verify it by
         replaying its ``commandId``. Queue movement is the trigger precisely
         because a queued turn's fate is decided at its launch boundary — no
-        polling loop and no invented timeout (SS3.1.3 stays intact).
+        polling loop and no invented timeout.
 
         Args:
             turn_id: The moved turn (``turn/started`` or ``turn/completed``).
@@ -525,9 +521,9 @@ class PendingCommandSet(Generic[I]):
     def replay_answered(
         self, command_id: str, answer: ReplayAnswer[I]
     ) -> PendingRetirement[I] | Held:
-        """Feeds back a ``commandId`` replay answer (SS3.1.1 — always safe).
+        """Feeds back a ``commandId`` replay answer.
 
-        Three shapes, per SS4.13's rejected/abandoned arms:
+        Three shapes, per the protocol's rejected/abandoned arms:
 
         - a durable rejection: retire (reason ``"abandoned"`` -> Abandoned
           arm, any other reason -> Rejected arm);
@@ -565,10 +561,10 @@ class PendingCommandSet(Generic[I]):
             The plan naming the replays and resubmits the caller owes.
         """
         # Once-per-plan comes from the single ordered pass (each entry is
-        # visited exactly once); a NEW reconnect demands again, which SS3.1.1
+        # visited exactly once); a NEW reconnect demands again, which the protocol
         # same-commandId idempotency makes safe — a once-per-lifetime latch
         # would strand an entry whose demand was lost to a second disconnect
-        # (SS4.13 forbids).
+        #.
         must_replay: List[str] = []
         must_resubmit: List[str] = []
         for entry in self._ordered():
@@ -584,9 +580,9 @@ class PendingCommandSet(Generic[I]):
         )
 
     def join_snapshot(self, facts: SnapshotJoinFacts) -> PendingJoinPlan[I]:
-        """Joins local entries against an authoritative snapshot (SS4.9).
+        """Joins local entries against an authoritative snapshot.
 
-        By ``commandId``; the five arms, in the order SS4.13 states them.
+        By ``commandId``; the five arms, in the order the protocol states them.
 
         Args:
             facts: The snapshot's join surfaces, caller-assembled.
@@ -597,7 +593,7 @@ class PendingCommandSet(Generic[I]):
         """
         # Once-per-plan comes from the single ordered pass below, exactly as
         # in reconnected_without_snapshot; a NEW join demands again, which
-        # SS3.1.1 same-commandId idempotency makes safe (SS4.13 forbids
+        # the protocol same-commandId idempotency makes safe (the protocol forbids
         # stranding an entry whose demand was lost to a second disconnect).
         retirements: List[PendingRetirement[I]] = []
         must_replay: List[str] = []
@@ -653,7 +649,7 @@ class PendingCommandSet(Generic[I]):
 
             # Arm 3 — an acked STEER matches neither activeTurn.commandId nor
             # queuedTurns by design: it is pending on the running turn's
-            # PendingSteerQueue (SS3.3), not settled. Keep it as
+            # PendingSteerQueue, not settled. Keep it as
             # server-confirmed pending; retiring here shows "never ran" and
             # then double-sends when the steer delivers. A steer keeps its
             # submission anchor — it has no launch position.
@@ -671,7 +667,7 @@ class PendingCommandSet(Generic[I]):
                 continue
 
             # Arm 5 — unacked, and the join did not match it. The intake is
-            # durable BEFORE the ack (SS3.1.3), and a join miss does not
+            # durable BEFORE the ack, and a join miss does not
             # prove the intake was never written (a parked steer is in none
             # of the join surfaces), so demand a SAME-commandId resubmit
             # before any retire-to-composer.
@@ -695,7 +691,7 @@ class PendingCommandSet(Generic[I]):
         The reclaimed signature, decidable only with a snapshot: an
         acked-queued entry ABSENT from the snapshot's ``queuedTurns`` whose
         replay still answers the stale ``"queued"`` ack retires as
-        *reclaimed* at the snapshot join (SS4.13 "Reclaimed").
+        *reclaimed* at the snapshot join.
 
         Call this with the replay answer for a ``must_replay`` entry produced
         by ``join_snapshot``, passing the same snapshot's ``queuedTurns``
@@ -727,7 +723,7 @@ class PendingCommandSet(Generic[I]):
         return _HELD
 
     def discard_ephemeral(self) -> tuple[PendingRetirement[I], ...]:
-        """Abnormal death of an EPHEMERAL-profile host (SS2.13, SS4.4.3).
+        """Abnormal death of an EPHEMERAL-profile host.
 
         Nothing is ever settled, replaying a ``commandId`` at a new host is
         forbidden, and every entry falls under the discard obligation as
@@ -762,7 +758,7 @@ class PendingCommandSet(Generic[I]):
         server confirmed queued are re-anchored to the end of the reconciled
         fold and ordered among themselves by ``queuedTurns`` — so they sort
         after the submission-anchored entries (steers and unacked), which
-        keep their own anchors. That is SS4.13's "entries render in
+        keep their own anchors. That is the protocol's "entries render in
         submission order, and for queued submits the server-confirmed order
         wins whenever it is observed".
 

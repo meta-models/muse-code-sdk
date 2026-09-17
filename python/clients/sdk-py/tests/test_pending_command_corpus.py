@@ -1,10 +1,9 @@
-"""Replay the two owner-ratified SS4.13 golden fixtures through the fold.
+"""Replay the two owner-ratified the protocol golden fixtures through the fold.
 
-Port of ``clients/sdk-ts/test/pending-command-corpus.test.ts`` (the TS
-TEST-013 / #210 T064 substrate): the ``pending-command-ack-launch`` and
+Port of ``clients/sdk-ts/test/pending-command-corpus.test.ts``: the ``pending-command-ack-launch`` and
 ``pending-command-ack-reject`` transcripts drive the Python
 ``PendingCommandSet`` and must produce the same anchors, demands, and
-retirements as the TS fold (spec 638 Scenario 1.4 parity oracle).
+retirements as the TS fold.
 """
 
 from __future__ import annotations

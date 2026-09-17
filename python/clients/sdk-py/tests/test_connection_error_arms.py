@@ -1,10 +1,10 @@
-"""PY-TEST-016 ``connection_error_arm_coverage`` + the UUIDv7 mint arm of
-PY-TEST-010 (spec 638 FR-638-011/013/014/015, FM-007/FM-009, INV-012/013):
+"""PY-the governing rule ``connection_error_arm_coverage`` + the UUIDv7 mint arm of
+PY-the governing rule:
 port of ``clients/sdk-ts/test/connection-error-arms.test.ts``.
 
-Every fail-closed error arm of :class:`Connection` is reached by a
+Every fail-closed error arm of:class:`Connection` is reached by a
 violating frame. The TS split-surrogate byte-drift arm has no Python twin
-(Python strings are whole code points, spec 638 Edge Cases); its
+; its
 chunk-split/empty-chunk/interleaved delivery shapes are ported against the
 byte counter as-is. The TS ``unhandledRejection`` arms port as
 loop-exception-handler + ``gc.collect()`` checks — CPython's refcounting
@@ -59,7 +59,7 @@ async def test_line_shape_violations_each_surface_a_protocol_error_and_never_tea
     await wait_for_writes(transport, 1)
     transport.chunks.push(frame({"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}))
     assert await alive == {"ok": True}, (
-        "one bad frame never tears the transport down (FM-007)"
+        "one bad frame never tears the transport down"
     )
 
     messages = [error.message for error in errors]
@@ -84,7 +84,7 @@ async def test_line_shape_violations_each_surface_a_protocol_error_and_never_tea
 
 @pytest.mark.asyncio
 async def test_a_matched_malformed_response_rejects_the_caller_never_hangs_it() -> None:
-    # FR-638-013 (14990 FR-014).
+    # the governing rule.
     transport = FakeDuplex()
     connection = Connection(transport)
     errors: list[ProtocolError] = []
@@ -161,7 +161,7 @@ async def test_request_after_close_command_id_reuse_and_a_non_echoing_ack_all_fa
         transport, mint_command_id=lambda: "018f6a1e-9b3c-7c21-a54a-000000000001"
     )
 
-    # A non-echoing ack rejects (FR-638-015 / 14990 FR-016).
+    # A non-echoing ack rejects.
     command = connection.command("turn/start", {"n": 1}, max_attempts=1)
     await wait_for_writes(transport, 1)
     sent = json.loads(transport.writes[0])
@@ -171,7 +171,7 @@ async def test_request_after_close_command_id_reuse_and_a_non_echoing_ack_all_fa
     with pytest.raises(ProtocolError, match="did not echo"):
         await command
 
-    # Reusing a commandId with a different payload rejects (INV-013).
+    # Reusing a commandId with a different payload rejects.
     with pytest.raises(ProtocolError, match="reused with a different payload"):
         await connection.command(
             "turn/start",
@@ -188,7 +188,7 @@ async def test_request_after_close_command_id_reuse_and_a_non_echoing_ack_all_fa
 
 @pytest.mark.asyncio
 async def test_the_no_handler_and_handler_failure_replies_are_written() -> None:
-    # FR-638-014 (-32601 / -32603 arms).
+    # the governing rule (-32601 / -32603 arms).
     no_handler = FakeDuplex()
     bare = Connection(no_handler)
     no_handler.chunks.push(frame({"jsonrpc": "2.0", "id": 7, "method": "approval/request"}))
@@ -238,7 +238,7 @@ async def test_eof_mid_frame_surfaces_the_dangling_buffer_and_settles_closed() -
 
 @pytest.mark.asyncio
 async def test_the_oversized_drop_resume_path_drops_exactly_one_frame_and_bounds_the_evidence() -> None:
-    # FM-007, both oversized arms, evidence bounded in UTF-8 bytes.
+    # the governing rule, both oversized arms, evidence bounded in UTF-8 bytes.
     transport = FakeDuplex()
     limit = 128
     connection = Connection(transport, frame_limit_bytes=limit)
@@ -261,7 +261,7 @@ async def test_the_oversized_drop_resume_path_drops_exactly_one_frame_and_bounds
     # its terminating newline — exactly how the 64 KiB stdout reader delivers
     # a >10 MiB frame (spawn.py). The `if newline < 0: return` keep-dropping
     # arm of _ingest must swallow each without re-tripping the limit; without
-    # it every chunk re-buffers and re-fires on_protocol_error (PR #30094
+    # it every chunk re-buffers and re-fires on_protocol_error (a prior review
     # review, round 7).
     transport.chunks.push("x" * 200)
     transport.chunks.push("y" * 200)
@@ -285,7 +285,7 @@ async def test_the_oversized_drop_resume_path_drops_exactly_one_frame_and_bounds
 
 @pytest.mark.asyncio
 async def test_a_failed_reply_write_finishes_the_connection_and_never_escapes_unhandled() -> None:
-    # FM-009, RESULT-reply arm.
+    # the governing rule, RESULT-reply arm.
     loop = asyncio.get_running_loop()
     unhandled: list[object] = []
     previous_handler = loop.get_exception_handler()
@@ -313,7 +313,7 @@ async def test_a_failed_reply_write_finishes_the_connection_and_never_escapes_un
 
 @pytest.mark.asyncio
 async def test_a_reply_write_failing_with_a_request_in_flight_settles_closed_and_rejects_pending() -> None:
-    # FM-009, fifth-guard case: only server-response frames fail.
+    # the governing rule, fifth-guard case: only server-response frames fail.
     class ResponseWriteBrokenDuplex(FakeDuplex):
         async def write(self, chunk: str) -> None:
             parsed = json.loads(chunk)
@@ -351,14 +351,14 @@ async def test_a_reply_write_failing_with_a_request_in_flight_settles_closed_and
         await pump(20)
         gc.collect()
         await pump(5)
-        assert unhandled == [], "no unhandled task exception escapes (FM-009)"
+        assert unhandled == [], "no unhandled task exception escapes"
     finally:
         loop.set_exception_handler(previous_handler)
 
 
 @pytest.mark.asyncio
 async def test_a_failed_error_reply_write_finishes_the_connection_and_never_escapes_unhandled() -> None:
-    # FM-009, ERROR-reply arm.
+    # the governing rule, ERROR-reply arm.
     loop = asyncio.get_running_loop()
     unhandled: list[object] = []
     previous_handler = loop.get_exception_handler()
@@ -386,7 +386,7 @@ async def test_a_failed_error_reply_write_finishes_the_connection_and_never_esca
 
 @pytest.mark.asyncio
 async def test_the_default_command_id_mint_produces_distinct_rfc9562_uuidv7_ids() -> None:
-    # PY-TEST-010's INV-013 mint arm (TS TEST-016).
+    # PY-the governing rule's the governing rule mint arm.
     transport = FakeDuplex()
     connection = Connection(transport)  # no mint_command_id injected
     v7 = re.compile(
@@ -418,7 +418,7 @@ async def test_the_default_command_id_mint_produces_distinct_rfc9562_uuidv7_ids(
 
 @pytest.mark.asyncio
 async def test_chunk_split_multibyte_frames_never_drift_the_byte_counter() -> None:
-    # The TS TEST-017 delivery shapes (split, empty-chunk-between, interleaved)
+    # The TS the governing rule delivery shapes (split, empty-chunk-between, interleaved)
     # against the running byte counter; the surrogate-reconciliation arms have
     # no Python twin (module docstring).
     transport = FakeDuplex()
@@ -467,7 +467,7 @@ async def test_chunk_split_multibyte_frames_never_drift_the_byte_counter() -> No
 
 @pytest.mark.asyncio
 async def test_a_whitespace_only_inbound_line_is_ignored_like_an_empty_line() -> None:
-    # The client-local tolerance beyond SS1.1 (DECISIONS #15).
+    # The client-local tolerance beyond the protocol (DECISIONS #15).
     transport = FakeDuplex()
     connection = Connection(transport)
     errors: list[ProtocolError] = []
@@ -490,7 +490,7 @@ async def test_a_whitespace_only_inbound_line_is_ignored_like_an_empty_line() ->
 
 @pytest.mark.asyncio
 async def test_a_request_whose_own_write_fails_rejects_the_caller() -> None:
-    # PR #30094 review, thread 21 (FR-638-013): the request's OWN write
+    # a prior review: the request's OWN write
     # failing must reject the caller — with the rejection dropped or the
     # pending entry registered only after a successful write, a caller on a
     # dead pipe hangs forever while the whole suite stays green.
@@ -506,7 +506,7 @@ async def test_a_request_whose_own_write_fails_rejects_the_caller() -> None:
 
 @pytest.mark.asyncio
 async def test_a_close_less_transport_still_settles_pending_requests_on_close() -> None:
-    # PR #30094 review, thread 10 (the TS twin's close-less arm): a transport
+    # a prior review (the TS twin's close-less arm): a transport
     # that declares no `close` supplies no shutdown budget, so close() must
     # finish the connection IMMEDIATELY — rejecting in-flight requests and
     # settling `closed` — rather than hanging on a peer that will never EOF.
@@ -533,7 +533,7 @@ async def test_a_close_less_transport_still_settles_pending_requests_on_close() 
 
     closer = asyncio.ensure_future(connection.close())
     state, value = await settlement(pending)
-    assert state == "rejected", "close() settles the matched caller (FR-638-013)"
+    assert state == "rejected", "close() settles the matched caller"
     assert isinstance(value, ProtocolError)
     assert "connection closed" in value.message
     closer_state, _ = await settlement(closer)
@@ -544,11 +544,11 @@ async def test_a_close_less_transport_still_settles_pending_requests_on_close() 
 
 @pytest.mark.asyncio
 async def test_a_frame_queued_behind_a_dying_write_settles_its_submission() -> None:
-    # PR #30094 review, round 7 (sechegaray): frame A's write is in flight and
+    # a prior review, round 7 (sechegaray): frame A's write is in flight and
     # frame B is queued behind it when the connection finishes; B's run() takes
     # the except path, which must settle `submitted` so `_submit_tail` (the
     # `flushed` a process-owning close awaits inside its budget) resolves
-    # rather than pinning close() for the whole shutdown budget (FR-638-017).
+    # rather than pinning close() for the whole shutdown budget.
     class HeldFirstWriteDuplex:
         def __init__(self) -> None:
             self.chunks = AsyncChunks()
@@ -586,7 +586,7 @@ async def test_a_frame_queued_behind_a_dying_write_settles_its_submission() -> N
 
 @pytest.mark.asyncio
 async def test_a_cancelled_server_request_handler_is_silent() -> None:
-    # PR #30094 review, round 11 (reviewkit): a Ctrl-C that cancels an
+    # a prior review, round 11 (reviewkit): a Ctrl-C that cancels an
     # in-flight server-request handler task must NOT log a spurious
     # CancelledError traceback (the `on_done` cancelled-guard) and must not
     # finish the connection.

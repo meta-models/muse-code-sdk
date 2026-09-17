@@ -18,8 +18,7 @@ class MuseSessionDiscardedError(Exception):
     """The session was discarded after an ephemeral host's abnormal death.
 
     Raised when the operation attempted would either resurrect the discarded
-    session or replay one of its ``commandId``\\ s against a new host
-    (tdd SS2.13.3b, SS3.1.3).
+    session or replay one of its ``commandId``\\ s against a new host.
     """
 
 
@@ -28,7 +27,7 @@ class MuseForeignSessionError(Exception):
 
 
 GapFillFailureReason = Literal["noConnection", "pageFailed", "pageStalled"]
-"""Why one SS4.8 splice-fill did not complete.
+"""Why one the protocol splice-fill did not complete.
 
 Each arm names a different owner (this SDK's own composition, the transport,
 the host), because the repair differs:
@@ -45,7 +44,7 @@ the host), because the repair differs:
 
 
 class MuseGapFillError(Exception):
-    """A gap the client could not fill (spec 14990 FR-020, tdd SS4.8).
+    """A gap the client could not fill.
 
     REPORTED to the session's gap-error callback, never raised across the
     pump: the fill is driven from a notification, so an escaping exception
@@ -56,7 +55,7 @@ class MuseGapFillError(Exception):
 
     Attributes:
         reason: Which owner failed (see ``GapFillFailureReason``).
-        after: The gap's lower bound, verbatim and opaque (tdd SS4.1).
+        after: The gap's lower bound, verbatim and opaque.
         next: The gap's upper bound, verbatim and opaque.
     """
 
@@ -86,7 +85,7 @@ class MuseGapFillError(Exception):
 ValidationSeam = Literal["initializeResult", "spawnOptions"]
 """Which C-638-2 pydantic seam refused its input.
 
-The two seams the contract names (spec 638 C-638-2; owner ruling #31276,
+The two seams the contract names (the owning spec C-638-2; owner ruling a tracked issue,
 arm (a)): the inbound ``InitializeResult`` frame parse and the spawn
 options. Each arm names a different owner — ``initializeResult`` is the
 host's frame (a protocol-level malformation), ``spawnOptions`` is the
@@ -99,15 +98,15 @@ class MuseValidationError(ValueError):
     """A C-638-2 validating seam rejected its input through pydantic.
 
     Raised instead of a bare ``isinstance`` failure, an ``AttributeError``/
-    ``KeyError``, or a silent partial object (spec 638 C-638-2; owner ruling
-    #31276, arm (a)). Wraps pydantic's ``ValidationError``, which rides as
+    ``KeyError``, or a silent partial object (the owning spec C-638-2; owner ruling
+    a tracked issue, arm (a)). Wraps pydantic's ``ValidationError``, which rides as
     ``__cause__`` and in the message. A ``ValueError`` by inheritance for
     the same reason pydantic's own ``ValidationError`` is one: the spawn
     boundary's pre-existing out-of-range refusal was a ``ValueError``, and
     a consumer catching that must keep working.
 
     Attributes:
-        seam: Which validating seam refused (see :data:`ValidationSeam`).
+        seam: Which validating seam refused (see:data:`ValidationSeam`).
     """
 
     def __init__(self, seam: ValidationSeam, cause: Exception) -> None:
@@ -132,14 +131,14 @@ COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/compatibil
 
 The Python row there is the customer-facing statement of the supported
 Python floor, the host version + schema fingerprint per wheel, and the exact
-pydantic pin (spec 638 FR-638-028); FR-638-020's failures point at it.
+pydantic pin; the governing rule's failures point at it.
 """
 
 
 class MuseHostDiscoveryError(Exception):
-    """No MSP host binary could be found (spec 638 FR-638-020, INV-638-08).
+    """No MSP host binary could be found.
 
-    The wheel is UNBUNDLED (#29216): the SDK discovers an installed ``muse``
+    The wheel is UNBUNDLED: the SDK discovers an installed ``muse``
     and never carries one. Raised BEFORE any process is spawned.
     """
 
@@ -147,12 +146,12 @@ class MuseHostDiscoveryError(Exception):
 class MuseHostMismatchError(Exception):
     """The discovered host serves a schema this SDK was not built against.
 
-    Spec 638 C-638-4 / FM-638-2: at ``initialize``, a fingerprint mismatch
+    The owning spec C-638-4 / the governing rule: at ``initialize``, a fingerprint mismatch
     FAILS with an exact message naming the served and required fingerprints,
     the host's self-reported version, and the compatibility page whose
     Python row states the compatible host version per wheel. There is no
     bypass — the posture is owner-directed and deliberately stricter than
-    SS1.4.1's warning-only rule for the TS facade.
+    the protocol's warning-only rule for the TS facade.
 
     Attributes:
         served: The fingerprint the host advertised.
@@ -178,10 +177,9 @@ class MuseHostMismatchError(Exception):
             required_host_version: The generated
                 ``muse_code_msp.REQUIRED_HOST_VERSION`` — tree-derived by the
                 renderer from the host crate's manifest and kept honest by
-                the regen gate (spec 638 FR-638-006), never hand-typed.
+                the regen gate, never hand-typed.
                 Required, not defaulted: C-638-4 names the exact version, so
-                a version-less message is not a state this error can carry
-                (PR #30094 review).
+                a version-less message is not a state this error can carry.
         """
         version_note = (
             f" (host version {host_version})" if host_version is not None else ""

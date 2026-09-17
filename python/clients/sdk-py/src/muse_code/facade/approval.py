@@ -29,7 +29,7 @@ from ..connection.connection import Connection
 # alone does not stop drift — the chain is hand-listed — so a regenerated
 # member reds THIS import (and thus every test) until it is forwarded, exactly
 # as the ``MuseClient`` option pins do. ``commandId`` is excluded because the
-# connection is the single minter (INV-638-04 carrying INV-013).
+# connection is the single minter.
 _DECIDE_FORWARDED = frozenset(
     {"approvalId", "choiceId", "requirementId", "sessionId", "feedback"}
 )
@@ -43,14 +43,13 @@ class ApprovalDecisionInput:
     """What an approval handler answers with: a choice the SERVER offered, and
     optional feedback (C-638-1 idiomatic surface over the generated params).
 
-    D-006 is select-never-create, and this TYPE cannot enforce it —
+    The governing decision is select-never-create, and this TYPE cannot enforce it —
     ``choiceId`` is a string on the wire — so the router checks the answer
     against the request's own ``availableChoices`` before the frame is built.
 
     Attributes:
         choice_id: The chosen ``availableChoices`` entry's ``choiceId``.
-        feedback: Optional feedback text; omitted from the frame when ``None``
-            (SS1.2 — valid only on choices with ``acceptsFeedback``).
+        feedback: Optional feedback text; omitted from the frame when ``None``.
     """
 
     choice_id: str
@@ -61,12 +60,12 @@ ApprovalHandler = Callable[
     [ApprovalRequestParams],
     "ApprovalDecisionInput | Awaitable[ApprovalDecisionInput]",
 ]
-"""FR-638-019b: the consumer's decision callback. May be sync or async."""
+"""the governing rule: the consumer's decision callback. May be sync or async."""
 
 
 @dataclass(frozen=True)
 class UnofferedChoice:
-    """The handler picked a ``choiceId`` the request never offered (D-006)."""
+    """The handler picked a ``choiceId`` the request never offered."""
 
     approval_id: str
     choice_id: str
@@ -109,7 +108,7 @@ ApprovalFailureHandler = Callable[[ApprovalFailure], None]
 
 class ApprovalRouter:
     """Routes folded ``approval/requested`` frames to the consumer's handler
-    and authors the ``approval/decide`` command (spec 638 FR-638-019b)."""
+    and authors the ``approval/decide`` command."""
 
     def __init__(self, session_id: str, connection: Connection | None) -> None:
         """Builds the router; ``connection`` is absent on a fold-only session.
@@ -124,7 +123,7 @@ class ApprovalRouter:
         self._on_failure: ApprovalFailureHandler | None = None
         # Approval STAGES already decided, keyed by ``approvalId`` +
         # ``requirementId``. Not ``approvalId`` alone: ``requirementId`` is
-        # SS5.4's multi-stage race guard, so a stage-2 request must get its own
+        # the protocol's multi-stage race guard, so a stage-2 request must get its own
         # decision or the approval pends forever. Not per-request either: a
         # redelivered ``approval/requested`` for the SAME stage must author no
         # second decide, or a two-stage approval races itself. The key is kept
@@ -134,7 +133,7 @@ class ApprovalRouter:
         self._decided_stages: set[str] = set()
 
     def on_approval(self, handler: ApprovalHandler) -> None:
-        """Register the decision callback (FR-638-019b).
+        """Register the decision callback.
 
         REPLACES any previous handler rather than adding to a list: two
         handlers would race to decide one approval and only one decision can
@@ -153,7 +152,7 @@ class ApprovalRouter:
         is reported synchronously before returning).
 
         No handler at all is the supported default posture, NOT a degraded one
-        (D-008): the client runs under the server's own default-deny, and this
+        : the client runs under the server's own default-deny, and this
         SDK parks nothing — no queued decision, no synthesized denial, no
         local hold.
         """
@@ -171,7 +170,7 @@ class ApprovalRouter:
         # Checked HERE, synchronously, not inside the coroutine: a fold-only
         # session may apply events with no running loop at all, and a returned
         # coroutine would force ``Session.apply`` to schedule one just to
-        # deliver this report (PR #32249 review round 1). Before the handler
+        # deliver this report. Before the handler
         # runs, deliberately — asking a consumer to decide and then dropping
         # the answer is worse than not asking.
         if connection is None:
@@ -212,7 +211,7 @@ class ApprovalRouter:
             # The reads are INSIDE the try: a malformed return (a handler that
             # forgot its ``return``, a wrong type) is the consumer's callback
             # misbehaving, exactly like a raise — reported as ``handlerThrew``,
-            # never escaped into the never-rejecting ``io`` (PR #32249 review
+            # never escaped into the never-rejecting ``io`` (a prior review
             # round 1).
             choice_id = decision.choice_id
             feedback = decision.feedback
@@ -224,7 +223,7 @@ class ApprovalRouter:
             choice["choiceId"] for choice in params["availableChoices"]
         )
         if choice_id not in available_choice_ids:
-            # D-006 select-never-create, enforced on THIS side of the
+            # the governing decision select-never-create, enforced on THIS side of the
             # transport. An invented choice bounces -32052 a round trip later,
             # by which time the stage may have advanced — so the diagnosis a
             # consumer would actually see is a stale-requirement error about a
@@ -241,13 +240,13 @@ class ApprovalRouter:
         decide_params: dict[str, Any] = {
             "approvalId": params["approvalId"],
             "choiceId": choice_id,
-            # Echoed from the request, never remembered: SS5.4 makes a stale
+            # Echoed from the request, never remembered: the protocol makes a stale
             # value a -32053, and the request in hand is the only current
             # statement of it.
             "requirementId": params["currentRequirementId"],
             "sessionId": self._session_id,
         }
-        # Omitted rather than nulled (SS1.2): ``feedback`` is valid only on
+        # Omitted rather than nulled: ``feedback`` is valid only on
         # choices with ``acceptsFeedback``, so an explicit null would be
         # rejected by the host.
         if feedback is not None:
@@ -256,7 +255,7 @@ class ApprovalRouter:
         try:
             # No explicit ``command_id``: unlike ``send_user_turn``, nothing
             # here needs the id before the ack, so ``Connection.command()``
-            # mints and stamps it — and its own SS3.1.1 retry then reuses that
+            # mints and stamps it — and its own the protocol retry then reuses that
             # id for free.
             await connection.command("approval/decide", decide_params)
         except Exception as error:  # noqa: BLE001 - reported, never escapes

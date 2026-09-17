@@ -1,7 +1,7 @@
 """In-memory duplex harness for the connection suites (port of the TS
 ``FakeDuplex``/``AsyncChunks`` pair in ``clients/sdk-ts/test``).
 
-Causal, never time-based (#25315): waits are event-loop yields
+Causal, never time-based: waits are event-loop yields
 (``asyncio.sleep(0)`` turns, the Python twin of the TS microtask/macrotask
 pumps), bounded by turn counts — no wall-clock sleeps anywhere.
 """
@@ -80,7 +80,7 @@ class FakeDuplex:
         for accepted frames' SUBMISSION before ending the peer's input —
         without this, the fake's instant inbound EOF finishes the connection
         before an accepted write's task ever runs, a failure no real
-        process-owning transport exhibits (PR #30094 review, thread 20).
+        process-owning transport exhibits.
         """
         if flushed is not None and hasattr(flushed, "__await__"):
             await flushed
@@ -88,7 +88,7 @@ class FakeDuplex:
 
 
 class BrokenWriteDuplex:
-    """Writes always fail, like a child dead mid-approval (FM-009)."""
+    """Writes always fail, like a child dead mid-approval."""
 
     def __init__(self) -> None:
         self.chunks = AsyncChunks()
@@ -163,7 +163,7 @@ async def _await_io(io: Any) -> Any:
 
 
 async def settled_io(io: Any) -> Any:
-    """Awaits an ``io`` channel within bounded loop turns (#25315).
+    """Awaits an ``io`` channel within bounded loop turns.
 
     A missed settlement fails ITS OWN test with a message instead of hanging
     the suite into the CI job wall — the same posture as ``settlement``,

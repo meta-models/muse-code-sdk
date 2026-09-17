@@ -1,9 +1,9 @@
-"""PY-TEST-025 ``source_closure_covers_python_tree`` (specs/638-muse-sdk-python).
+"""PY-the governing rule ``source_closure_covers_python_tree``.
 
-FR-638-031: ``scripts/sdk-source-closure.json`` carries the Python closure —
+The governing rule: ``scripts/sdk-source-closure.json`` carries the Python closure —
 both packages, the journey and cookbook harnesses, the dev lock, and the
 publish-path scripts — each explained in ``path_notes`` and destined for the
-mirror's ``python/`` tree (ADR 638 D6). The TS-side guard
+mirror's ``python/`` tree. The TS-side guard
 (``clients/sdk-ts/test/sdk-source-closure.test.ts``) checks list -> tree
 (every listed path exists, is explained, sorted); this file checks the other
 direction, tree -> list: the Python source a wheel build needs cannot
@@ -50,7 +50,7 @@ def test_the_closure_covers_the_python_tree() -> None:
     missing = [tree for tree in _python_client_trees() if tree not in closure]
     assert not missing, (
         f"Python source missing from the publication closure: {missing} — a "
-        "republish would carry less than the wheels are built from (FR-638-031)"
+        "republish would carry less than the wheels are built from"
     )
     assert "clients/py-dev-requirements.txt" in closure, (
         "the dev lock pins the mirror's build tooling (build, setuptools); "
@@ -85,7 +85,7 @@ def test_the_publish_scripts_survive_the_mirror_executable() -> None:
 
 
 def test_the_mirror_destination_is_the_python_tree() -> None:
-    # ADR 638 D6: the Python closure lands under a `python/` tree of the same
+    # the governing decision: the Python closure lands under a `python/` tree of the same
     # mirror, unlike the TS paths, which keep their layout verbatim. The
     # manifest must SAY so where the bridge operator reads it, or the first
     # republish guesses.
@@ -93,6 +93,6 @@ def test_the_mirror_destination_is_the_python_tree() -> None:
     note = " ".join(mirror.get("python_tree", []))
     assert "python/" in note, (
         "scripts/sdk-source-closure.json's mirror section must state that the "
-        "Python closure paths land under the mirror's python/ tree (ADR 638 "
+        "Python closure paths land under the mirror's python/ tree (the governing decision"
         "D6, owner bridge one-timer)"
     )

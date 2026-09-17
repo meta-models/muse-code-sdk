@@ -16,7 +16,7 @@ from typing import Callable, Iterable, List, Mapping
 from ..errors import MuseSessionDiscardedError
 
 # The store's item view: a wire item is a dict at runtime. Reading only
-# `itemId`/`revision` here keeps the store wire-shape-blind (INV-638-01).
+# `itemId`/`revision` here keeps the store wire-shape-blind.
 ItemLike = Mapping[str, object]
 
 
@@ -29,7 +29,7 @@ class Inserted:
 
 @dataclass(frozen=True)
 class Replaced:
-    """A strictly higher revision replaced the held item (INV-003)."""
+    """A strictly higher revision replaced the held item."""
 
     item_id: str
     from_revision: int
@@ -38,7 +38,7 @@ class Replaced:
 
 @dataclass(frozen=True)
 class IgnoredStaleRevision:
-    """A stale or replayed re-emission. The store did not change (INV-003)."""
+    """A stale or replayed re-emission. The store did not change."""
 
     item_id: str
     held: int
@@ -63,7 +63,7 @@ class BufferedForAbsentItem:
     """A delta for an item the store does not hold.
 
     Deltas are a streaming optimization and are never a fold's only source
-    of a fact (tdd SS4.7.3), so this is buffered against the item's arrival
+    of a fact, so this is buffered against the item's arrival
     rather than dropped or treated as an error.
     """
 
@@ -72,7 +72,7 @@ class BufferedForAbsentItem:
 
 
 DeltaApplyOutcome = Appended | BufferedForAbsentItem
-"""What a delta did. Deltas bump no revision (tdd SS4.4.1)."""
+"""What a delta did. Deltas bump no revision."""
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ def _revision(item: ItemLike) -> int:
 
 
 class ItemStore:
-    """Items in first-opened order (tdd SS4.9.1), each at its latest revision.
+    """Items in first-opened order, each at its latest revision.
 
     Holds per-field delta accumulators beside the items, and the
     terminal-unknown annotation set an ephemeral host death produces.
@@ -113,7 +113,7 @@ class ItemStore:
     def apply(self, item: ItemLike) -> ItemApplyOutcome:
         """Apply an ``item/started`` | ``item/updated`` | ``item/completed`` payload.
 
-        Replace iff the incoming revision is strictly higher (INV-003).
+        Replace iff the incoming revision is strictly higher.
 
         Args:
             item: The wire item object, verbatim.
@@ -144,7 +144,7 @@ class ItemStore:
         """Apply an ``item/delta``: a lossless append to a field accumulator.
 
         The concatenation of all deltas for a field path equals that field's
-        value on the final ``item/completed`` object (INV-004, tdd SS4.3.1).
+        value on the final ``item/completed`` object.
 
         Args:
             item_id: The delta's item.
@@ -183,7 +183,7 @@ class ItemStore:
         return item_id in self._items
 
     def list(self) -> List[ItemLike]:
-        """Items in first-opened order (tdd SS4.9.1)."""
+        """Items in first-opened order."""
         return [self._items[item_id] for item_id in self._order if item_id in self._items]
 
     def last_opened_item_id(self) -> str | None:
@@ -196,13 +196,13 @@ class ItemStore:
         return len(self._items)
 
     def seed(self, items: Iterable[ItemLike]) -> None:
-        """Seed from a snapshot's ``state.items`` (tdd SS4.9.1).
+        """Seed from a snapshot's ``state.items``.
 
-        Seeding REPLACES the store — a snapshot is authoritative (tdd SS4.9),
+        Seeding REPLACES the store — a snapshot is authoritative,
         never merged into stale local state. Delta accumulators are
         intentionally NOT seeded: a snapshot carries streamed fields at their
         accumulated-so-far values on the item itself, and ``view/page`` never
-        replays ephemeral-sourced deltas (tdd SS4.7.3).
+        replays ephemeral-sourced deltas.
 
         Args:
             items: Every item at its latest revision, in first-opened order.
@@ -228,12 +228,11 @@ class ItemStore:
 
         The last wire item remains byte-for-byte intact: terminal-unknown is a
         client display annotation, never a fabricated ``item/completed`` or
-        wire status (SS2.13.3b / SS4.4.3). Further events and snapshot seeding
+        wire status. Further events and snapshot seeding
         are refused because this session has no resume surface.
 
         Args:
-            is_in_progress: The wire-aware probe (the store never knows wire
-                shapes, INV-638-01); the ``SessionFold`` binding passes
+            is_in_progress: The wire-aware probe; the ``SessionFold`` binding passes
                 ``item["status"] == "inProgress"`` against the generated
                 ``Item``.
 

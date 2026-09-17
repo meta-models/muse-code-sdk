@@ -51,12 +51,12 @@ class StateApplyOutcome:
 class SessionStateStore:
     """Last-write-wins per family, in arrival order.
 
-    Cursors are opaque strings and MUST NOT be parsed or ordered (tdd SS4.1),
+    Cursors are opaque strings and MUST NOT be parsed or ordered,
     so ordering here is by arrival: the server emits view events in cursor
     order on every connection, and a page's events are ascending. The one
     cursor use is EXACT-EQUALITY replay de-duplication, and it remembers only
     the family's LATEST cursor — it refuses only a back-to-back replay of the
-    family's most recent event. The SS4.8 splice caller must skip
+    family's most recent event. The the protocol splice caller must skip
     already-applied page events itself, which it does by construction: the
     splice pages forward from ``after`` and discards paged events at cursors
     >= ``next`` as duplicates of the live buffer. No relational comparison
@@ -90,7 +90,7 @@ class SessionStateStore:
             seen = self._cursors.get(family)
             # An equal cursor is a replay of the same event (idempotent):
             # refuse. That is the ONLY cursor comparison — cursors are opaque
-            # (SS4.1) and any relational order mis-sorts at a digit rollover;
+            # and any relational order mis-sorts at a digit rollover;
             # arrival order carries the LWW truth.
             if seen is not None and cursor == seen:
                 return StateApplyOutcome(

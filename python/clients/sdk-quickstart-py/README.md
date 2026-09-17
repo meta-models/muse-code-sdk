@@ -12,23 +12,18 @@ snippet on this page to the program's own source — so it cannot go stale.
 ## What you need
 
 - Python 3.10 or newer, with the two SDK packages importable
-  (`pip install -e clients/msp-py -e clients/sdk-py` from `projects/tbh`).
-- A release-built `tbh` binary. Build one from this repository:
-
-  ```sh
-  cargo build --release -p tbh-cli --bin tbh
-  ```
-
-  The binary is at `target/release/tbh`. Its MSP surface is what your program
-  talks to.
+  (`pip install muse-code-sdk muse-code-msp`, or editable installs of
+  `clients/msp-py` and `clients/sdk-py` from this tree).
+- A `muse` binary: an installed Muse Code CLI, or a release build of the
+  host. Its MSP surface is what your program talks to.
 
 ## Run it
 
-From `projects/tbh`:
+From the repository root:
 
 ```sh
 PYTHONPATH=clients/sdk-quickstart-py/src \
-MUSE_BIN=$PWD/target/release/tbh \
+MUSE_BIN=$(command -v muse) \
 python3 -m quickstart_journey
 ```
 
@@ -58,7 +53,7 @@ TypeScript quickstart (`clients/sdk-quickstart`): same ids, same order.
 ### 1. Spawn the host (`spawn`)
 
 `Host.start` — a thin harness helper over the SDK's `spawn_msp_connection` —
-launches your own `tbh serve` child in an isolated `HOME` and completes the
+launches your own `muse serve` child in an isolated `HOME` and completes the
 MSP handshake. You cannot send traffic before the handshake completes.
 
 ```python

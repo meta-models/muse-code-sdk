@@ -1,5 +1,4 @@
-"""PY-TEST-004 ``state_families_last_write_wins`` (specs/638-muse-sdk-python
-FR-638-007, carrying 14990 INV-005): port of
+"""PY-the governing rule ``state_families_last_write_wins``: port of
 ``clients/sdk-ts/test/state-store.test.ts``, every case.
 
 The absent-versus-cleared distinction the TS store spells as
@@ -53,7 +52,7 @@ def test_a_replayed_cursor_is_refused_any_other_arrival_applies() -> None:
     assert store.get("session/todoListChanged") == {"revision": 7}
 
     # A DIFFERENT cursor always applies: arrival order is the LWW truth, and
-    # cursors must not be relationally compared (SS4.1) — the server emits in
+    # cursors must not be relationally compared — the server emits in
     # cursor order, so a later arrival IS the newer fact.
     nxt = store.apply("session/todoListChanged", {"revision": 8}, "v:s:55")
     assert nxt.applied is True, "arrival order wins; no string comparison exists"
@@ -68,7 +67,7 @@ def test_dedup_remembers_only_the_latest_cursor_a_non_latest_replay_applies() ->
 
     # Replaying A (an older, no-longer-latest cursor) is NOT refused — the
     # store keeps one cursor per family, so only a back-to-back replay of the
-    # latest event is idempotent. The SS4.8 splice caller never re-delivers an
+    # latest event is idempotent. The the protocol splice caller never re-delivers an
     # older event, so this regression window is unreachable on a sanctioned
     # path; this test pins the narrowed module-doc promise, not a bug.
     replay_of_older = store.apply("session/goalChanged", {"objective": "A"}, "v:s:5")
@@ -80,7 +79,7 @@ def test_a_digit_rollover_still_applies_cursors_are_opaque_never_string_ordered(
     store = SessionStateStore()
 
     # "v:s:10" < "v:s:9" as strings; ordering by string drops every genuinely
-    # newer event after a 9->10 rollover (tdd SS4.1). Arrival order is truth.
+    # newer event after a 9->10 rollover. Arrival order is truth.
     store.apply("session/modelChanged", {"modelId": "old"}, "v:s:9")
     nxt = store.apply("session/modelChanged", {"modelId": "new"}, "v:s:10")
 
@@ -149,7 +148,7 @@ def test_seeding_from_a_snapshot_replaces_the_whole_state_block() -> None:
     assert store.has("session/goalChanged") is True
     assert store.families() == ["session/modelChanged", "session/goalChanged"]
 
-    # A suffix event after the snapshot cursor still applies (SS4.9.2 splice).
+    # A suffix event after the snapshot cursor still applies.
     applied = store.apply("session/modelChanged", {"modelId": "newer"}, "v:s:401")
     assert applied.applied is True
     assert store.get("session/modelChanged") == {"modelId": "newer"}

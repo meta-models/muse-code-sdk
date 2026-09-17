@@ -57,14 +57,14 @@ from .turn_submit import _camel
 
 _I = TypeVar("_I")
 
-# OPTIONAL MEANS OMITTED, NEVER null (tdd SS1.2): every member the two option
+# OPTIONAL MEANS OMITTED, NEVER null: every member the two option
 # builders can leave unset is optional-non-nullable in the generated params,
 # so an unset member is dropped from the frame rather than nulled.
 
 
 @dataclass
 class StartSessionOptions:
-    """Caller-facing options for ``session/start`` (tdd SS2.5.1).
+    """Caller-facing options for ``session/start``.
 
     Composed from the generated ``SessionStartParams`` (idiomatic snake_case,
     C-638-1). ``config`` is excluded as well as ``commandId`` until the facade
@@ -91,7 +91,7 @@ class StartSessionOptions:
 
 @dataclass
 class ResumeSessionOptions:
-    """Caller-facing options for ``session/resume`` (tdd SS2.5.2).
+    """Caller-facing options for ``session/resume``.
 
     ``config`` remains excluded until the same capability-checked forwarding
     as ``session/start`` lands.
@@ -114,7 +114,7 @@ class ResumeSessionOptions:
 # RESUME_FORWARDED (client.ts). A schema regen that adds a member to the
 # generated params but not to the options dataclass reds THIS import (and thus
 # every test), so a regenerated member cannot silently fail to reach the wire
-# (INV-638-02). The excluded members are the ones the facade owns rather than
+#. The excluded members are the ones the facade owns rather than
 # forwards: `commandId` (the connection is the single minter) and `config`
 # (temporarily withheld until capability-checked forwarding lands).
 _START_EXCLUDED = {"commandId", "config"}
@@ -151,20 +151,19 @@ class MuseClientOptions:
 
 @dataclass
 class MuseClientSpawnOptions:
-    """What :meth:`MuseClient.spawn` needs: the host binary, plus the
+    """What:meth:`MuseClient.spawn` needs: the host binary, plus the
     handshake identity.
 
     Attributes:
         muse_bin: The host binary to run.
         client_info: Client identification, forwarded verbatim into
-            ``initialize`` (SS1.4).
+            ``initialize``.
         args: Passed through verbatim (a bare ``muse`` is the TUI — pass
             ``["serve"]`` for the MSP host).
         cwd: Working directory for the host.
         env: The host's environment (inherited when ``None``).
         capabilities: Capability posture; absent means all defaults.
-        on_stderr: Raw stderr chunks, drained from birth, never parsed
-            (INV-638-04 carrying INV-010).
+        on_stderr: Raw stderr chunks, drained from birth, never parsed.
         shutdown_timeout_ms: See ``MuseServeChild.spawn``.
     """
 
@@ -197,7 +196,7 @@ class MuseClient(Generic[_I]):
         """
         self._connection = connection
         self._durability = options.durability
-        # Client-owned, never injected: SS2.13.3b is a one-client obligation
+        # Client-owned, never injected: the protocol is a one-client obligation
         # and no current consumer spans two clients over one host lineage, so a
         # sharing knob would be declared-ahead surface (Constitution XI).
         self._discarded = DiscardedSessions()
@@ -208,12 +207,12 @@ class MuseClient(Generic[_I]):
             host.initialize_result if host is not None else None
         )
         # Set by close() BEFORE the connection is torn down: the same EOF is an
-        # orderly SS2.1.2 shutdown when we caused it and an abnormal death when
+        # orderly protocol shutdown when we caused it and an abnormal death when
         # we did not, and nothing below this layer can tell.
         self._closing = False
         # Latched by an abnormal EOF, so a later resume_session can be withheld.
         self._host_died = False
-        # THE ONE INBOUND PUMP (FR-638-019): ``Session.apply`` is the only
+        # THE ONE INBOUND PUMP: ``Session.apply`` is the only
         # event entry point and ``_connection`` is private, so without this a
         # spawn-built consumer hears no view frame. ``Connection`` holds ONE
         # notification handler — this client claims it.
@@ -224,11 +223,11 @@ class MuseClient(Generic[_I]):
 
     @staticmethod
     async def spawn(options: MuseClientSpawnOptions) -> "MuseClient[Any]":
-        """Spawn an owned host, run the SS1.4 handshake, and hand back a client
-        whose durability profile came from that handshake (FR-638-019a).
+        """Spawn an owned host, run the protocol handshake, and hand back a client
+        whose durability profile came from that handshake.
 
         The profile is READ rather than asked of the caller, which is the whole
-        reason this factory exists beside the bare constructor: SS2.13.1 makes
+        reason this factory exists beside the bare constructor: the protocol makes
         the absent/unrecognized distinction load-bearing, and a caller
         re-deriving it by hand can get it wrong.
 
@@ -293,7 +292,7 @@ class MuseClient(Generic[_I]):
 
     @property
     def exit(self) -> Awaitable[ExitClassification]:
-        """The host's SS2.11 exit row, when this client was built by
+        """The host's the protocol exit row, when this client was built by
         :meth:`spawn`.
 
         Raises:
@@ -313,7 +312,7 @@ class MuseClient(Generic[_I]):
     async def start_session(
         self, options: StartSessionOptions | None = None
     ) -> Session[_I]:
-        """Open a new root session (tdd SS2.5.1)."""
+        """Open a new root session."""
         options = options or StartSessionOptions()
         params: dict[str, Any] = {}
         if options.approval_mode is not None:
@@ -337,11 +336,9 @@ class MuseClient(Generic[_I]):
         )
 
     async def resume_session(self, options: ResumeSessionOptions) -> Session[_I]:
-        """Load an existing session and subscribe this connection to its view
-        (tdd SS2.5.2).
+        """Load an existing session and subscribe this connection to its view.
 
-        WITHHELD after an ephemeral host death (SS2.13.3b clause 2, "do not
-        attempt to reattach"), and refused on THIS side of the transport: a
+        WITHHELD after an ephemeral host death, and refused on THIS side of the transport: a
         reattach that reaches the wire has already violated the clause,
         whatever the server answers.
         """
@@ -361,13 +358,13 @@ class MuseClient(Generic[_I]):
         )
 
     async def close(self) -> None:
-        """Shut the host down in an orderly way (SS2.1.2).
+        """Shut the host down in an orderly way.
 
         The EOF this close produces is NOT a death, which is what
         ``_closing`` records. ``_closing`` covers only the EOF; it must not
         swallow the EXIT ROW: when the host ignores stdin EOF, the child close
         escalates to SIGTERM/SIGKILL and the exit classifies as a crash — an
-        abnormal death under SS2.13.3b no matter who started the close, and one
+        abnormal death under the protocol no matter who started the close, and one
         no transport event will report because ``_closing`` already claimed the
         EOF. So the close's own classification is forwarded to every session;
         ``host_exited`` answers ``notADeath`` for a clean shutdown, keeping the
@@ -406,7 +403,7 @@ class MuseClient(Generic[_I]):
             )
         if self._host_died and not survives_host_death(self._durability):
             raise MuseSessionDiscardedError(
-                "this client's ephemeral host died; SS2.13.3b forbids "
+                "this client's ephemeral host died; the protocol forbids"
                 "reattaching to it"
             )
 
@@ -432,7 +429,7 @@ class MuseClient(Generic[_I]):
 
     def _transport_closed(self) -> None:
         # The transport reached EOF. If this client did not cause it, that is
-        # SS2.13.3b's second death notification (T030 obligation b), and every
+        # the protocol's second death notification, and every
         # session discharges through the SAME ``host_exited`` path the process
         # exit uses — including its latch, so whichever notification arrives
         # second replays the first one's report.

@@ -1,10 +1,8 @@
-"""PY-TEST-003/004/005-adjacent fold-composition arms and the turn-lifecycle
-and approval/user-input fold-input contract (specs/638-muse-sdk-python
-FR-638-007): port of ``clients/sdk-ts/test/session-fold.test.ts``, every
+"""PY-the governing ruledjacent fold-composition arms and the turn-lifecycle
+and approval/user-input fold-input contract: port of ``clients/sdk-ts/test/session-fold.test.ts``, every
 runtime case.
 
-The TS suite's compile-time probes (``@ts-expect-error`` deep-readonly
-seals, the D-15 generic-``get`` pins, the ``Exactly<>`` key pin) are
+The TS suite's compile-time probes are
 type-system tests with no runtime twin; their INTENT — mutators never leak
 onto the read surface, the surface is an allowlist, every generated view
 notification is routed — is ported as the runtime tests at the end.
@@ -246,7 +244,7 @@ def test_turn_completed_settles_the_turn_and_carries_the_wire_terminal_verbatim(
     assert settled.state == "settled"
     assert settled.terminal == "failed"
     # `turn/completed` carries no `commandId` on the wire, so the held entry
-    # is the ONLY reason a settled turn still knows its command (tdd SS3.6).
+    # is the ONLY reason a settled turn still knows its command.
     assert settled.command_id == "cmd-1", "settling must not forget the started event's command"
 
 
@@ -280,7 +278,7 @@ def test_a_failed_turns_wire_error_folds_verbatim_a_non_failed_terminal_carries_
 
 def test_an_accepted_retract_after_turn_completed_cancelled_still_marks_the_turn_retracted() -> None:
     fold = SessionFold()
-    # The wire's REAL ordering for a ran-then-retracted turn (tdd SS3.4).
+    # The wire's REAL ordering for a ran-then-retracted turn.
     fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
     fold.apply(turn_completed("turn-1", "cancelled", "v:s:2"))
     fold.apply(turn_retracted("turn-1", "cmd-1", "v:s:3"))
@@ -288,7 +286,7 @@ def test_an_accepted_retract_after_turn_completed_cancelled_still_marks_the_turn
     retracted = fold.turn("turn-1")
     assert retracted is not None
     assert retracted.state == "retracted"
-    assert retracted.terminal == "cancelled", "the wire terminal is kept verbatim (INV-006)"
+    assert retracted.terminal == "cancelled", "the wire terminal is kept verbatim"
 
 
 def test_turn_completed_for_a_turn_never_started_still_settles_it() -> None:
@@ -310,7 +308,7 @@ def test_turn_retracted_retires_the_submissions_turn_without_inventing_a_termina
     retracted = fold.turn("turn-1")
     assert retracted is not None
     assert retracted.state == "retracted"
-    assert retracted.terminal is None, "a retract is not a TurnTerminal (INV-006)"
+    assert retracted.terminal is None, "a retract is not a TurnTerminal"
     assert fold.active_turn_id is None
 
 
@@ -322,7 +320,7 @@ def test_turn_unqueued_records_a_reclaimed_turn_that_never_ran_and_never_becomes
     assert unqueued is not None
     assert unqueued.state == "unqueued"
     assert unqueued.command_id == "cmd-2"
-    assert unqueued.terminal is None, "a reclaim is not a terminal (INV-006)"
+    assert unqueued.terminal is None, "a reclaim is not a terminal"
     assert fold.active_turn_id is None, "a reclaimed turn never runs"
 
 
@@ -400,7 +398,7 @@ def test_a_reclaimed_turn_stays_unqueued_no_turn_completed_ever_settles_it() -> 
     held = fold.turn("turn-2")
     assert held is not None
     assert held.state == "unqueued"
-    assert held.terminal is None, "a reclaim is not a terminal (INV-006)"
+    assert held.terminal is None, "a reclaim is not a terminal"
 
 
 def test_turn_retracted_carries_the_command_id_when_the_retract_is_the_first_frame() -> None:
@@ -414,7 +412,7 @@ def test_turn_retracted_carries_the_command_id_when_the_retract_is_the_first_fra
     assert retracted is not None
     assert retracted.state == "retracted"
     assert retracted.command_id == "cmd-9"
-    assert retracted.terminal is None, "a retract is not a TurnTerminal (INV-006)"
+    assert retracted.terminal is None, "a retract is not a TurnTerminal"
 
 
 def test_turn_completed_clears_the_retry_countdown() -> None:
@@ -511,8 +509,8 @@ def test_a_re_requested_approval_refreshes_to_the_second_payload_without_duplica
     )
 
     # A redelivered request for a STILL-PENDING approval must refresh the held
-    # payload: a re-issued request already embodies the latest refresh (tdd
-    # SS5.6.3), so no stale refresh survives it.
+    # payload: a re-issued request already embodies the latest refresh (protocol spec
+    # the protocol), so no stale refresh survives it.
     second = approval_requested("a-1", "v:s:2", "rm -rf /tmp/x")
     fold.apply(second)
 
@@ -563,7 +561,7 @@ def test_approval_updated_after_approval_resolved_never_resurrects_the_decision_
     fold = SessionFold()
     fold.apply(approval_requested("a-1", "v:s:1"))
     fold.apply(approval_resolved("a-1", "approved", "v:s:2"))
-    # The exact frame issue #23379 is about: a post-terminal update carrying a
+    # The exact frame a tracked issue is about: a post-terminal update carrying a
     # FAILED policyPersistence report. Re-opening the decided approval to hang
     # the fact on is the careless shape this pins against.
     outcome = fold.apply(approval_updated("a-1", "v:s:3", command="rm -rf /tmp/x"))
@@ -571,7 +569,7 @@ def test_approval_updated_after_approval_resolved_never_resurrects_the_decision_
     assert outcome == IgnoredStaleFrame("approval/updated", "a-1")
     assert fold.pending_approvals() == [], "a decided approval is never re-opened"
     assert [r["decision"] for r in fold.resolved_approvals()] == ["approved"], (
-        "the durable terminal is untouched (tdd SS5)"
+        "the durable terminal is untouched"
     )
 
 
@@ -616,7 +614,7 @@ def test_the_first_durable_approval_terminal_wins_a_second_never_overwrites_it()
 
     assert second == ApprovalResolvedFold("a-1", first_terminal=False)
     assert [r["decision"] for r in fold.resolved_approvals()] == ["approved"], (
-        "the first durable terminal decision is the one that stands (tdd SS5)"
+        "the first durable terminal decision is the one that stands"
     )
 
 
@@ -709,7 +707,7 @@ def test_item_events_fold_into_the_item_store_bound_to_the_generated_item() -> N
     assert fold.items.accumulated("i-1", "text") == "hello world"
 
     # The wire really sends deltas for non-default fields ("output",
-    # "summary.0" — tdd SS4.3.1); the fold must route `field` through, not
+    # "summary.0" — the protocol spec); the fold must route `field` through, not
     # pile every delta into `text`.
     fold.apply(
         {
@@ -768,7 +766,7 @@ def test_session_state_events_fold_into_the_store_keyed_by_their_method_name() -
     model = fold.session_state.get("session/modelChanged")
     assert isinstance(model, dict) and model["modelId"] == "muse-large"
     assert fold.session_state.has("session/goalChanged"), (
-        "an absent `goal` member is an explicit clear, and the family holds that fact (INV-005)"
+        "an absent `goal` member is an explicit clear, and the family holds that fact"
     )
 
 
@@ -790,7 +788,7 @@ def test_the_fold_passes_view_cursor_through_so_a_redelivered_state_frame_is_ref
     assert isinstance(first, SessionStateFold)
     assert first.outcome.applied is True
 
-    # The SAME frame again: the store's exact-cursor replay refusal (INV-005)
+    # The SAME frame again: the store's exact-cursor replay refusal
     # is the whole reason `apply` hands `viewCursor` down.
     replay = fold.apply(event)
     assert isinstance(replay, SessionStateFold)
@@ -815,7 +813,7 @@ def test_a_real_view_gap_frame_moves_the_folds_currency_and_no_store() -> None:
     assert fold.apply(
         {"method": "view/gap", "params": {"sessionId": SESSION, "after": "v:s:1", "next": "v:s:5"}}
     ) == DeliveryGap(after="v:s:1", next="v:s:5")
-    assert fold.current is False, "FM-003: not current until the hole is filled"
+    assert fold.current is False, "the governing rule: not current until the hole is filled"
     assert fold.pending_gap == {"after": "v:s:1", "next": "v:s:5", "sessionId": SESSION}
     assert fold.items.size == 0, "the marker seeds no item"
     assert fold.session_state.families() == [], "and no state family"
@@ -828,7 +826,7 @@ def test_consecutive_gaps_coalesce_on_the_first_after_gap_filled_clears_only_the
     fold.apply({"method": "view/gap", "params": {"after": "v:s:6", "next": "v:s:9", "sessionId": SESSION}})
     assert fold.pending_gap == {"after": "v:s:1", "next": "v:s:9", "sessionId": SESSION}
 
-    # EQUALITY, never a relational compare (tdd SS4.1): filling the ORIGINAL
+    # EQUALITY, never a relational compare: filling the ORIGINAL
     # target clears nothing, because the second hole is still open.
     assert fold.gap_filled("v:s:5") is False
     assert fold.current is False
@@ -923,16 +921,16 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # `initialized` must be a fold input, and each must reach its own arm.
     from muse_code_msp import NOTIFICATIONS
 
-    # `session/viewHealthChanged` (#32557, ADR 32557) is a COMMAND-PLANE health
+    # `session/viewHealthChanged` is a COMMAND-PLANE health
     # push, not a view-fold input — it reports that the live view stream died,
     # so it carries no cursor and folds into no transcript state. Excluded here
     # like the handshake's `initialized`; the client handles it out of band.
     non_fold_notifications = {"initialized", "session/viewHealthChanged"}
     assert VIEW_EVENT_METHODS == set(NOTIFICATIONS) - non_fold_notifications - LIVE_HOST_STATE_PROJECTIONS, (
-        "a #206 enrollment added or retired a view notification; route it in "
+        "a a tracked issue enrollment added or retired a view notification; route it in"
         "SessionFold.apply (exclusions: `initialized`, the command-plane "
         "session/viewHealthChanged push, and the live host-state projections, "
-        "ADR 32471 D3)"
+        "the governing decision)"
     )
     # The reverse pin (the TS StaleExclusion twin): every excluded projection
     # names a REAL generated notification, so a retired or renamed method
@@ -1085,7 +1083,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
                 "viewCursor": "v:t:22",
             },
         },
-        # The delivery marker is a routed arm (FR-020): it changes no store,
+        # The delivery marker is a routed arm: it changes no store,
         # but it MUST NOT reach the unrecognized default — that report is
         # reserved for a newer host's genuinely unknown method.
         "view/gap": {

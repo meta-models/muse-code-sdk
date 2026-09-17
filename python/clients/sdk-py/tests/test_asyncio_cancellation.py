@@ -1,6 +1,5 @@
-"""PY-TEST-026 ``asyncio_cancellation_is_nondestructive`` — spec 638
-INV-638-04 carrying spec 14990 INV-006, at the Edge Cases' cancellation arms
-(T035, moved from S1 on PR #29277 review — the awaited surfaces are S3's).
+"""PY-the governing rule ``asyncio_cancellation_is_nondestructive`` — the owning spec
+the governing rule carrying the owning spec the governing rule, at the Edge Cases' cancellation arms.
 
 Cancelling a task awaiting ``turn.completed`` or an iterator MUST NOT corrupt
 the fold or the connection; the wait detaches, state keeps folding.
@@ -154,7 +153,7 @@ async def test_cancelling_a_deltas_iterator_keeps_the_fold_accumulating() -> Non
     await cancelled(pending)
 
     # The fold's accumulated delta text is unaffected by the consumer-side
-    # cancel (the store keeps the per-field accumulator, INV-004).
+    # cancel.
     s.apply(
         {
             "method": "item/delta",
@@ -226,7 +225,7 @@ async def test_cancelling_a_wait_on_a_wired_session_leaves_the_connection_alive(
 async def test_a_cancelled_iterator_via_aclosing_deregisters_without_settling_the_turn() -> None:
     # The `contextlib.aclosing` path the iterator docstring names: breaking
     # out deregisters the stream, and the turn itself stays unsettled — no
-    # invented completion (INV-638-04 carrying INV-006).
+    # invented completion.
     from contextlib import aclosing
 
     s = fold_only()
@@ -241,7 +240,7 @@ async def test_a_cancelled_iterator_via_aclosing_deregisters_without_settling_th
 
     # Reaches the concrete handle deliberately: live_stream_count is
     # test-only observability, and without this the arm's "deregisters" claim
-    # holds nothing (PR #32315 review round 5).
+    # holds nothing.
     assert turn.live_stream_count == 0, (  # type: ignore[attr-defined]
         "aclosing must deregister the stream"
     )

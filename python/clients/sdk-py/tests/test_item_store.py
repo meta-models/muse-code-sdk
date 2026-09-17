@@ -1,5 +1,4 @@
-"""PY-TEST-003's item-store arms (specs/638-muse-sdk-python FR-638-007,
-carrying 14990 INV-003/INV-004): port of ``clients/sdk-ts/test/item-store.test.ts``,
+"""PY-the governing rule's item-store arms: port of ``clients/sdk-ts/test/item-store.test.ts``,
 every case, same sequences.
 """
 

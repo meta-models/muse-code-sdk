@@ -26,7 +26,7 @@ class TranscriptLine:
         direction: ``"client"`` (written to the host's stdin) or
             ``"server"`` (read from its stdout).
         frame: The ``raw`` bytes parsed as one JSON-RPC 2.0 frame. Client
-            lines may end with ``\\r`` on the wire (tolerated, SS1.1); the
+            lines may end with ``\\r`` on the wire; the
             parse is unaffected.
     """
 
@@ -129,7 +129,7 @@ def replay_into_fold(transcript: Transcript) -> SessionFold:
 
     Every notification's outcome is appended to
     ``transcript.fold_outcomes`` (cleared first), so a caller can assert on
-    what the fold did per frame — the Scenario 1 discipline checks.
+    what the fold did per frame — the acceptance-scenario discipline checks.
 
     Args:
         transcript: A parsed transcript.

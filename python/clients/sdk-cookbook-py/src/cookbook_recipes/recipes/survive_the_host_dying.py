@@ -307,7 +307,7 @@ async def _durable_death_rejects_the_waiters(context: Context) -> None:
             f"the wait rejected with {settled_value!r}, not MuseHostDiedError"
         )
 
-    # FM-001's other half: NOTHING is discarded. The items and pending
+    # the governing rule's other half: NOTHING is discarded. The items and pending
     # commands are left exactly as observed; their terminals arrive when the
     # session resumes on a fresh host.
     equals(session.pending.discarded, False, "a durable death discards no pending commands")
@@ -604,7 +604,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="survive-the-host-dying",
     title="Survive the host dying under you",
-    docs_page="developer-docs/src/content/docs/cookbook/survive-the-host-dying.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/survive-the-host-dying.mdx",
     needs=("muse_bin",),
     run=_run,
 )

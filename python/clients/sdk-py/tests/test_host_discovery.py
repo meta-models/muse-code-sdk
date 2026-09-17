@@ -1,9 +1,8 @@
-"""PY-TEST-017: host discovery tiers and the strict fingerprint gate.
+"""PY-the governing rule: host discovery tiers and the strict fingerprint gate.
 
-Spec 638 FR-638-020 / INV-638-08 / C-638-4: exactly the two ruled tiers —
+The owning spec the governing rule / the governing rule / C-638-4: exactly the two ruled tiers —
 explicit ``muse_bin`` wins, else an installed ``muse`` on ``PATH``. The
-LIBRARY reads no environment variable and takes no ``env`` knob (PR #29277
-and #30094 review; the harnesses own ``MUSE_BIN`` and export ``PATH``), so
+LIBRARY reads no environment variable and takes no ``env`` knob, so
 every arm here drives the process ``PATH`` via monkeypatch — a real
 ``MUSE_BIN`` in the environment is still ignored. No discoverable host fails
 BEFORE any process is spawned with an exact error naming the parameter and
@@ -61,7 +60,7 @@ def test_the_library_reads_no_environment_variable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # The two-tier contract: a MUSE_BIN in the environment is a HARNESS knob,
-    # never a library tier — discovery ignores it (FR-638-020; TS parity:
+    # never a library tier — discovery ignores it (the governing rule; TS parity:
     # spawn.ts takes a required command and reads nothing).
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -93,7 +92,7 @@ def test_no_host_fails_exactly_and_pre_spawn(
     assert "muse_bin=" in message, "names the override parameter"
     assert "MUSE_BIN" not in message, "the library owns no env contract to name"
     assert COMPATIBILITY_PAGE_URL in message, "cites the compatibility page"
-    assert "does not bundle a host" in message, "states the #29216 posture"
+    assert "does not bundle a host" in message, "states the a tracked issue posture"
 
 
 @pytest.mark.asyncio
@@ -147,7 +146,7 @@ async def test_matching_fingerprint_initializes_and_closes_cleanly(
     tmp_path: Path,
 ) -> None:
     # The control arm: the same stub serving the PINNED fingerprint completes
-    # the SS1.4 sequence (initialize -> result -> initialized) and closes.
+    # the protocol sequence (initialize -> result -> initialized) and closes.
     stub = tmp_path / "stub_host.py"
     stub.write_text(
         "import json, sys\n"
@@ -181,7 +180,7 @@ async def test_matching_fingerprint_initializes_and_closes_cleanly(
 def test_muse_bin_in_the_real_process_env_is_ignored(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # PR #30094 review: re-adding a MUSE_BIN tier must FAIL this arm — the
+    # a prior review: re-adding a MUSE_BIN tier must FAIL this arm — the
     # variable is exported for real, and discovery still refuses.
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -195,7 +194,7 @@ def test_muse_bin_in_the_real_process_env_is_ignored(
 async def test_mismatch_error_names_the_generated_required_host_version(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, thread 5: dropping the version from the message must
+    # a prior review: dropping the version from the message must
     # FAIL here — the C-638-4 contract names the REQUIRED host version from
     # the generated constant, never a degraded fallback.
     from muse_code_msp import REQUIRED_HOST_VERSION
@@ -234,7 +233,7 @@ async def test_mismatch_error_names_the_generated_required_host_version(
 async def test_a_bad_connection_option_never_orphans_the_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # PR #30094 review, threads 8 + P0 re-review: a misspelled connection
+    # a prior review, threads 8 + P0 re-review: a misspelled connection
     # option raises AFTER the child exists; the spawn path must end that
     # child, not orphan it. The child handle is captured CAUSALLY off the
     # spawn call (a pid-file existence check raced the ~1 ms failure window
@@ -267,9 +266,9 @@ async def test_a_bad_connection_option_never_orphans_the_host(
 async def test_initialize_is_send_once_and_a_result_without_fingerprint_rejects(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, thread 6: the only-once guard and the
+    # a prior review: the only-once guard and the
     # missing-fingerprint arm each need a RED that reaches them. The
-    # missing-fingerprint arm is the C-638-2 frame seam since the #31276
+    # missing-fingerprint arm is the C-638-2 frame seam since the a tracked issue
     # owner ruling: the typed MuseValidationError, not a hand-rolled
     # ProtocolError.
     stub = tmp_path / "stub_host.py"
@@ -302,7 +301,7 @@ async def test_initialize_is_send_once_and_a_result_without_fingerprint_rejects(
 async def test_child_close_waits_for_the_adopted_submission_tail(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, thread 10 (the TS twin's adopted-flush arm): a close
+    # a prior review (the TS twin's adopted-flush arm): a close
     # routed AROUND the Connection — the public `spawned.child.close()` —
     # must still wait for accepted frames' SUBMISSION via the adopted flush
     # seam before ending the host's stdin, so the notification tail reaches
@@ -367,7 +366,7 @@ async def test_child_close_waits_for_the_adopted_submission_tail(
             MuseValidationError,
             id="no-fingerprint",
         ),
-        # C-638-2 frame seam (owner ruling #31276, arm (a)): every malformed
+        # C-638-2 frame seam (owner ruling a tracked issue, arm (a)): every malformed
         # shape of the members the facade reads is the typed validation
         # error — never an AttributeError/KeyError or a silent partial
         # object — and the seam rejects BEFORE the C-638-4 fingerprint gate
@@ -399,7 +398,7 @@ async def test_child_close_waits_for_the_adopted_submission_tail(
 async def test_a_failed_initialize_never_orphans_the_spawned_host(
     tmp_path: Path, served_result: str, expected_error: type[Exception]
 ) -> None:
-    # PR #30094 review: EVERY post-latch initialize() failure arm — the
+    # a prior review: EVERY post-latch initialize() failure arm — the
     # headline C-638-4 mismatch AND the malformed-frame rejections — must
     # end the `muse serve` child this handshake owns. Observed through the
     # PUBLIC `handshake.exited` surface (no private monkeypatch); the stub
@@ -435,7 +434,7 @@ async def test_a_failed_initialize_never_orphans_the_spawned_host(
 async def test_a_malformed_initialize_result_wraps_pydantics_error(
     tmp_path: Path,
 ) -> None:
-    # C-638-2 frame seam, the wrapper's own contract (owner ruling #31276):
+    # C-638-2 frame seam, the wrapper's own contract:
     # the SDK's typed error names the seam, keeps the pre-existing
     # ValueError family, and chains pydantic's ValidationError as the cause
     # so an embedder can read the field-level evidence.
@@ -469,7 +468,7 @@ async def test_a_malformed_initialize_result_wraps_pydantics_error(
 async def test_facade_close_is_bounded_even_when_the_host_never_reads_stdin(
     host: str,
 ) -> None:
-    # PR #30094 review, round 10 (sechegaray): the SS2.1.2 close ordering
+    # a prior review, round 10 (sechegaray): the protocol close ordering
     # (EOF attempt must NOT gate the ladder) has no public-seam test — every
     # wedged-host arm closes the transport/child directly, and every facade
     # close in the suite talks to a draining host. Here a large pending write
@@ -503,11 +502,11 @@ async def test_facade_close_is_bounded_even_when_the_host_never_reads_stdin(
 async def test_a_cancelled_initialize_closes_the_host_inline_never_orphans(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, round 15 P0 (reviewkit/sechegaray/Answeror): a caller
+    # a prior review, round 15 P0 (reviewkit/sechegaray/Answeror): a caller
     # cancel of initialize() (a wait_for timeout) must still end the host —
     # a background fire-and-forget close is torn down by asyncio.run's loop
     # exit and orphans the child, so the close runs INLINE before the cancel
-    # propagates (FM-638-2 never-orphan is unconditional). The host reads the
+    # propagates. The host reads the
     # request but never answers, so initialize() is in flight when cancelled;
     # a short shutdown_timeout_ms keeps the inline close's ladder brief.
     stub = tmp_path / "silent_host.py"
@@ -528,11 +527,11 @@ async def test_a_cancelled_initialize_closes_the_host_inline_never_orphans(
     # this must red on that mutant too — not only on `except Exception`).
     assert not is_alive(pid), "a cancelled initialize never orphans the host"
     # Terminal shape, not specifically SIGTERM: the stub can win the stdin-EOF
-    # race and exit 0 (FM-638-2's contract is "the host is dead", not
+    # race and exit 0 (the governing rule's contract is "the host is dead", not
     # "killed"). The liveness oracle is the is_alive check above plus this
     # bounded wait; the assert states the ProcessExit one-of-two invariant —
     # EXACTLY one of code/signal — which an either-or form could never fail
-    # (PR #30094 review, round 18).
+    #.
     exit_status = await asyncio.wait_for(handshake.exited, FAILURE_CAP_S)
     assert (exit_status.code is None) != (exit_status.signal is None), (
         f"the cancel ended the host: {exit_status}"
@@ -543,10 +542,10 @@ async def test_a_cancelled_initialize_closes_the_host_inline_never_orphans(
 async def test_a_gc_finalized_initialize_kills_the_host_and_exits_quietly(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, round 18 (reviewkit/sechegaray/zdwmeta): closing a
+    # a prior review, round 18 (reviewkit/sechegaray/zdwmeta): closing a
     # SUSPENDED initialize() coroutine — what GC finalization of an abandoned
     # task does — throws GeneratorExit at its await. The arm cannot await the
-    # bounded close there, but never-orphan is unconditional (FM-638-2): it
+    # bounded close there, but never-orphan is unconditional: it
     # sends one synchronous SIGKILL and re-raises. Two mutants red here:
     # dropping the arm (BaseException's `await self.close()` swallows the
     # GeneratorExit -> coro.close() raises "coroutine ignored GeneratorExit"),
@@ -581,7 +580,7 @@ async def test_a_gc_finalized_initialize_kills_the_host_and_exits_quietly(
 async def test_a_second_initialize_after_success_rejects_but_leaves_the_host_alive(
     tmp_path: Path,
 ) -> None:
-    # PR #30094 review, round 15: the send-once carve-out — a repeat
+    # a prior review, round 15: the send-once carve-out — a repeat
     # initialize() raises the "only once" ProtocolError WITHOUT closing,
     # because after a successful first call the host is live and owned by the
     # returned connection. The existing send-once arm fires the second call

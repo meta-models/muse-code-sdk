@@ -47,10 +47,10 @@ class Recipe:
     """One runnable, documented cookbook entry.
 
     Attributes:
-        id: The recipe id — equal to its TS twin's (PY-TEST-021 parity).
+        id: The recipe id — equal to its TS twin's.
         title: Plain-words title, used verbatim in the printed report.
         docs_page: Repository-relative path of the docs page this backs.
-        needs: Which of :class:`RecipeHosts` this recipe cannot run without.
+        needs: Which of:class:`RecipeHosts` this recipe cannot run without.
         run: Runs the recipe's journey. Raising marks the recipe failed.
     """
 

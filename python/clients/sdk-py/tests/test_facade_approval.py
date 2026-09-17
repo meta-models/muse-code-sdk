@@ -1,8 +1,7 @@
-"""PY-TEST-014 ``approval_and_user_input_round_trip`` — spec 638
-FR-638-019b (T031), carrying spec 14990 FR-019 / TEST-013.
+"""PY-the governing rule ``approval_and_user_input_round_trip`` — the owning spec
+the governing rule, carrying the owning spec the governing rule / the governing rule
 
-Port of ``clients/sdk-ts/test/facade-approval.test.ts`` (spec 638 INV-638-04
-parity), plus the user-input dialog arms the Python task names: the round
+Port of ``clients/sdk-ts/test/facade-approval.test.ts``, plus the user-input dialog arms the Python task names: the round
 trip is the contract, so every arm either drives a real ``approval/decide``
 (or ``userInput/answer``/``userInput/cancel``) frame out of the fake duplex,
 or asserts that none was written.
@@ -10,7 +9,7 @@ or asserts that none was written.
 SHAPE NOTE, established from the bundle rather than assumed (the TS twin's):
 ``approval/request`` as a SERVER REQUEST is not what the view stream carries —
 the schema folds ``approval/requested`` as a NOTIFICATION — so the round trip
-is notification-in / command-out, exactly the FR-019 pair. USER INPUT is the
+is notification-in / command-out, exactly the governing rule pair. USER INPUT is the
 other shape: ``userInput/request`` IS a server request (integer id, answered
 ``{}``), and the decision travels separately as the ``userInput/answer`` /
 ``userInput/cancel`` command — the transcript arms below pin both halves.
@@ -140,7 +139,7 @@ def fold_only() -> "Session[str]":
     return Session(SESSION, read_session_durability({"sessionDurability": "durable"}))
 
 
-# ---- FR-638-019b: the approval round trip ----------------------------------
+# ---- the governing rule: the approval round trip ----------------------------------
 
 
 @pytest.mark.asyncio
@@ -162,7 +161,7 @@ async def test_the_handlers_choice_reaches_the_wire_as_approval_decide() -> None
     assert sent_frame(transport, 0)["method"] == "approval/decide"
     params = sent_params(transport, 0)
     command_id = params.pop("commandId")
-    # INV-013: the connection's mint is still the only minter.
+    # the governing rule: the connection's mint is still the only minter.
     assert minted == ["mint-0"]
     assert command_id == "mint-0"
     assert params == {
@@ -180,7 +179,7 @@ async def test_the_handlers_choice_reaches_the_wire_as_approval_decide() -> None
     await settled_io(outcome.io)
 
     # Round trip closed: the authoritative outcome is the view stream's
-    # approval/resolved, never the ack (tdd SS5.4), so the fold must move only
+    # approval/resolved, never the ack, so the fold must move only
     # when that lands.
     assert len(session.fold.pending_approvals()) == 1
     session.apply(approval_resolved("mint-0"))
@@ -192,7 +191,7 @@ async def test_the_handlers_choice_reaches_the_wire_as_approval_decide() -> None
 
 @pytest.mark.asyncio
 async def test_a_redelivered_request_decides_once_and_mints_no_second_command_id() -> None:
-    # SS3.1.1 idempotency is about the SUBMISSION; the client half is not
+    # the protocol idempotency is about the SUBMISSION; the client half is not
     # sending a second one. A redelivered request for the same stage must not
     # author a second decide, or a two-stage approval races itself.
     transport, session, minted = wired()
@@ -221,7 +220,7 @@ async def test_a_redelivered_request_decides_once_and_mints_no_second_command_id
 
 @pytest.mark.asyncio
 async def test_a_new_requirement_id_is_a_new_stage_and_gets_its_own_decision() -> None:
-    # tdd SS5.4: `requirementId` is the multi-stage race guard — a decision
+    # the protocol spec: `requirementId` is the multi-stage race guard — a decision
     # aimed at stage 1 can never satisfy stage 2. Memoizing on `approvalId`
     # alone would leave stage 2 undecided forever.
     transport, session, minted = wired()
@@ -248,8 +247,8 @@ async def test_a_new_requirement_id_is_a_new_stage_and_gets_its_own_decision() -
 
 @pytest.mark.asyncio
 async def test_no_handler_registered_writes_nothing_and_parks_nothing() -> None:
-    # FR-638-019b carrying FR-019: "no handler registered means the client runs
-    # under the server's default-deny posture — the SDK parks nothing" (D-008).
+    # the governing rule carrying the governing rule: "no handler registered means the client runs
+    # under the server's default-deny posture — the SDK parks nothing".
     transport, session, _minted = wired()
 
     outcome = session.apply(approval_requested())
@@ -282,7 +281,7 @@ async def test_no_handler_registered_writes_nothing_and_parks_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_an_unoffered_choice_is_refused_before_the_wire() -> None:
-    # D-006 is select-never-create: choices are server-minted. Sending an
+    # the governing decision is select-never-create: choices are server-minted. Sending an
     # invented one bounces -32052 a round trip later, and by then the stage may
     # have advanced — so the refusal belongs on this side of the transport.
     transport, session, _minted = wired()
@@ -319,7 +318,7 @@ async def test_feedback_is_forwarded_when_set_and_omitted_when_unset() -> None:
     answer(transport, 0, decide_result("mint-0"))
     await settled_io(outcome.io)
 
-    # The twin: unset feedback is ABSENT from the frame, never null (SS1.2).
+    # The twin: unset feedback is ABSENT from the frame, never null.
     transport2, session2, _minted2 = wired()
     session2.on_approval(lambda _r: ApprovalDecisionInput(choice_id="deny"))
     second = session2.apply(approval_requested())
@@ -421,7 +420,7 @@ def test_fold_only_approval_reports_submit_failed_with_no_event_loop_at_all() ->
     # Deliberately NO asyncio marker: a fold-only consumer may apply events
     # outside any loop, and the SubmitFailed report must fire synchronously
     # rather than ride a coroutine nothing can schedule — scheduling one here
-    # minted an orphan event loop and the report never fired (PR #32249
+    # minted an orphan event loop and the report never fired (a prior review
     # review round 1).
     session = fold_only()
     failures: List[ApprovalFailure] = []
@@ -449,7 +448,7 @@ def test_fold_only_approval_reports_submit_failed_with_no_event_loop_at_all() ->
 async def test_approval_updated_refreshes_the_stage_without_authoring_a_decision() -> None:
     # The update path carries no `approval/request` shape (no itemId/turnId/
     # toolName), so it cannot honestly call a handler typed on the request.
-    # SS5.6.3 says a re-issued REQUEST embodies the refresh; that is the frame
+    # the protocol says a re-issued REQUEST embodies the refresh; that is the frame
     # that drives the handler, and the update alone must not.
     transport, session, _minted = wired()
     session.on_approval(lambda _r: ApprovalDecisionInput(choice_id="allow_once"))
@@ -537,7 +536,7 @@ async def test_a_redelivery_during_an_in_flight_decide_authors_no_second_decide(
     # spans a loop yield, and the same stage folds again with NO await in
     # between. A latch moved past the first await lets both frames pass the
     # decided-stages check — two handler calls, two decide frames, the
-    # double-decide SS5.4 forbids.
+    # double-decide the protocol forbids.
     transport, session, _minted = wired()
     calls = 0
 
@@ -554,7 +553,7 @@ async def test_a_redelivery_during_an_in_flight_decide_authors_no_second_decide(
     # Asserted BEFORE answering and awaiting the ios: under the latch-slipped
     # mutant a SECOND decide goes out, only the first is answered, and the io
     # gather would wait forever on a reply nobody sends — the arm must fail on
-    # the extra WRITE, fast, not on a hang (PR #32249 review round 1).
+    # the extra WRITE, fast, not on a hang.
     await pump(40)
     assert len(transport.writes) == 1, "one stage authors one decide"
     assert calls == 1, "one stage asks the consumer once"
@@ -562,7 +561,7 @@ async def test_a_redelivery_during_an_in_flight_decide_authors_no_second_decide(
     await asyncio.gather(settled_io(first.io), settled_io(second.io))
 
 
-# ---- the transcript arms (PY-TEST-014's named vehicle) ----------------------
+# ---- the transcript arms ----------------------
 
 
 def _transcript_lines(scenario: str) -> List[tuple[str, Params]]:
@@ -595,7 +594,7 @@ def _strip(params: Params, normalized: List[str]) -> Params:
 
 @pytest.mark.asyncio
 async def test_the_approval_round_trip_transcript_drives_the_recorded_decide_back_out() -> None:
-    # PY-TEST-014 names the transcripts as its vehicle, and hand-built params
+    # PY-the governing rule names the transcripts as its vehicle, and hand-built params
     # are exactly the drift the transcript guards against. Fold the recorded
     # `approval/requested`, decide with the recorded choice, and require the
     # outbound `approval/decide` to match the recorded frame modulo the
@@ -658,7 +657,7 @@ async def test_the_approval_round_trip_transcript_drives_the_recorded_decide_bac
 async def test_the_user_input_transcripts_drive_the_recorded_decision_back_out(
     scenario: str, decide_method: str
 ) -> None:
-    # FR-638-019b's user-input half, at TS parity: `userInput/request` is a
+    # the governing rule's user-input half, at TS parity: `userInput/request` is a
     # SERVER REQUEST answered `{}` (the dialog IN), the decision travels
     # separately as the recorded command (the dialog OUT), and the view
     # stream's `userInput/settled` is the authoritative settlement the fold
@@ -720,7 +719,7 @@ async def test_the_user_input_transcripts_drive_the_recorded_decision_back_out(
     }
     assert asked == [request_params]
     # The prompt is a pending dialog from the fold's point of view: the
-    # re-issue notification carries the same params (tdd SS5.10 / SS2.5.2).
+    # re-issue notification carries the same params.
     session.apply({"method": "userInput/requested", "params": request_params})
     assert [
         p["userInputId"] for p in session.fold.pending_user_inputs()

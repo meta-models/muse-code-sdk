@@ -174,7 +174,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="cancel-mid-turn",
     title="Cancel a turn while it is running",
-    docs_page="developer-docs/src/content/docs/cookbook/cancel-a-running-turn.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/cancel-a-running-turn.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

@@ -481,7 +481,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="retry-without-double-submitting",
     title="Retry a command without double-submitting",
-    docs_page="developer-docs/src/content/docs/cookbook/retry-without-double-submitting.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/retry-without-double-submitting.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

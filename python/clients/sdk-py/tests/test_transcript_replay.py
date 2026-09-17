@@ -1,12 +1,12 @@
-"""PY-TEST-001/002: the transcript replay runner over the whole corpus.
+"""PY-the governing rule: the transcript replay runner over the whole corpus.
 
-Spec ``specs/638-muse-sdk-python`` FR-638-009 (Scenario 1) and INV-638-04
-(the 14990 INV-002 fold-determinism carry): every landed transcript's server
+Spec ``the owning spec` the governing rule and the governing rule
+: every landed transcript's server
 notifications fold without error, delta concatenation equals the final
 committed value on the gap-free single-turn scenario, and two runs over the
 same lines produce equal fold states. Snapshot checkpoint equality
-(FR-638-007's seed+splice at the ``SessionFold`` altitude) follows the same
-T061 sequencing the TS lane records in ``specs/14990-muse-sdk`` — the
+ follows the same
+its task sequencing the TS lane records in ``the owning spec` — the
 store-level seed algebra is covered by the ported store tests.
 """
 
@@ -55,7 +55,7 @@ def test_every_transcript_folds_and_is_deterministic(scenario_dir: Path) -> None
     transcript = load_transcript(scenario_dir)
     fold = replay_into_fold(transcript)
     # Tolerance is lossless, never a crash: the only ignore arms a landed
-    # transcript may hit are the classified ones (SS1.5.4; the sdk-tolerance
+    # transcript may hit are the classified ones (the protocol; the sdk-tolerance
     # class deliberately carries unknown methods/kinds).
     for outcome in transcript.fold_outcomes:
         assert isinstance(
@@ -70,13 +70,13 @@ def test_every_transcript_folds_and_is_deterministic(scenario_dir: Path) -> None
         )
     assert _fold_states(transcript) == _fold_states(transcript), (
         f"{scenario_dir.name}: two folds over the same lines diverged "
-        "(INV-638-04 / 14990 INV-002)"
+        ""
     )
     assert fold is not None
 
 
 def test_text_run_single_turn_delta_concat_and_single_terminal() -> None:
-    # Spec Scenario 1 acceptance 1, on the gap-free single-turn fixture.
+    # Spec its acceptance scenario acceptance 1, on the gap-free single-turn fixture.
     transcript = load_transcript(CORPUS / "text-run-single-turn")
     fold = replay_into_fold(transcript)
     message_items = [
@@ -88,14 +88,14 @@ def test_text_run_single_turn_delta_concat_and_single_terminal() -> None:
         if accumulated is not None and "text" in item:
             assert accumulated == item["text"], (
                 "delta concatenation must equal the final committed value "
-                "(INV-004 carry)"
+                ""
             )
     terminal_turns = [t for t in fold.turns() if t.terminal is not None]
     assert len(terminal_turns) == 1, "exactly one turn terminal in the fixture"
 
 
 def test_cancel_mid_turn_reaches_cancelled_terminal() -> None:
-    # Spec Scenario 1 acceptance 3 (SS4.4.3's terminal guarantee, consumed).
+    # Spec its acceptance scenario acceptance 3.
     transcript = load_transcript(CORPUS / "cancel-mid-turn")
     fold = replay_into_fold(transcript)
     terminals = [t.terminal for t in fold.turns() if t.terminal is not None]
@@ -103,7 +103,7 @@ def test_cancel_mid_turn_reaches_cancelled_terminal() -> None:
 
 
 def test_client_lines_are_exposed_for_frame_assertions() -> None:
-    # FR-638-009: the runner is a library — client lines stay available to
+    # the governing rule: the runner is a library — client lines stay available to
     # consumers (the journey and cookbook harnesses assert on them).
     transcript = load_transcript(CORPUS / "approval-round-trip")
     assert transcript.client_frames, "the fixture records client frames"

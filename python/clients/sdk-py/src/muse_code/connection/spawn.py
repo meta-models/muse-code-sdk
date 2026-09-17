@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 DEFAULT_STDERR_MAX_BYTES = 8 * 1024
 DEFAULT_STDERR_MAX_LINES = 100
 DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000
-"""SS2.1.2's default host drain timeout: the whole EOF sequence's budget."""
+"""The protocol's default host drain timeout: the whole EOF sequence's budget."""
 SIGTERM_GRACE_MS = 2_000
 """SIGTERM -> SIGKILL grace. Not a knob: by the time it runs the host has had
 its whole drain window, so this covers only a signal handler's final flush.
@@ -67,7 +67,7 @@ class ProcessExit:
 
     @staticmethod
     def from_returncode(returncode: int) -> "ProcessExit":
-        """Decomposes asyncio's single ``returncode`` (spec 638 FR-638-017)."""
+        """Decomposes asyncio's single ``returncode``."""
         if returncode >= 0:
             return ProcessExit(code=returncode, signal=None)
         number = -returncode
@@ -76,28 +76,27 @@ class ProcessExit:
         except ValueError:
             # Real-time signals (SIGRTMIN..SIGRTMAX and beyond) have no
             # Signals member on this platform; the row must stay TOTAL
-            # (INV-011 carry) — name the number rather than raise.
+            # — name the number rather than raise.
             name = f"signal {number}"
         return ProcessExit(code=None, signal=name)
 
 
 @dataclass(frozen=True)
 class ExitClassification:
-    """The SDK's reading of a host exit (SS2.11; total per INV-011 carry).
+    """The SDK's reading of a host exit.
 
     Branch on ``kind``. Every arm but ``cleanShutdown`` carries its exit
     evidence (code or signal plus the bounded stderr tail); the documented
     error exits also carry a stable retry posture. Exit 1 deliberately makes
-    NO retry claim (SS2.11 marks no posture for it), so ``retry`` is ``None``
+    NO retry claim, so ``retry`` is ``None``
     there and on the crash row.
 
     Attributes:
-        kind: The SS2.11 row.
+        kind: The the protocol row.
         exit_code: The observed exit code, where one exists.
         exit_signal: The observed ending signal's name, crash row only.
-        stderr_tail: The bounded evidence captured from birth (INV-010:
-            evidence, never input).
-        retry: The stable retry posture, where SS2.11 states one.
+        stderr_tail: The bounded evidence captured from birth.
+        retry: The stable retry posture, where the protocol states one.
     """
 
     kind: Literal[
@@ -118,7 +117,7 @@ class ExitClassification:
 def classify_exit(
     process_exit: ProcessExit, stderr_tail: Sequence[str]
 ) -> ExitClassification:
-    """Maps one observed exit onto its SS2.11 row (total: INV-011 carry).
+    """Maps one observed exit onto its the protocol row.
 
     Args:
         process_exit: The observed ``(code, signal)`` decomposition.
@@ -144,7 +143,7 @@ def classify_exit(
         )
     if code == 4:
         # Exit 4 is `sessionInUse` arriving early: another live client holds
-        # the lease, and it frees itself once that client exits (SS2.11).
+        # the lease, and it frees itself once that client exits.
         return ExitClassification(
             kind="leaseUnavailable",
             exit_code=4,
@@ -229,7 +228,7 @@ class ShutdownDeadline:
         await self._event.wait()
 
     def clear(self) -> None:
-        """Disarms the timer so nothing pins the event loop (FR-638-017)."""
+        """Disarms the timer so nothing pins the event loop."""
         self._handle.cancel()
 
 
@@ -237,12 +236,11 @@ DeadlineFactory = Callable[[int], ShutdownDeadline]
 
 
 class ConnectionOptions(TypedDict, total=False):
-    """Typed tuning for the connection machine (spec 638 FR-638-011/013).
+    """Typed tuning for the connection machine.
 
-    Exactly :class:`Connection`'s three keyword options, as a ``TypedDict``
+    Exactly:class:`Connection`'s three keyword options, as a ``TypedDict``
     so ``mypy --strict`` rejects a misspelled key or wrong value type at
-    type-check time instead of after the host process was already spawned
-    (PR #30094 review; the TS twin types this field as an interface).
+    type-check time instead of after the host process was already spawned.
     """
 
     frame_limit_bytes: int
@@ -273,17 +271,15 @@ class ChildStdioTransport:
         Args:
             child: A process spawned with piped stdio.
             on_stderr: Raw stderr chunks, drained from birth, never parsed.
-            shutdown_timeout_ms: The FR-017a drain budget. The C-638-2
+            shutdown_timeout_ms: The the governing rule drain budget. The C-638-2
                 spawn seam (``validation.parse_spawn_options``) owns the
                 range refusal on every public spawn surface; this
-                module-internal ctor trusts its callers (PR #31707 review —
-                a second downstream copy guarded nothing).
+                module-internal ctor trusts its callers.
             owns_process_group: True ONLY when the boundary that spawned
                 this child made it a group leader (never inferred).
             deadline_factory: Deterministic-test seam; production uses the
                 real timer deadline. Deliberately NOT surfaced on any
-                public spawn signature (PR #30094 review; TS keeps
-                ``deadlineFactory`` on this module-internal ctor only).
+                public spawn signature.
         """
         self.child = child
         self._shutdown_timeout_ms = shutdown_timeout_ms
@@ -308,12 +304,11 @@ class ChildStdioTransport:
 
     @property
     def exited(self) -> Awaitable[ProcessExit]:
-        """Settles with the observed :class:`ProcessExit`.
+        """Settles with the observed:class:`ProcessExit`.
 
         A fresh shield per access: a consumer's ``wait_for`` timeout must
         cancel only its own wait, never the SDK's one real exit watcher —
-        a cancelled watcher would break ``close()`` and orphan the host
-        (PR #30094 review; a TS Promise cannot be cancelled).
+        a cancelled watcher would break ``close()`` and orphan the host.
         """
         return asyncio.shield(self._exited)
 
@@ -323,10 +318,10 @@ class ChildStdioTransport:
         # consumer may just await `child.exit` WITHOUT ever calling close()
         # (nothing then sets `_reaped`), and a leaked helper holding a pipe
         # keeps wait() blocked after the host is already reaped — hanging
-        # child.exit forever (FR-638-017; reproduced on py3.10 AND py3.12).
+        # child.exit forever.
         # So also settle on the observed REAP: a slow returncode poll that
         # the fast wait() beats on every clean exit, and that only matters
-        # in the held-pipe case (PR #30094 review, round 11 P0).
+        # in the held-pipe case.
         wait_task = asyncio.ensure_future(self.child.wait())
         try:
             while True:
@@ -361,7 +356,7 @@ class ChildStdioTransport:
         # One decoder across the loop (the _decoded_stdout twin): a
         # per-chunk decode turned a multi-byte character straddling two
         # reads into replacement characters in the evidence tail
-        # (PR #30094 review).
+        #.
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while True:
             chunk = await stream.read(8192)
@@ -393,7 +388,7 @@ class ChildStdioTransport:
         # not in the `incoming` getter, where a bare `hasattr`/`getattr`
         # discovery sweep (the transport Protocol documents that idiom) would
         # falsely flag a consumer and make every later close() wait the full
-        # grace for a stdout EOF nobody drains (PR #30094 review).
+        # grace for a stdout EOF nobody drains.
         self._stdout_consumed = True
         stream = self.child.stdout
         if stream is None:  # pragma: no cover - guarded at construction
@@ -423,7 +418,7 @@ class ChildStdioTransport:
     async def close(self, flushed: Awaitable[None] | None = None) -> None:
         """The single owner of shutdown; memoized so concurrent calls share it.
 
-        EOF first, then bounded: SS2.1.2 gives the host a drain window and
+        EOF first, then bounded: the protocol gives the host a drain window and
         says the remainder past it has crash semantics, so past the window
         the SDK ends the process it owns rather than waiting on an EOF that
         may never come.
@@ -459,8 +454,8 @@ class ChildStdioTransport:
             # the FLUSH WAIT as well as from inside the ladder, so the guard
             # lives here, the one finally every close passes through, not in
             # the ladder (whose own finally missed a cancel parked on the
-            # flush wait — PR #30094 review, round 18). One SYNCHRONOUS
-            # SIGKILL keeps never-orphan unconditional (FM-638-2): signalling
+            # flush wait — a prior review, round 18). One SYNCHRONOUS
+            # SIGKILL keeps never-orphan unconditional: signalling
             # is safe under CancelledError and a no-op once the host is
             # reaped.
             self._kill_now()
@@ -468,7 +463,7 @@ class ChildStdioTransport:
             if flush_wait is not None and not flush_wait.done():
                 # The deadline won: nothing later awaits the flush half, so
                 # settle its cancellation NOW — no pending task may remain
-                # after close() settles (FR-638-017; PR #30094 review).
+                # after close() settles.
                 flush_wait.cancel()
                 try:
                     await flush_wait
@@ -478,8 +473,8 @@ class ChildStdioTransport:
     async def _shutdown_after_flush(self, deadline: ShutdownDeadline) -> None:
         # EOF first, SYNCHRONOUSLY: with no drain() (see _end_stdin) the EOF
         # attempt cannot block, so it precedes the ladder outright instead of
-        # riding a task a cancel could strand pending (FR-638-017
-        # no-leftover-task; PR #30094 review, round 19).
+        # riding a task a cancel could strand pending (the governing rule
+        # no-leftover-task; a prior review, round 19).
         self._end_stdin()
         await self._await_exit_or_terminate(deadline)
 
@@ -496,7 +491,7 @@ class ChildStdioTransport:
             # dies with AssertionError that close() would re-raise after the
             # host is already dead. write_eof() already marks the transport
             # closing, every outcome here is swallowed, and _abort_stdin owns
-            # the pinned pipe (PR #30094 review, round 18); dropping the
+            # the pinned pipe; dropping the
             # drain also made this whole method synchronous (round 19).
         except (BrokenPipeError, ConnectionResetError, RuntimeError):
             # RuntimeError: asyncio's own "socket transport closed" race —
@@ -509,7 +504,7 @@ class ChildStdioTransport:
         # asyncio's Process.wait() open forever after the child itself is
         # gone. Python 3.10 settles wait() at the reap, 3.12 only at pipe
         # EOF — so acting on `returncode is not None` here keeps close()
-        # bounded on BOTH (PR #30094 review). `_settled` wins first on a
+        # bounded on BOTH. `_settled` wins first on a
         # clean drain, so the reap poll adds no latency there. A cancel that
         # lands ANYWHERE in the shutdown (here or the flush wait) is backed
         # by `_shutdown`'s finally-SIGKILL, so this ladder carries no
@@ -532,11 +527,13 @@ class ChildStdioTransport:
 
     def _kill_now(self) -> None:
         """One synchronous, reap-guarded kill — the never-orphan backstop
-        FM-638-2 mandates wherever nothing can await (the shutdown's
+        the governing rule mandates wherever nothing can await (the shutdown's
         ``finally`` under a cancel, the ladder's last rung, a GC-finalized
         ``initialize()``). Windows has no ``SIGKILL`` attribute; ``SIGTERM``
         is ``TerminateProcess`` there, the same unconditional end
-        (PR #30094 review, rounds 17–19)."""
+        ."""
+
+
         if self.child.returncode is None:
             self._signal(getattr(signal_module, "SIGKILL", signal_module.SIGTERM))
 
@@ -554,7 +551,7 @@ class ChildStdioTransport:
         """Waits until the host settles, is reaped, or the deadline expires.
 
         Owns and cleans up its own tasks so nothing outlives close()
-        (FR-638-017). Mints no ``_make_deadline`` — the one shutdown budget
+        . Mints no ``_make_deadline`` — the one shutdown budget
         stays a single injected deadline for the shared-budget contract.
         """
         settled = asyncio.ensure_future(_swallow(self._settled()))
@@ -584,8 +581,7 @@ class ChildStdioTransport:
         grace cut what a helper still holds: cancel the stderr drain, drop
         our stdin end, and close the subprocess transport (which ends the
         stdout read loop too, so a facade close never hangs on `_closed`).
-        FR-638-017 sanctions dropping output only past this bounded window
-        (PR #30094 review — zdwmeta's 3.10 facade-close gap).
+        The governing rule sanctions dropping output only past this bounded window.
         """
         if self.child.returncode is not None and not self._reaped.done():
             self._reaped.set_result(self.child.returncode)
@@ -618,7 +614,7 @@ class ChildStdioTransport:
         # close: the stderr drain to finish and stdout to hit EOF. On a clean
         # exit both happen at once (the host closed its write ends); a leaked
         # helper holding one keeps it open, and the caller's grace then bounds
-        # the wait before the forced close (FR-638-017). `at_eof()` is a
+        # the wait before the forced close. `at_eof()` is a
         # non-consuming read of the StreamReader the connection drains.
         drain = self._stderr_task
         if drain is not None:
@@ -637,7 +633,7 @@ class ChildStdioTransport:
         # returns early once closing), so a wedged 2 MiB write a helper
         # inheriting fd 0 never drains still pins the pipe and hangs
         # `_end_stdin`'s `drain()`. abort() drops the buffer and fires
-        # connection_lost (the TS twin's `stdin.destroy()`; PR #30094
+        # connection_lost (the TS twin's `stdin.destroy()`; a prior review
         # review). Best-effort like the signal rungs.
         stdin = self.child.stdin
         if stdin is None or stdin.transport is None:
@@ -659,14 +655,14 @@ class ChildStdioTransport:
         # Past SIGKILL: wait for the REAP, not the pipes. 3.10 settles wait()
         # at the reap; 3.12 needs the returncode check because a held pipe
         # keeps wait() blocked. SIGKILL guarantees the reap, so this is
-        # bounded (FR-638-017; PR #30094 review).
+        # bounded.
         while self.child.returncode is None:
             if await self._settled_within(SIGTERM_GRACE_MS):
                 break
         await self._finalize_reaped()
 
     def _signal(self, sig: signal_module.Signals) -> None:
-        """One signal per escalation stage, group-first where owned (FR-017b).
+        """One signal per escalation stage, group-first where owned.
 
         A group signal that fails for ANY reason (expected: the group is
         already gone) falls through to the direct child; the ladder never
@@ -730,7 +726,7 @@ async def _swallow(work: Awaitable[Any]) -> None:
 
 
 class MuseServeChild:
-    """One owned MSP host process with SS2.11 diagnostics and total exit mapping."""
+    """One owned MSP host process with the protocol diagnostics and total exit mapping."""
 
     def __init__(
         self,
@@ -759,12 +755,10 @@ class MuseServeChild:
 
     @property
     def exit(self) -> Awaitable[ExitClassification]:
-        """Settles with the :class:`ExitClassification` of the observed exit
-        (never a synthesized one, INV-006 carry).
+        """Settles with the:class:`ExitClassification` of the observed exit.
 
         A fresh shield per access: a consumer's ``wait_for`` timeout must
-        not cancel the SDK's own watcher and break ``close()``
-        (PR #30094 review).
+        not cancel the SDK's own watcher and break ``close()``.
         """
         return asyncio.shield(self._exit)
 
@@ -776,7 +770,7 @@ class MuseServeChild:
         # a leaked helper holding stderr means the drain never sees EOF, and
         # an unbounded wait would hang child.exit forever. Past the grace,
         # cut the held pipe so classification proceeds with the tail so far
-        # (PR #30094 review). A raising on_stderr's exception is retrieved so
+        #. A raising on_stderr's exception is retrieved so
         # GC never logs it as unretrieved.
         drain = self._transport._stderr_task
         if drain is not None:
@@ -800,7 +794,7 @@ class MuseServeChild:
         on_stderr: OnStderr | None = None,
         shutdown_timeout_ms: int = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     ) -> "MuseServeChild":
-        """Spawns one owned host (POSIX: as a process-group leader, FR-017b).
+        """Spawns one owned host.
 
         Args:
             muse_bin: The host binary (see ``discovery.discover_muse_bin``).
@@ -809,12 +803,11 @@ class MuseServeChild:
             env: The host's environment (inherited when ``None``).
             on_stderr: Raw evidence callback for consumers keeping a full
                 diagnostic log; the bounded tail is kept regardless.
-            shutdown_timeout_ms: The FR-017a drain budget; validated BEFORE
+            shutdown_timeout_ms: The the governing rule drain budget; validated BEFORE
                 the child exists so a refusal cannot orphan one.
 
         Raises:
-            MuseValidationError: An option is malformed (the C-638-2 spawn
-                seam, owner ruling #31276) — raised before any process is
+            MuseValidationError: An option is malformed — raised before any process is
                 spawned. A ``ValueError`` by inheritance, preserving the
                 boundary's pre-existing refusal contract.
         """
@@ -845,11 +838,11 @@ class MuseServeChild:
 
     @property
     def stderr_tail(self) -> tuple[str, ...]:
-        """The bounded evidence captured so far (INV-010: never parsed)."""
+        """The bounded evidence captured so far."""
         return self._tail.lines()
 
     async def close(self) -> ExitClassification:
-        """Bounded shutdown (FR-017a), resolving on the observed exit's row."""
+        """Bounded shutdown, resolving on the observed exit's row."""
         await self._transport.close()
         return await asyncio.shield(self._exit)
 
@@ -882,7 +875,7 @@ class SpawnedMspConnection:
         return self._transport.exited
 
     async def close(self) -> ProcessExit:
-        """Orderly SS2.1.2 shutdown through the connection, then the exit."""
+        """Orderly the protocol shutdown through the connection, then the exit."""
         await self.connection.close()
         return await asyncio.shield(self._transport._exited)
 
@@ -918,7 +911,7 @@ class MspHandshake:
         return await asyncio.shield(self._transport._exited)
 
     async def initialize(self, params: "InitializeParams") -> SpawnedMspConnection:
-        """Runs the SS1.4 sequence exactly once and gates the fingerprint.
+        """Runs the protocol sequence exactly once and gates the fingerprint.
 
         Args:
             params: The typed ``initialize`` params.
@@ -928,15 +921,13 @@ class MspHandshake:
 
         Raises:
             ProtocolError: A second ``initialize``.
-            MuseValidationError: The result frame is malformed (the C-638-2
-                frame seam, owner ruling #31276); pydantic's
+            MuseValidationError: The result frame is malformed; pydantic's
                 ``ValidationError`` rides as the cause.
             MuseHostMismatchError: The served fingerprint differs from this
-                SDK's pin (spec 638 C-638-4 — exact failure, no bypass).
+                SDK's pin.
 
         Every failure PAST the send-once check ends the ``muse serve`` child
-        this handshake spawned — it never orphans the host (spec 638
-        FM-638-2). (The send-once ``ProtocolError`` raises before that and
+        this handshake spawned — it never orphans the host. (The send-once ``ProtocolError`` raises before that and
         does NOT close: after a successful first ``initialize`` the host is
         live and owned by the returned connection.) A post-request failure —
         a mismatch, a malformed-frame rejection, or a CALLER cancel/
@@ -954,7 +945,7 @@ class MspHandshake:
         # muse_code.EXPECTED_SCHEMA_FINGERPRINT for the test's scope — there
         # is deliberately NO parameter: a public expected-fingerprint knob
         # would let a caller pass the served value and switch the C-638-4
-        # strict gate off (PR #30094 review, thread 1).
+        # strict gate off.
         expected = EXPECTED_SCHEMA_FINGERPRINT
         if self._started:
             raise ProtocolError("initialize may be sent only once per connection")
@@ -964,15 +955,15 @@ class MspHandshake:
         # the only handle, so a raise (malformed frame, mismatch) would orphan
         # the `muse serve` child — the same never-orphan rule the bad-option
         # path follows. close() is memoized, so an outer `finally: close()`
-        # stays a no-op (PR #30094 review).
+        # stays a no-op.
         try:
             raw: Any = await self._connection.request("initialize", dict(params))
-            # The C-638-2 frame seam (owner ruling #31276): the members this
+            # The C-638-2 frame seam: the members this
             # handshake reads validate through a pydantic model, so a
             # malformed frame is the typed MuseValidationError — the seam
             # rejects BEFORE the fingerprint gate. Connection._response
             # already rejected a non-object result with its own
-            # ProtocolError (PR #30094 review, thread 6).
+            # ProtocolError.
             frame = parse_initialize_result(raw)
             fingerprint = frame.schema_info.fingerprint
             if fingerprint != expected:
@@ -980,7 +971,7 @@ class MspHandshake:
                 # dependency-by-construction (connection.py imports it at
                 # module load), so a guarded import here was a dead arm that
                 # could only DEGRADE the message below the C-638-4 contract
-                # (PR #30094 review, thread 5).
+                #.
                 from muse_code_msp import REQUIRED_HOST_VERSION
 
                 raise MuseHostMismatchError(
@@ -995,22 +986,22 @@ class MspHandshake:
             # A coroutine cannot await after GeneratorExit is thrown in (at
             # GC finalization of an abandoned initialize()); awaiting close()
             # here would log "coroutine ignored GeneratorExit". But never-
-            # orphan stays unconditional (FM-638-2): send the one legal
+            # orphan stays unconditional: send the one legal
             # SYNCHRONOUS signal — the same rung `_shutdown`'s finally uses —
-            # so the host is dying before finalization proceeds (PR #30094
+            # so the host is dying before finalization proceeds (a prior review
             # review, round 18). A real cancel/interrupt never arrives as
             # GeneratorExit — it is CancelledError/KeyboardInterrupt/
             # SystemExit, all caught below with the bounded inline close.
             self._transport._kill_now()
             raise
         except BaseException:
-            # Never orphan (FM-638-2): close INLINE so the host is dead
+            # Never orphan: close INLINE so the host is dead
             # before the exception propagates — for a mismatch, a
             # malformed-frame MuseValidationError, AND a caller cancel/
             # KeyboardInterrupt/SystemExit. A background fire-and-forget close
             # was tried and reverted: `asyncio.run` loop-teardown on the
             # natural wait_for-timeout path cancels an unsupervised task
-            # before its SIGTERM rung, orphaning the child (PR #30094 review,
+            # before its SIGTERM rung, orphaning the child (a prior review,
             # P0). The cost is that a caller cancel is held for the bounded
             # close (`shutdown_timeout_ms` + the SIGTERM grace) — never-orphan
             # outweighs prompt-return, and the close IS bounded. If the close
@@ -1032,7 +1023,7 @@ async def spawn_msp_connection(
     shutdown_timeout_ms: int = DEFAULT_SHUTDOWN_TIMEOUT_MS,
     connection_options: ConnectionOptions | None = None,
 ) -> MspHandshake:
-    """Spawns one owned host and begins its SS1.4 handshake state machine.
+    """Spawns one owned host and begins its the protocol handshake state machine.
 
     Args:
         command: The host binary to run.
@@ -1041,7 +1032,7 @@ async def spawn_msp_connection(
         cwd: Working directory for the host.
         env: The host's environment (inherited when ``None``).
         on_stderr: Raw stderr chunks, drained from birth, never parsed.
-        shutdown_timeout_ms: See :meth:`MuseServeChild.spawn`.
+        shutdown_timeout_ms: See:meth:`MuseServeChild.spawn`.
         connection_options: Tuning for the connection machine.
 
     Returns:
@@ -1061,7 +1052,7 @@ async def spawn_msp_connection(
         # A bad option (a misspelled key, a wrong type) raises AFTER the host
         # exists; without this the child outlives the error with no handle to
         # end it — the same never-orphan rule the pre-spawn budget validation
-        # follows (PR #30094 review, thread 8).
+        # follows.
         await child.close()
         raise
     return MspHandshake(child, connection)

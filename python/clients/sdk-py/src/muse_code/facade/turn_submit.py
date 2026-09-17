@@ -38,11 +38,11 @@ _I = TypeVar("_I")
 
 @dataclass
 class SendUserTurnOptions(Generic[_I]):
-    """What :meth:`Session.send_user_turn` sends, composed from the generated
-    ``turn/start`` params rather than restated (INV-638-02).
+    """What:meth:`Session.send_user_turn` sends, composed from the generated
+    ``turn/start`` params rather than restated.
 
     ``commandId`` is excluded because ``Connection`` is the single minter
-    (INV-638-04 carrying INV-013); ``sessionId`` because the session already
+    ; ``sessionId`` because the session already
     knows its own and a caller-supplied one could only disagree.
 
     Attributes:
@@ -52,7 +52,7 @@ class SendUserTurnOptions(Generic[_I]):
         reasoning_effort: The turn's reasoning effort (wire
             ``reasoningEffort``).
         composer_input: What to hand back to the composer if this submit is
-            ever retired — SS4.13 restores the INPUT, not the wire parts.
+            ever retired — the protocol restores the INPUT, not the wire parts.
             Optional: a consumer rendering nothing optimistically has nothing
             to restore.
     """
@@ -78,8 +78,8 @@ def _camel(field_name: str) -> str:
 # Drift pin — the Python twin of the TS `AssertNever` on TURN_START_FORWARDED
 # (turn-submit.ts). A schema regen that adds a member to TurnStartParams but not
 # to SendUserTurnOptions reds THIS import, so a regenerated member cannot
-# silently fail to reach the wire (INV-638-02). `composer_input` is the SDK's
-# own field (the SS4.13 restore payload), never a wire member, so it is dropped
+# silently fail to reach the wire. `composer_input` is the SDK's
+# own field, never a wire member, so it is dropped
 # before the compare; `commandId`/`sessionId` are excluded because the
 # connection mints the first and the session owns the second.
 _TURN_WIRE_FIELDS = {"input", "display_text", "if_busy", "reasoning_effort"}
@@ -92,8 +92,7 @@ assert {
 
 
 def command_error_response(error: BaseException) -> CommandErrorResponse | None:
-    """An :class:`MspError` as the pending set reads it (SS4.13's settlement
-    test).
+    """An:class:`MspError` as the pending set reads it.
 
     ``None`` for anything that is NOT a server-authored MSP error — a
     :class:`ProtocolError`, a dead transport — because those admit nothing AND
@@ -117,7 +116,7 @@ def command_error_response(error: BaseException) -> CommandErrorResponse | None:
 
 
 class TurnSubmitter(Generic[_I]):
-    """Shapes ``turn/start`` frames, records the optimistic SS4.13 entry, and
+    """Shapes ``turn/start`` frames, records the optimistic the protocol entry, and
     replays a remembered command under its original ``commandId``."""
 
     def __init__(
@@ -164,12 +163,12 @@ class TurnSubmitter(Generic[_I]):
     async def submit(
         self, options: SendUserTurnOptions[_I], anchor_after_item_id: str | None
     ) -> PendingCommandAck:
-        """Records the optimistic SS4.13 entry, then sends ``turn/start``.
+        """Records the optimistic the protocol entry, then sends ``turn/start``.
 
         The ORDER is the point. An entry created only on the ack is invisible
         for exactly the window it exists to cover — between the user pressing
         enter and the host answering — and ``anchor_after_item_id`` is fixed
-        here, at submission time, because SS4.13's insertion point may never
+        here, at submission time, because the protocol's insertion point may never
         be relocated by events that fold in afterwards.
 
         Args:
@@ -181,7 +180,7 @@ class TurnSubmitter(Generic[_I]):
         """
         connection = self.require_connection("send_user_turn")
         # Delegated, not re-implemented: the connection owns the single mint,
-        # so INV-013's single-minter property survives this verb needing the
+        # so the governing rule's single-minter property survives this verb needing the
         # id early.
         command_id = connection.mint_command_id()
         params = self._params(command_id, options)
@@ -205,7 +204,7 @@ class TurnSubmitter(Generic[_I]):
             response = command_error_response(error)
             # Only a durable -32030 settles; every other error admitted
             # nothing and the entry HOLDS for the caller's same-commandId
-            # retry (SS4.13).
+            # retry.
             if response is not None:
                 settled = self._pending.ack_errored(command_id, response)
                 if settled != "held":
@@ -216,8 +215,7 @@ class TurnSubmitter(Generic[_I]):
 
     async def replay(self, command_id: str) -> ReplayAnswer[_I] | None:
         """Re-sends one remembered ``turn/start`` under its ORIGINAL
-        ``commandId`` (SS3.1.1 — always safe, the only re-send that is not a
-        double execution).
+        ``commandId``.
 
         Args:
             command_id: The command to replay.
@@ -243,7 +241,7 @@ class TurnSubmitter(Generic[_I]):
     async def drive_replay(
         self, command_id: str, into: List[PendingRetirement[_I]]
     ) -> None:
-        """Replay one entry and feed the answer back through the live SS4.13
+        """Replay one entry and feed the answer back through the live the protocol
         rules."""
         answer = await self.replay(command_id)
         if answer is None:
@@ -264,7 +262,7 @@ class TurnSubmitter(Generic[_I]):
     ) -> PendingCommandAck:
         raw = await connection.command("turn/start", params, command_id=command_id)
         result: TurnStartResult = raw  # type: ignore[assignment]
-        # ``turnId`` comes from the ACK, never from the ``commandId``: SS3.2
+        # ``turnId`` comes from the ACK, never from the ``commandId``: the protocol
         # makes the ack authoritative, and a queued submit's turn may already
         # exist.
         return PendingCommandAck(
@@ -272,7 +270,7 @@ class TurnSubmitter(Generic[_I]):
         )
 
     def _params(self, command_id: str, options: SendUserTurnOptions[_I]) -> Params:
-        # OPTIONAL MEANS OMITTED, NEVER null (tdd SS1.2): an unset member is
+        # OPTIONAL MEANS OMITTED, NEVER null: an unset member is
         # dropped from the frame rather than nulled.
         params: Params = {
             "commandId": command_id,

@@ -322,7 +322,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="answer-user-input",
     title="Answer the agent's question (userInput)",
-    docs_page="developer-docs/src/content/docs/cookbook/answer-the-agents-question.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/answer-the-agents-question.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

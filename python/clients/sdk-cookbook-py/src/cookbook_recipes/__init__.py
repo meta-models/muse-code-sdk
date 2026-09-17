@@ -1,5 +1,4 @@
-"""Python twins of the ``@muse-code/sdk-cookbook`` recipes (spec 638
-FR-638-024 / T050, PY-TEST-021).
+"""Python twins of the ``@muse-code/sdk-cookbook`` recipes.
 
 One twin per recipe the TypeScript cookbook manifest exports
 (``clients/sdk-cookbook/src/manifest.ts``), same recipe ids, same docs

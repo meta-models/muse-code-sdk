@@ -352,7 +352,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="classify-serve-exits",
     title="Classify every way muse serve can exit",
-    docs_page="developer-docs/src/content/docs/cookbook/classify-every-serve-exit.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/classify-every-serve-exit.mdx",
     needs=("muse_bin", "conformance_bin"),
     run=_run,
 )

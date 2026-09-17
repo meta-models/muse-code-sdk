@@ -21,13 +21,13 @@ HOST_BINARY_NAME = "muse"
 
 
 def discover_muse_bin(muse_bin: str | None = None) -> str:
-    """Resolves the MSP host binary to spawn (spec 638 FR-638-020).
+    """Resolves the MSP host binary to spawn.
 
-    Exactly two ruled inputs (FR-638-020 / INV-638-08): an explicit
+    Exactly two ruled inputs: an explicit
     ``muse_bin``, else the process ``PATH``. There is deliberately no ``env``
     knob — no production caller passes one, the TS twin has none, and a
     harness wanting hermetic discovery exports ``PATH`` itself; a future S3
-    consumer that needs the child's own env adds it there (PR #30094 review).
+    consumer that needs the child's own env adds it there.
 
     Args:
         muse_bin: An explicit host path; when given it wins outright and is

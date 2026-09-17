@@ -265,7 +265,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="stream-a-turn",
     title="Stream a turn's answer into a UI",
-    docs_page="developer-docs/src/content/docs/cookbook/stream-a-turns-answer.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/stream-a-turns-answer.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

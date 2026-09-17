@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # publish-sdk-pypi.sh — the ONLY sanctioned path to a PyPI publish for
-# `muse-code-msp` and `muse-code-sdk` (specs/638-muse-sdk-python FR-638-030;
-# ADR 638 D6: the publish act is OWNER-RUN, and this lane only prepares it).
+# `muse-code-msp` and `muse-code-sdk`. The publish act is OWNER-RUN, and
+# this script only prepares it.
 #
 # Default behaviour is `--build-only`: it runs every gate OFFLINE, builds both
 # distributions, audits the wheels, derives the per-wheel compatibility rows,
@@ -10,10 +10,9 @@
 # registry. Publishing requires the explicit `--publish` flag; there is no way
 # to publish by forgetting an argument.
 #
-# Publication timing: D-065 (ADR 29534 D1, amending the 13929 record D-014)
-# permits publishing these two distributions to PyPI — owner-run mirror path
-# only, at the lockstep host version the release train wrote into the
-# manifests (D-063; ADR 25304 D4), under the product's stability posture.
+# Publication timing: publishing these two distributions to PyPI is ruled
+# in — owner-run mirror path only, at the lockstep host version the release
+# train wrote into the manifests, under the product's stability posture.
 # `--publish` still refuses outside the mirror's publish-pypi.yml: trusted
 # publishing performs its OIDC exchange only there, and there is no
 # manual-token path, by design.
@@ -29,7 +28,7 @@
 # a nicer message for that case.
 #
 # ---------------------------------------------------------------------------
-# OWNER ONE-TIMERS (ADR 638 D6) — none of these can be done by an agent, and
+# OWNER ONE-TIMERS — none of these can be done by an agent, and
 # nothing publishes until they exist.
 # ---------------------------------------------------------------------------
 #
@@ -49,8 +48,8 @@
 # wire types) and then uploads the staged dist tree via
 # pypa/gh-action-pypi-publish; finally commit the per-wheel rows this script
 # printed to clients/sdk-py/published-wheels.json upstream, which is how the
-# compatibility page's Python row gains the release's wheels (FR-638-028 —
-# the docs publish rides the SDK publish, ADR 638 D8 ruling 6).
+# compatibility page's Python row gains the release's wheels (the docs
+# publish rides the SDK publish).
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -129,7 +128,7 @@ done
 # --publish never runs the build gates. It needs only $MODE and the env.
 # Either way this script contacts no registry: the calling workflow's upload
 # step (pypa/gh-action-pypi-publish) performs the OIDC exchange. (Not named
-# "Gate 0": ADR 29534's deleted Gate 0 was the D-014 publication-timing
+# "Gate 0": the deleted Gate 0 was the old publication-timing
 # refusal; this block is the surviving mirror-workflow-only constraint.)
 # ---------------------------------------------------------------------------
 if [[ "$MODE" == "publish" ]]; then
@@ -208,7 +207,7 @@ for package in "${PACKAGE_DIRS[@]}"; do
     clients/sdk-py) EXPECTED_NAME="muse-code-sdk" ;;
   esac
   [[ "$NAME" == "$EXPECTED_NAME" ]] ||
-    die "$package: name is '$NAME', expected '$EXPECTED_NAME' (ADR 638 D6)"
+    die "$package: name is '$NAME', expected '$EXPECTED_NAME' (the chartered PyPI names)"
   ok "name $NAME"
 
   VERSION="$(field "$MANIFEST" project.version)"
@@ -222,7 +221,7 @@ for package in "${PACKAGE_DIRS[@]}"; do
 
   LICENSE="$(field "$MANIFEST" project.license)"
   [[ "$LICENSE" == "$EXPECTED_LICENSE" ]] ||
-    die "$package: license is '$LICENSE', expected the SPDX expression '$EXPECTED_LICENSE' (FR-638-001)"
+    die "$package: license is '$LICENSE', expected the SPDX expression '$EXPECTED_LICENSE'"
   [[ -f "$REPO_ROOT/$package/LICENSE" ]] ||
     die "$package: MIT requires shipping the text, and license-files reads the package's own LICENSE"
   ok "license $LICENSE with shipped text"
@@ -231,29 +230,29 @@ for package in "${PACKAGE_DIRS[@]}"; do
   # published manifest names the private producer repository.
   grep -q "github.com/$MIRROR_REPO" "$MANIFEST" ||
     die "$package: [project.urls] must point at the mirror $MIRROR_REPO"
-  ! grep -q "mslsrc/tbh" "$MANIFEST" ||
+  ! grep -q "mslsrc/tb[h]" "$MANIFEST" ||
     die "$package: the manifest advertises the private repository"
   ok "links point at $MIRROR_REPO"
 
-  # Dependency posture (INV-638-03): zero runtime deps in muse-code-msp,
+  # Dependency posture: zero runtime deps in muse-code-msp,
   # exactly the pinned pydantic in muse-code-sdk. A drift here is an owner
   # escalation, not a packaging decision.
   DEPS="$(field "$MANIFEST" project.dependencies)"
   case "$package" in
     clients/msp-py)
-      [[ "$DEPS" == "[]" ]] || die "$package: runtime dependencies declared ($DEPS); INV-638-03 grants none"
+      [[ "$DEPS" == "[]" ]] || die "$package: runtime dependencies declared ($DEPS); the wire-types package is granted none"
       ;;
     clients/sdk-py)
       [[ "$DEPS" =~ ^\[\'pydantic==[0-9.]+\'\]$ ]] ||
-        die "$package: dependencies must be exactly the pinned pydantic (INV-638-03), got $DEPS"
+        die "$package: dependencies must be exactly the pinned pydantic, got $DEPS"
       ;;
   esac
-  ok "dependency posture holds (INV-638-03)"
+  ok "dependency posture holds"
 done
 
 # ---------------------------------------------------------------------------
 # Gate 3 — build, offline. --no-isolation so the build backend is the dev
-# lock's exact setuptools, not whatever is current that day (FR-638-002), and
+# lock's exact setuptools, not whatever is current that day, and
 # so the default mode does no network I/O.
 # ---------------------------------------------------------------------------
 step "gate: build"
@@ -315,25 +314,26 @@ done
 # Gate 4b — external audience. What the upload step ships is public: the
 # wheel METADATA (summary + long description, i.e. the README), every
 # packaged module docstring, and the sdist PKG-INFO must not reference
-# artifacts only this private repository resolves (#36888: the 1.3.0 publish
+# artifacts only the producing repository resolves (the 1.3.0 publish
 # shipped spec paths, ADR/issue numbers, INV/FR ids and an internal dev
 # loop in both long descriptions). Audits the BUILT distributions, not the
 # tree, so it gates exactly what would ship.
 # ---------------------------------------------------------------------------
 step "gate: external audience"
 "$PYTHON" "$REPO_ROOT/scripts/check-sdk-py-external-audience.py" --dist "$DISTDIR" ||
-  die "the built distributions reference private repository artifacts; rewrite for the PyPI audience (#36888)"
+  die "the built distributions reference private repository artifacts; rewrite for the PyPI audience"
 ok "no private repository references in what would ship"
 
 # ---------------------------------------------------------------------------
-# Gate 5 — the per-wheel compatibility rows (FR-638-028's release-cut half).
+# Gate 5 — the per-wheel compatibility rows (the release-cut half of the
+# compatibility page contract).
 # Derived from the tree and verified against the built wheels; the first
 # published wheel cannot ship without its row on the compatibility page.
 # ---------------------------------------------------------------------------
 step "gate: per-wheel compatibility rows"
 ROWS_FILE="$WORKDIR/wheel-rows.json"
 "$PYTHON" "$REPO_ROOT/scripts/sdk-py-wheel-rows.py" --repo-root "$REPO_ROOT" --dist "$DISTDIR" >"$ROWS_FILE" ||
-  die "per-wheel row derivation failed; a wheel must not ship without its compatibility row (FR-638-028)"
+  die "per-wheel row derivation failed; a wheel must not ship without its compatibility row"
 ok "rows derived and matched against the built wheels"
 
 echo ""
@@ -353,7 +353,7 @@ echo ""
 if [[ "$MODE" != "publish" ]]; then
   echo "build-only: every gate passed and NOTHING was published."
   echo ""
-  echo "The owner-run sequence (ADR 638 D6; see the one-timers above):"
+  echo "The owner-run sequence (see the one-timers above):"
   echo "  1. dispatch publish-pypi.yml on $MIRROR_REPO — it calls this script"
   echo "     by path with --publish, then uploads the staged dist tree via"
   echo "     pypa/gh-action-pypi-publish (muse-code-msp first, muse-code-sdk"

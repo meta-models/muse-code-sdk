@@ -1,6 +1,6 @@
-"""PY-TEST-019 ``quickstart_journey_release_host`` — spec 638 FR-638-022
-(T040), Scenario 6: the whole journey against a release-built binary,
-asserted segment by segment, plus Scenario 7.1's rerun on the sync wrapper.
+"""PY-the governing rule ``quickstart_journey_release_host`` — the owning spec the governing rule
+, its acceptance scenario: the whole journey against a release-built binary,
+asserted segment by segment, plus its acceptance scenario's rerun on the sync wrapper.
 
 It runs in the PROVIDER-CONFIGURED mode — the harness's own loopback fake
 first-party endpoint, no live provider and no API key — so every segment is
@@ -9,7 +9,7 @@ exercised for real. Nothing is expect-blocked: all twelve are required.
 ``MUSE_BIN`` is REQUIRED. This test never skips itself (the TS twin's rule:
 a skipped acceptance artifact reads as proof and is not proof). Build first:
 
-    cargo build --release -p tbh-cli --bin tbh
+    cargo build --release -p an internal lane --bin tbh
     MUSE_BIN=$PWD/target/release/tbh python3 -m pytest clients/sdk-quickstart-py/tests
 """
 
@@ -38,9 +38,10 @@ def _required_binary() -> str:
     configured = os.environ.get("MUSE_BIN", "")
     if not configured:
         raise AssertionError(
-            "MUSE_BIN is required and must point at a release-built binary.\n"
-            "  cargo build --release -p tbh-cli --bin tbh\n"
-            "  MUSE_BIN=$PWD/target/release/tbh python3 -m pytest "
+            "MUSE_BIN is required and must point at a release-built `muse` "
+            "binary (an installed Muse Code CLI, or a release build of the "
+            "host).\n"
+            "  MUSE_BIN=<path-to-muse> python3 -m pytest "
             "clients/sdk-quickstart-py/tests"
         )
     return configured
@@ -65,11 +66,11 @@ def _sync_configured() -> ConfiguredJourneyResult:
 
 def ts_registry() -> tuple[str, ...]:
     """The TS journey's step registry, read from ITS source — the parity
-    oracle FR-638-022 names (never a count, never a copy that can drift)."""
+    oracle the governing rule names (never a count, never a copy that can drift)."""
     source = TS_JOURNEY.read_text(encoding="utf-8")
     # `[^"]+`, not a narrow class: an id with a digit or underscore must
     # over-collect and fail the parity assert loudly, never vanish from the
-    # parse (PR #32537 review round 1).
+    # parse.
     ids = re.findall(r'^\s*id: "([^"]+)",', source, flags=re.MULTILINE)
     assert ids, f"no segment ids parsed from {TS_JOURNEY}"
     return tuple(ids)
@@ -79,17 +80,17 @@ def test_step_parity_with_the_ts_journeys_registry() -> None:
     # Binary-free: the registries must agree before any host is spawned.
     assert SEGMENT_IDS == ts_registry(), (
         "the Python journey's step registry drifted from the TS journey's "
-        "(clients/sdk-quickstart/src/journey.ts) — FR-638-022 step parity"
+        "(clients/sdk-quickstart/src/journey.ts) — the governing rule step parity"
     )
     assert SYNC_SEGMENT_IDS == SEGMENT_IDS, (
-        "the sync rerun's registry drifted from the journey's (Scenario 7.1)"
+        "the sync rerun's registry drifted from the journey's"
     )
 
 
 def test_the_journey_runs_every_segment_in_the_documented_order() -> None:
-    # The oracle is the TS registry itself (Scenario 6: "a count here would be
+    # The oracle is the TS registry itself (its acceptance scenario: "a count here would be
     # a drift copy") — a hand-written second roster beside it would be the
-    # Content Pins churn CLAUDE.md bans (PR #32537 review round 2).
+    # Content Pins churn CLAUDE.md bans.
     report = _configured().report
     assert tuple(s.id for s in report.segments) == ts_registry()
 
@@ -127,7 +128,7 @@ def test_the_provider_configured_mode_drives_the_host_and_scripts_one_tool_call(
 
 
 def test_the_sync_wrapper_rerun_reaches_the_same_verdicts() -> None:
-    # Scenario 7.1 (the arm T034's receipt defers to T040): the same twelve
+    # its acceptance scenario: the same twelve
     # steps on SyncMuseClient, blocking verbs end to end, same verdicts.
     result = _sync_configured()
     report = result.report

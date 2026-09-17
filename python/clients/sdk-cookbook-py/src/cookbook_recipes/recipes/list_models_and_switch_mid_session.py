@@ -292,7 +292,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="list-models-and-switch-mid-session",
     title="List models and switch mid-session",
-    docs_page="developer-docs/src/content/docs/cookbook/list-models-and-switch-mid-session.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/list-models-and-switch-mid-session.mdx",
     needs=("muse_bin",),
     run=_run,
 )

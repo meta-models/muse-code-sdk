@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""External-audience gate for the published Python packages (#36888).
+"""External-audience gate for the published Python packages and their
+public source tree.
 
 The PyPI 1.3.0 publish shipped long descriptions (the package READMEs), a
 pyproject ``description``, and module docstrings that cite artifacts only
@@ -23,7 +24,8 @@ Two modes, one pattern table:
                     runs it after the build).
 
 The pattern table is derived from the repository's citation-class table
-(developer-docs/scripts/citation-classes.mjs) plus the classes observed in
+(the producing repository's docs-site citation-class table) plus the
+classes observed in
 the 1.3.0 leak; it is deliberately a Python restatement, not an import —
 this gate runs where only the dev-lock Python exists (the pytest lane and
 the mirror's publish workflow), with no Node available. Scope is likewise
@@ -55,7 +57,7 @@ except ModuleNotFoundError:  # Python 3.10: tomllib is 3.11+
 PACKAGE_DIRS = ("clients/msp-py", "clients/sdk-py")
 
 # Each entry: (class id, compiled pattern). A hit anywhere in a gated text
-# fails the run. Keyed to developer-docs/scripts/citation-classes.mjs where a
+# fails the run. Keyed to the docs-site citation-class table where a
 # class exists there; the path classes are the 1.3.0 leak's own vocabulary.
 PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("spec-path", re.compile(r"specs/")),
@@ -65,7 +67,7 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("adr-path", re.compile(r"\bdocs/adr")),
     ("client-path", re.compile(r"\bclients/")),
     ("adr-citation", re.compile(r"\bADR \d+")),
-    # Tracker numbers (#638, #29216). Three digits with a guard against
+    # Tracker numbers (issue/PR '#' + digits). Three digits with a guard against
     # digit-leading hex colors, the citation-class table's lookahead.
     ("tracker-number", re.compile(r"(?<!&)#\d{3,}(?![0-9a-fA-F])")),
     ("requirement-id", re.compile(r"\b(?:INV|FR|FM|AS|TEST)-\d")),
@@ -90,10 +92,57 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("stale-status", re.compile(r"\bskeleton\b", re.IGNORECASE)),
 )
 
+# The TREE tier: identifiers that resolve ONLY inside the producing
+# repository, banned in EVERY hand-written file of the public python
+# closure — code comments and docstrings included (owner rule for the
+# public tree). Closure-internal path classes (script-path, client-path,
+# schema-path) and the metadata-only status classes (slice-label,
+# stale-status) are deliberately NOT here: a mirror reader has the tree, so
+# a path into it resolves, and status words in code prose are ordinary
+# English. Package METADATA keeps the full table above.
+TREE_TIER_EXCLUDED_CLASSES = frozenset(
+    {"script-path", "client-path", "schema-path", "slice-label", "stale-status"}
+)
+TREE_PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (class_id, pattern)
+    for class_id, pattern in PRIVATE_REFERENCE_PATTERNS
+    if class_id not in TREE_TIER_EXCLUDED_CLASSES
+) + (
+    # Producing-repo trees a mirror clone never carries.
+    ("producing-docs-path", re.compile(r"\bdeveloper-docs/")),
+    # Internal test-charter ids (the docs-site table's requirement-id kin).
+    ("test-charter-id", re.compile(r"\bPY-TEST-\d")),
+)
 
-def findings_in(text: str, where: str) -> list[str]:
+# What the tree walk covers: every hand-written file in the python closure,
+# relative to --repo-root (which is the producing repo's project root
+# upstream, and `python/` in the public mirror — the layouts agree below
+# these paths). The exclusions each have their own seam, tracked upstream:
+# the generated wire-types modules and the committed schema bundle render
+# schema description text (sanitized for the docs site at render time; the
+# same treatment at the codegen/schema seam is follow-up work), and this
+# file itself IS the pattern table, so it cannot avoid containing its own
+# patterns and is audited by review instead.
+TREE_WALK_PATHS = (
+    "clients/msp-py",
+    "clients/py-dev-requirements.txt",
+    "clients/sdk-cookbook-py",
+    "clients/sdk-py",
+    "clients/sdk-quickstart-py",
+    "scripts/publish-sdk-pypi.sh",
+    "scripts/sdk-py-wheel-rows.py",
+)
+TREE_WALK_EXCLUDED_DIRS = ("clients/msp-py/src",)
+TREE_TEXT_SUFFIXES = {".py", ".md", ".toml", ".txt", ".json", ".sh", ".cfg", ".ndjson"}
+
+
+def findings_in(
+    text: str,
+    where: str,
+    patterns: tuple[tuple[str, re.Pattern[str]], ...] = PRIVATE_REFERENCE_PATTERNS,
+) -> list[str]:
     out = []
-    for class_id, pattern in PRIVATE_REFERENCE_PATTERNS:
+    for class_id, pattern in patterns:
         for hit in {m.group(0) for m in pattern.finditer(text)}:
             out.append(f"{where}: {class_id}: {hit!r}")
     return out
@@ -123,6 +172,36 @@ def check_tree(repo_root: Path) -> list[str]:
                 module_docstring(module.read_text(), str(rel)),
                 f"{rel} module docstring",
             )
+    findings += tree_findings(repo_root)
+    return findings
+
+
+def tree_findings(repo_root: Path) -> list[str]:
+    # The TREE tier: whole-file scan of every hand-written closure file, so a
+    # producing-repo identifier in a comment, ledger note, or fixture cannot
+    # ship in the public tree again.
+    findings: list[str] = []
+    excluded = tuple(repo_root / d for d in TREE_WALK_EXCLUDED_DIRS)
+    walked = 0
+    for root in TREE_WALK_PATHS:
+        path = repo_root / root
+        if not path.exists():
+            continue
+        for file in sorted([path] if path.is_file() else path.rglob("*")):
+            if not file.is_file() or file.suffix not in TREE_TEXT_SUFFIXES:
+                continue
+            if any(file.is_relative_to(d) for d in excluded):
+                continue
+            walked += 1
+            rel = file.relative_to(repo_root)
+            findings += findings_in(
+                file.read_text(), str(rel), TREE_PRIVATE_PATTERNS
+            )
+    if walked < 6:  # both packages' metadata plus a test at minimum; an empty walk is a bad root
+        raise SystemExit(
+            f"FAILED: the tree walk visited only {walked} files under "
+            f"{repo_root}; the closure roots look wrong"
+        )
     return findings
 
 
@@ -144,22 +223,39 @@ def check_dist(dist_root: Path) -> list[str]:
                         archive.read(entry).decode("utf-8"), where
                     )
                 elif entry.endswith(".py"):
+                    source = archive.read(entry).decode("utf-8")
                     findings += findings_in(
-                        module_docstring(
-                            archive.read(entry).decode("utf-8"), where
-                        ),
+                        module_docstring(source, where),
                         f"{where} module docstring",
                     )
+                    if not _generated(entry):
+                        findings += findings_in(source, where, TREE_PRIVATE_PATTERNS)
     for sdist in sdists:
         with tarfile.open(sdist) as archive:
             for member in archive.getmembers():
+                where = f"{sdist.name}!{member.name}"
                 if member.name.endswith("PKG-INFO"):
                     payload = archive.extractfile(member)
                     assert payload is not None
+                    findings += findings_in(payload.read().decode("utf-8"), where)
+                elif member.name.endswith(".py") and not _generated(member.name):
+                    # The sdist ships EVERYTHING setuptools collects — the
+                    # 1.3.0 sdist carried the whole tests/ tree, so packaged
+                    # .py files are public down to their comments.
+                    payload = archive.extractfile(member)
+                    assert payload is not None
                     findings += findings_in(
-                        payload.read().decode("utf-8"), f"{sdist.name}!{member.name}"
+                        payload.read().decode("utf-8"), where, TREE_PRIVATE_PATTERNS
                     )
     return findings
+
+
+def _generated(entry: str) -> bool:
+    # The generated wire-types modules render schema description text; their
+    # sanitization seam is the codegen/schema export (tracked upstream), so
+    # the whole-file TREE tier does not apply to them. Their module
+    # docstrings stay gated above.
+    return "muse_code_msp" in entry.split("/")
 
 
 def main() -> int:
@@ -181,7 +277,7 @@ def main() -> int:
     if findings:
         print(
             "FAILED: the published Python package surface references private "
-            "repository artifacts (#36888):",
+            "repository artifacts:",
             file=sys.stderr,
         )
         for finding in findings:

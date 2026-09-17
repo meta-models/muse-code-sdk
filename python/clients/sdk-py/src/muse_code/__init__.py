@@ -81,15 +81,14 @@ EXPECTED_SCHEMA_FINGERPRINT: Final[str] = (
 )
 """The stable schema-bundle fingerprint this SDK was built against.
 
-The one deliberately duplicated fact (spec 638 FR-638-006, the 14990 FR-006
-pattern): ``clients/sdk-py/tests/test_manifests.py`` binds it to
+The one deliberately duplicated fact: ``clients/sdk-py/tests/test_manifests.py`` binds it to
 ``schema/msp/stable/manifest.json``, so a schema advance that forgets the
 Python SDK reds this lane instead of drifting silently.
 """
 
-# D-063 lockstep (ADR 25304 D4): the release train bumps pyproject.toml, the
+# the governing decision lockstep: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
-# time (the publish itself is owner-run, permitted by D-065, ADR 29534 D1).
+# time.
 __version__: Final[str] = "1.3.0"
 
 # The facade is imported last so the constants above are already bound: the

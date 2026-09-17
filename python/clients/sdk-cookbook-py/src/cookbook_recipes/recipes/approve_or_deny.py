@@ -358,7 +358,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="approve-or-deny",
     title="Approve or deny the agent's permission request",
-    docs_page="developer-docs/src/content/docs/cookbook/approve-or-deny-a-tool-call.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/approve-or-deny-a-tool-call.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

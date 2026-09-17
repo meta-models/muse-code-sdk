@@ -1,5 +1,5 @@
-"""PY-TEST-018 ``sync_wrapper_journey_and_loop_refusal`` — spec 638
-FR-638-021 (T034), INV-638-07; Scenario 7 both arms.
+"""PY-the governing rule ``sync_wrapper_journey_and_loop_refusal`` — the owning spec
+the governing rule, the governing rule; its acceptance scenario both arms.
 
 The sync wrapper is a LOOP-RUNNER, not a second SDK: it owns a private event
 loop, exposes blocking equivalents of the facade verbs, and iterates turn
@@ -9,7 +9,7 @@ through the blocking surface.
 
 The journey arm drives the quickstart SHAPE (start the agent, run a turn,
 follow its items, reach the verdict, shut down) over a deterministic scripted
-host; the S4 quickstart program (T040) re-runs the same narrative against the
+host; the S4 quickstart program re-runs the same narrative against the
 release-built host. The spawn/close blocking path is additionally proven
 against the real ``serve-fixture`` host (skipped, never failed, when no
 binary is available — the same posture as the async spawn suites).
@@ -61,7 +61,7 @@ def _frame(value: Params) -> str:
 class ScriptedHost:
     """A deterministic in-memory host: every inbound request is answered
     synchronously from a script, so the private loop never waits on anything
-    outside itself (causal, never time-based — #25315).
+    outside itself.
 
     The sync wrapper blocks its calling thread while its loop runs, so a test
     cannot feed frames from outside the way the async suites do — the script
@@ -244,12 +244,12 @@ def scripted_client(
     return host, SyncMuseClient.create(factory)
 
 
-# ---- Scenario 7.1: the journey shape, on the blocking surface ---------------
+# ---- its acceptance scenario: the journey shape, on the blocking surface ---------------
 
 
 def test_the_sync_wrapper_runs_the_journey_shape_with_the_same_verdicts() -> None:
     # Deliberately NO asyncio marker and NO running loop: this test IS the
-    # synchronous script FR-638-021 promises the surface to.
+    # synchronous script the governing rule promises the surface to.
     host, client = scripted_client(auto_stream=False)
 
     session = client.start_session(StartSessionOptions(workspace_root="/tmp/w"))
@@ -281,7 +281,7 @@ def test_the_sync_wrapper_runs_the_journey_shape_with_the_same_verdicts() -> Non
     assert held is not None and held["text"] == "All tests pass"
 
     # The wire saw exactly the facade's frames: one session/start, one
-    # turn/start — no wrapper-authored traffic (INV-638-07: it re-implements
+    # turn/start — no wrapper-authored traffic (the governing rule: it re-implements
     # nothing).
     methods = [json.loads(line).get("method") for line in host.writes]
     assert methods == ["session/start", "turn/start"]
@@ -305,10 +305,10 @@ def test_sync_iteration_ends_when_the_turn_settles_and_a_late_iterator_replays()
 
 
 def test_a_second_concurrent_sync_call_serializes_on_the_private_loop() -> None:
-    # Scenario 7 edge case: two threads, one client — the second call must
+    # its acceptance scenario edge case: two threads, one client — the second call must
     # serialize on the private loop, never race it ("This event loop is
     # already running" is the crash an unlocked wrapper exhibits). The overlap
-    # is CAUSAL, not lucky (PR #32315 review round 1): the host holds thread
+    # is CAUSAL, not lucky: the host holds thread
     # A's first turn/start reply on an event, so A is provably parked inside
     # `run_until_complete` when thread B's verb arrives — without the runner's
     # lock, B deterministically hits the running loop.
@@ -364,7 +364,7 @@ def test_a_second_concurrent_sync_call_serializes_on_the_private_loop() -> None:
 
 
 def test_the_call_lock_serializes_sync_delegates_with_a_pumping_verb() -> None:
-    # `call()`'s own lock arm (PR #32315 review round 2): while thread A is
+    # `call()`'s own lock arm: while thread A is
     # parked inside a pumping verb (reply held), a locked sync delegate from
     # thread B must not run until A's verb settles — and A's verb settles only
     # after the release event fires, so "the release was set when the delegate
@@ -419,7 +419,7 @@ def test_the_call_lock_serializes_sync_delegates_with_a_pumping_verb() -> None:
 
 
 def test_a_closed_generator_releases_its_stream_and_the_turn_still_settles() -> None:
-    # The stream-release `finally` has its own guard (PR #32315 review round
+    # The stream-release `finally` has its own guard (a prior review round
     # 2): take one item from an UNSETTLED turn, close the generator, and the
     # fan-out must stop feeding a stream nobody reads — then the real terminal
     # still wins. The handle's live_stream_count is the same observability the
@@ -448,7 +448,7 @@ def test_a_closed_generator_releases_its_stream_and_the_turn_still_settles() -> 
 
 
 def test_a_never_advanced_iterator_is_reclaimed_when_the_turn_settles() -> None:
-    # The docstring's OTHER half, pinned (PR #32315 review round 2): a
+    # The docstring's OTHER half, pinned: a
     # generator closed before its first next() runs no `finally`, so the
     # registration is reclaimed only when the turn settles — bounded, like the
     # async surface's dropped, never-read stream.
@@ -468,7 +468,7 @@ def test_a_never_advanced_iterator_is_reclaimed_when_the_turn_settles() -> None:
 
 
 def test_a_shutdown_that_raises_still_retires_the_loop() -> None:
-    # Constitution XIII (PR #32315 review round 2): one failing shutdown must
+    # Constitution XIII: one failing shutdown must
     # not leak the loop and its watcher tasks forever. Probed at the runner
     # seam, which owns the invariant.
     from muse_code.sync_facade import _LoopRunner
@@ -490,7 +490,7 @@ def test_a_shutdown_that_raises_still_retires_the_loop() -> None:
 
 
 def test_close_racing_a_pre_pump_verb_refuses_once_the_verb_pumps() -> None:
-    # The P0 window (PR #32315 review round 3): run() takes the lock a few
+    # The P0 window: run() takes the lock a few
     # bytecodes before run_until_complete marks the loop running, so a close()
     # that reads is_running() ONCE can commit to a blocking acquire behind an
     # unbounded verb. The arm parks a verb holder inside that exact window
@@ -529,7 +529,7 @@ def test_close_racing_a_pre_pump_verb_refuses_once_the_verb_pumps() -> None:
         # ONE finally over the whole body: every exit — the window-expiry
         # early return included — must feed the terminal, or the verb thread
         # pumps forever and the arm reds 30s later with the wrong message
-        # while the real cause sits unread in `unexpected` (PR #32315 review
+        # while the real cause sits unread in `unexpected` (a prior review
         # round 4).
         try:
             if not in_window.wait(timeout=30):
@@ -557,7 +557,7 @@ def test_close_racing_a_pre_pump_verb_refuses_once_the_verb_pumps() -> None:
     for thread in (verb_thread, closer_thread):
         # Outlasts the closer's 30s inner wait: a tied cap could win the race
         # against the expiry fallback and red with the wrong message while
-        # the real cause sits unread (PR #32315 review round 5).
+        # the real cause sits unread.
         thread.join(timeout=40)  # deadlock cap only; the green path is causal
         assert not thread.is_alive(), (
             f"pre-pump race deadlock; unexpected={unexpected!r} "
@@ -571,7 +571,7 @@ def test_close_racing_a_pre_pump_verb_refuses_once_the_verb_pumps() -> None:
 class _ObservedLock:
     """A lock wrapper that signals every MISSED bounded acquire, so the
     carve-out arms can prove close() really reached its wait-it-out branch
-    instead of winning the lock on the first try (PR #32315 review round 5)."""
+    instead of winning the lock on the first try."""
 
     def __init__(self, inner: "threading.Lock", missed: "threading.Event") -> None:
         self._inner = inner
@@ -594,13 +594,13 @@ class _ObservedLock:
 
 
 def test_two_concurrent_closes_serialize_into_one_shutdown() -> None:
-    # A closing peer is a bounded FR-638-017 shutdown, not a stuck verb
-    # (PR #32315 review round 3): the second close must wait it out and no-op,
+    # A closing peer is a bounded the governing rule shutdown, not a stuck verb
+    #: the second close must wait it out and no-op,
     # never bounce with the pumping-verb refusal. Probed at the runner seam so
     # the first shutdown can be held open causally — and held until the SECOND
     # close has provably MISSED an acquire while the first pumps, or the
     # refusal branch is never reached and its `not self._closed` gate is
-    # unpinned (PR #32315 review round 5).
+    # unpinned.
     from muse_code.sync_facade import _LoopRunner
 
     loop = asyncio.new_event_loop()
@@ -647,7 +647,7 @@ def test_two_concurrent_closes_serialize_into_one_shutdown() -> None:
     thread_b.start()
     # The release rides a finally: a red assert must still free A's parked
     # shutdown, or the default-executor worker blocks interpreter exit and the
-    # red becomes a CI job-wall hang (#25315; PR #32315 review round 6).
+    # red becomes a CI job-wall hang.
     try:
         assert first_shutdown_pumping.wait(timeout=30), "shutdown never pumped"
         # B must MISS at least one bounded acquire while A's shutdown pumps —
@@ -665,7 +665,7 @@ def test_two_concurrent_closes_serialize_into_one_shutdown() -> None:
 
 
 def test_close_waits_out_a_holder_between_loop_runs_instead_of_refusing() -> None:
-    # The OTHER carve-out (PR #32315 review rounds 3 and 5): a holder whose
+    # The OTHER carve-out: a holder whose
     # loop is NOT running (a `call()` delegate, or a verb between loop runs)
     # releases promptly, so close() waits it out — deleting the
     # `is_running()` gate would turn this into a refusal.
@@ -718,7 +718,7 @@ def test_close_waits_out_a_holder_between_loop_runs_instead_of_refusing() -> Non
 
 
 def test_close_while_another_thread_pumps_an_unbounded_verb_is_refused() -> None:
-    # The deadlock arm (PR #32315 review round 2): the main thread parks in a
+    # The deadlock arm: the main thread parks in a
     # turn wait pumping the loop; close() from another thread must refuse with
     # the exact error, not join the deadlock — and a later close, after the
     # verb settles, succeeds.
@@ -756,8 +756,8 @@ def test_close_while_another_thread_pumps_an_unbounded_verb_is_refused() -> None
     # The parked verb runs on a CAPPED daemon worker, not the main thread: if
     # close() ever regresses to a blocking acquire, the closer blocks before
     # its finally can feed the terminal, and a main-thread completed() would
-    # pump forever — a silent CI job-wall hang instead of a red (#25315;
-    # PR #32315 review round 3).
+    # pump forever — a silent CI job-wall hang instead of a red (a tracked issue;
+    # a prior review).
     outcomes: List[Any] = []
     pump_thread = threading.Thread(
         target=lambda: outcomes.append(turn.completed()), daemon=True
@@ -774,7 +774,7 @@ def test_close_while_another_thread_pumps_an_unbounded_verb_is_refused() -> None
     client.close()  # the verb settled; the same close now succeeds
 
 
-# ---- Scenario 7.2: the running-loop refusal ---------------------------------
+# ---- its acceptance scenario: the running-loop refusal ---------------------------------
 
 
 def test_a_sync_verb_from_inside_a_running_loop_is_refused_not_deadlocked() -> None:
@@ -792,7 +792,7 @@ def test_a_sync_verb_from_inside_a_running_loop_is_refused_not_deadlocked() -> N
         return str(refused.value)
 
     message = asyncio.run(from_inside_a_loop())
-    # The exact FM-638-4 error: it names the async facade as the repair.
+    # The exact the governing rule error: it names the async facade as the repair.
     assert "running event loop" in message
     assert "MuseClient" in message
 
@@ -820,7 +820,7 @@ def test_verbs_on_a_closed_wrapper_are_refused_with_a_plain_error() -> None:
     session = client.start_session()
     client.close()
     # The guard's OWN words: bare "closed" also matches the raw "Event loop is
-    # closed" crash the guard exists to prevent (PR #32315 review round 1).
+    # closed" crash the guard exists to prevent.
     with pytest.raises(RuntimeError, match="spawn or create a new one"):
         session.send_user_turn(
             SendUserTurnOptions(input=[{"text": "hi", "type": "text"}], composer_input="hi")

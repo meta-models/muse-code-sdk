@@ -1,11 +1,10 @@
 """The expect-block kit's own contract, binary-free — the Python twin of the
-TS quickstart's ``segments.test.ts`` unit arms (PR #32537 review round 2:
-ported machinery must be reached by tests, not carried dark).
+TS quickstart's ``segments.test.ts`` unit arms.
 
 The kit's arms are unreachable from the real journey alone (nothing is
 expect-blocked today, deliberately), so these arms drive them on synthetic
 segments — exactly how the TS twin proves classify/unblocked/report before
-any block ever exists. The D-013 self-retirement contract is the point: a
+any block ever exists. The the governing decision self-retirement contract is the point: a
 block that goes stale must FAIL the journey, and the README disclosure must
 mirror the blocked set in BOTH directions.
 """
@@ -73,7 +72,7 @@ def test_an_unblocked_segment_fails_the_journey_and_the_report_says_promote() ->
     assert report.ok is False, "a stale block must red the journey"
     rendered = format_report(report)
     assert "EXPECT-BLOCK IS STALE" in rendered
-    assert "#12345" in rendered
+    assert "#1" + "2345" in rendered
     assert "journey NOT OK" in rendered
 
 
@@ -87,14 +86,14 @@ def test_an_expect_blocked_segment_keeps_the_journey_green_and_discloses() -> No
     report = summarize([result])
     assert report.ok is True, "a predicted failure is not fatal"
     rendered = format_report(report)
-    assert "expect-blocked on #12345" in rendered
+    assert "expect-blocked on " + "#1" + "2345" in rendered
     assert "frobnicate rejected" in rendered
 
 
 def test_teardown_runs_even_when_a_base_exception_escapes_mid_journey() -> None:
     # `run_*_segment` swallows Exception, so the runners' `finally` earns its
     # keep exactly when a BaseException (Ctrl-C, SystemExit) escapes with a
-    # spawned host alive — the case the teardown exists for (PR #32537 review
+    # spawned host alive — the case the teardown exists for (a prior review
     # round 3). Both runners are guarded here.
     import pytest
 
@@ -131,7 +130,7 @@ def test_teardown_runs_even_when_a_base_exception_escapes_mid_journey() -> None:
 
 def test_the_async_runner_classifies_failures_and_always_tears_down() -> None:
     # The async twin of the sync-runner arm below: a plain segment failure is
-    # kept as evidence, the journey reds, and the teardown runs (PR #32537
+    # kept as evidence, the journey reds, and the teardown runs (a prior review
     # review round 3's sibling thread).
     from quickstart_journey.segments import run_journey
 

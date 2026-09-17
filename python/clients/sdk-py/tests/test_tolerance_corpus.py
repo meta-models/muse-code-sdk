@@ -1,10 +1,9 @@
-"""PY-TEST-006: the ``sdk-tolerance`` fixture class, losslessly retained.
+"""PY-the governing rule: the ``sdk-tolerance`` fixture class, losslessly retained.
 
-Spec ``specs/638-muse-sdk-python`` FR-638-010 (Scenario 5): unknown item
+Spec ``the owning spec` the governing rule: unknown item
 kinds, unknown session-state methods, and unknown dotted stream kinds are
 tolerated losslessly — retained with their unknown vocabulary intact and
-never dropped or crashed on (SS1.5.4; tdd SS7.5 makes this class permanently
-hand-authored).
+never dropped or crashed on.
 """
 
 from __future__ import annotations
@@ -48,13 +47,13 @@ def test_tolerance_fixture_folds_losslessly(scenario_dir: Path) -> None:
         held = fold.items.get(item_id)
         assert held is not None, f"{scenario_dir.name}: item {item_id} was dropped"
         assert held.get("kind") == sent.get("kind"), "unknown kind must survive"
-        # Generic-render data (FR-638-010): kind + status always readable.
+        # Generic-render data: kind + status always readable.
         assert "status" in held
 
 
 def test_unknown_state_method_is_tolerated_not_crashed() -> None:
     fixture = CORPUS / "tolerance-unknown-state-method"
-    if not fixture.is_dir():  # fixture name is #210's; resolve by scan
+    if not fixture.is_dir():  # fixture name is a tracked issue's; resolve by scan
         candidates = [d for d in _tolerance_dirs() if "state" in d.name]
         assert candidates, "no unknown-state-method tolerance fixture found"
         fixture = candidates[0]

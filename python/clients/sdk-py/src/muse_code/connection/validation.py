@@ -91,8 +91,7 @@ class SpawnOptions(BaseModel):
 
     ``shutdown_timeout_ms`` is strict — ``True`` and ``"5"`` are not
     budgets — and bounded exactly like the TS boundary; a clamped budget
-    would fabricate a crash row for a host that was draining normally
-    (the PR #22819 lesson, kept identical).
+    would fabricate a crash row for a host that was draining normally.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -119,7 +118,7 @@ def parse_spawn_options(
         args: Passed through verbatim once validated.
         cwd: Working directory for the host.
         env: The host's environment (inherited when ``None``).
-        shutdown_timeout_ms: The FR-017a drain budget.
+        shutdown_timeout_ms: The the governing rule drain budget.
 
     Returns:
         The validated, frozen options the spawn path reads from.
@@ -127,7 +126,7 @@ def parse_spawn_options(
     Raises:
         MuseValidationError: An option is malformed; pydantic's
             ``ValidationError`` rides as the cause. A ``ValueError`` by
-            inheritance, so the boundary's pre-#31276 refusal contract
+            inheritance, so the boundary's pre-a tracked issue refusal contract
             holds.
     """
     try:

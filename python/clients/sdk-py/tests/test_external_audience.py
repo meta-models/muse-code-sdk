@@ -1,17 +1,21 @@
-"""The external-audience metadata gate (#36888).
+"""The external-audience gate: package metadata AND the public source tree.
 
-The PyPI 1.3.0 publish shipped both packages' long descriptions (their
-READMEs), the msp pyproject ``description``, and module docstrings citing
-private tbh-repo artifacts — spec paths, ADR/issue numbers, INV/FR ids, tdd
-section refs, an internal dev loop. A PyPI reader has the published package,
-the public mirror (meta-models/muse-code-sdk) and the public docs site —
-nothing else.
+The first PyPI publish shipped long descriptions, a pyproject summary, and
+module docstrings citing artifacts only the producing repository resolves;
+a follow-up sweep found the same class in the mirrored tree's ledger notes,
+script comments, and test fixtures. A PyPI reader has the published
+package, the public mirror (meta-models/muse-code-sdk) and the public docs
+site — nothing else, and the public tree carries no real internal
+identifiers anywhere, code comments included.
 
-Three arms: the tree is clean NOW (the repair's RED), the checker actually
-refuses each leak class (proven under seeded faults, so the pin cannot go
-vacuous), and the publish gate script runs the checker over the BUILT
-distributions (so the wiring cannot silently drop out). One shared
-implementation: ``scripts/check-sdk-py-external-audience.py``.
+Four arms: the tree is clean NOW (each repair's RED), the checker refuses
+each leak class (proven under seeded faults, so the pins cannot go
+vacuous), the TREE tier catches a leak in any hand-written closure file,
+and the publish gate script runs the checker over the BUILT distributions
+(so the wiring cannot silently drop out). One shared implementation:
+``scripts/check-sdk-py-external-audience.py``. All seeded fault strings
+below are SYNTHETIC (never a real internal artifact) and runtime-assembled,
+so this file's own text stays clean under the tree tier.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ CHECKER = PROJECT_ROOT / "scripts" / "check-sdk-py-external-audience.py"
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "publish-sdk-pypi.sh"
 
 
-def _checker_pattern_classes() -> set[str]:
+def _checker_pattern_classes() -> tuple[set[str], set[str]]:
     # Load the table FROM the script, so a class added there without a
     # refusal fixture here reds the exhaustiveness pin instead of shipping
     # ungated (the vacuous-regex hole: a pattern edited to never match keeps
@@ -40,9 +44,12 @@ def _checker_pattern_classes() -> set[str]:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return {class_id for class_id, _ in module.PRIVATE_REFERENCE_PATTERNS}
+    return (
+        {class_id for class_id, _ in module.PRIVATE_REFERENCE_PATTERNS},
+        {class_id for class_id, _ in module.TREE_PRIVATE_PATTERNS},
+    )
 
-# A wall, not a budget (#9293 house rule): the checker reads a handful of
+# A wall, not a budget: the checker reads a handful of
 # small text files; a longer run is a hang.
 CHECKER_WALL_SECONDS = 120
 
@@ -84,6 +91,11 @@ def _seeded_tree(tmp_path: Path, readme_line: str, description: str) -> Path:
         (package_dir / "src" / import_name / "__init__.py").write_text(
             '"""A clean module docstring."""\n'
         )
+    # Enough hand-written files for the tree walk's floor.
+    tests_dir = tmp_path / "clients" / "sdk-py" / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_clean.py").write_text("# a clean test comment\n")
+    (tmp_path / "clients" / "py-dev-requirements.txt").write_text("# clean\n")
     return tmp_path
 
 
@@ -96,43 +108,54 @@ def test_a_clean_fixture_tree_passes(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
-# One representative per pattern class, each shipped in (or adjacent to) the
-# 1.3.0 leak. Exhaustive by name against the script's own table — a class
+# One SYNTHETIC representative per pattern class — never a real internal
+# artifact — exhaustive by name against the script's own table: a class
 # added there without a fixture here, or a pattern edited to never match,
-# reds the exhaustiveness pin instead of going silently vacuous. Fixture
-# strings for the judgment-tier classes are assembled at runtime so the
-# seeded internal references do not read as internal references of THIS file
-# when the mirrored-source audience profile scans it (this test ships in the
-# public closure).
+# reds the exhaustiveness pin instead of going silently vacuous. Every
+# fixture is runtime-assembled so this file's static text carries no
+# pattern-matching token (the tree tier scans this file too, and the
+# mirrored-source audience profile ships it publicly).
 LEAKS = {
-    "spec-path": "See specs/638-muse-sdk-python for the rules.",
-    "adr-citation": "the ADR 638 D2 supply-chain exception",
-    "adr-path": "the governing record is docs/adr/638-muse-sdk-python.md",
-    "tracker-number": "chartered by issue #638",
-    "requirement-id": "No hand-written protocol types, ever (INV-638-01).",
-    "task-id": "the approval round trip (T031)",
-    "decision-id": "owned by decision record D-" + "032",
-    "scenario-ref": "the sync wrapper (Scenario 7)",
-    "spec-section": "buffer live events per SS4.8 as they arrive",
-    "spec-number": "spec 638 owns this surface",
-    "spec-doc": "the tdd spells the recipe out",
-    "dev-loop-path": "cd projects/" + "tbh && pytest",
-    "internal-name": "CI runs this in the tbh-muse-sdk-py workflow",
-    "source-path": "the required Rust test " + "crates/" + "devtools/tests/x.rs",
-    "script-path": "rerun scripts/gen-msp-py.sh instead",
-    "schema-path": "rendered from schema/msp/stable bundles",
-    "private-repo": "file an issue on mslsrc/" + "tbh",
-    "client-path": "mirrors clients/sdk-ts exactly",
-    "slice-label": "the facade surface lands slice by slice (S1 to S4)",
-    "stale-status": "Status: a skeleton implementation.",
+    "spec-path": "See " + "spec" + "s/0000-example-feature for the rules.",
+    "adr-citation": "the " + "AD" + "R 9999 supply-chain exception",
+    "adr-path": "the record is " + "docs/" + "adr/0000-example.md",
+    "tracker-number": "chartered by issue " + "#9" + "9999",
+    "requirement-id": "No hand-written types, ever (" + "INV-" + "0000-EX).",
+    "task-id": "the approval round trip (" + "T9" + "99)",
+    "decision-id": "owned by decision record D-" + "999",
+    "scenario-ref": "the sync wrapper (" + "Scen" + "ario 9.9)",
+    "spec-section": "buffer live events per " + "SS9" + ".99 as they arrive",
+    "spec-number": "spec 9" + "999 owns this surface",
+    "spec-doc": "the " + "td" + "d spells the recipe out",
+    "dev-loop-path": "cd projects/" + "tb" + "h && pytest",
+    "internal-name": "CI runs this in the " + "tb" + "h-example workflow",
+    "source-path": "the required test " + "crate" + "s/example/tests/x.rs",
+    "script-path": "rerun " + "scripts/" + "example-regen.sh instead",
+    "schema-path": "rendered from " + "schema/" + "msp bundles",
+    "private-repo": "file an issue on mslsrc/" + "tb" + "h",
+    "client-path": "mirrors " + "clients/" + "example-kit exactly",
+    "slice-label": "lands slice by slice (" + "S1" + " onward)",
+    "stale-status": "Status: a " + "skele" + "ton implementation.",
+}
+
+# Tree-tier-only classes (banned in every hand-written closure file but not
+# part of the metadata table), same synthetic/assembled rules.
+TREE_LEAKS = {
+    "producing-docs-path": "twin page: " + "developer-" + "docs/example.mdx",
+    "test-charter-id": "pinned by " + "PY-TEST-" + "999",
 }
 
 
 def test_the_leak_fixtures_are_exhaustive_by_class() -> None:
-    classes = _checker_pattern_classes()
-    assert set(LEAKS) == classes, (
-        f"unseeded classes: {sorted(classes - set(LEAKS))}; "
-        f"stale fixtures: {sorted(set(LEAKS) - classes)}"
+    metadata_classes, tree_classes = _checker_pattern_classes()
+    assert set(LEAKS) == metadata_classes, (
+        f"unseeded classes: {sorted(metadata_classes - set(LEAKS))}; "
+        f"stale fixtures: {sorted(set(LEAKS) - metadata_classes)}"
+    )
+    tree_only = tree_classes - metadata_classes
+    assert set(TREE_LEAKS) == tree_only, (
+        f"unseeded tree-only classes: {sorted(tree_only - set(TREE_LEAKS))}; "
+        f"stale fixtures: {sorted(set(TREE_LEAKS) - tree_only)}"
     )
 
 
@@ -155,7 +178,7 @@ def test_the_pyproject_description_is_gated_too(tmp_path: Path) -> None:
     tree = _seeded_tree(
         tmp_path,
         "Install with pip.",
-        "No hand-written types (specs/638-muse-sdk-python INV-638-01).",
+        "No hand-written types (" + "spec" + "s/0000-example " + "INV-" + "0000-EX).",
     )
     result = _run_checker("--repo-root", str(tree))
     assert result.returncode != 0
@@ -165,10 +188,53 @@ def test_the_pyproject_description_is_gated_too(tmp_path: Path) -> None:
 def test_a_module_docstring_leak_is_refused(tmp_path: Path) -> None:
     tree = _seeded_tree(tmp_path, "Install with pip.", "A clean summary.")
     module = tree / "clients" / "sdk-py" / "src" / "muse_code" / "__init__.py"
-    module.write_text('"""Owning spec: specs/638-muse-sdk-python."""\n')
+    module.write_text('"""Owning spec: ' + "spec" + 's/0000-example."""\n')
     result = _run_checker("--repo-root", str(tree))
     assert result.returncode != 0
     assert "module docstring" in result.stderr
+
+
+@pytest.mark.parametrize("class_id", sorted(TREE_LEAKS))
+def test_tree_only_classes_are_refused(tmp_path: Path, class_id: str) -> None:
+    tree = _seeded_tree(tmp_path, "Install with pip.", "A clean summary.")
+    test_file = tree / "clients" / "sdk-py" / "tests" / "test_clean.py"
+    test_file.write_text(f"# {TREE_LEAKS[class_id]}\n")
+    result = _run_checker("--repo-root", str(tree))
+    assert result.returncode != 0, (
+        f"a test-file comment carrying a {class_id} leak passed the tree tier"
+    )
+    assert class_id in result.stderr
+
+
+def test_the_tree_tier_scans_comments_and_ledgers(tmp_path: Path) -> None:
+    # The follow-up sweep's two shapes: a citation in a code COMMENT of a
+    # hand-written closure file, and one in a JSON ledger note. Neither is
+    # package metadata; both must refuse.
+    tree = _seeded_tree(tmp_path, "Install with pip.", "A clean summary.")
+    test_file = tree / "clients" / "sdk-py" / "tests" / "test_clean.py"
+    test_file.write_text("# governed by " + "AD" + "R 9999\n")
+    result = _run_checker("--repo-root", str(tree))
+    assert result.returncode != 0
+    assert "adr-citation" in result.stderr
+    test_file.write_text("# a clean test comment\n")
+    ledger = tree / "clients" / "sdk-py" / "ledger.json"
+    ledger.write_text('{"note": "permitted by ' + "D-" + '999"}\n')
+    result = _run_checker("--repo-root", str(tree))
+    assert result.returncode != 0
+    assert "decision-id" in result.stderr
+
+
+def test_closure_internal_paths_stay_legal_in_tree_files(tmp_path: Path) -> None:
+    # The tree tier bans producing-repo identifiers, NOT the closure's own
+    # paths: a mirror reader has the tree, so a reference into it resolves.
+    tree = _seeded_tree(tmp_path, "Install with pip.", "A clean summary.")
+    test_file = tree / "clients" / "sdk-py" / "tests" / "test_clean.py"
+    test_file.write_text(
+        "# reads " + "clients/" + "sdk-py/pyproject.toml via "
+        + "scripts/" + "example.sh\n"
+    )
+    result = _run_checker("--repo-root", str(tree))
+    assert result.returncode == 0, result.stderr
 
 
 def test_the_publish_gate_runs_the_checker_over_the_built_dist() -> None:
@@ -187,7 +253,7 @@ def test_the_publish_gate_runs_the_checker_over_the_built_dist() -> None:
     ), (
         "the publish gate must run the audience checker in --dist mode and "
         "die on refusal, or the next publish could re-ship the 1.3.0 leak "
-        "(#36888)"
+        "again"
     )
 
 
@@ -197,6 +263,7 @@ def _seeded_dist(
     metadata_extra: str = "",
     docstring: str = "A clean module docstring.",
     pkg_info_extra: str = "",
+    sdist_extra_py: str | None = None,
 ) -> Path:
     # A minimal built-distribution pair of exactly the entries the dist walk
     # reads: one wheel (METADATA + a packaged module) and one sdist
@@ -215,6 +282,10 @@ def _seeded_dist(
         payload = tmp_path / "PKG-INFO"
         payload.write_text(f"Metadata-Version: 2.4\nName: x\n\nBody. {pkg_info_extra}\n")
         sdist.add(payload, arcname="x-0.0.0/PKG-INFO")
+        if sdist_extra_py is not None:
+            extra = tmp_path / "test_extra.py"
+            extra.write_text(sdist_extra_py)
+            sdist.add(extra, arcname="x-0.0.0/tests/test_extra.py")
     return dist
 
 
@@ -227,9 +298,9 @@ def test_a_clean_dist_tree_passes(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("site", "seed"),
     [
-        ("METADATA", {"metadata_extra": "See specs/638-muse-sdk-python."}),
-        ("module docstring", {"docstring": "Owning spec: specs/638-muse-sdk-python."}),
-        ("PKG-INFO", {"pkg_info_extra": "chartered by issue #638"}),
+        ("METADATA", {"metadata_extra": "See " + "spec" + "s/0000-example."}),
+        ("module docstring", {"docstring": "Owning spec: " + "spec" + "s/0000-example."}),
+        ("PKG-INFO", {"pkg_info_extra": "chartered by issue " + "#9" + "9999"}),
     ],
     ids=["wheel-metadata", "packaged-docstring", "sdist-pkg-info"],
 )
@@ -239,6 +310,18 @@ def test_each_dist_site_is_refused(tmp_path: Path, site: str, seed: dict[str, st
     assert site in result.stderr, (
         f"the refusal must name the {site} site:\n{result.stderr}"
     )
+
+
+def test_a_packaged_test_file_comment_is_refused(tmp_path: Path) -> None:
+    # The sdist ships the whole tests/ tree, so a citation in a packaged
+    # test file's COMMENT is public too (how the first sdist leaked beyond
+    # its metadata). Seeded into the sdist fixture as an extra .py member.
+    dist = _seeded_dist(
+        tmp_path, sdist_extra_py="# governed by " + "AD" + "R 9999\n"
+    )
+    result = _run_checker("--dist", str(dist))
+    assert result.returncode != 0
+    assert "adr-citation" in result.stderr
 
 
 def test_the_dist_mode_refuses_an_empty_dist_tree(tmp_path: Path) -> None:

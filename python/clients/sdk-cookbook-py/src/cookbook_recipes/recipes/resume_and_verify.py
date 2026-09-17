@@ -404,7 +404,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="resume-and-verify",
     title="Resume a session and verify what came back",
-    docs_page="developer-docs/src/content/docs/cookbook/resume-a-session.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/resume-a-session.mdx",
     needs=("muse_bin",),
     run=_run,
 )

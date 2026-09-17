@@ -1,12 +1,11 @@
-"""PY-TEST-007 ``manifests_pin_and_deps`` (specs/638-muse-sdk-python).
+"""PY-the governing rule ``manifests_pin_and_deps``.
 
-FR-638-001/002/006: the two package manifests carry the chartered shape
+The governing rule: the two package manifests carry the chartered shape
 (names, floor, wheel purity, license, ``py.typed``), the dependency posture
 holds (zero runtime deps in ``muse_code_msp``; exactly one exact-pinned
 pydantic in ``muse_code``; every dev tool exact-pinned in the committed
 lock), and the schema-fingerprint pin binds to the stable bundle manifest so
-a schema advance that forgets the Python SDK reds this lane (14990 FR-006
-pattern).
+a schema advance that forgets the Python SDK reds this lane.
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ def test_generated_package_manifest_shape() -> None:
     assert project["name"] == "muse-code-msp"
     assert project["requires-python"] == ">=3.10"
     assert project.get("dependencies", []) == [], (
-        "muse_code_msp declares a runtime dependency; INV-638-03 grants none"
+        "muse_code_msp declares a runtime dependency; the governing rule grants none"
     )
     assert "license" in project
     assert (MSP_DIR / "src" / "muse_code_msp" / "py.typed").is_file()
@@ -68,7 +67,7 @@ def test_facade_package_manifest_shape() -> None:
     assert project["requires-python"] == ">=3.10"
     deps = project.get("dependencies", [])
     assert len(deps) == 1, (
-        f"muse_code declares {len(deps)} runtime dependencies; the ADR 638 D2 "
+        f"muse_code declares {len(deps)} runtime dependencies; the ruled "
         "grant is exactly one (pydantic, exact pin)"
     )
     assert re.fullmatch(r"pydantic==\d+(\.\d+)+", deps[0]), (
@@ -90,13 +89,13 @@ def test_fingerprint_pin_binds_to_the_stable_manifest() -> None:
     )
     assert facade.EXPECTED_SCHEMA_FINGERPRINT == manifest["fingerprint"], (
         "muse_code.EXPECTED_SCHEMA_FINGERPRINT is stale against the stable "
-        "bundle manifest; re-pin it with the schema advance (FM-638-1)"
+        "bundle manifest; re-pin it with the schema advance"
     )
 
 
 def test_required_host_version_binds_to_the_host_crate() -> None:
-    # FR-638-006: the mismatch error's "required host version" is
-    # tree-derived — the renderer reads crates/cli/Cargo.toml at render time
+    # the governing rule: the mismatch error's "required host version" is
+    # tree-derived — the renderer reads the host source at render time
     # and the regen gate keeps the constant honest; this arm pins the bind.
     manifest = (PROJECT_ROOT / "crates" / "cli" / "Cargo.toml").read_text()
     in_package = False
@@ -109,7 +108,7 @@ def test_required_host_version_binds_to_the_host_crate() -> None:
         if in_package and stripped.startswith("version"):
             crate_version = stripped.split('"')[1]
             break
-    assert crate_version, "crates/cli/Cargo.toml lost its [package] version"
+    assert crate_version, "the host source lost its [package] version"
     generated = _import_generated()
     assert generated.REQUIRED_HOST_VERSION == crate_version, (
         "generated muse_code_msp is stale against the host crate version; "
@@ -119,7 +118,7 @@ def test_required_host_version_binds_to_the_host_crate() -> None:
 
 def test_dev_lock_is_exact_pinned() -> None:
     lock = PROJECT_ROOT / "clients" / "py-dev-requirements.txt"
-    assert lock.is_file(), "the committed dev lock is missing (FR-638-002)"
+    assert lock.is_file(), "the committed dev lock is missing"
     lines = [
         line.strip()
         for line in lock.read_text().splitlines()
