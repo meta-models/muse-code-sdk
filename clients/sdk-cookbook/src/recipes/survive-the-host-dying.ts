@@ -18,15 +18,22 @@
  *                   retired with their inputs handed back (and deliberately NO
  *                   composer restore), and reattaching is off the table;
  *  - an orderly close is NOT a death: `hostExited` answers `notADeath` and
- *    the session stays usable.
+ *    the session stays usable;
+ *  - what survives is what you PUT in the session. A session holding nothing
+ *    but its own start records is litter to the next host once the host that
+ *    started it is gone: that host reclaims it during startup housekeeping,
+ *    and a resume of its id is refused as not found. Give a session a durable
+ *    fact before you rely on resuming it.
  *
  * Two arms, mirroring that fork:
  *
  *  - the DURABLE arm runs against the release-built `muse serve`: it reads the
- *    durable profile off the real handshake, kills the host mid-session with
+ *    durable profile off the real handshake, starts a session that carries one
+ *    durable fact (a selected approval mode), kills the host mid-session with
  *    SIGKILL, watches the SDK classify the exit as a crash, sees a live turn
- *    wait reject instead of hang, and then resumes the same session on a
- *    freshly spawned host to prove the state survived.
+ *    wait reject instead of hang, and then spawns a fresh host, finds the
+ *    session in that host's listing once its startup housekeeping has run,
+ *    resumes it, and reads the fact back to prove the state survived.
  *  - the EPHEMERAL arm is transport-less on purpose: the real host declares a
  *    durable profile, so the recipe constructs a `Session` with the ephemeral
  *    profile directly — the SDK's sanctioned fold-only form — seeds it with
@@ -35,13 +42,22 @@
  *    deterministic and headless; it is not how an application should pick a
  *    profile (always read the handshake).
  *
- * HARNESS PLUMBING, NOT CLIENT GUIDANCE: the SDK deliberately exposes no pid
- * or kill on its public surface — an external death does not come through the
- * SDK. To deliver one on demand, the journey launches the host through a
- * three-line shell wrapper that prints the host's pid on stderr (captured via
- * the SDK's own `onStderr` tap) and `exec`s the real binary, so the printed
- * pid IS the host's pid. Your application never does this; the host that dies
- * under you needs no help.
+ * HARNESS PLUMBING, NOT CLIENT GUIDANCE, two pieces:
+ *
+ *  - the SDK deliberately exposes no pid or kill on its public surface — an
+ *    external death does not come through the SDK. To deliver one on demand,
+ *    the journey launches the host through a three-line shell wrapper that
+ *    prints the host's pid on stderr (captured via the SDK's own `onStderr`
+ *    tap) and `exec`s the real binary, so the printed pid IS the host's pid.
+ *    Your application never does this; the host that dies under you needs no
+ *    help.
+ *  - the journey spawns its hosts the way `MuseClient.spawn` does inside —
+ *    `spawnMspConnection`, then `MspHandshake.initialize`, then a `MuseClient`
+ *    composed around the connection — because it also has to speak
+ *    `session/list`, which the facade does not wrap: that call is how the
+ *    fresh-host segment PROVES the host's startup housekeeping ran before the
+ *    resume instead of merely racing it. The two forms produce the same
+ *    client; `MuseClient.spawn` is the one to use.
  */
 
 import { mkdtemp } from "node:fs/promises";
@@ -55,11 +71,17 @@ import {
   MuseSessionDiscardedError,
   readSessionDurability,
   Session,
+  spawnMspConnection,
 } from "@muse-code/sdk";
-import type { ExitClassification, HostDeathDischarge, TurnOutcome } from "@muse-code/sdk";
-import type { InitializeResult, Item } from "@muse-code/msp";
+import type {
+  ExitClassification,
+  HostDeathDischarge,
+  SpawnedMspConnection,
+  TurnOutcome,
+} from "@muse-code/sdk";
+import type { ApprovalMode, InitializeResult, Item, SessionListResult } from "@muse-code/msp";
 
-import { TimeoutError, equals, isolatedHostEnv, within } from "../kit/host.js";
+import { HOST_DRAIN_WINDOW_MS, TimeoutError, equals, isolatedHostEnv, within } from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
 import type { JourneyReport, Segment } from "../kit/segments.js";
 import type { Recipe, RecipeHosts } from "../runner.js";
@@ -72,6 +94,18 @@ const CLOSE_BUDGET_MS = 30_000;
 
 /** The stderr marker the shell wrapper prints. Test plumbing; see the header. */
 const PID_MARKER = "muse-cookbook-host-pid";
+
+/**
+ * The one durable fact the killed session carries (see
+ * `start-a-session-and-follow-a-turn`). It MUST stay a non-default mode: the
+ * host records a mode only when the selection differs from its default, so a
+ * default pick (or none) writes nothing, leaves the session empty, and hands
+ * the fresh-host segment straight back to the litter reclaim it exists to
+ * outlive. `denyUnmatched` because it is also the most conservative mode in
+ * the vocabulary, so nothing here can be mistaken for advice about which mode
+ * to run.
+ */
+const APPROVAL_MODE: ApprovalMode = "denyUnmatched";
 
 /**
  * A wait's settlement, captured without letting a rejection escape: the whole
@@ -116,7 +150,13 @@ function must<T>(value: T | undefined, what: string): T {
 }
 
 /**
- * Spawn a host through `MuseClient.spawn` — the facade this page teaches.
+ * Spawn a host and hand back the facade this page teaches, `MuseClient`.
+ *
+ * Spelled the way `MuseClient.spawn` is spelled inside — `spawnMspConnection`,
+ * `MspHandshake.initialize`, then a `MuseClient` composed around the
+ * connection — so the journey keeps the raw connection for the one method the
+ * facade does not wrap, `session/list` (see `resume-on-a-fresh-host`). An
+ * application calls `MuseClient.spawn`; it gets exactly this client.
  *
  * `killable` selects the wrapper described in the header: `$$` is the shell's
  * own pid and `exec` REPLACES the shell with the host binary, so the pid the
@@ -126,28 +166,41 @@ function must<T>(value: T | undefined, what: string): T {
 async function spawnHost(
   context: Context,
   killable: boolean,
-): Promise<{ client: MuseClient; stderr: () => string }> {
+): Promise<{ client: MuseClient; host: SpawnedMspConnection; stderr: () => string }> {
   let stderrText = "";
-  const shared = {
-    clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
+  const handshake = spawnMspConnection({
+    ...(killable
+      ? {
+          command: "/bin/sh",
+          args: ["-c", `echo "${PID_MARKER}=$$" >&2; exec "$0" serve`, context.museBin],
+        }
+      : { command: context.museBin, args: ["serve"] }),
     cwd: context.workspaceRoot,
     env: isolatedHostEnv(context.home),
+    // The kit's owned drain window (see HOST_DRAIN_WINDOW_MS), so the drain
+    // bound and the SDK's actual window cannot drift apart.
+    shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
     onStderr: (chunk: string) => {
       stderrText += chunk;
     },
-  };
-  const client = await within(
-    "the MSP handshake",
-    HANDSHAKE_BUDGET_MS,
-    killable
-      ? MuseClient.spawn({
-          ...shared,
-          museBin: "/bin/sh",
-          args: ["-c", `echo "${PID_MARKER}=$$" >&2; exec "$0" serve`, context.museBin],
-        })
-      : MuseClient.spawn({ ...shared, museBin: context.museBin, args: ["serve"] }),
-  );
-  return { client, stderr: () => stderrText };
+  });
+  let host: SpawnedMspConnection;
+  try {
+    host = await within(
+      "the MSP handshake",
+      HANDSHAKE_BUDGET_MS,
+      handshake.initialize({ clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" } }),
+    );
+  } catch (error) {
+    // A failed handshake must not leak the process it already spawned.
+    await handshake.close().catch(() => undefined);
+    throw error;
+  }
+  const client = new MuseClient(host.connection, {
+    durability: readSessionDurability(host.initializeResult),
+    host,
+  });
+  return { client, host, stderr: () => stderrText };
 }
 
 /** Wait for the wrapper's pid marker to land on the recorded stderr. */
@@ -216,15 +269,31 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
   },
   {
     id: "start-a-session-and-follow-a-turn",
-    title: "Start a session and register a turn wait the host will never answer",
+    title: "Start a session with one durable fact and register a turn wait the host will never answer",
     async run(context) {
       const client = must(context.clientA, "spawned client");
+      // Give the session something to keep. The durable promise covers what
+      // you put INTO a session — turns, choices, anything written through it.
+      // A session holding nothing but its own start records is litter to the
+      // next host once the host that started it is gone: that host reclaims
+      // it during startup housekeeping, and a resume of its id is refused as
+      // not found. Selecting an approval mode is the cheapest durable fact a
+      // session can carry without a model or credentials; the fresh host reads
+      // it back after the crash.
       context.sessionA = await within(
         "session/start",
         COMMAND_BUDGET_MS,
-        client.startSession({ workspaceRoot: context.workspaceRoot }),
+        client.startSession({ workspaceRoot: context.workspaceRoot, approvalMode: APPROVAL_MODE }),
       );
       context.sessionId = context.sessionA.sessionId;
+      if (context.sessionA.opening?.verb !== "session/start") {
+        throw new Error("the session did not open through session/start");
+      }
+      equals(
+        context.sessionA.opening.result.session.approvalMode?.mode,
+        APPROVAL_MODE,
+        "the approval mode the session started with",
+      );
       // A consumer following a turn is a promise held across the death. This
       // turn id gets no answer — deliberately: what the durable arm proves is
       // that the death REJECTS the wait instead of leaving it hanging forever,
@@ -309,7 +378,7 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
   },
   {
     id: "resume-on-a-fresh-host",
-    title: "Spawn a fresh host and resume the same session: the state survived",
+    title: "Spawn a fresh host, find the session in its listing, and resume it: the state survived",
     async run(context) {
       const sessionId = must(context.sessionId, "session id");
       const spawned = await spawnHost(context, false);
@@ -319,6 +388,25 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
         "durable",
         "the fresh host's durability profile",
       );
+      // List before you resume. A fresh host answers `session/list` only once
+      // its startup housekeeping has settled — including the pass that
+      // reclaims dead hosts' empty sessions — so this call is the receipt that
+      // the pass ran and kept THIS session. Without it the resume below could
+      // land before the pass and succeed by luck; with it, a host that
+      // reclaimed the session shows up here as a missing row, every time.
+      const listing = (await within(
+        "session/list",
+        COMMAND_BUDGET_MS,
+        spawned.host.connection.request("session/list", {}),
+      )) as unknown as SessionListResult;
+      const listed = listing.sessions.find((row) => row.sessionId === sessionId);
+      if (listed === undefined) {
+        throw new Error(
+          `the fresh host does not list session ${sessionId} after its startup housekeeping ` +
+            `(listed: ${JSON.stringify(listing.sessions.map((row) => row.sessionId))})`,
+        );
+      }
+      equals(listed.status, "notLoaded", "the dead host's session as the fresh host lists it");
       const resumed = await within(
         "session/resume",
         COMMAND_BUDGET_MS,
@@ -334,6 +422,9 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       // The session's own record of its workspace survived the SIGKILL: this
       // is state the DEAD host wrote and the fresh host read back.
       equals(info.workspaceRoot, context.workspaceRoot, "the workspace root after the crash");
+      // And so did the fact chosen before the kill — the durable content that
+      // made this session worth keeping.
+      equals(info.approvalMode?.mode, APPROVAL_MODE, "the approval mode after the crash");
     },
   },
   {

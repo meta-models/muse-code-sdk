@@ -11,10 +11,11 @@
  "artifact": "@muse-code/sdk source closure",
  "source": {
   "repository": "mslsrc/tbh",
-  "commit": "507c86fef428fb0eebade068433fdc4e058eed88",
+  "commit": "e5e52c461be9022e042d70373ce5007b6e50f95f",
   "closure_manifest": "scripts/sdk-source-closure.json (mirrored in-tree)"
  },
- "published_at": "2026-09-02T04:43:17Z",
+ "published_at": "2026-09-18T01:17:43Z",
+ "host_version": "1.3.0",
  "closure_paths": [
   "clients/msp-ts",
   "clients/sdk-cookbook",
@@ -26,6 +27,7 @@
   "schema/msp/stable",
   "schema/msp/transcripts",
   "scripts/check-msp-ts-typecheck.sh",
+  "scripts/check-sdk-py-external-audience.py",
   "scripts/publish-sdk-npm.sh",
   "scripts/sdk-source-closure.json",
   "CHANGELOG.md"
@@ -34,8 +36,8 @@
   "profile": "projects/tbh/scripts/check-source-audience.mjs",
   "policy": "projects/tbh/docs/sdk-source-publication-profile.md",
   "must_not_ship": 0,
-  "judgment_reported": 192,
-  "benign_for_source": 3033
+  "judgment_reported": 522,
+  "benign_for_source": 5909
  },
  "standalone_build": {
   "command": "npm install && npm run build && npm test",

@@ -256,6 +256,16 @@ export class RecordedHost {
     return undefined;
   }
 
+  /** The typed `data.reason` a step's LAST settlement carried, if any. */
+  rejectionReasonOf(step: string): string | undefined {
+    for (let index = this.#observations.length - 1; index >= 0; index -= 1) {
+      const entry = this.#observations[index];
+      if (entry?.kind === "requestError" && entry.step === step) return entry.error.reason;
+      if (entry?.kind === "requestOk" && entry.step === step) return undefined;
+    }
+    return undefined;
+  }
+
   /** The recorded notification methods, in arrival order. */
   notificationMethods(): readonly string[] {
     return this.#observations
@@ -271,7 +281,13 @@ export class RecordedHost {
     try {
       this.#observations.push({ kind: "requestOk", step, method, result: await call() });
     } catch (error) {
-      const shaped = error as { name?: string; message?: string; code?: unknown; kind?: unknown };
+      const shaped = error as {
+        name?: string;
+        message?: string;
+        code?: unknown;
+        kind?: unknown;
+        data?: { reason?: unknown };
+      };
       this.#observations.push({
         kind: "requestError",
         step,
@@ -281,6 +297,7 @@ export class RecordedHost {
           message: shaped.message ?? String(error),
           ...(typeof shaped.code === "number" ? { code: shaped.code } : {}),
           ...(typeof shaped.kind === "string" ? { kind: shaped.kind } : {}),
+          ...(typeof shaped.data?.reason === "string" ? { reason: shaped.data.reason } : {}),
         },
       });
     }
@@ -396,6 +413,16 @@ export function errorKindOfRun(run: ObservedRun, step: string): string | undefin
     if (entry?.kind === "requestError" && entry.step === step) {
       return entry.error.kind ?? entry.error.name;
     }
+  }
+  return undefined;
+}
+
+/** The typed `data.reason` a step's LAST settlement carried, if any. */
+export function rejectionReasonOfRun(run: ObservedRun, step: string): string | undefined {
+  for (let index = run.api.length - 1; index >= 0; index -= 1) {
+    const entry = run.api[index];
+    if (entry?.kind === "requestError" && entry.step === step) return entry.error.reason;
+    if (entry?.kind === "requestOk" && entry.step === step) return undefined;
   }
   return undefined;
 }

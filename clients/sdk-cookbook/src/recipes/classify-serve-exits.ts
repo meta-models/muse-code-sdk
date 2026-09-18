@@ -260,15 +260,17 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
           ),
       };
       // Not every failed turn is a launch failure. The logged-out turn's run
-      // STARTED and then could not reach a model, so its error kind is
-      // "modelError" and `isLaunchFailure` says no — branch on the marker,
-      // never on `terminal === "failed"` alone. The started-ness is asserted,
-      // not assumed: it is the sentence the docs page teaches (PR #25993
-      // review).
+      // STARTED and then could not reach a model; since spec 28091 (ADR
+      // 28091 D4/D4a) its error kind is the typed "authRequired"
+      // (retryable: false — sign in, then resubmit), and `isLaunchFailure`
+      // says no — branch on the marker, never on `terminal === "failed"`
+      // alone. The started-ness is asserted, not assumed: it is the sentence
+      // the docs page teaches (PR #25993 review).
       equals(outcome.observedStart, true, "turn/started observed for the logged-out turn");
-      equals(isLaunchFailure(outcome), false, "isLaunchFailure on a model-error terminal");
+      equals(isLaunchFailure(outcome), false, "isLaunchFailure on an auth-required terminal");
       const error = objectAt(completed.params, "error", "turn/completed params");
-      equals(error["kind"], "modelError", "the logged-out failure's error kind");
+      equals(error["kind"], "authRequired", "the logged-out failure's error kind");
+      equals(error["retryable"], false, "authRequired is not retryable until sign-in");
       context.failedTurn = outcome;
       // ...and none of it is a host exit: the same process answers the very
       // next request. THIS is the distinction the recipe exists to teach —

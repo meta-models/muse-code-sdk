@@ -8,6 +8,11 @@
  * host that will lie on command — and an oracle that passes on both correct
  * and incorrect wire traffic has oracled nothing.
  *
+ * One arm is not a lie: `typedRejection` serves the conformant tdd SS3.7
+ * `commandRejected`/`missing_run` refusal, scripted only because it is the
+ * cheapest host that yields a real `MspError.data.reason` for the recorder
+ * capture QA-TEST-016i pins.
+ *
  * Usage: node qa-scripted-host.js <arm>
  */
 
@@ -15,7 +20,7 @@ import { createInterface } from "node:readline";
 
 import { EXPECTED_SCHEMA_FINGERPRINT } from "../../src/index.js";
 
-type Arm = "faithful" | "duplicateResponse" | "errorWithoutKind";
+type Arm = "faithful" | "duplicateResponse" | "errorWithoutKind" | "typedRejection";
 
 const arm = (process.argv[2] ?? "faithful") as Arm;
 
@@ -70,6 +75,23 @@ lines.on("line", (line) => {
         return;
     }
   }
+  if (frame.method === "session/compact" && arm === "typedRejection") {
+    // Not a lie: the exact tdd SS3.7 refusal a real host serves for a
+    // no-resolvable-run compact. It is scripted here because the assertion is
+    // about the RECORDER — that a genuine `MspError`'s `data.reason` survives
+    // into the observation — and this is the cheapest host that produces one.
+    send({
+      jsonrpc: "2.0",
+      id: frame.id,
+      error: {
+        code: -32030,
+        message: "session/compact command rejected: missing_run",
+        data: { kind: "commandRejected", reason: "missing_run" },
+      },
+    });
+    return;
+  }
+
   send({
     jsonrpc: "2.0",
     id: frame.id,

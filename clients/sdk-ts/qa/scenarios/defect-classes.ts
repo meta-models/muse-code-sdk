@@ -15,7 +15,7 @@
  */
 
 import type { ObservedRun } from "../oracle.js";
-import { initializeResultOf, settlementOfRun } from "../recorder.js";
+import { initializeResultOf, rejectionReasonOfRun, settlementOfRun } from "../recorder.js";
 import {
   drivenAcrossRestart,
   drivenOnce,
@@ -178,6 +178,106 @@ const D19535: QaScenario = {
 // #19778 — session/compact is refused at admission on every durable session
 // ---------------------------------------------------------------------------
 
+/**
+ * What a guard-earning D19778 pass looks like (#19778 2026-09-02 reopen).
+ *
+ * Arm one is the no-run session: tdd SS3.7's params note mandates the typed
+ * `commandRejected`/`missing_run` refusal there — that refusal IS target
+ * classification, never the defect. Arm two is the defect class's actual
+ * trigger, a session with a completed run: admission must reach the runtime's
+ * typed SS3.7 vocabulary (`accepted`/`noop`, or a typed `-32030` reason such
+ * as this rig's `compaction_unavailable` — echo composes no context budget)
+ * instead of dying `-32603 internal` at fact retention.
+ */
+export const D19778_EXPECTED = "compact:missing_run|afterTurn:classified";
+
+/**
+ * D19778's observable, exported for QA-TEST-016: the guard must read SS3.7
+ * CLASSIFICATION, not "any error is the defect". Its 2026-09-02 false reopen
+ * came from exactly that misread — the spec-mandated `missing_run` refusal on
+ * a fresh session surfaced as `compact:err:commandRejected` and was reported
+ * as the defect against a binary whose classification is conformant.
+ */
+export function observeD19778(run: ObservedRun): string {
+  return `compact:${noRunFace(run)}|afterTurn:${completedRunFace(run)}`;
+}
+
+/**
+ * The no-run arm: tdd SS3.7's params note mandates exactly the typed
+ * `commandRejected`/`missing_run` refusal here (pinned end-to-end by
+ * `session_compact_is_registered_on_the_real_assembly`), so the face pins
+ * that exact reason — an internal death, a different reason (e.g. the
+ * #17389 `invalid_target` face leaking onto MSP), or a success would each
+ * be a deviation worth reporting.
+ */
+function noRunFace(run: ObservedRun): string {
+  const settlement = settlementOfRun(run, "compact");
+  if (
+    settlement === "err:commandRejected" &&
+    rejectionReasonOfRun(run, "compact") === "missing_run"
+  ) {
+    return "missing_run";
+  }
+  if (settlement.startsWith("err:internal")) return "internal-admission-failure";
+  if (settlement.startsWith("ok:")) return "ok-but-SS3.7-mandates-missing_run";
+  return faceWithReason(run, "compact", settlement);
+}
+
+/**
+ * The completed-run arm — the surface #19778 actually bit on: admission must
+ * reach the runtime's typed SS3.7 vocabulary (`accepted`/`noop`, or a typed
+ * `-32030` reason; on this echo rig, `compaction_unavailable` — echo composes
+ * no context budget, and pre-#21244 persisting even that rejection died
+ * `-32603 internal`).
+ *
+ * Any `commandRejected` CARRYING a reason is already typed classification:
+ * `command/compact.rs` maps the receipt's `ManualCompactionReason` onto the
+ * wire verbatim via `manual_compaction_reason_to_wire` (`wire_word()`), and
+ * `turn_submit.rs::command_rejected` answers `-32603 internal` rather than
+ * fabricate a missing reason, so a present reason IS the runtime having
+ * classified the target. Enumerating `ManualCompactionReason::wire_word`
+ * here — a subset, or today's whole list — would re-create the 2026-09-02
+ * false reopen for every word left out or minted later (`runtime_closed` is
+ * a real admission-time rejection from `validate_prepared_manual_compaction`),
+ * and tdd SS3.1.2 already says to treat unknown reasons as terminal
+ * rejections (#27227 review).
+ *
+ * Three states are still not a pass. A run whose turn never completed proves
+ * nothing about this arm (#23111's earned-verdict rule). `run_active` is the
+ * drive's own drain loop timing out rather than the host answering: the Rust
+ * counterpart in `serve_assembly.rs` treats a finished run that never
+ * released its active-run slot as a hard failure, so it reads as its own
+ * face instead of counting as classification. And `missing_run` here is the
+ * runtime failing to resolve the run it just completed: the probe omits
+ * `turnId`, so SS3.7 resolves the latest run, and `serve_assembly.rs` pins
+ * that same compact `accepted` — one known-bad word, not a pass (#27227
+ * review). Only the LAST `compactAfterTurn` settlement is read
+ * (`rejectionReasonOfRun`/`settlementOfRun` walk newest-first), because the
+ * drive's drain loop legitimately records `run_active` probes before the
+ * typed answer.
+ */
+function completedRunFace(run: ObservedRun): string {
+  const turnRan =
+    settlementOfRun(run, "turn").startsWith("ok:") &&
+    run.api.some((entry) => entry.kind === "notification" && entry.method === "turn/completed");
+  if (!turnRan) return "turn-never-completed";
+  const settlement = settlementOfRun(run, "compactAfterTurn");
+  if (settlement.startsWith("ok:")) return "classified";
+  if (settlement.startsWith("err:internal")) return "internal-admission-failure";
+  if (settlement === "err:commandRejected") {
+    const reason = rejectionReasonOfRun(run, "compactAfterTurn");
+    if (reason === "run_active") return "run-slot-never-released";
+    if (reason === "missing_run") return "completed-run-not-resolvable";
+    if (reason !== undefined) return "classified";
+  }
+  return faceWithReason(run, "compactAfterTurn", settlement);
+}
+
+function faceWithReason(run: ObservedRun, step: string, settlement: string): string {
+  const reason = rejectionReasonOfRun(run, step);
+  return reason === undefined ? settlement : `${settlement}/${reason}`;
+}
+
 const D19778: QaScenario = {
   id: "D19778",
   title: "`session/compact` reaches target classification on a durable session",
@@ -185,7 +285,7 @@ const D19778: QaScenario = {
   defectClass: {
     issue: "#19778",
     summary:
-      "the serve host's retained-session event sink is built without the strict-append channel, so the fact-retention guard fails closed and every durable `session/compact` is refused before target classification (tdd SS3.7 requires `noop`/`accepted`, or `-32030 invalid_target` for a bogus target)",
+      "the serve host's retained-session event sink was built without the strict-append channel, so durable `session/compact` admission (including persisting a typed rejection) died `-32603 internal` at fact retention instead of reaching tdd SS3.7's typed classification — which on a NO-RUN session is the mandated `commandRejected`/`missing_run` refusal, itself conformance and never this defect (the 2026-09-02 false reopen)",
   },
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
@@ -193,16 +293,34 @@ const D19778: QaScenario = {
       label: "d19778",
       async drive(host) {
         await host.command("start", "session/start", { workspaceRoot: "/tmp" });
-        await host.command("compact", "session/compact", {
-          sessionId: sessionIdOf(host.resultOf("start")),
+        const sessionId = sessionIdOf(host.resultOf("start"));
+        // Arm one — no resolvable run: SS3.7 mandates `missing_run` here.
+        await host.command("compact", "session/compact", { sessionId });
+        // Arm two — the defect class's actual trigger: a session with a
+        // completed run. Echo is credential-free (#23537, D19535 above).
+        await host.command("turn", "turn/start", {
+          sessionId,
+          input: [{ type: "text", text: "seed one completed run" }],
         });
+        await host.waitForNotification("turn/completed", 20_000);
+        // `turn/completed` is announced BEFORE the runtime frees the
+        // active-run slot (the drain race recorded at the #21244 review-P0
+        // comment in crates/session-server/tests/serve_view_suites/
+        // serve_assembly.rs, which also records that no passive drain signal
+        // exists on this wire surface). Re-probe the compact itself: the SDK
+        // mints a FRESH commandId per call, so each drained retry is a new
+        // admission, and the observable reads only the LAST settlement.
+        const drainDeadline = Date.now() + 20_000;
+        for (;;) {
+          await host.command("compactAfterTurn", "session/compact", { sessionId });
+          const draining = host.rejectionReasonOf("compactAfterTurn") === "run_active";
+          if (!draining || Date.now() >= drainDeadline) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
       },
-      observe: (run) => {
-        const settlement = settlementOfRun(run, "compact");
-        if (settlement.startsWith("err:internal")) return "compact:internal-admission-failure";
-        return settlement.startsWith("err:") ? `compact:${settlement}` : "compact:classified";
-      },
-      expected: "compact:classified",
+      observe: observeD19778,
+      expected: D19778_EXPECTED,
+      configureProvider: "echo",
     });
   },
 };
