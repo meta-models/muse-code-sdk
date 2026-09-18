@@ -1,11 +1,9 @@
-"""``SessionFold`` — the SS4 client fold, bound to the generated wire types
-(spec 638 FR-638-007 carrying spec 14990 FR-007).
+"""``SessionFold`` — the client fold, bound to the generated wire types.
 
 The two stores compose here, bound to ``muse_code_msp``'s shapes: items are
 the generated ``Item`` dicts, state-family values are the generated
 ``session/*`` params objects, and every event this fold accepts is the params
-object the wire actually carries. Nothing here restates a wire shape
-(INV-638-01/02).
+object the wire actually carries. Nothing here restates a wire shape.
 
 Beyond the two-store composition, the fold owns the parts of the view that
 are neither an item nor a state family:
@@ -17,10 +15,10 @@ are neither an item nor a state family:
   and their first durable terminal. The decision flow (choosing and sending a
   resolution) is the facade's, not the fold's;
 - the DELIVERY marker ``view/gap`` — it seeds no store, it moves the fold's
-  CURRENCY (``pending_gap``/``current``, FM-003). The recovery that fills the
+  CURRENCY (``pending_gap``/``current``). The recovery that fills the
   hole needs client-to-server I/O and is therefore the facade's.
 
-INV-006 governs all of it: the fold never invents a terminal. A retract and a
+One rule governs all of it: the fold never invents a terminal. A retract and a
 reclaim are not ``TurnTerminal`` values and are never rendered as one, an
 unrecognized ``TurnTerminal`` is kept verbatim, and a second resolution never
 displaces the first durable one.
@@ -79,7 +77,7 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         "userInput/requested",
         "userInput/settled",
         "view/gap",
-        # The one-shot login-swap route disclosure (#25603, tdd SS4.6.8):
+        # The one-shot login-swap route disclosure:
         # routed to its own non-storing outcome — a notice, never sticky
         # session state (a setModel repair would never clear a stored copy,
         # and a snapshot reseed would wipe it).
@@ -98,7 +96,7 @@ LIVE_HOST_STATE_PROJECTIONS: frozenset[str] = frozenset(
     ("skill/changed", "usage/changed", "session/statusChanged")
 )
 """Notifications that are live host-state projections, not view events
-(ADR 32471 D3, tdd SS3.22.2; ADR 32563 D3, tdd SS3.23): no ``viewCursor``,
+: no ``viewCursor``,
 no ``sourceRange``, nothing durable to fold. The consumer reaction is an
 ACTION (re-issue ``skill/list``) or its own rendering (``usage/changed``
 carries the full usage payload), so these ride the client's notification
@@ -119,10 +117,9 @@ class TurnEntry:
         state: Where the turn stands.
         command_id: The submitting command, when an event carried it.
         terminal: The server's terminal, verbatim. ``None`` unless
-            ``turn/completed`` folded (INV-006).
-        error: Present iff the terminal was ``"failed"`` (tdd SS4.5.1).
-        retry_scheduled: The latest scheduled model retry; non-terminal
-            (tdd SS4.5.1).
+            ``turn/completed`` folded.
+        error: Present iff the terminal was ``"failed"``.
+        retry_scheduled: The latest scheduled model retry; non-terminal.
     """
 
     turn_id: str
@@ -191,7 +188,7 @@ class ApprovalResolvedFold:
     Attributes:
         approval_id: The wire approval id.
         first_terminal: ``False`` when a durable terminal had already landed;
-            the first wins (tdd SS5).
+            the first wins.
     """
 
     approval_id: str
@@ -222,7 +219,7 @@ class UserInputSettledFold:
 class DeliveryGap:
     """A ``view/gap`` folded: push delivery dropped the open interval
     ``(after, next)``, so this fold is not current until a sanctioned
-    recovery fills the hole (tdd SS4.8, FM-003).
+    recovery fills the hole.
 
     The bounds are the FRAME's own, verbatim — the coalesced outstanding hole
     is ``SessionFold.pending_gap``, which is what a recovery walks.
@@ -234,7 +231,7 @@ class DeliveryGap:
 
 @dataclass(frozen=True)
 class ModelRouteUnservedNotice:
-    """The one-shot ``session/modelRouteUnserved`` disclosure (tdd SS4.6.8).
+    """The one-shot ``session/modelRouteUnserved`` disclosure.
 
     An accepted first-party login credential update installed a provider that
     cannot serve the session's STANDING model route. A notice, never sticky
@@ -250,7 +247,7 @@ class ModelRouteUnservedNotice:
 
 @dataclass(frozen=True)
 class IgnoredUnrecognizedMethod:
-    """A newer host's method this SDK has never heard of (SS1.5.4)."""
+    """A newer host's method this SDK has never heard of."""
 
     method: str
 
@@ -262,7 +259,7 @@ class IgnoredMissingParams:
     The wire's ``Notification`` declares ``params`` optional, and JSON-RPC
     permits ``null`` and positional arrays — none of which any arm can fold,
     since every one reads at least a ``sessionId``. Dropped rather than
-    raised: SS1.5.4's posture is that a frame this SDK cannot fold leaves the
+    raised: the protocol's posture is that a frame this SDK cannot fold leaves the
     rest of the fold intact, and an exception here would kill the embedding
     consumer's notification pump.
     """
@@ -305,11 +302,11 @@ FoldOutcome = (
 
 
 class FoldItems:
-    """The fold's read-only view of its :class:`ItemStore`.
+    """The fold's read-only view of its:class:`ItemStore`.
 
-    Every mutation goes through :meth:`SessionFold.apply`; a directly
+    Every mutation goes through:meth:`SessionFold.apply`; a directly
     reachable ``seed``/``apply_delta`` would let a consumer desync the
-    composite view (items cleared, turn/pending maps not), breaking INV-002
+    composite view (items cleared, turn/pending maps not), breaking the governing rule
     replay equality. An ALLOWLIST: this view defines exactly the read
     surface, so a mutator added to the store later never leaks onto it.
     """
@@ -350,7 +347,7 @@ class FoldItems:
         return self._store.last_opened_item_id()
 
     def list(self) -> list[ItemLike]:
-        """Items in first-opened order (tdd SS4.9.1)."""
+        """Items in first-opened order."""
         return self._store.list()
 
     @property
@@ -360,11 +357,11 @@ class FoldItems:
 
 
 class FoldSessionState:
-    """The fold's read-only view of its :class:`SessionStateStore`.
+    """The fold's read-only view of its:class:`SessionStateStore`.
 
     Families are keyed by notification method name (``session/*``). Named
     ``session_state`` on the fold rather than ``state`` because the surface
-    contract reserves ``state`` for the FR-008 aggregate that arrives with
+    contract reserves ``state`` for the governing rule aggregate that arrives with
     snapshot ingestion.
     """
 
@@ -434,13 +431,13 @@ class SessionFold:
     def mark_ephemeral_host_death(
         self, is_in_progress: Callable[[ItemLike], bool]
     ) -> list[TerminalUnknownItemAnnotation]:
-        """Discharge the SS2.13.3b ephemeral host-death obligation.
+        """Discharge the protocol ephemeral host-death obligation.
 
         Every item still in progress becomes terminal-unknown and the fold
-        refuses further item events (spec FM-002). A FOLD-level method rather
+        refuses further item events. A FOLD-level method rather
         than a ``FoldItems`` entry on purpose: ``items`` is snapshot-only and
         this IS a mutator. The in-progress probe stays the caller's, so the
-        store remains wire-shape-blind (INV-638-01).
+        store remains wire-shape-blind.
 
         Args:
             is_in_progress: The wire-aware probe, e.g.
@@ -458,11 +455,11 @@ class SessionFold:
 
     @property
     def pending_gap(self) -> Mapping[str, str] | None:
-        """The outstanding delivery hole, or ``None`` (tdd SS4.8, FM-003).
+        """The outstanding delivery hole, or ``None``.
 
         COALESCED, keeping the FIRST ``after``: consecutive overflows are one
         hole from a filler's point of view. A recovery walks
-        ``(after, next)`` and calls :meth:`gap_filled` with the target it
+        ``(after, next)`` and calls:meth:`gap_filled` with the target it
         actually reached, so a hole that grew while the walk was in flight
         cannot be reported filled.
         """
@@ -472,7 +469,7 @@ class SessionFold:
     def current(self) -> bool:
         """Is this fold current with the session view?
 
-        FM-003's "only then reports current": ``False`` from the moment a
+        The governing rule's "only then reports current": ``False`` from the moment a
         ``view/gap`` folds until its hole is filled. Live events keep folding
         meanwhile — they are real facts and dropping them would add a second
         hole — so this flag is the ONLY statement that the transcript has a
@@ -483,7 +480,7 @@ class SessionFold:
     def gap_filled(self, next_cursor: str) -> bool:
         """A recovery filled the hole up to ``next_cursor``.
 
-        EQUALITY, never a relational compare (tdd SS4.1): the argument is the
+        EQUALITY, never a relational compare: the argument is the
         target the walk reached, and it clears only when that is still the
         outstanding target. A gap that arrived mid-walk left a newer
         ``next``, so this answers ``False`` and the fold stays not-current —
@@ -504,7 +501,7 @@ class SessionFold:
         """Fold one view event (a wire notification's ``method`` + ``params``).
 
         The unrecognized-method arm is not defensive padding: the wire is an
-        external boundary and SS1.5.4 makes a NEW notification additive
+        external boundary and the protocol makes a NEW notification additive
         evolution, so a host newer than this SDK really does reach it.
         Ignoring the frame keeps the rest of the fold intact, which is what
         tolerance means.
@@ -630,7 +627,7 @@ class SessionFold:
 
     def _turn_completed(self, params: Params) -> FoldOutcome:
         # A turn the fold never saw start still settles here: single-shot and
-        # gap-filled turns arrive terminal-first (tdd SS4.4.1's sibling rule).
+        # gap-filled turns arrive terminal-first.
         turn_id = str(params["turnId"])
         turn = self._turn_for(turn_id)
         # ...but a RETRACTED or RECLAIMED turn stays that way. Replaying the
@@ -643,7 +640,7 @@ class SessionFold:
         if params.get("error") is not None:
             turn.error = params["error"]
         # The retry hint is a "retrying in Ns" countdown, and it clears on the
-        # turn's next event — which a completion is (tdd SS4.5.1).
+        # turn's next event — which a completion is.
         turn.retry_scheduled = None
         self._clear_active(turn_id)
         return TurnFold(turn_id, turn.state)
@@ -653,7 +650,7 @@ class SessionFold:
         turn = self._turn_for(turn_id)
         turn.command_id = params.get("commandId")
         # A retract is NOT a TurnTerminal; leaving `terminal` unset is the
-        # whole point (INV-006). The retracted user message re-arrives via
+        # whole point. The retracted user message re-arrives via
         # `item/updated` with `retracted: true`, which the item half folds.
         turn.state = "retracted"
         self._clear_active(turn_id)
@@ -662,7 +659,7 @@ class SessionFold:
     def _turn_unqueued(self, params: Params) -> FoldOutcome:
         # The reclaim of a QUEUED submit: this turn was pre-minted at
         # admission and never launched, so no `turn/started` preceded it and
-        # no `turn/completed` will follow (tdd SS3.6, SS4.5.1). It therefore
+        # no `turn/completed` will follow. It therefore
         # never becomes the active turn and never carries a terminal.
         turn_id = str(params["turnId"])
         turn = self._turn_for(turn_id)
@@ -672,7 +669,7 @@ class SessionFold:
         return TurnFold(turn_id, turn.state)
 
     def _turn_retry_scheduled(self, params: Params) -> FoldOutcome:
-        # Non-terminal by contract: it never resolves a turn-wait (SS3.1.4).
+        # Non-terminal by contract: it never resolves a turn-wait.
         turn_id = str(params["turnId"])
         turn = self._turn_for(turn_id)
         # ...but it is still a turn frame, so it takes the same redelivery
@@ -734,11 +731,11 @@ class SessionFold:
         # A request for an approval that already has its durable terminal (a
         # redelivered or pre-join frame) never re-opens it: no second
         # resolution is coming, so the resurrected entry would pend forever
-        # (tdd SS5's first-terminal-wins, request side).
+        #.
         if approval_id in self._resolved_approvals:
             return IgnoredStaleFrame("approval/requested", approval_id)
         # A re-request REPLACES the entry, `latest_update` included: a
-        # re-issued request already embodies the latest refresh (tdd SS5.6.3),
+        # re-issued request already embodies the latest refresh,
         # so pairing the new request with the OLD update would show stale
         # stage/choices and a decide against them bounces -32053.
         self._pending_approvals[approval_id] = _InternalApproval(requested=params)
@@ -750,7 +747,7 @@ class SessionFold:
         # dropped rather than synthesized into a request it cannot honestly
         # describe. A POST-RESOLVE update lands here too, because the resolve
         # deleted the entry; surfacing the failed-persistence report such a
-        # frame can carry is the facade's, tracked by issue #23379.
+        # frame can carry is the facade's, tracked by a tracked issue.
         approval_id = str(params["approvalId"])
         held = self._pending_approvals.get(approval_id)
         if held is None:
@@ -762,7 +759,7 @@ class SessionFold:
         approval_id = str(params["approvalId"])
         self._pending_approvals.pop(approval_id, None)
         first_terminal = approval_id not in self._resolved_approvals
-        # The FIRST durable terminal decision is the one that stands (tdd
+        # The FIRST durable terminal decision is the one that stands (protocol spec
         # SS5); a later one is a losing racer's echo, never an overwrite.
         if first_terminal:
             self._resolved_approvals[approval_id] = params

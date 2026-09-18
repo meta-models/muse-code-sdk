@@ -1,6 +1,5 @@
-"""The SS4 client fold: item store, session-state store, and their
-composition ``SessionFold`` (spec 638 FR-638-007; port of
-``clients/sdk-ts/src/fold``)."""
+"""The client fold: item store, session-state store, and their
+composition ``SessionFold`` (port of the TypeScript SDK's fold)."""
 
 from __future__ import annotations
 

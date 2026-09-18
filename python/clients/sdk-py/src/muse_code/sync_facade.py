@@ -1,5 +1,4 @@
-"""The sync wrapper: a loop-runner over the asyncio facade (spec 638
-FR-638-021 / T034, INV-638-07; Scenario 7).
+"""The sync wrapper: a loop-runner over the asyncio facade.
 
 All protocol machinery lives once, in the async facade. This surface owns a
 PRIVATE event loop and delegates: every blocking verb runs its async twin to
@@ -7,19 +6,18 @@ completion on that loop, and the two turn iterators are the async iterators
 pumped one element per call. It re-implements nothing — the wire frames, the
 fold, and the typed errors are the async facade's own.
 
-The one machine this module introduces is the sync boundary (spec 638 "The
-close ladder and the sync boundary"): a verb called from a thread whose event
-loop is RUNNING is refused with an exact error naming the async facade
-(FM-638-4) — running the private loop there would nest loops or deadlock the
-caller's. A second concurrent VERB from another thread serializes on the
-private loop instead (Scenario 7 Edge Cases); ``close()`` is the one
+The one machine this module introduces is the sync boundary: a verb called
+from a thread whose event loop is RUNNING is refused with an exact error
+naming the async facade — running the private loop there would nest loops or
+deadlock the caller's. A second concurrent VERB from another thread
+serializes on the private loop instead; ``close()`` is the one
 exception — it refuses rather than queue behind a verb still pumping the
-loop (FM-638-8), because the queue-behind can be unbounded and the shutdown
+loop, because the queue-behind can be unbounded and the shutdown
 it carries is the only thing that would end it.
 
 This is the plain-script surface. Jupyter/IPython cells already run inside an
 event loop, so use :class:`~muse_code.facade.MuseClient` with top-level
-``await`` there — this wrapper refuses from async contexts (FM-638-4), as do
+``await`` there — this wrapper refuses from async contexts, as do
 long-lived programs already inside ``asyncio``.
 """
 
@@ -64,7 +62,7 @@ _I = TypeVar("_I")
 
 
 def _refuse_running_loop() -> None:
-    # FM-638-4: never a deadlock, never a nested-loop hack. Raised BEFORE the
+    # the governing rule: never a deadlock, never a nested-loop hack. Raised BEFORE the
     # private loop (or its lock) is touched, so the caller's own loop keeps
     # running — this also refuses a consumer HANDLER (which runs on the
     # private loop during a blocking verb) calling back into the sync surface,
@@ -84,12 +82,11 @@ class _LoopRunner:
     """The wrapper's private loop plus the ONE lock every member that touches
     loop-owned state goes through.
 
-    Two entry shapes, one mutual exclusion: :meth:`run` pumps the loop for a
-    blocking verb, and :meth:`call` executes a SYNCHRONOUS delegate (stream
-    registration, handle minting, SS4.13 retirement verbs) that reads or
+    Two entry shapes, one mutual exclusion::meth:`run` pumps the loop for a
+    blocking verb, and:meth:`call` executes a SYNCHRONOUS delegate that reads or
     mutates structures the loop's own tasks also touch — unlocked, a thread
     calling ``turn.items()`` while another thread's verb is pumping the loop
-    mutates the turn's stream set mid-iteration (PR #32315 review round 1).
+    mutates the turn's stream set mid-iteration.
     Both re-check ``closed`` UNDER the lock: ``close()`` flips it while
     holding the same lock, so a verb racing a close gets this class's own
     refusal, never "Event loop is closed" off a dead loop.
@@ -143,17 +140,17 @@ class _LoopRunner:
         REFUSED with an exact error instead of joining a possibly-unbounded
         wait: for the unbounded verbs the shutdown that would let the verb
         settle needs the loop this method cannot have until the verb settles
-        (PR #32315 review rounds 2 and 5). The repair is to let the verb
+        . The repair is to let the verb
         settle (or close from the thread that drives the verbs), then close.
 
         The teardown is a ``finally``: a shutdown that RAISES (a failing
         transport close on the ``create()`` path) still cancels the watcher
         tasks and closes the loop, so one fault cannot leak the loop and its
-        pending tasks forever (Constitution XIII; PR #32315 review round 2) —
+        pending tasks forever —
         the exception then propagates from an already-retired wrapper.
         """
         _refuse_running_loop()
-        # NEVER commit to a blocking acquire (PR #32315 review round 3, P0):
+        # NEVER commit to a blocking acquire:
         # `run()` takes the lock a few bytecodes before `run_until_complete`
         # marks the loop running, so a single is_running() read can see a
         # pre-pump holder as "between runs" and then block forever behind the
@@ -161,7 +158,7 @@ class _LoopRunner:
         # bounded miss instead: a pre-pump holder is observed the moment it
         # pumps and refused; a SETTLING holder (or a closing peer — `_closed`
         # is set under the lock before its shutdown ever pumps, so a running
-        # loop with `_closed` set is a bounded FR-638-017 shutdown, not a
+        # loop with `_closed` set is a bounded the governing rule shutdown, not a
         # stuck verb) is waited out and this close then no-ops.
         while not self._lock.acquire(timeout=0.05):
             if self._loop.is_running() and not self._closed:
@@ -195,14 +192,13 @@ class _LoopRunner:
 
 
 class SyncMuseClient(Generic[_I]):
-    """The blocking twin of :class:`~muse_code.facade.MuseClient` for plain
-    scripts (FR-638-021); async contexts — Jupyter cells included, since a
-    cell already runs inside a live loop — use ``MuseClient`` directly
-    (FM-638-4).
+    """The blocking twin of:class:`~muse_code.facade.MuseClient` for plain
+    scripts; async contexts — Jupyter cells included, since a
+    cell already runs inside a live loop — use ``MuseClient`` directly.
 
-    Get one from :meth:`spawn` (an owned host) or :meth:`create` (a client you
+    Get one from:meth:`spawn` (an owned host) or:meth:`create` (a client you
     compose yourself); every verb then blocks the calling thread while the
-    private loop runs the async facade. Call :meth:`close` to shut the host
+    private loop runs the async facade. Call:meth:`close` to shut the host
     down and release the loop.
     """
 
@@ -292,7 +288,7 @@ class SyncMuseClient(Generic[_I]):
         )
 
     def wait_exit(self) -> ExitClassification:
-        """Block until the owned host exits; its SS2.11 row (twin of ``exit``)."""
+        """Block until the owned host exits; its the protocol row (twin of ``exit``)."""
 
         async def wait() -> ExitClassification:
             # The awaitable PROPERTY is read inside the loop: accessing it may
@@ -302,13 +298,12 @@ class SyncMuseClient(Generic[_I]):
         return self._runner.run(wait())
 
     def close(self) -> None:
-        """Shut the host down (SS2.1.2), then retire the private loop.
+        """Shut the host down, then retire the private loop.
 
         Idempotent. A close racing a SETTLING verb serializes behind it; a
         close while another thread is still PUMPING the loop in ANY verb is
         refused with an exact error — let that verb settle (or close from the
-        thread that drives the verbs) first (FM-638-8; see
-        ``_LoopRunner.close``).
+        thread that drives the verbs) first.
         """
         self._runner.close(self._client.close)
 
@@ -361,13 +356,13 @@ class SyncSession(Generic[_I]):
         NOT serialized against another thread's verb: the loop thread mutates
         these structures whenever a verb pumps, so read them from the thread
         driving the verbs, or after that verb returns — a concurrent reader
-        can see a mid-fold mutation (PR #32315 review round 5).
+        can see a mid-fold mutation.
         """
         return self._session.fold
 
     @property
     def pending(self) -> PendingCommandView[_I]:
-        """The SS4.13 set's read/safe-drive view; same threading caveat as
+        """The the protocol set's read/safe-drive view; same threading caveat as
         :attr:`fold` — read from the verb-driving thread."""
         return self._session.pending
 
@@ -385,7 +380,7 @@ class SyncSession(Generic[_I]):
         )
 
     def on_approval(self, handler: ApprovalHandler) -> None:
-        """Answer approvals with ``handler`` (FR-638-019b), unchanged."""
+        """Answer approvals with ``handler``, unchanged."""
         self._session.on_approval(handler)
 
     def on_approval_error(self, handler: ApprovalFailureHandler) -> None:
@@ -393,17 +388,17 @@ class SyncSession(Generic[_I]):
         self._session.on_approval_error(handler)
 
     def on_gap_error(self, handler: GapFillFailureHandler) -> None:
-        """Observe SS4.8 fills that did not complete."""
+        """Observe the protocol fills that did not complete."""
         self._session.on_gap_error(handler)
 
     def stop_retrying(self, command_id: str) -> PendingRetirement[_I] | None:
-        """SS4.13 "Abandoned": stop one entry's retry loop (sync, locked)."""
+        """the protocol "Abandoned": stop one entry's retry loop (sync, locked)."""
         return self._runner.call(lambda: self._session.stop_retrying(command_id))
 
     def replay_answered(
         self, command_id: str, answer: ReplayAnswer[_I]
     ) -> PendingRetirement[_I] | Literal["held"]:
-        """Feed a consumer-driven replay's answer through the SS4.13 rules."""
+        """Feed a consumer-driven replay's answer through the protocol rules."""
         return self._runner.call(
             lambda: self._session.replay_answered(command_id, answer)
         )
@@ -439,7 +434,7 @@ class SyncTurn:
         return self._turn.observed_start
 
     def completed(self) -> TurnOutcome:
-        """Block for the SS3.1.4 turn-wait; settles on a server-authored fact
+        """Block for the protocol turn-wait; settles on a server-authored fact
         (a method where the async twin is an awaitable property — a blocking
         property read would hide an unbounded wait behind attribute access).
         """
@@ -461,7 +456,7 @@ class SyncTurn:
         started) and is reclaimed when the turn settles — the same bound the
         async surface has for a dropped, never-read stream. Registration stays
         AT CALL TIME so the replay snapshot point matches the async twin
-        (PR #32315 review round 2)."""
+        ."""
         return self._drain(self._runner.call(self._turn.items))
 
     def deltas(self) -> Iterator[ItemDeltaParams]:
@@ -474,7 +469,7 @@ class SyncTurn:
         # A plain generator: `for … break` (or an explicit .close()) runs the
         # finally and deregisters the stream, so a consumer that stops early
         # does not leave the fan-out buffering into a stream nobody reads —
-        # the sync twin of `contextlib.aclosing` (PR #32315 review round 1).
+        # the sync twin of `contextlib.aclosing`.
         try:
             while True:
                 try:

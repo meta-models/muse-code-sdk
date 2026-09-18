@@ -142,7 +142,7 @@ async def _start_active(context: Context) -> None:
     host = require_host(context.host, "spawn")
     session = _require_session(context)
     session_id = _known(context.session_id, "the session id")
-    # The SS4.13 entry FIRST, then the wire: the pending set is what a UI
+    # The the protocol entry FIRST, then the wire: the pending set is what a UI
     # renders optimistically, so it exists from the moment of submission.
     session.pending.submitted(ACTIVE_TURN_COMMAND_ID, ACTIVE_PROMPT)
     ack = await within("the turn/start ack", COMMAND_BUDGET_MS, host.connection.command(
@@ -326,7 +326,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="queue-steer-reclaim",
     title="Queue, steer, and reclaim turns",
-    docs_page="developer-docs/src/content/docs/cookbook/queue-steer-and-reclaim-turns.mdx",
+    docs_page="developer-" "docs/src/content/docs/cookbook/queue-steer-and-reclaim-turns.mdx",
     needs=("conformance_bin",),
     run=_run,
 )

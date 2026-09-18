@@ -1,15 +1,14 @@
-"""The ephemeral-profile host-death discard obligation, client side (spec 638
-FR-638-019d carrying spec 14990 FM-002 / Scenario 4.3; tdd SS2.13, SS4.4.3).
+"""The ephemeral-profile host-death discard obligation, client side.
 
-Port of ``clients/sdk-ts/src/facade/host-death.ts``. Slice S1/S2 landed the
-two STORE-LEVEL primitives with no production callers:
+Port of the TypeScript SDK's host-death module. The stores landed the
+two STORE-LEVEL primitives first, with no production callers:
 :meth:`~muse_code.pending.PendingCommandSet.discard_ephemeral` and
 :meth:`~muse_code.fold.ItemStore.mark_ephemeral_host_death`. This module holds
 the two facts the stores deliberately do not know — which durability profile
 the handshake declared, and whether a given process exit was abnormal — and
 :class:`~muse_code.facade.session.Session` composes them into the discharge.
 
-The stores stay wire-shape-blind (INV-638-01): the ``Item`` probe lives here,
+The stores stay wire-shape-blind: the ``Item`` probe lives here,
 where it reads the generated ``ItemStatus`` vocabulary.
 """
 
@@ -56,14 +55,14 @@ class _Ephemeral:
 
 @dataclass(frozen=True)
 class _Unrecognized:
-    """An open-enum value this SDK predates. Guarantees nothing (SS2.13.1)."""
+    """An open-enum value this SDK predates. Guarantees nothing."""
 
     value: str
     kind: Literal["unrecognized"] = "unrecognized"
 
 
 SessionDurabilityProfile = Union[_Durable, _Ephemeral, _Unrecognized]
-"""Which durability profile the host declared at the handshake (SS2.13.1).
+"""Which durability profile the host declared at the handshake.
 
 Absent and declared-``durable`` collapse to ONE reading on purpose: nothing
 downstream needs to tell them apart, and a ``source`` discriminator would be a
@@ -72,14 +71,14 @@ field carried for a future that has not arrived.
 
 
 def read_session_durability(result: InitializeResult) -> SessionDurabilityProfile:
-    """Reads ``sessionDurability`` off the handshake result (SS2.13.1).
+    """Reads ``sessionDurability`` off the handshake result.
 
     Two readings are easy to conflate and must not be:
 
     - ABSENT reads as ``durable``, decidable rather than fabricated: the
-      member is optional only so the addition was additive (SS1.5.4), and no
+      member is optional only so the addition was additive, and no
       server that omits it has the ephemeral profile.
-    - An UNRECOGNIZED value is NOT durable. SS2.13.1: a client that does not
+    - An UNRECOGNIZED value is NOT durable. The protocol: a client that does not
       know the value must infer no durability guarantee from it and must not
       fall through to the absent-means-durable rule — that rule keys on the
       member being MISSING, not on its value being unfamiliar. The open enum
@@ -106,17 +105,17 @@ def survives_host_death(profile: SessionDurabilityProfile) -> bool:
 
 @dataclass(frozen=True)
 class TransportEof:
-    """The transport reached EOF with no orderly SS2.1.2 close (FR-638-019d).
+    """The transport reached EOF with no orderly protocol close.
 
-    SS2.13.3b names TWO notifications of a host death — process exit OR
+    The protocol names TWO notifications of a host death — process exit OR
     transport EOF — and only the exit half was implementable while nothing in
     this SDK owned the close. A host that closes stdout while still hung emits
     no exit on the timescale that matters, so without this arm its session
     never discharged: every pending command sat as the durable-looking echo
-    SS4.13 forbids, and every turn wait hung.
+    the protocol forbids, and every turn wait hung.
 
     It carries no evidence fields, and that is the honest shape: EOF IS the
-    whole observation. The stderr tail and the SS2.11 row belong to the
+    whole observation. The stderr tail and the protocol row belong to the
     process boundary, which has not reported yet — and when it does,
     :meth:`Session.host_exited` latches the FIRST discharge, so a later exit
     replays the EOF's report rather than overwriting it with a richer one.
@@ -147,9 +146,9 @@ the only gate that constructs a :class:`MuseHostDiedError`, and it refuses a
 
 
 def is_abnormal_host_death(notification: HostDeathNotification) -> bool:
-    """Was this notification an abnormal death (SS2.13.3b)?
+    """Was this notification an abnormal death?
 
-    Exit 0 (``cleanShutdown``) is the ONLY SS2.11 row where the run was
+    Exit 0 (``cleanShutdown``) is the ONLY the protocol row where the run was
     cancelled, the drain completed, and the durable ``SessionEnd`` records
     were written. Every other row — including tidy-looking names like
     ``configError`` — left no ``SessionEnd``, which is what "abnormal" means
@@ -184,7 +183,7 @@ def is_item_in_progress(item: Item) -> bool:
 
 
 class MuseHostDiedError(Exception):
-    """A durable host died abnormally: its terminals arrive on resume (FM-001).
+    """A durable host died abnormally: its terminals arrive on resume.
 
     Attributes:
         exit: The abnormal notification (never a ``cleanShutdown``).

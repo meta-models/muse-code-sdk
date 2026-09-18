@@ -1,8 +1,7 @@
 """What an ephemeral host death discarded, remembered ACROSS the sessions one
-client opened (spec 638 FR-638-019d carrying spec 14990 T030 obligation (c);
-tdd SS2.13.3b). Port of ``clients/sdk-ts/src/facade/discarded.ts``.
+client opened. Port of the TypeScript SDK's discarded-sessions module.
 
-SS2.13.3b's five-clause MUST includes "do not attempt to reattach" and "do
+The protocol's host-death clause includes "do not attempt to reattach" and "do
 not replay the session's ``commandId``\\ s". Both are statements about what
 the CLIENT does next, and "next" outlives the session object that died:
 
@@ -14,7 +13,7 @@ the CLIENT does next, and "next" outlives the session object that died:
 - nothing at all held the discarded ``sessionId``, so ``resume_session`` had
   no fact to withhold on.
 
-This is client state, never a wire shape and never durable (INV-638-05): it
+This is client state, never a wire shape and never durable: it
 lives exactly as long as the ``MuseClient`` that owns it. It is deliberately
 NOT a module-global — two clients in one process are two independent trust
 boundaries, and a process-wide set would let one client's dead host silence

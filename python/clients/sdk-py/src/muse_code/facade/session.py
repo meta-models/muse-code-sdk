@@ -1,15 +1,14 @@
-"""``Session`` — the SS7.1 facade's composition of the transport-less core
-(spec 638 FR-638-019a / T030, FR-638-019d / T033). Port of the session half of
-``clients/sdk-ts/src/facade/session.ts``.
+"""``Session`` — the facade's composition of the transport-less core. Port of
+the session half of the TypeScript SDK's facade.
 
 It owns a :class:`~muse_code.fold.SessionFold` and a
 :class:`~muse_code.pending.PendingCommandSet`, routes folded view events to
 per-turn handles, and discharges the ephemeral host-death obligation. Like
-everything else in this SDK it holds no durable state (INV-638-05): every fact
+everything else in this SDK it holds no durable state: every fact
 it reports came from a server event or from the two stores it composes.
 
-The FR-638-019b approval round trip lives in ``approval.py`` (T031) and the
-FR-638-019c SS4.8 splice-fill in ``gap_fill.py`` (T032); this layer composes
+The approval round trip lives in ``approval.py`` and the gap
+splice-fill in ``gap_fill.py``; this layer composes
 both because the round trips need client->server I/O and the buffer the fill
 splices is the same routing path the iterators read.
 """
@@ -281,8 +280,8 @@ class SessionApplyRefusal:
 
 @dataclass(frozen=True)
 class SessionGapBuffered:
-    """``Session.apply``'s other own verdict: a frame held while an SS4.8 fill
-    is in flight (FR-638-019c / T032).
+    """``Session.apply``'s other own verdict: a frame held while the protocol fill
+    is in flight.
 
     NOT a ``FoldOutcome`` — the fold has not seen this frame yet and reporting
     one would state a fold move that has not happened. The frame is not lost:
@@ -300,14 +299,14 @@ class SessionGapBuffered:
 
 @dataclass(frozen=True)
 class SessionGapOverlap:
-    """A live frame the SS4.8 fill already applied from a page — the other
+    """A live frame the protocol fill already applied from a page — the other
     half of the recipe's overlap discard.
 
     The wire promises no order between a ``view/gap`` and the frame at its
     ``next``, so the live twin of an event the page served can arrive after
     the fill finished, when the buffer is gone. Refused once, by cursor
     equality, because folding it again would re-run its routing — a duplicate
-    SS4.13 queue-movement replay on the wire, which is exactly what the
+    the protocol queue-movement replay on the wire, which is exactly what the
     discard exists to prevent.
 
     Attributes:
@@ -328,18 +327,16 @@ class SessionApplyOutcome(Generic[_I]):
     Attributes:
         fold: The fold's own outcome, or this layer's own verdict (the
             discard refusal, the mid-fill buffering, the overlap refusal).
-        retirements: The SS4.13 pending-command retirements the event
-            triggered synchronously. ONE stated exception (FR-638-019c): a
-            frame HELD during an SS4.8 fill reports ``bufferedDuringGap`` with
+        retirements: The the protocol pending-command retirements the event
+            triggered synchronously. ONE stated exception: a
+            frame HELD during the protocol fill reports ``bufferedDuringGap`` with
             no retirements, because at that moment nothing has folded — its
             real effects surface on the ``io`` of the EARLIER ``view/gap``
             apply that started the fill, never on the buffered frame's own
             return. A second ``view/gap`` landing mid-fill rides the same
             channel: it extends the running walk, so its own ``io`` is empty.
         io: The client->server I/O this event triggered, settled — resolves to
-            the retirements that I/O produced (the SS4.13 replays queue
-            movement demands, FR-638-019b's ``approval/decide`` submission,
-            and the FR-638-019c fill). A SEPARATE channel from
+            the retirements that I/O produced. A SEPARATE channel from
             ``retirements`` because ``apply`` is synchronous by contract: a
             consumer's notification pump must not await a round trip before it
             can fold the next frame. IT NEVER REJECTS — a replay whose
@@ -359,9 +356,9 @@ class Session(Generic[_I]):
 
     A session folds every server event into readable state — items, turns,
     session facts, pending approvals — and submits your side of the exchange.
-    Get one from :meth:`MuseClient.start_session` or ``resume_session``, then
+    Get one from:meth:`MuseClient.start_session` or ``resume_session``, then
     ``send_user_turn`` to talk, ``turn`` to follow a turn's items to its
-    outcome, and (from slice T031) ``on_approval`` to answer permission
+    outcome, and ``on_approval`` to answer permission
     requests.
     """
 
@@ -378,7 +375,7 @@ class Session(Generic[_I]):
 
         Args:
             session_id: The server-named session id every event must carry.
-            durability: Whether this session survives its host (SS2.13.3b).
+            durability: Whether this session survives its host.
                 Required, not defaulted: it decides what happens to every
                 in-flight item and command when the host dies, and a default
                 would let a caller skip reading the handshake and silently
@@ -389,9 +386,9 @@ class Session(Generic[_I]):
                 transport-less arm in this package builds a ``Session`` with no
                 host at all.
             discarded: What an ephemeral host death already discarded, shared
-                across the sessions ONE client opened (T030 obligation (c)).
+                across the sessions ONE client opened (its task obligation (c)).
                 Omitted, this session remembers only its own discards.
-            opening: Set by ``MuseClient``; see :data:`SessionOpening`.
+            opening: Set by ``MuseClient``; see:data:`SessionOpening`.
         """
         self.session_id = session_id
         self.opening = opening
@@ -407,9 +404,9 @@ class Session(Generic[_I]):
         self._submit: TurnSubmitter[_I] = TurnSubmitter(
             session_id, connection, self._pending
         )
-        # The FR-638-019b round trip (``approval.py``).
+        # The the governing rule round trip (``approval.py``).
         self._approvals = ApprovalRouter(session_id, connection)
-        # The FR-638-019c splice-fill (``gap_fill.py``).
+        # The the governing rule splice-fill (``gap_fill.py``).
         self._gaps: GapFiller[_I] = GapFiller(
             GapFillerOptions(
                 session_id=session_id,
@@ -424,7 +421,7 @@ class Session(Generic[_I]):
         )
         self._turns: dict[str, TurnHandle] = {}
         # ``item/delta`` frames whose item the fold does not hold yet: the
-        # store buffers the delta TEXT (SS4.7.3) but a delta's TURN is equally
+        # store buffers the delta TEXT but a delta's TURN is equally
         # unknowable until the item lands, so the frames wait here and are
         # attributed when it does. Bounded by the durable ``item/completed``
         # that always lands the item.
@@ -447,7 +444,7 @@ class Session(Generic[_I]):
 
     @property
     def pending(self) -> PendingCommandView[_I]:
-        """The SS4.13 set's read/safe-drive view. The three mutators ``Session``
+        """The the protocol set's read/safe-drive view. The three mutators ``Session``
         drives itself and the two re-exposed as session methods are hidden;
         drive those through this session's verbs, which keep the submitter's
         replay memory in step."""
@@ -482,7 +479,7 @@ class Session(Generic[_I]):
             MuseForeignSessionError: The frame names a different session.
         """
         # Only enforce when the frame actually NAMES a session: a newer host's
-        # unknown notification reaches this at runtime and SS1.5.4 tolerates it
+        # unknown notification reaches this at runtime and the protocol tolerates it
         # losslessly, so an unconditional read would throw on it.
         params = event.get("params")
         named = params.get("sessionId") if isinstance(params, dict) else None
@@ -498,7 +495,7 @@ class Session(Generic[_I]):
         # (ItemStore's own guard covers only ITEM events, so a post-discharge
         # ``turn/completed`` once settled a fresh turn on a discarded session).
         # REFUSED, not thrown — throwing killed the consumer's pump on a single
-        # trailing drain frame. SS2.13.3b requires that nothing fold; it does
+        # trailing drain frame. the protocol requires that nothing fold; it does
         # not require an exception.
         if self._discharge is not None and self._discharge.kind == "discharged":
             return SessionApplyOutcome(
@@ -507,8 +504,8 @@ class Session(Generic[_I]):
                 io=_settled_io([]),
             )
 
-        # An SS4.8 fill is in flight, so the live tail waits for the paged
-        # prefix (tdd SS4.8's "buffer live events … splice the buffer after
+        # An the protocol fill is in flight, so the live tail waits for the paged
+        # prefix (the protocol spec's "buffer live events … splice the buffer after
         # the paged prefix"). Folding it now would run the fold backwards when
         # the older paged events land, and would hand the iterators the tail
         # before the hole they follow. The MARKER itself is exempt: a second
@@ -539,7 +536,7 @@ class Session(Generic[_I]):
 
         sink: DrainSink[_I] = DrainSink(retirements=[], tasks=[])
         outcome = self._fold_and_route(event, sink)
-        # FR-638-019c: recover before this fold may call itself current again.
+        # the governing rule: recover before this fold may call itself current again.
         # Started HERE rather than inside the routing arms because it is the
         # one arm besides approvals that authors client→server I/O off a
         # notification, and ``io`` is the channel that carries it. ``None``
@@ -558,7 +555,7 @@ class Session(Generic[_I]):
         )
 
     def on_gap_error(self, handler: GapFillFailureHandler) -> None:
-        """Observe SS4.8 fills that did not complete. See
+        """Observe the protocol fills that did not complete. See
         :class:`~muse_code.errors.MuseGapFillError`."""
         self._gaps.on_error(handler)
 
@@ -568,11 +565,11 @@ class Session(Generic[_I]):
         # The shared path: ``apply`` uses it for a live frame, and ``GapFiller``
         # uses it to re-feed the paged prefix and the buffered tail. One path
         # is what makes a spliced frame indistinguishable from a live one to
-        # everything downstream — the fold, the iterators, and the SS4.13
+        # everything downstream — the fold, the iterators, and the protocol
         # retirements.
         retirements: List[PendingRetirement[_I]] = []
         outcome = self._fold.apply(event)
-        # The fold drops a params-less frame as IgnoredMissingParams (SS1.5.4);
+        # The fold drops a params-less frame as IgnoredMissingParams;
         # the arms below read ``params`` on the turn/item arms, so return early.
         method = str(event.get("method"))
         params = event.get("params")
@@ -580,7 +577,7 @@ class Session(Generic[_I]):
             return outcome
 
         if method in ("item/started", "item/updated", "item/completed"):
-            # A stale re-emission changed nothing (INV-003), so it yields none.
+            # A stale re-emission changed nothing, so it yields none.
             if isinstance(outcome, ItemFold) and not isinstance(
                 outcome.outcome, IgnoredStaleRevision
             ):
@@ -599,7 +596,7 @@ class Session(Generic[_I]):
             self._handle(str(params["turnId"])).settle_unqueued(
                 cast(TurnUnqueuedParams, params)
             )
-            # SS4.13 "Reclaimed": the reclaim this client just observed retires
+            # the protocol "Reclaimed": the reclaim this client just observed retires
             # the entry NOW, with its input restored to the composer.
             command_id = params.get("commandId")
             if isinstance(command_id, str):
@@ -607,7 +604,7 @@ class Session(Generic[_I]):
                 if reclaimed is not None:
                     retirements.append(reclaimed)
         elif method == "approval/requested":
-            # FR-638-019b's outbound half. Gated on the fold's own verdict: a
+            # the governing rule's outbound half. Gated on the fold's own verdict: a
             # request the fold IGNORED (a redelivery for an approval already
             # durably resolved) must author no decision — no second resolution
             # is coming, so a decide against it can only bounce.
@@ -618,7 +615,7 @@ class Session(Generic[_I]):
         # ``view/gap`` deliberately routes to no turn: it names a hole in
         # DELIVERY, so what it moves is the fold's currency, and the recovery
         # it triggers is started by ``apply`` off the ``DeliveryGap`` verdict
-        # rather than from here (FR-638-019c). Every other method is folded
+        # rather than from here. Every other method is folded
         # but routed to no turn.
 
         # The retired entries are gone from the set, so their replay memory
@@ -635,8 +632,8 @@ class Session(Generic[_I]):
         wait registered late resolves instead of hanging on an event that has
         passed. A CONSUMER asking about a turn this session has no news of,
         after the host died, must not hang: no answer is coming on this
-        connection (the SS3.1.4 trap SS2.13.3b's "stop waiting" forbids).
-        Server-minted handles deliberately skip this — see :meth:`_handle`.
+        connection.
+        Server-minted handles deliberately skip this — see:meth:`_handle`.
         """
         held = self._turns.get(turn_id)
         if held is not None:
@@ -651,7 +648,7 @@ class Session(Generic[_I]):
     def _handle(self, turn_id: str) -> TurnHandle:
         # A handle minted because a SERVER FRAME named this turn. Never
         # pre-failed, and that is what makes the post-death behaviour
-        # order-independent (a durable death does not stop the fold, FM-001, so
+        # order-independent (a durable death does not stop the fold, the governing rule, so
         # frames still arrive for a turn with no handle yet). A frame arriving
         # IS the connection still speaking; ``turn()`` keeps the latch for the
         # case that genuinely is a waiter with no answer coming.
@@ -667,16 +664,16 @@ class Session(Generic[_I]):
         self, exit_notification: HostDeathNotification
     ) -> HostDeathDischarge[_I]:
         """A host process exited or the transport reached EOF; classify it, and
-        discharge SS2.13.3b if the profile demands it (T033, FR-638-019d).
+        discharge the protocol if the profile demands it.
 
         REPORT EVERY NOTIFICATION OF THE DEATH — the exit AND transport EOF. A
         repeat report of an already-latched death is not a no-op: it marks END
         OF DRAIN and settles waits the drain minted after the first report. A
         consumer that dedupes and reports the death once leaves those waits
-        pending forever (FM-001).
+        pending forever.
 
         Args:
-            exit_notification: The SS2.11 exit classification, or the
+            exit_notification: The the protocol exit classification, or the
                 transport EOF.
 
         Returns:
@@ -700,7 +697,7 @@ class Session(Generic[_I]):
             return self._discharge
 
         if survives_host_death(profile):
-            # FM-001: the stores are left exactly as observed — the terminals
+            # the governing rule: the stores are left exactly as observed — the terminals
             # arrive on resume — so only the waiters are told.
             died = MuseHostDiedError(exit_notification)
             self._death_error = died
@@ -715,7 +712,7 @@ class Session(Generic[_I]):
         )
         for handle in self._turns.values():
             handle.settle_terminal_unknown()
-        # SS2.13.3b "do not attempt to reattach". ``discard_ephemeral`` already
+        # the protocol "do not attempt to reattach". ``discard_ephemeral`` already
         # wrote the commandIds into the shared set (it holds it by reference);
         # the sessionId is this layer's to record, because the pending set does
         # not know one. ``MuseClient.resume_session`` is the reader.
@@ -741,10 +738,10 @@ class Session(Generic[_I]):
         for handle in self._turns.values():
             handle.fail(self._death_error)
 
-    # ---- FR-638-019a submit verb (T030 obligation a) ------------------------
+    # ---- the governing rule submit verb ------------------------
 
     async def send_user_turn(self, options: SendUserTurnOptions[_I]) -> Turn:
-        """Submit a user turn (tdd SS3.2) and hand back THIS session's handle
+        """Submit a user turn and hand back THIS session's handle
         for the turn the ack named.
 
         The returned handle is the one ``apply`` already routes events to — not
@@ -760,10 +757,10 @@ class Session(Generic[_I]):
         ack = await self._submit.submit(options, self._last_folded_item_id())
         return self._handle(ack["turnId"])
 
-    # ---- FR-638-019b approval round trip (T031) ------------------------------
+    # ---- the governing rule approval round trip ------------------------------
 
     def on_approval(self, handler: ApprovalHandler) -> None:
-        """Answer approvals with ``handler`` (FR-638-019b). See
+        """Answer approvals with ``handler``. See
         :class:`~muse_code.facade.approval.ApprovalRouter`."""
         self._approvals.on_approval(handler)
 
@@ -772,11 +769,10 @@ class Session(Generic[_I]):
         :data:`~muse_code.facade.approval.ApprovalFailure`."""
         self._approvals.on_approval_error(handler)
 
-    # ---- consumer-driven SS4.13 retirement verbs ----------------------------
+    # ---- consumer-driven the protocol retirement verbs ----------------------------
 
     def stop_retrying(self, command_id: str) -> PendingRetirement[_I] | None:
-        """Stop the SS3.1.1 retry loop for one entry and take its input back
-        (SS4.13 "Abandoned").
+        """Stop the protocol retry loop for one entry and take its input back.
 
         A session method rather than a ``pending`` view member: the retirement
         must also prune the submitter's replay memory, or the abandoned
@@ -790,23 +786,23 @@ class Session(Generic[_I]):
     def replay_answered(
         self, command_id: str, answer: ReplayAnswer[_I]
     ) -> PendingRetirement[_I] | Literal["held"]:
-        """Feed a consumer-driven replay's answer through the live SS4.13
+        """Feed a consumer-driven replay's answer through the live the protocol
         settlement rules. ``"held"`` means the answer settled nothing."""
         settled = self._pending.replay_answered(command_id, answer)
         if settled != "held":
             self._submit.forget_retired([settled])
         return settled
 
-    # ---- SS4.13 drivers that need client->server I/O (T030 obligation d) ----
+    # ---- the protocol drivers that need client->server I/O ----
 
     async def resolve_snapshot_join(
         self, facts: SnapshotJoinFacts
     ) -> tuple[PendingRetirement[_I], ...]:
         """Resolve a snapshot join by performing the I/O its plan demands
-        (SS4.13, SS4.9): same-``commandId`` resubmits FIRST, then the replays,
+        : same-``commandId`` resubmits FIRST, then the replays,
         then the reclaimed-signature verdict.
 
-        The order is normative: SS4.13 requires an unacked entry be resubmitted
+        The order is normative: the protocol requires an unacked entry be resubmitted
         before any retire-to-composer, because a join miss does not prove the
         intake was never written.
         """
@@ -857,9 +853,9 @@ class Session(Generic[_I]):
         turn_id: str,
         tasks: List[Awaitable[tuple[PendingRetirement[_I], ...]]],
     ) -> None:
-        # SS4.13 "Queue movement": a ``turn/started``/``turn/completed`` for a
+        # the protocol "Queue movement": a ``turn/started``/``turn/completed`` for a
         # turn that is not an entry's own decides that entry's fate at a launch
-        # boundary, and SS4.3 carries no view event for a command-intake
+        # boundary, and the protocol carries no view event for a command-intake
         # settlement — so the only way to learn it is to replay.
         if not self._submit.wired:
             return
@@ -893,7 +889,7 @@ class Session(Generic[_I]):
     ) -> None:
         decided = self._approvals.requested(params)
         # An approval decision retires no pending command — it is not an
-        # SS4.13 entry — but it still has to be awaitable through the same
+        # the protocol entry — but it still has to be awaitable through the same
         # ``io``, or a consumer has no barrier for the round trip it just
         # triggered.
         if decided is not None:
@@ -909,7 +905,7 @@ class Session(Generic[_I]):
     def _item_folded(
         self, item: Item, retirements: List[PendingRetirement[_I]]
     ) -> None:
-        # SS4.13 "Materialized": the commandId-bearing ``userMessage`` landed,
+        # the protocol "Materialized": the commandId-bearing ``userMessage`` landed,
         # so the optimistic entry is replaced by the real item at the item's
         # own position (item ids and command ids are separate namespaces).
         command_id = item.get("commandId")

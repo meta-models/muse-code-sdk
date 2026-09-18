@@ -1,5 +1,5 @@
 """Segment results and the expect-block contract — the Python twin of
-``clients/sdk-cookbook/src/kit/segments.ts`` (spec 638 FR-638-022 / T040).
+``clients/sdk-cookbook/src/kit/segments.ts``.
 
 The journey runs every segment for real. A segment that today cannot pass
 because of a named open issue carries an ``expect_block``. The block never
@@ -53,7 +53,7 @@ class Segment(Generic[_C]):
     """One named step of the journey.
 
     Attributes:
-        id: The step's stable id — the step-parity unit (FR-638-022).
+        id: The step's stable id — the step-parity unit.
         title: Plain-words title, used verbatim in the printed report.
         run: Runs the real work and raises on any failed assertion.
         expect_block: Present only while a named open issue stops this
@@ -132,10 +132,10 @@ async def run_segment(
 
 @dataclass(frozen=True)
 class SyncSegment(Generic[_C]):
-    """One named step of the SYNC journey rewrite (Scenario 7.1).
+    """One named step of the SYNC journey rewrite.
 
-    A separate shape rather than a union on :class:`Segment`: the sync verbs
-    refuse from a thread with a running event loop (FM-638-4), so the sync
+    A separate shape rather than a union on:class:`Segment`: the sync verbs
+    refuse from a thread with a running event loop, so the sync
     runner below must be a plain function — typing the run callable
     ``async`` here would reintroduce the loop the rewrite exists to not have.
     """
@@ -173,8 +173,8 @@ def run_sync_journey(
     context: _C,
     teardown: Callable[[_C], None],
 ) -> JourneyReport:
-    """The blocking twin of :func:`run_journey` — no event loop anywhere on
-    the calling thread, which is exactly the consumer shape Scenario 7.1
+    """The blocking twin of:func:`run_journey` — no event loop anywhere on
+    the calling thread, which is exactly the consumer shape its acceptance scenario
     reruns the narrative under."""
     results: List[SegmentResult] = []
     try:
@@ -194,7 +194,7 @@ async def run_journey(
 
     The ``finally`` is the risky part every journey would otherwise
     hand-copy: a journey that forgets it never asks its spawned host to shut
-    down (the TS kit's #24319 lesson, kept verbatim).
+    down.
     """
     results: List[SegmentResult] = []
     try:

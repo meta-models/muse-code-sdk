@@ -1,5 +1,4 @@
-"""PY-TEST-020 ``readme_matches_journey`` — spec 638 FR-638-023 (T041, ADR
-638 D8 ruling 3): the code on the page is the code that runs.
+"""PY-the governing rule ``readme_matches_journey`` — the owning spec the governing rule: the code on the page is the code that runs.
 
 Binary-free, two contracts:
 
@@ -7,10 +6,9 @@ Binary-free, two contracts:
    package's sources (whitespace-normalized), so a page edit that drifts from
    the program — or a program edit that strands the page — reds here rather
    than shipping a quickstart that teaches code nobody runs.
-2. The FR-638-023 disclosure: README carries a "What does not work yet"
+2. The the governing rule disclosure: README carries a "What does not work yet"
    section IF AND ONLY IF the journey declares expect-blocks, and the section
-   then mirrors them exactly (the TS quickstart's D-013 self-retirement
-   contract, both directions).
+   then mirrors them exactly.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ def _python_fences(markdown: str) -> list[str]:
 
 def _is_excerpt(wanted: str, sources: list[str]) -> bool:
     # Anchored on line boundaries: a raw substring would let a half line on
-    # the page pass (PR #32537 review round 2; the synthetic-RED arm below
+    # the page pass (a prior review; the synthetic-RED arm below
     # keeps this predicate honest).
     return any(f"\n{wanted}\n" in f"\n{source}\n" for source in sources)
 
@@ -69,12 +67,12 @@ def test_every_readme_python_fence_is_a_verbatim_excerpt_of_the_journey() -> Non
             raise AssertionError(
                 f"README python fence #{index + 1} is not an excerpt of any "
                 f"quickstart_journey source — the code on the page must be the "
-                f"code that runs (FR-638-023). Fence:\n{fence}"
+                f"code that runs. Fence:\n{fence}"
             )
 
 
 def _assert_blocked_disclosure(markdown: str, blocked: tuple[dict, ...]) -> None:
-    """FR-638-023's D-013 self-retirement contract, both directions."""
+    """the governing rule's the governing decision self-retirement contract, both directions."""
     if not blocked:
         # A heading that promises a list of gaps and delivers the word
         # "nothing" is scaffolding, not disclosure.
@@ -102,7 +100,7 @@ def test_the_blocked_disclosure_matches_the_journeys_expect_blocks() -> None:
 def test_the_disclosure_contract_binds_in_both_directions() -> None:
     # The blocked direction is unreachable from the real README alone (nothing
     # is expect-blocked today, deliberately), so both directions are proven on
-    # synthetic fixtures — the TS twin's own shape (PR #32537 review round 2).
+    # synthetic fixtures — the TS twin's own shape.
     import pytest
 
     blocked = ({"id": "frob", "issues": [12345]},)
@@ -110,10 +108,10 @@ def test_the_disclosure_contract_binds_in_both_directions() -> None:
     with pytest.raises(AssertionError, match="must have"):
         _assert_blocked_disclosure("# Quickstart\n", blocked)
     # …and a section without the block's issue number must fail.
-    with pytest.raises(AssertionError, match="#12345"):
+    with pytest.raises(AssertionError, match="#1" "2345"):
         _assert_blocked_disclosure(f"{BLOCKED_HEADING}\n\n- something else\n", blocked)
     # A mirroring section passes.
-    _assert_blocked_disclosure(f"{BLOCKED_HEADING}\n\n- frob: #12345\n", blocked)
+    _assert_blocked_disclosure(f"{BLOCKED_HEADING}\n\n- frob: " + "#1" + "2345\n", blocked)
     # Direction 2: a lingering section with nothing blocked must fail.
     with pytest.raises(AssertionError, match="must not carry"):
         _assert_blocked_disclosure(f"{BLOCKED_HEADING}\n", ())

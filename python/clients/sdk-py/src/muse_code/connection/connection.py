@@ -1,11 +1,10 @@
-"""Duplex-agnostic MSP NDJSON connection (spec 638 FR-638-011..015).
+"""Duplex-agnostic MSP NDJSON connection.
 
-Faithful asyncio port of ``clients/sdk-ts/src/connection/connection.ts``
-(spec 14990 FR-012/014/015/016). The transport supplies decoded UTF-8 text
-chunks; chunks may be empty and may split anywhere — Python strings are
-whole code points, so the TS surrogate-pair byte reconciliation has no twin
-here (spec 638 Edge Cases): the running byte count is exact by construction
-and stays O(bytes) per chunk.
+Faithful asyncio port of the TypeScript SDK's connection module. The
+transport supplies decoded UTF-8 text chunks; chunks may be empty and may
+split anywhere — Python strings are whole code points, so the TS
+surrogate-pair byte reconciliation has no twin here: the running byte count
+is exact by construction and stays O(bytes) per chunk.
 
 One deliberate adaptation, noted per the port rules: in TS "invoking
 ``write()`` IS submission" because the transport's synchronous prefix runs
@@ -74,7 +73,7 @@ RetryDelay = Callable[[int, "MspError"], Awaitable[None]]
 
 
 class MspError(Exception):
-    """The one typed error family consumers branch on (INV-012).
+    """The one typed error family consumers branch on.
 
     Attributes:
         code: The JSON-RPC error code.
@@ -104,7 +103,7 @@ class ProtocolError(Exception):
 
     Attributes:
         line: The offending inbound line, preserved as evidence and bounded
-            in UTF-8 bytes (FM-007), when one exists.
+            in UTF-8 bytes, when one exists.
     """
 
     def __init__(self, message: str, line: str | None = None) -> None:
@@ -122,7 +121,7 @@ class _UnencodableFrameError(ProtocolError):
 
     A caller defect, never transport death: it rejects only that frame's
     outcome, so ``notify()``'s finish-on-write-failure rule must not treat
-    it as the pipe dying (PR #30094 review).
+    it as the pipe dying.
     """
 
 
@@ -147,12 +146,11 @@ def _utf8_len(text: str) -> int:
 
 
 def _truncate_to_utf8_bytes(text: str, limit_bytes: int) -> str:
-    """FM-007: error evidence is bounded in UTF-8 BYTES, never characters.
+    """the governing rule: error evidence is bounded in UTF-8 BYTES, never characters.
 
     Encode once and back the cut up over continuation bytes (the
     ``StderrTail._trim_bytes`` pattern): a per-scalar walk re-encoded every
-    character and blocked the event loop for seconds at the frame limit
-    (PR #30094 review).
+    character and blocked the event loop for seconds at the frame limit.
     """
     data = text.encode("utf-8", "surrogatepass")
     if len(data) <= limit_bytes:
@@ -179,7 +177,7 @@ def _canonical(value: Any) -> str:
 
 
 def create_uuid_v7_mint() -> Callable[[], str]:
-    """Creates the SDK-owned UUIDv7 command-id source (INV-013).
+    """Creates the SDK-owned UUIDv7 command-id source.
 
     Returns:
         A zero-argument callable minting RFC 9562 v7-shaped ids, strictly
@@ -216,7 +214,7 @@ def create_uuid_v7_mint() -> Callable[[], str]:
 
 
 async def _default_retry_delay(attempt: int, _error: MspError) -> None:
-    """FM-006's full-jitter budget: uniform in 0..ceiling, 50 ms doubling, 2 s cap."""
+    """the governing rule's full-jitter budget: uniform in 0..ceiling, 50 ms doubling, 2 s cap."""
     ceiling_ms = min(2_000, 50 * 2 ** max(0, attempt - 1))
     await asyncio.sleep(secrets.randbelow(ceiling_ms + 1) / 1000)
 
@@ -272,9 +270,8 @@ class Connection:
 
         Args:
             transport: The duplex text channel.
-            frame_limit_bytes: Inbound frame-size sanity bound (SS1.1
-                default when omitted).
-            mint_command_id: Injectable command-id source (INV-013);
+            frame_limit_bytes: Inbound frame-size sanity bound.
+            mint_command_id: Injectable command-id source;
                 defaults to the UUIDv7 mint.
             mint_request_id: Injectable for deterministic transcript
                 clients; values must be unique in flight.
@@ -313,18 +310,17 @@ class Connection:
 
         A fresh shield per access: a consumer's ``wait_for`` timeout must
         cancel only its own wait, never the connection's one real future —
-        a cancelled ``_closed`` would break ``close()`` for everyone
-        (PR #30094 review; a TS Promise cannot be cancelled).
+        a cancelled ``_closed`` would break ``close()`` for everyone.
         """
         return asyncio.shield(self._closed)
 
     def _submission_tail(self) -> asyncio.Future[None]:
         """The friend seam a process-owning transport adopts as ``flushed``.
 
-        Module-private, like the TS twin's Symbol fence (PR #30094 review):
+        Module-private, like the TS twin's Symbol fence:
         it lets a close routed around this class — the public
         ``child.close()`` — wait for accepted frames' SUBMISSION the same
-        way :meth:`close` does.
+        way:meth:`close` does.
         """
         return self._submit_tail
 
@@ -332,8 +328,8 @@ class Connection:
         """Takes one id from THIS connection's single command-id minter.
 
         Exposed for callers that need the id BEFORE the ack: the facade's
-        ``send_user_turn`` records its optimistic SS4.13 entry under it. A
-        second facade-side minter is exactly what INV-013 forbids. Pair with
+        ``send_user_turn`` records its optimistic the protocol entry under it. A
+        second facade-side minter is exactly what the governing rule forbids. Pair with
         ``command(..., command_id=...)``, which reuses the id.
 
         Returns:
@@ -344,7 +340,7 @@ class Connection:
     def request(
         self, method: str, params: Params | None = None
     ) -> asyncio.Future[Params]:
-        """Sends one request and correlates its response (SS1.3).
+        """Sends one request and correlates its response.
 
         Args:
             method: The MSP method name.
@@ -352,7 +348,7 @@ class Connection:
 
         Returns:
             A future resolving with the result object, or rejecting with an
-            :class:`MspError` (typed, INV-012) or :class:`ProtocolError`.
+            :class:`MspError` or:class:`ProtocolError`.
         """
         outcome: asyncio.Future[Params] = self._loop.create_future()
         if self._finished:
@@ -391,9 +387,9 @@ class Connection:
 
         Exception: a frame this caller cannot serialize/encode (a non-JSON
         value, a lone surrogate) is the caller's defect, detected before
-        anything reaches the transport — it raises :class:`ProtocolError`
+        anything reaches the transport — it raises:class:`ProtocolError`
         synchronously instead of being dropped or finishing a healthy
-        connection (spec 638 FM-638-7).
+        connection.
 
         Raises:
             ProtocolError: The frame is not JSON/UTF-8 encodable.
@@ -441,9 +437,9 @@ class Connection:
         max_attempts: int | None = None,
         retry_delay: RetryDelay | None = None,
     ) -> asyncio.Future[Params]:
-        """Sends one logical command with the INV-013 ``commandId`` contract.
+        """Sends one logical command with the governing rule ``commandId`` contract.
 
-        Same-id retries on the FM-006 retryable pair (``backpressured`` /
+        Same-id retries on the governing rule retryable pair (``backpressured`` /
         ``overloaded``) with the bounded full-jitter budget; a value-identical
         ack settles a replay; ``inputTooLarge`` (and every other error) is
         never auto-retried.
@@ -460,13 +456,12 @@ class Connection:
             A future for the ack object (eager: the first attempt is in
             flight when this returns) — or one already rejected, with NO
             attempt in flight, when the params are not JSON-serializable
-            (:class:`ProtocolError`, FM-638-7 — the same settle-on-the-future
-            posture as :meth:`request`) or the ``commandId`` is reused with a
+             or the ``commandId`` is reused with a
             different payload.
         """
         # The prelude and the FIRST attempt run synchronously so the frame
         # joins the submit tail NOW: a command() immediately followed by
-        # close() must still write it (PR #30094 review — a deferred task
+        # close() must still write it (a prior review — a deferred task
         # enqueued nothing until the loop's next yield, silently dropping
         # the frame; request()/notify() already enqueue synchronously).
         cid = command_id if command_id is not None else self._mint_command_id()
@@ -475,11 +470,11 @@ class Connection:
             signature = _canonical({"method": method, "params": command_params})
         except (TypeError, ValueError):
             # A param json.dumps cannot serialize is the caller's defect
-            # (FM-638-7), surfaced on the future this method promises — never
+            #, surfaced on the future this method promises — never
             # a raw synchronous TypeError. request() with the same params
             # rejects through _enqueue_write; the two surfaces must agree.
             # Nothing is stranded: no _commands entry, no request in flight
-            # (PR #30094 review, round 18).
+            #.
             rejected: asyncio.Future[Params] = self._loop.create_future()
             rejected.set_exception(
                 _UnencodableFrameError("outbound frame is not JSON/UTF-8 encodable")
@@ -519,7 +514,7 @@ class Connection:
                 ack = await pending
                 # session/start and session/resume results omit the redundant
                 # commandId echo (contracts/sdk-surface.md); one that carries
-                # it must echo exactly (TEST-018).
+                # it must echo exactly.
                 if "commandId" in ack and ack["commandId"] != cid:
                     raise ProtocolError(
                         f"{method} ack commandId {ack['commandId']} did not echo {cid}"
@@ -547,7 +542,7 @@ class Connection:
         """Closes the connection without gating teardown on the peer.
 
         COMPLETION must not gate teardown — a peer that stopped reading
-        never completes a write (#15943). SUBMISSION must: the submission
+        never completes a write. SUBMISSION must: the submission
         tail goes TO the transport's optional ``close``, which waits for it
         inside its own shutdown budget; this class knows nothing about
         processes, signals, or timeouts. A close-less transport supplies no
@@ -575,7 +570,7 @@ class Connection:
             # allow_nan=False so a NaN/Infinity float raises ValueError here
             # rather than emitting a bare `NaN`/`Infinity` token — invalid
             # JSON the Rust host cannot parse, which would leave the caller's
-            # request hanging until EOF (FR-638-013; the TS twin coerces to
+            # request hanging until EOF (the governing rule; the TS twin coerces to
             # null). It joins the caller-defect settle below.
             line = json.dumps(
                 frame, separators=(",", ":"), ensure_ascii=False, allow_nan=False
@@ -588,7 +583,7 @@ class Connection:
             # reject just this frame and leave the connection (and every
             # sibling in flight) alive. Detected here, the one outbound
             # boundary, so all three writers — request(), notify(), and the
-            # server-request reply — get it (PR #30094 review; the TS twin
+            # server-request reply — get it (a prior review; the TS twin
             # survives the same input).
             outcome.set_exception(
                 _UnencodableFrameError("outbound frame is not JSON/UTF-8 encodable")
@@ -655,7 +650,7 @@ class Connection:
             return
         self._segments.append(remaining)
         self._buffer_bytes += _utf8_len(remaining)
-        # FR-638-011: the retained buffer is newline-free on entry (the drain
+        # the governing rule: the retained buffer is newline-free on entry (the drain
         # below runs to exhaustion), so only the fresh chunk can carry a
         # newline — ingest stays O(bytes), never a full-buffer rescan.
         if "\n" in remaining:
@@ -722,7 +717,7 @@ class Connection:
                     # A Ctrl-C that cancels the run cancels this handler task;
                     # `Future.exception()` would then raise CancelledError back
                     # into the callback and log a spurious traceback in the
-                    # consumer's shutdown (PR #30094 review).
+                    # consumer's shutdown.
                     if done.cancelled():
                         return
                     error = done.exception()
@@ -749,9 +744,9 @@ class Connection:
         if pending.future.done():
             # The caller cancelled its await (or an asyncio.wait_for timed
             # out): the request is abandoned, not unknown — the late reply is
-            # dropped and the CONNECTION stays healthy (spec 638 Edge Cases:
+            # dropped and the CONNECTION stays healthy (the owning spec Edge Cases:
             # cancellation is a consumer-side act and must not corrupt the
-            # connection; PR #30094 review, thread 2 — settling a done future
+            # connection; a prior review — settling a done future
             # raised InvalidStateError inside the read loop and tore
             # everything down).
             del self._pending[_request_key(frame_id)]
@@ -759,8 +754,8 @@ class Connection:
         has_result = "result" in frame
         has_error = "error" in frame
         if has_result == has_error:
-            # FR-638-013: the MATCHED caller must settle — with no local
-            # timeout (INV-006) an unrejected caller would hang until EOF.
+            # the governing rule: the MATCHED caller must settle — with no local
+            # timeout an unrejected caller would hang until EOF.
             violation = ProtocolError(
                 "response must carry exactly one of result or error", line
             )
@@ -809,7 +804,7 @@ class Connection:
                     }
                 )
             result = await self._server_request_handler(request)
-            # FM-009: a failed reply write finishes the connection; it must
+            # the governing rule: a failed reply write finishes the connection; it must
             # not escape this fire-and-forget task as an unhandled exception.
             reply = self._enqueue_write(
                 {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -845,10 +840,10 @@ class Connection:
         )
         reply.add_done_callback(
             lambda done: self._reply_done(request_id, done)
-        )  # FM-009
+        )  # the governing rule
 
     def _reply_done(self, request_id: object, done: asyncio.Future[None]) -> None:
-        """FM-638-7 for reply writes, minus the caller-defect arm.
+        """the governing rule for reply writes, minus the caller-defect arm.
 
         A reply frame that cannot serialize/encode (a handler returned or
         raised a non-JSON value — a set, a lone surrogate) is the HANDLER's
@@ -857,7 +852,7 @@ class Connection:
         connection (the third writer after request()/notify()). The fallback
         frame cannot re-enter this arm because ``_line`` admits a server
         request only with a positive-INTEGER id, so ``request_id`` is always
-        an int and the fallback is ASCII by construction (spec 638 FM-638-7).
+        an int and the fallback is ASCII by construction.
         """
         error = done.exception()
         if error is None:

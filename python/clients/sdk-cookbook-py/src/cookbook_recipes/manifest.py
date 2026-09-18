@@ -1,6 +1,6 @@
 """The cookbook manifest — the Python twin of
 ``clients/sdk-cookbook/src/manifest.ts``, one entry per TS recipe, in the
-same ratified numeric order. PY-TEST-021 discovers the TS recipe set from
+same ratified numeric order. PY-the governing rule discovers the TS recipe set from
 the TS tree and reds a missing twin here (never a count).
 """
 

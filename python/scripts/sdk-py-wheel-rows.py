@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The per-wheel compatibility rows for the Python SDK publish path.
 
-FR-638-028's release-cut half (specs/638-muse-sdk-python): each published
+The compatibility contract's release-cut half: each published
 wheel pairs with the host version and schema fingerprint it was built
 against, on the docs site's compatibility page. This emits that pairing for
 the CURRENT tree's wheels, derived — never hand-typed — from each value's

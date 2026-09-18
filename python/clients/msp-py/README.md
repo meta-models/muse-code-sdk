@@ -1,22 +1,51 @@
 # `muse-code-msp`
 
-Generated MSP wire types for Python. **No hand-written protocol types, ever**
-(spec `638-muse-sdk-python` INV-638-01, carrying spec `14990-muse-sdk`
-INV-001).
+Generated Python wire types for the Muse Session Protocol (MSP) — the
+protocol a Muse Code agent host speaks over stdio.
 
-The package is rendered from the committed MSP JSON Schema bundles
-(`schema/msp/{stable,experimental}/msp.schema.json`, themselves exported by
-the binary's `muse schema generate-json-schema`, spec 206) by
-`scripts/gen-msp-py.sh`. Never edit a generated file: the required Rust test
-`crates/devtools/tests/msp_py_codegen.rs` reds on any hand edit or stale
-rendering and names that script.
+**Every type in this package is generated from the MSP JSON Schema; nothing
+is written by hand, ever.** A machine check keeps the generated code in
+lockstep with the schema, so the types cannot drift from the protocol.
 
-- `muse_code_msp` — the stable surface: typed declarations for every `$defs`
-  entry (TypedDicts and enum aliases; open enums stay `str` with a
-  `*_KNOWN_VALUES` tuple, SS1.5.4), plus the method/notification/error tables
-  and the bundle fingerprint constants.
-- `muse_code_msp.experimental` — the experimental surface, explicit import
+- `muse_code_msp` — the stable surface: a `TypedDict` for every schema
+  definition (open enums stay `str`, each with a `*_KNOWN_VALUES` tuple so
+  unknown values pass through instead of failing), plus the
+  method/notification/error tables and the schema-bundle fingerprint
+  constants.
+- `muse_code_msp.experimental` — the experimental surface: explicit import
   only, no stability promise.
 
-Zero runtime dependencies (INV-638-03). Python 3.10+. The hand-written
-facade is `muse-code-sdk` (`clients/sdk-py`).
+Zero runtime dependencies. Python 3.10+. Fully typed (`py.typed`).
+
+The hand-written client built on these types is
+[`muse-code-sdk`](https://pypi.org/project/muse-code-sdk/).
+
+## Install
+
+```sh
+pip install muse-code-msp
+```
+
+## Use
+
+```python
+from muse_code_msp import (
+    NOTIFICATIONS,
+    REQUIRED_HOST_VERSION,
+    SCHEMA_FINGERPRINT,
+    TURN_TERMINAL_KNOWN_VALUES,
+)
+
+print(REQUIRED_HOST_VERSION)          # the muse host version this build pairs with
+print(SCHEMA_FINGERPRINT)             # the stable-surface schema fingerprint
+print(sorted(NOTIFICATIONS)[:3])      # wire notification methods
+print(TURN_TERMINAL_KNOWN_VALUES)       # an open enum's known values
+```
+
+## Documentation
+
+- Guides, cookbook recipes, and the protocol reference:
+  <https://meta-models.github.io/muse-code-sdk/>
+- Python API reference:
+  <https://meta-models.github.io/muse-code-sdk/next/generated/python/>
+- Source and issues: <https://github.com/meta-models/muse-code-sdk>

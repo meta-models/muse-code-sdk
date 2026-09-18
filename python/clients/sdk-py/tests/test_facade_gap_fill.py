@@ -1,20 +1,19 @@
-"""PY-TEST-015 ``gap_splice_fill_inside_iterators`` — spec 638 FR-638-019c
-(T032), carrying spec 14990 FR-020 / TEST-014; tdd SS4.8.
+"""PY-the governing rule ``gap_splice_fill_inside_iterators`` — the owning spec the governing rule
+, carrying the owning spec the governing rule / the governing rule; the protocol spec
 
-Port of ``clients/sdk-ts/test/facade-gap-fill.test.ts`` (spec 638 INV-638-04
-parity). ``view/gap`` is the delivery-plane marker: push delivery dropped
+Port of ``clients/sdk-ts/test/facade-gap-fill.test.ts``. ``view/gap`` is the delivery-plane marker: push delivery dropped
 everything in the open interval ``(after, next)``, and until the client fills
-it the fold is not current. What a consumer sees is FR-638-019c's contract,
+it the fold is not current. What a consumer sees is the governing rule's contract,
 stated in terms of the ITERATORS: a gap is a PAUSE, then the filled sequence
 in cursor order, and a fill that cannot complete is a typed error rather than
 a silent hole. Every arm below drives a real ``view/page`` frame out of the
 fake duplex, or asserts that none was written.
 
-CURSORS ARE OPAQUE (tdd SS4.1). Nothing here — and nothing in the
+CURSORS ARE OPAQUE. Nothing here — and nothing in the
 implementation — orders two cursors relationally; the walk stops on cursor
 EQUALITY with ``next`` or on the server's own end-of-view, and the overlap is
 discarded by cursor equality against a set. The ``v:<n>`` spellings are
-illustrative, exactly as they are in the tdd.
+illustrative, exactly as they are in the protocol spec.
 """
 
 from __future__ import annotations
@@ -92,8 +91,8 @@ def item(item_id: str, revision: int, status: str = "inProgress") -> Params:
 
 
 def paged(method: str, view_cursor: str, **rest: Any) -> Params:
-    """One element of a ``view/page`` result: the SS4.2.1 unframed view
-    notification (nested ``{method, params}`` pairs, owner ruling #22785)."""
+    """One element of a ``view/page`` result: the protocol unframed view
+    notification."""
     return {
         "method": method,
         "params": {
@@ -138,7 +137,7 @@ def start_turn(session: "Session[str]", view_cursor: str = "v:0") -> Turn:
 
 def collect_items(turn: Turn) -> tuple[List[str], "asyncio.Task[None]"]:
     """Drain ``turn.items()`` in the background, recording ``itemId@revision``
-    in yield order — ORDER is the assertion FR-638-019c turns on."""
+    in yield order — ORDER is the assertion the governing rule turns on."""
     seen: List[str] = []
 
     async def run() -> None:
@@ -263,11 +262,11 @@ async def test_a_gap_is_a_pause_then_the_paged_prefix_then_the_buffered_tail() -
 
 @pytest.mark.asyncio
 async def test_the_overlap_is_discarded_by_cursor_equality_routed_once() -> None:
-    # tdd SS4.8's "discard paged events at cursors >= `next`", from the other
+    # the protocol spec's "discard paged events at cursors >= `next`", from the other
     # side: the buffered copy of an event the page also served is dropped.
-    # OBSERVED THROUGH THE WIRE: for an item frame the INV-003 revision guard
+    # OBSERVED THROUGH THE WIRE: for an item frame the governing rule revision guard
     # would hide a double apply, but a `turn/started` for a turn that is not
-    # the pending entry's own is SS4.13 queue movement, re-verified on EVERY
+    # the pending entry's own is the protocol queue movement, re-verified on EVERY
     # sighting — so folding the frame twice authors a second `turn/start`
     # replay for a command whose fate one already decides.
     transport, session = wired()
@@ -284,7 +283,7 @@ async def test_the_overlap_is_discarded_by_cursor_equality_routed_once() -> None
     )
     assert sent_frame(transport, 2)["method"] == "turn/start"
     assert sent_params(transport, 2)["commandId"] == "mint-0"
-    # Value-identical ack (INV-013/TEST-018), so the replay settles nothing
+    # Value-identical ack, so the replay settles nothing
     # and the entry keeps waiting.
     answer(transport, 2, QUEUED_ACK)
     assert await settled_io(gap.io) == ()
@@ -293,7 +292,7 @@ async def test_the_overlap_is_discarded_by_cursor_equality_routed_once() -> None
 
 @pytest.mark.asyncio
 async def test_a_second_gap_mid_fill_coalesces_on_the_first_after_and_extends_the_walk() -> None:
-    # D-16487-1's client mirror: a run of holes is one bracket keeping the
+    # the governing decision-1's client mirror: a run of holes is one bracket keeping the
     # first `after`. Without the extension the walk stops at the first `next`,
     # reports itself current, and the SECOND hole is never filled.
     transport, session = wired()
@@ -337,7 +336,7 @@ async def test_a_gap_arriving_after_a_completed_fill_starts_its_own_walk() -> No
     # folding in between must be picked up by a post-drain restart. That
     # window CANNOT exist in this port — the walk's final `gap_filled` and
     # the drain's flag-lowering run in one synchronous task step, with no
-    # await a frame could fold inside (PR #32249 review round 1 proved the
+    # await a frame could fold inside (a prior review proved the
     # restart block dead by mutation, so it was removed rather than kept as
     # unreachable defense). What remains load-bearing is the handover this
     # arm pins: a second hole opening AFTER a completed fill gets its own
@@ -365,7 +364,7 @@ async def test_the_live_twin_of_a_served_event_is_refused_once_even_after_the_fi
     # The timing inversion of the overlap arm: the wire promises no order
     # between the marker and the frame at `next`, so the twin can land after
     # the drain, when the buffer is gone. Same damage as the buffered case: a
-    # second SS4.13 queue-movement replay on the wire.
+    # second the protocol queue-movement replay on the wire.
     transport, session = wired()
     await submitted_queued(transport, session)
 
@@ -506,7 +505,7 @@ async def test_an_earlier_fills_twin_arriving_during_a_later_fill_is_refused_by_
 async def test_a_later_fills_page_does_not_reapply_an_event_an_earlier_fill_folded() -> None:
     # A later walk may legally page through a range an earlier fill already
     # served — the durable copy is still there. Applying it again is the same
-    # duplicate SS4.13 replay from the paged side instead of the live side.
+    # duplicate the protocol replay from the paged side instead of the live side.
     transport, session = wired()
     await submitted_queued(transport, session)
 
@@ -611,7 +610,7 @@ async def test_a_target_the_walk_must_skip_is_still_a_target() -> None:
 @pytest.mark.asyncio
 async def test_a_retirement_produced_by_the_drain_rides_the_gap_frames_io() -> None:
     # A frame buffered during a fill reports `retirements: ()` by design, so
-    # the gap frame's `io` is the consumer's ONLY channel for an SS4.13
+    # the gap frame's `io` is the consumer's ONLY channel for the protocol
     # retirement the splice produces.
     transport, session = wired()
     await submitted_queued(transport, session)
@@ -636,7 +635,7 @@ async def test_a_retirement_produced_by_the_drain_rides_the_gap_frames_io() -> N
     assert session.pending.has("mint-0") is False
 
 
-# ---- FR-638-019c: a fill failure is a typed error, never a silent hole ------
+# ---- the governing rule: a fill failure is a typed error, never a silent hole ------
 
 
 @pytest.mark.asyncio
@@ -658,7 +657,7 @@ async def test_an_empty_page_that_does_not_end_the_view_is_a_stall() -> None:
 
 @pytest.mark.asyncio
 async def test_a_page_that_names_no_next_cursor_at_all_is_a_stall_not_an_end() -> None:
-    # `nextCursor` is `string | null` and "never omitted" (tdd SS4.7.3), so an
+    # `nextCursor` is `string | null` and "never omitted", so an
     # absent one is a host defect. Treating it as end-of-view would report the
     # fold current over a hole nothing filled.
     transport, session = wired()
@@ -678,7 +677,7 @@ async def test_a_page_that_names_no_next_cursor_at_all_is_a_stall_not_an_end() -
 @pytest.mark.asyncio
 async def test_end_of_view_ends_the_walk_a_hole_the_log_cannot_serve_is_a_fill() -> None:
     # `next` names a LIVE cursor; `view/page` serves durable-sourced events
-    # only (tdd SS4.7.3), so a hole whose tail was ephemeral ends at
+    # only, so a hole whose tail was ephemeral ends at
     # `nextCursor: null` and never at `target`. The walk must accept it and
     # splice, or the iterators wait on a cursor no page will ever carry.
     transport, session = wired()
@@ -697,7 +696,7 @@ async def test_end_of_view_ends_the_walk_a_hole_the_log_cannot_serve_is_a_fill()
 
 @pytest.mark.asyncio
 async def test_deltas_lost_in_the_hole_stay_lost() -> None:
-    # tdd SS4.8, stated as behaviour: `item/delta` is ephemeral-sourced and
+    # the protocol spec, stated as behaviour: `item/delta` is ephemeral-sourced and
     # `view/page` never replays it, so the fill lands the final item values and
     # the delta stream simply has a hole. Pinned so a later "helpful" synthesis
     # of deltas from the filled item text reds here.
@@ -840,7 +839,7 @@ async def test_a_raising_on_gap_error_observer_never_escapes_either_report_path(
     # noConnection report) and inside the walk task (a failed page riding
     # `io`). An escape from the first raises out of the notification pump; an
     # escape from the second rejects the never-rejecting `io`. The approval
-    # router ships this test's twin; this is gap-fill's (PR #32249 review
+    # router ships this test's twin; this is gap-fill's (a prior review
     # round 1).
     sync_deliveries: List[MuseGapFillError] = []
 
@@ -875,7 +874,7 @@ def test_fold_only_gap_reports_no_connection_with_no_event_loop_at_all() -> None
     # outside any loop. The noConnection report fires synchronously and the
     # returned `io` is an already-settled loop-free awaitable — feeding a
     # settled stub into the io GATHER instead minted an orphan event loop and
-    # made a later await raise "attached to a different loop" (PR #32249
+    # made a later await raise "attached to a different loop" (a prior review
     # review round 1).
     session = fold_only()
     failures: List[MuseGapFillError] = []
@@ -894,7 +893,7 @@ def test_fold_only_gap_reports_no_connection_with_no_event_loop_at_all() -> None
 
 @pytest.mark.asyncio
 async def test_an_ephemeral_discharge_during_the_fill_drops_the_buffer() -> None:
-    # SS2.13.3b outranks the fill. `apply` already refuses frames after a
+    # the protocol outranks the fill. `apply` already refuses frames after a
     # discharge; without the same check on the drain the buffered tail would
     # walk straight past that refusal and fold into a session the client was
     # told to discard.

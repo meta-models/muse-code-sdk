@@ -1,15 +1,14 @@
-"""PY-TEST-013 ``facade_turn_iterators_and_waits`` — spec 638 FR-638-019a
-(T030) and FR-638-019d (T033), carrying spec 14990 INV-014 / FM-001 / FM-002.
+"""PY-the governing rule ``facade_turn_iterators_and_waits`` — the owning spec the governing rule
+ and the governing rule, carrying the owning spec the governing rule / the governing rule / the governing rule
 
 Port of ``clients/sdk-ts/test/facade-turn.test.ts`` and
-``clients/sdk-ts/test/facade-ephemeral-host-death.test.ts`` (spec 638
-INV-638-04 parity). The two arms the task names explicitly are the two SS3.1.4
+``clients/sdk-ts/test/facade-ephemeral-host-death.test.ts``. The two arms the task names explicitly are the two the protocol
 no-run exits of a pre-minted turn — ``turn/unqueued`` and the launch failure —
 plus the durable/ephemeral host-death discharge.
 
 Every event below is the generated params shape it names, so a member the
 facade reads that the wire does not carry would fail ``mypy --strict`` here
-rather than at runtime against a real host (INV-638-01).
+rather than at runtime against a real host.
 """
 
 from __future__ import annotations
@@ -203,7 +202,7 @@ async def drain(source: AsyncIterator[_T]) -> List[_T]:
 
 
 async def wait_until(predicate: "Any", *, turns: int = 400) -> None:
-    """Yield the loop until ``predicate()`` holds, bounded (#25315).
+    """Yield the loop until ``predicate()`` holds, bounded.
 
     Syncs on a real receipt (the observable state change), not a tuned tick
     budget: it returns the instant the predicate is true and the bound is only
@@ -218,7 +217,7 @@ async def wait_until(predicate: "Any", *, turns: int = 400) -> None:
     assert predicate(), "predicate never held within the bound"
 
 
-# ---- INV-014: the turn wait settles on every no-run exit -------------------
+# ---- the governing rule: the turn wait settles on every no-run exit -------------------
 
 
 @pytest.mark.asyncio
@@ -252,7 +251,7 @@ async def test_the_wait_settles_on_turn_unqueued_the_reclaim() -> None:
 async def test_the_wait_settles_on_the_launch_failure_no_preceding_started() -> None:
     s = session()
     turn = s.turn("t-launch-failed")
-    # "deferred_start_failed" (SS3.1.4/SS3.2): the launch errored at the
+    # "deferred_start_failed": the launch errored at the
     # terminal boundary, so the runtime writes the pre-minted turn's terminal.
     error = {"kind": "launchError", "message": "workflow entry not found", "retryable": True}
     s.apply(turn_completed("t-launch-failed", "failed", "v:1", error))
@@ -339,7 +338,7 @@ async def test_two_handles_for_the_same_turn_are_the_same_handle() -> None:
     assert (await second.completed).kind == "unqueued"
 
 
-# ---- FR-638-019a: the iterators ride the fold ------------------------------
+# ---- the governing rule: the iterators ride the fold ------------------------------
 
 
 @pytest.mark.asyncio
@@ -352,7 +351,7 @@ async def test_items_yields_this_turns_items_and_closes_on_settle() -> None:
     s.apply(item_started(item("i-1", 1, turnId="t-1"), "v:2"))
     # Another turn's item never enters this turn's iterator.
     s.apply(item_started(item("i-other", 1, turnId="t-2"), "v:3"))
-    # A stale re-emission mutates nothing (INV-003), so it yields nothing.
+    # A stale re-emission mutates nothing, so it yields nothing.
     s.apply(item_completed(item("i-1", 1, turnId="t-1", status="completed"), "v:4"))
     s.apply(item_completed(item("i-1", 2, turnId="t-1", status="completed"), "v:5"))
     s.apply(turn_completed("t-1", "completed", "v:6"))
@@ -394,7 +393,7 @@ async def test_deltas_yields_this_turns_deltas_and_closes_on_settle() -> None:
 
     seen = await drain(deltas)
     assert [e["delta"] for e in seen] == ["All ", "214 tests pass"]
-    # INV-004: what the iterator emitted concatenates to what the fold holds.
+    # the governing rule: what the iterator emitted concatenates to what the fold holds.
     assert "".join(e["delta"] for e in seen) == s.fold.items.accumulated("i-1")
 
 
@@ -522,7 +521,7 @@ async def test_two_concurrent_next_calls_both_settle_in_order() -> None:
     assert [first["itemId"], second["itemId"]] == ["i-1", "i-2"]
 
 
-# ---- SS4.13: apply() drives the pending set's ordinary retirements ---------
+# ---- the protocol: apply() drives the pending set's ordinary retirements ---------
 
 
 def test_a_command_id_bearing_user_message_materializes_its_entry() -> None:
@@ -571,7 +570,7 @@ def test_a_materialized_entry_is_not_re_retired_by_a_later_death() -> None:
     assert discharge.kind == "discharged" and discharge.retired_commands == ()
 
 
-# ---- SS1.5.4 tolerance survives the foreign-session guard ------------------
+# ---- the protocol tolerance survives the foreign-session guard ------------------
 
 
 def test_an_unknown_notification_without_session_id_is_tolerated() -> None:
@@ -593,7 +592,7 @@ def test_a_frame_naming_a_foreign_session_is_refused() -> None:
     assert s.fold.items.size == 0
 
 
-# ---- FR-638-019d (T033): host-death discharge ------------------------------
+# ---- the governing rule: host-death discharge ------------------------------
 
 
 def test_reading_the_profile_off_the_handshake() -> None:
@@ -799,12 +798,12 @@ def test_a_transport_eof_is_an_abnormal_death_for_an_ephemeral_session() -> None
     assert discharge.kind == "discharged"
 
 
-# ---- FR-638-019a (T030): MuseClient session verbs over a transport ---------
+# ---- the governing rule: MuseClient session verbs over a transport ---------
 #
 # The arms above drive a fold-only ``Session`` directly; these drive a wired
 # ``MuseClient`` over the loopback ``FakeDuplex`` the S2 connection suites use,
 # so the session verbs, ``send_user_turn``, and the client's inbound routing
-# are exercised end to end (T030's ``MuseClient``/``send_user_turn`` nouns).
+# are exercised end to end.
 
 from helpers_connection import FakeDuplex, frame, wait_for_writes  # noqa: E402
 
@@ -973,7 +972,7 @@ async def test_a_frame_for_an_unknown_session_is_dropped_by_the_router() -> None
 async def test_a_transport_eof_the_client_did_not_cause_discharges_its_sessions() -> None:
     import asyncio
 
-    # T033's SECOND host-death notification, through the client wiring: an EOF
+    # its task SECOND host-death notification, through the client wiring: an EOF
     # the client did NOT cause (not from close()) reaches every open session as
     # a TransportEof, and an ephemeral session discharges.
     client, transport = _client("ephemeral")
@@ -1000,7 +999,7 @@ async def test_a_transport_eof_the_client_did_not_cause_discharges_its_sessions(
 
 # ---- P0 (client.py): fail-closed reattach-withhold and discharge -----------
 #
-# Port of the facade-client.test.ts fail-closed arms (INV-638-04). Mutation
+# Port of the facade-client.test.ts fail-closed arms. Mutation
 # testing at the skeleton head showed these behaviours had ZERO failing tests;
 # these arms red the mutants: reattach no-op'd (the resume-withhold arms), the
 # `_closing` guard deleted (the orderly-close arm), and — through the CLIENT
@@ -1033,12 +1032,12 @@ async def test_resume_is_withheld_after_an_ephemeral_death_no_wire_frame() -> No
     client, transport, _session_obj = await _open_ephemeral_client_session()
     # The ephemeral host dies (EOF the client did not cause).
     transport.chunks.end()
-    # Sync on the exact receipt, not a tick budget (#25315): _closed_watch is
+    # Sync on the exact receipt, not a tick budget: _closed_watch is
     # the client's task that awaits the connection's EOF and then runs
     # _transport_closed, so awaiting it means the discharge has happened.
     await client._closed_watch
     writes_before = len(transport.writes)
-    # SS2.13.3b clause 2: reattach is refused on THIS side of the transport,
+    # the protocol clause 2: reattach is refused on THIS side of the transport,
     # both for the discarded session id and for a never-seen one (the client's
     # own ephemeral host is gone). No session/resume frame reaches the wire.
     with pytest.raises(MuseSessionDiscardedError):
@@ -1066,11 +1065,11 @@ async def test_resume_after_a_durable_death_is_not_withheld() -> None:
     )
     await start
     transport.chunks.end()
-    # Sync on the exact receipt, not a tick budget (#25315): _closed_watch is
+    # Sync on the exact receipt, not a tick budget: _closed_watch is
     # the client's task that awaits the connection's EOF and then runs
     # _transport_closed, so awaiting it means the discharge has happened.
     await client._closed_watch
-    # A DURABLE session survives its host (FM-001), so the withhold must NOT
+    # A DURABLE session survives its host, so the withhold must NOT
     # fire — resume gets past the client-side gate to the wire (where the dead
     # connection then errors). The point is the error is not the withhold.
     with pytest.raises(Exception) as excinfo:
@@ -1092,7 +1091,7 @@ def test_a_discarded_command_id_is_refused_by_a_sibling_session() -> None:
     # The shared DiscardedSessions SEMANTICS at the Session level: a commandId
     # an ephemeral discharge retired in one session must be refused by a FRESH
     # sibling session that shares the store (the exactly-once violation
-    # SS2.13.3b prevents). The CLIENT-wiring arm below proves MuseClient
+    # the protocol prevents). The CLIENT-wiring arm below proves MuseClient
     # actually hands each session that shared store.
     shared = DiscardedSessions()
     ephemeral = read_session_durability(_handshake("ephemeral"))
@@ -1113,12 +1112,12 @@ async def test_the_client_wires_its_shared_discard_store_into_each_session() -> 
     # The CLIENT half the Session-level arm above cannot reach: MuseClient's
     # `_open_session` must pass `self._discarded` (not a fresh set) into each
     # session, so an ephemeral discharge accumulates into the ONE client-scoped
-    # store SS2.13.3b's cross-session clauses read. Mutating that argument to a
+    # store the protocol's cross-session clauses read. Mutating that argument to a
     # fresh `DiscardedSessions()` leaves the store empty here — this arm reds it.
     client, transport, session_obj = await _open_ephemeral_client_session()
     session_obj.pending.submitted("c-1", "x")
     transport.chunks.end()  # ephemeral EOF the client did not cause
-    # Sync on the exact receipt, not a tick budget (#25315): _closed_watch runs
+    # Sync on the exact receipt, not a tick budget: _closed_watch runs
     # _transport_closed, which discharges every session into the shared store.
     await client._closed_watch
     assert "c-1" in client._discarded.command_ids
@@ -1134,20 +1133,20 @@ async def test_durable_end_of_drain_sweep_settles_drain_minted_turns() -> None:
 
     s: "Session[str]" = session("durable")
     assert s.host_exited(CRASH).kind == "durableDeath"
-    # FM-001: a durable death does not stop the fold, so a turn/started arriving
+    # the governing rule: a durable death does not stop the fold, so a turn/started arriving
     # after the FIRST notification mints a handle (via routing, never
     # pre-failed) whose terminal never comes.
     s.apply(turn_started("t-drain", "v:1"))
     completed = s.turn("t-drain").completed
     # The SECOND notification is end-of-drain and MUST sweep that handle, or its
-    # wait hangs forever (the SS3.1.4 trap). wait_for fails fast under the
+    # wait hangs forever. wait_for fails fast under the
     # sweep-removed mutant instead of hanging the suite.
     s.host_exited(CRASH)
     with pytest.raises(MuseHostDiedError):
         await asyncio.wait_for(completed, timeout=1.0)
 
 
-# ---- P1 (session.py): SS4.13 queue-movement drives a replay on the wire ----
+# ---- P1 (session.py): the protocol queue-movement drives a replay on the wire ----
 
 
 @pytest.mark.asyncio
@@ -1182,7 +1181,7 @@ async def test_queue_movement_drives_a_replay_on_the_wire() -> None:
     await turn_fut
 
     # A turn/started for ANOTHER turn decides c-1's fate at a launch boundary:
-    # SS4.13 queue movement, so the SDK MUST replay c-1 — a turn/start on the
+    # the protocol queue movement, so the SDK MUST replay c-1 — a turn/start on the
     # wire carrying the SAME commandId. Mutating _queue_moved to `return` emits
     # no second frame and this arm times out.
     outcome = s.apply(

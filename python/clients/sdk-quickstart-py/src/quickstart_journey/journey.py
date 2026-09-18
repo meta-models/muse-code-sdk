@@ -1,7 +1,6 @@
 """The ``muse-code-sdk`` first-session journey, end to end, against a
 release-built ``muse serve`` — the Python twin of
-``clients/sdk-quickstart/src/journey.ts`` (spec 638 FR-638-022 / T040, the
-first acceptance milestone; Scenario 6).
+``clients/sdk-quickstart/src/journey.ts``.
 
 This is the acceptance artifact: it is cited as proof that the SDK works, so
 it holds itself to the TS journey's two rules verbatim.
@@ -13,25 +12,25 @@ it holds itself to the TS journey's two rules verbatim.
    the journey so it gets promoted.
 
 Nothing here is expect-blocked: all twelve segments are required, exactly as
-the TS journey's are since its #24410 clause-4 promotion.
+the TS journey's are since its a tracked issue clause-4 promotion.
 
-STEP PARITY (FR-638-022): :data:`SEGMENT_IDS` mirrors the TS journey's step
+STEP PARITY::data:`SEGMENT_IDS` mirrors the TS journey's step
 registry (``clients/sdk-quickstart/src/journey.ts`` ``SEGMENT_IDS``) id for
-id, in order — the TS registry is the source of truth, and PY-TEST-019 pins
+id, in order — the TS registry is the source of truth, and PY-the governing rule pins
 the parity against the TS source rather than a count. One handshake-segment
-adaptation is Python-owned: the TS journey asserts the SS1.4.1
+adaptation is Python-owned: the TS journey asserts the protocol
 fingerprint-mismatch WARNING surfaced nothing; the Python SDK's owner-ruled
-posture is the STRICT gate (spec 638 C-638-4), so reaching the segment at all
+posture is the STRICT gate, so reaching the segment at all
 proves the gate passed, and the segment asserts the served/pinned equality
 explicitly.
 
-The journey has two modes. :func:`run_configured_journey` is the ACCEPTANCE
+The journey has two modes.:func:`run_configured_journey` is the ACCEPTANCE
 mode: it seeds ``home`` with a loopback fake first-party endpoint
 (``provider.py``), so the host really runs a model and every segment is
-exercised. :func:`run_journey` with no seeded ``home`` is the credential-free
+exercised.:func:`run_journey` with no seeded ``home`` is the credential-free
 degradation path — still supported, never the acceptance artifact.
 
-Scenario 7.1 rides here too (the arm T034's receipt defers to T040):
+its acceptance scenario rides here too:
 :func:`run_configured_sync_journey` reruns the same twelve steps on the SYNC
 wrapper (``SyncMuseClient``), blocking verbs end to end, and must reach the
 same verdicts.
@@ -178,7 +177,7 @@ async def _start_turn(host: Host, session_id: str, prompt: str) -> str:
         ),
     )
     _equals(ack.get("status"), "accepted", "turn/start ack status")
-    # `started` and `queued` are BOTH correct answers (tdd SS3.1.4): a
+    # `started` and `queued` are BOTH correct answers: a
     # turn/start landing after the previous turn completed but before the
     # session settles to idle mints a queued turn. `steered` is deliberately
     # NOT accepted — it merges into a RUNNING turn, which no segment asks for.
@@ -262,7 +261,7 @@ async def _session_new(context: Context) -> None:
         "the session's workspace root",
     )
     # A DEFAULT start writes no durable fact, so the cursor is pinned to
-    # exactly the before-genesis "" (tdd SS2.5.1/SS4.1 as amended by #24240).
+    # exactly the before-genesis "".
     _equals(result.get("viewCursor"), "", "a default start's view cursor")
     # The push side of the same fact: the host announces the session it just
     # created, and it is the same session.
@@ -409,7 +408,7 @@ async def _cancel(context: Context) -> None:
 
 async def _resume(context: Context) -> None:
     # The session lease belongs to the live host, so the first one has to
-    # drain cleanly before a second can load the session (14990 Scenario 4.4).
+    # drain cleanly before a second can load the session.
     first = _require_host(context)
     first_exit = await first.close(CLOSE_BUDGET_MS)
     _equals(first_exit.code, 0, "the first host's exit code after stdin EOF")
@@ -513,7 +512,7 @@ async def _terminate(context: Context) -> None:
     host = context.resume_host
     if host is None:
         raise AssertionError("`resume` did not finish")
-    # 14990 Scenario 4.4: stdin closed by close(), the SDK waits for the
+    # 14990 its acceptance scenario: stdin closed by close(), the SDK waits for the
     # orderly drain, and the exit is what actually happened.
     exit_ = await host.close(CLOSE_BUDGET_MS)
     _equals(exit_.code, 0, "the host's exit code after stdin EOF")
@@ -569,19 +568,15 @@ SEGMENTS: tuple[Segment[Context], ...] = (
 )
 
 SEGMENT_IDS: tuple[str, ...] = tuple(segment.id for segment in SEGMENTS)
-"""Segment ids in run order — the step registry PY-TEST-019 pins against the
-TS journey's (FR-638-022: step parity, never a count)."""
+"""Segment ids in run order — the step registry PY-the governing rule pins against the
+TS journey's."""
 
 EXPECT_BLOCKED: tuple[dict[str, Any], ...] = tuple(
     {"id": segment.id, "issues": list(segment.expect_block.issues)}
     for segment in SEGMENTS
     if segment.expect_block is not None
 )
-"""Expect-blocked segment id → issue numbers (the FR-638-023 disclosure
-source: README.md carries a "What does not work yet" section IFF this is
-non-empty, and PY-TEST-020 holds the README to it in both directions)."""
-
-
+"""Expect-blocked segment id → issue numbers."""
 @dataclass(frozen=True)
 class JourneyOptions:
     """See the TS twin: ``home`` seeded = configured; fresh temp = the
@@ -652,7 +647,7 @@ async def run_configured_journey(
         provider.close()
 
 
-# ---- Scenario 7.1: the same journey, rewritten on the sync wrapper ----------
+# ---- its acceptance scenario: the same journey, rewritten on the sync wrapper ----------
 
 
 @dataclass
@@ -714,12 +709,12 @@ def _sync_cancel(context: SyncContext, turn_id: str) -> None:
     Neither facade owns a cancel verb — ``turn/cancel`` is a raw
     connection-plane command in the TS journey too — so the sync REWRITE keeps
     it raw exactly like the async journey does. The sync surface deliberately
-    exposes no connection (INV-638-07 keeps protocol machinery out of it), so
+    exposes no connection, so
     this harness — a first-party journey, not shipped SDK code — drives the
     one raw command through the wrapper's own runner seam, which is also what
     keeps it serialized with the wrapper's verbs. A public escape hatch here
     would freeze API for one harness call (Constitution XI). The facade-verb
-    gap itself is tracked in #32695.
+    gap itself is tracked in a tracked issue.
     """
     client = _require_sync_client(context)
     session_id = context.session_id
@@ -825,14 +820,14 @@ def _sync_approval(context: SyncContext) -> None:
 def _sync_wait_turn_started(context: SyncContext, turn: SyncTurn) -> None:
     """Block until this turn's ``turn/started`` has folded.
 
-    The turn/start ack can legally say ``queued`` (tdd SS3.1.4), and a cancel
+    The turn/start ack can legally say ``queued``, and a cancel
     landing before the queued turn launches is rejected — the exact race the
     async journey defends by waiting for the notification first. The sync
     twin waits on the same server fact through the facade's own fold
     (``observed_start`` flips only when ``turn/started`` folds), pumped
     through the runner seam ``_sync_cancel`` already uses, under the SAME
     labeled harness budget the async arm waits with — never a machine-speed
-    spin (PR #32537 review round 2).
+    spin.
     """
     import asyncio
 
@@ -935,7 +930,7 @@ def _sync_terminate(context: SyncContext) -> None:
     client = context.resume_client
     if client is None:
         raise AssertionError("`resume` did not finish")
-    # The sync close drives the same orderly SS2.1.2 shutdown; the wrapper
+    # The sync close drives the same orderly the protocol shutdown; the wrapper
     # then retires its loop, so it is terminal — a second close must no-op
     # (the exit-classification arm is the async journey's, whose surface
     # returns the exit row).
@@ -993,18 +988,18 @@ SYNC_SEGMENTS: tuple[SyncSegment[SyncContext], ...] = (
 )
 
 SYNC_SEGMENT_IDS: tuple[str, ...] = tuple(segment.id for segment in SYNC_SEGMENTS)
-"""The rerun's registry — PY-TEST-019 pins it equal to :data:`SEGMENT_IDS`."""
+"""The rerun's registry — PY-the governing rule pins it equal to:data:`SEGMENT_IDS`."""
 
 
 def run_configured_sync_journey(
     muse_bin: str, workspace_root: str | None = None
 ) -> ConfiguredJourneyResult:
-    """Scenario 7.1: the journey rewritten on the sync wrapper, same twelve
+    """its acceptance scenario: the journey rewritten on the sync wrapper, same twelve
     steps, blocking verbs end to end — it must pass with the same verdicts.
 
     A SYNCHRONOUS function driven by the kit's SYNC runner, deliberately:
     the sync verbs refuse from a thread with a running event loop
-    (FM-638-4), so no loop may exist here — each verb blocks this thread,
+    , so no loop may exist here — each verb blocks this thread,
     exactly as a consumer script would.
     """
     provider = start_configured_provider(_provider_options())

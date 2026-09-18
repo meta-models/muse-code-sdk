@@ -1,4 +1,4 @@
-"""Shared probes for the bounded-shutdown arms (PY-TEST-011/012).
+"""Shared probes for the bounded-shutdown arms.
 
 The misbehaving hosts are throwaway ``python3 -c`` children for the reason
 the TS twins are ``node -e`` children: ``serve-fixture`` always drains stdin
@@ -92,7 +92,7 @@ WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD = "; ".join(
         "time.sleep(3600)",
     ]
 )
-"""The #22777 shape: a SIGTERM-trapping wrapper whose grandchild inherits the
+"""The a tracked issue shape: a SIGTERM-trapping wrapper whose grandchild inherits the
 wrapper's stdout (fd 1 is inherited by default) and traps SIGTERM itself, so
 only a group-delivered SIGKILL ends the subtree."""
 
@@ -109,7 +109,7 @@ DETACHED_STDERR_HOLDER = "; ".join(
 """A host that exits 0 VOLUNTARILY after leaking a new-session helper that
 inherits its stderr pipe (fd 2 is inherited by default): the child is reaped
 promptly but the pipe never hits EOF, so ``Process.wait()`` never settles —
-the PR #30094 review's bounded-close hang shape. ``start_new_session`` keeps
+the a prior review's bounded-close hang shape. ``start_new_session`` keeps
 the helper outside the host's process group so no ladder signal ends it."""
 
 DETACHED_STDOUT_HOLDER = "; ".join(
@@ -216,7 +216,7 @@ def is_zombie(pid: int) -> bool:
 async def ended_within(pid: int, budget_s: float) -> bool:
     """Has the pid ENDED (unprobeable, or a zombie awaiting init's reap)?
 
-    The #26323 rule: a reparented grandchild's reaping is asynchronous to
+    The a tracked issue rule: a reparented grandchild's reaping is asynchronous to
     ``close()``, so poll until ended rather than sampling one racy instant.
     """
     deadline = asyncio.get_running_loop().time() + budget_s
@@ -248,7 +248,7 @@ def fixture_host_bin() -> str | None:
     An explicit ``MUSE_CONFORMANCE_BIN`` is AUTHORITATIVE: a set-but-missing
     path fails closed rather than silently skipping every host arm — that
     silent-skip-with-green is exactly the incident the CI build step exists
-    to end (a CARGO_TARGET_DIR or debug/release drift away; PR #30094 review).
+    to end.
 
     Raises:
         RuntimeError: ``MUSE_CONFORMANCE_BIN`` is set but not a file.

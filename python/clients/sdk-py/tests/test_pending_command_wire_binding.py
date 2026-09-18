@@ -1,7 +1,7 @@
-"""The INV-638-01/02 discharge for the pending set's wire vocabulary.
+"""The the governing rule discharge for the pending set's wire vocabulary.
 
 Port of ``clients/sdk-ts/test/pending-command-wire-binding.test.ts``, adapted
-to the Python rendering: the generated ``muse_code_msp`` exposes the SS3.1.2
+to the Python rendering: the generated ``muse_code_msp`` exposes the protocol
 error registry as the ``ERRORS`` table (regen-gated against the bundle), so
 the settlement code/kind pins bind against that table — the same pin shape
 ``EXPECTED_SCHEMA_FINGERPRINT`` uses. The TS compile-time ``Extract<...>``
@@ -65,7 +65,7 @@ def test_the_disposition_alias_is_the_generated_one_asserted_positively() -> Non
 def test_the_disposition_union_is_not_restated_in_the_sdk() -> None:
     source = PENDING_SOURCE.read_text()
     assert not re.search(r'"started",\s*"queued",\s*"steered"', source), (
-        "the SS3.2 disposition vocabulary belongs to the generated layer; a "
+        "the protocol disposition vocabulary belongs to the generated layer; a"
         "local copy drifts silently because the two are structurally identical"
     )
 
@@ -106,7 +106,7 @@ def test_the_settlement_kind_equals_the_generated_row_kind() -> None:
 def test_the_queued_disposition_is_a_generated_known_value() -> None:
     assert "queued" in muse_code_msp.TURN_START_DISPOSITION_KNOWN_VALUES, (
         "the queued-disposition literal must stay a member of the generated "
-        "SS3.2 vocabulary"
+        "the protocol vocabulary"
     )
 
 
@@ -116,7 +116,7 @@ def test_only_the_registered_code_or_kind_settles_every_other_row_holds() -> Non
         assert settles == (row["kind"] == "commandRejected"), (
             f"`{row['kind']}` ({row['code']}) must "
             f"{'' if row['kind'] == 'commandRejected' else 'NOT '}settle a "
-            "pending command (SS4.13 nothing-admitted errors are not settlements)"
+            "pending command"
         )
 
 

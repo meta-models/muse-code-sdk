@@ -1,17 +1,16 @@
-"""``TurnHandle`` — one turn's view of the fold (spec 638 FR-638-019a,
-INV-638-04 carrying spec 14990 INV-014; tdd SS3.1.4). Port of
-``clients/sdk-ts/src/facade/turn-handle.ts``.
+"""``TurnHandle`` — one turn's view of the fold. Port of the TypeScript SDK's
+turn-handle module.
 
-A handle owns two things: the SS3.1.4 turn-wait, and the async iterators that
+A handle owns two things: the turn-wait, and the async iterators that
 ride the fold for this turn. It authors no wire traffic and holds no durable
 state — :class:`~muse_code.facade.session.Session` feeds it folded events and
 it fans them out.
 
-INV-006 governs the wait: the SDK never locally times out, fails, or completes
+One rule governs the wait: the SDK never locally times out, fails, or completes
 a turn. Every settlement below traces to a server-authored fact, with one
 sanctioned exception that is not a terminal at all — terminal-unknown after an
-ephemeral host death, which SS2.13.3b makes a client MUST ("stop waiting for a
-terminal") and which stays an annotation rather than a synthesized event.
+ephemeral host death, which the protocol makes a client MUST ("stop waiting for
+a terminal") and which stays an annotation rather than a synthesized event.
 """
 
 from __future__ import annotations
@@ -49,7 +48,7 @@ FoldedItem = Item
 The TS twin seals this with ``DeepReadonly<Item>`` so a consumer cannot write
 ``item["revision"] = 0`` through the read surface. Python has no structural
 readonly; the fold's own read views already refuse mutation, and the items
-yielded here are the same generated dicts the fold holds (INV-638-02).
+yielded here are the same generated dicts the fold holds.
 """
 
 # Read from the generated KNOWN_VALUES so a typo is caught by the codegen
@@ -78,7 +77,7 @@ class _Completed:
 
 @dataclass(frozen=True)
 class _Unqueued:
-    """The reclaim (SS3.6). No ``turn/completed`` will ever carry this
+    """The reclaim. No ``turn/completed`` will ever carry this
     ``turnId``, so a wait folding only ``turn/completed`` hangs forever."""
 
     params: TurnUnqueuedParams
@@ -87,7 +86,7 @@ class _Unqueued:
 
 @dataclass(frozen=True)
 class _TerminalUnknown:
-    """SS2.13.3b: an ephemeral host died, so the client stops waiting.
+    """the protocol: an ephemeral host died, so the client stops waiting.
 
     Carries no ``reason``: the arm has exactly one cause, so a single-valued
     field would add nothing ``kind`` does not already say.
@@ -97,15 +96,14 @@ class _TerminalUnknown:
 
 
 TurnOutcome = Union[_Completed, _Unqueued, _TerminalUnknown]
-"""How a turn ended, from a waiter's point of view (SS3.1.4's two resolutions,
-plus the ephemeral-death annotation). ``turn/retracted`` and
+"""How a turn ended, from a waiter's point of view. ``turn/retracted`` and
 ``turn/retryScheduled`` are deliberately absent: a retracted turn still
 reaches its own terminal, and a scheduled retry is explicitly non-terminal
-(SS4.5.1)."""
+."""
 
 
 def is_launch_failure(outcome: TurnOutcome) -> bool:
-    """The ``deferred_start_failed`` exit (SS3.1.4/SS3.2).
+    """The ``deferred_start_failed`` exit.
 
     A pre-minted turn whose launch errored at the terminal boundary, so the
     runtime wrote its terminal directly and no ``turn/started`` was ever
@@ -218,12 +216,12 @@ ItemReplay = Callable[[], "tuple[FoldedItem, ...]"]
 
 
 class TurnHandle:
-    """One turn's SS7.1 surface, and the Session-fed mutators behind it.
+    """One turn's the protocol surface, and the Session-fed mutators behind it.
 
-    ``Session.turn()`` returns this typed as :class:`Turn` (the consumer view)
+    ``Session.turn()`` returns this typed as:class:`Turn` (the consumer view)
     so the ``settle_*``/``push_*``/``fail`` mutators are not public: an
     embedder calling ``settle_completed`` would fabricate a terminal the
-    server never authored, which is exactly what INV-006 forbids. They stay
+    server never authored, which is exactly what the governing rule forbids. They stay
     reachable only through ``Session.apply``, i.e. only from a server-authored
     event.
 
@@ -243,7 +241,7 @@ class TurnHandle:
         # Retained so an iterator opened AFTER the failure reports it too:
         # without it a late ``items()`` would end cleanly, handing a partial
         # replay plus a tidy done — an unfinished turn rendered as finished,
-        # the invented completion INV-006 forbids.
+        # the invented completion the governing rule forbids.
         self._failure: BaseException | None = None
         self._waiters: List[asyncio.Future[TurnOutcome]] = []
 
@@ -255,7 +253,7 @@ class TurnHandle:
         Each access returns a fresh awaitable resolved from the handle's
         settled state (or a pending one that the next settlement resolves), so
         any number of callers may await it and a late awaiter still learns the
-        outcome. It never settles on a local timeout (INV-006).
+        outcome. It never settles on a local timeout.
         """
         future: asyncio.Future[TurnOutcome] = asyncio.get_running_loop().create_future()
         if self._failure is not None:
@@ -291,7 +289,7 @@ class TurnHandle:
         """This turn's items: everything the fold already holds, at its
         current revision and in first-opened order, then the live tail — one
         yield per fold-observed revision CHANGE. A stale re-emission mutates
-        nothing (INV-003) and yields nothing.
+        nothing and yields nothing.
 
         The iterator ends when the turn settles; it never ends on a local
         timeout.
@@ -307,12 +305,12 @@ class TurnHandle:
     def deltas(self) -> AsyncIterator[ItemDeltaParams]:
         """This turn's ``item/delta`` frames, live only.
 
-        Deliberately NOT replayed, and the asymmetry with :meth:`items` is a
+        Deliberately NOT replayed, and the asymmetry with:meth:`items` is a
         fact about the fold: the store holds each item at its latest revision
         plus the ACCUMULATED delta text per field path, never the delta event
         sequence. A consumer attaching mid-turn reads the accumulated value
         from the fold; there is no retained event list to replay, and
-        inventing one would be a second copy of state INV-002 must defend.
+        inventing one would be a second copy of state the governing rule must defend.
         """
         stream: _PushStream[ItemDeltaParams] = _PushStream(
             lambda: self._delta_streams.discard(stream)
@@ -358,15 +356,15 @@ class TurnHandle:
         self._finish(_Unqueued(params=params))
 
     def settle_terminal_unknown(self) -> None:
-        """SS2.13.3b: an ephemeral host died; stop waiting for a terminal."""
+        """the protocol: an ephemeral host died; stop waiting for a terminal."""
         self._finish(_TerminalUnknown())
 
     def fail(self, error: BaseException) -> None:
         """A DURABLE host died abnormally.
 
-        The waiter gets no answer here — FM-001 puts the terminals on resume —
+        The waiter gets no answer here — the governing rule puts the terminals on resume —
         so it is rejected rather than resolved: a resolution would be the
-        invented terminal INV-006 forbids, and silence would be the SS3.1.4
+        invented terminal the governing rule forbids, and silence would be the protocol
         hang.
         """
         if self._settled:
@@ -404,13 +402,13 @@ class TurnHandle:
 
 @runtime_checkable
 class Turn(Protocol):
-    """A turn, as a CONSUMER sees it — the SS7.1 turn surface and nothing else.
+    """A turn, as a CONSUMER sees it — the protocol turn surface and nothing else.
 
     ``Session.turn()`` and ``send_user_turn()`` advertise THIS rather than the
-    concrete :class:`TurnHandle` so the "fed by Session" mutators
+    concrete:class:`TurnHandle` so the "fed by Session" mutators
     (``settle_completed``, ``push_item``, ``fail``, …) are not part of the
     consumer contract: an embedder calling one would fabricate a terminal the
-    server never authored (INV-006). Python cannot hide them at runtime the
+    server never authored. Python cannot hide them at runtime the
     way the TS ``Turn`` interface does, so the seal is the return annotation
     plus this documented surface — the same convention the fold's read views
     use.
@@ -428,7 +426,7 @@ class Turn(Protocol):
 
     @property
     def completed(self) -> Awaitable[TurnOutcome]:
-        """The SS3.1.4 turn-wait; settles on a server-authored fact."""
+        """The the protocol turn-wait; settles on a server-authored fact."""
         ...
 
     def items(self) -> AsyncIterator[FoldedItem]:

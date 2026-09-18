@@ -1,9 +1,9 @@
-"""PY-TEST-005 ``pending_command_full_arms`` (specs/638-muse-sdk-python FR-638-008).
+"""PY-the governing rule ``pending_command_full_arms``.
 
-Every arm of tdd SS4.13 (decision record D-032), driven by the same
+Every arm of the protocol spec, driven by the same
 synthetic ack/launch/reject/join sequences as the TS suite
 (``clients/sdk-ts/test/pending-command-set.test.ts``) — the parity source
-this file ports case for case (INV-638-04).
+this file ports case for case.
 """
 
 from __future__ import annotations
@@ -254,10 +254,10 @@ def test_is_settlement_a_32030_code_settles_even_when_the_kind_disagrees() -> No
     s: PendingCommandSet[str] = PendingCommandSet()
     s.submitted("c1", "typed", anchor_after_item_id=None)
 
-    # The SS3.1.2 registry binds -32030 <-> commandRejected one-to-one, so a
+    # The the protocol registry binds -32030 <-> commandRejected one-to-one, so a
     # disagreeing pair is a server fault where the CODE still asserts the
     # durable rejection; the taxonomy's bias for unfamiliar vocabulary is
-    # toward terminal. Retire, never hold forever (FM-008).
+    # toward terminal. Retire, never hold forever.
     outcome = s.ack_errored(
         "c1", CommandErrorResponse(code=-32030, kind="overloaded", reason="run_active")
     )
@@ -373,8 +373,8 @@ def test_across_joins_a_lost_resubmit_is_demanded_again_never_stranded() -> None
 
     # The demanded resubmit was lost to another disconnect before it ran. A
     # fresh join must demand it again (same-commandId resubmit is
-    # idempotent, SS3.1.1) — a once-per-lifetime latch would leave c1 in
-    # `kept` forever with no path to settle, the durable-looking echo SS4.13
+    # idempotent, the protocol) — a once-per-lifetime latch would leave c1 in
+    # `kept` forever with no path to settle, the durable-looking echo the protocol
     # forbids.
     second = s.join_snapshot(facts)
     assert second.must_resubmit == ("c1",)
@@ -385,7 +385,7 @@ def test_an_unacked_entry_the_join_matches_is_not_resubmitted() -> None:
     s: PendingCommandSet[str] = PendingCommandSet()
     s.submitted("c1", "durable before ack", anchor_after_item_id=None)
 
-    # The intake is durable BEFORE the ack (SS3.1.3), so a lost-ack entry
+    # The intake is durable BEFORE the ack, so a lost-ack entry
     # CAN appear in the snapshot. Retiring to the composer here and
     # re-sending with a fresh commandId is the double execution the join
     # order prevents.
@@ -426,8 +426,8 @@ def test_a_resubmit_lost_to_a_second_disconnect_is_demanded_again() -> None:
 
     # The demanded resubmit was itself lost to a second disconnect. A
     # once-per-lifetime latch would strand c1 as a permanent
-    # durable-looking echo (SS4.13 forbids); same-commandId resubmit is
-    # idempotent (SS3.1.1), so each new reconnect demands it again.
+    # durable-looking echo; same-commandId resubmit is
+    # idempotent, so each new reconnect demands it again.
     second = s.reconnected_without_snapshot()
     assert second.must_resubmit == ("c1",)
     assert s.size == 1
@@ -459,7 +459,7 @@ def test_ephemeral_host_death_discards_every_entry_as_terminal_unknown() -> None
     ):
         s.replay_answered("c2", ReplayAck(ack=ack("replacement", "started")))
     # A discarded commandId is never quietly answered "held" against a new
-    # host (FM-002).
+    # host.
     with pytest.raises(
         MuseSessionDiscardedError,
         match=r"ephemeral host died; commandId `c1` cannot be replayed",
@@ -481,7 +481,7 @@ def test_the_set_never_invents_a_terminal_on_its_own() -> None:
     s.acked("c1", ack("t1", "queued"))
 
     # Time passing, unrelated queue movement, and unrelated messages settle
-    # nothing: there is no local timeout, failure, or completion (INV-006).
+    # nothing: there is no local timeout, failure, or completion.
     s.observed_queue_movement("tOther")
     s.observed_user_message("someoneElse", "item-x")
 
@@ -495,7 +495,7 @@ def test_a_client_that_renders_nothing_optimistically_holds_no_entries() -> None
     s: PendingCommandSet[str] = PendingCommandSet()
     assert s.size == 0
     assert s.list() == ()
-    # The degenerate mode is supported: the fold reduces to SS4.1.
+    # The degenerate mode is supported: the fold reduces to the protocol.
     assert s.reconnected_without_snapshot().must_replay == ()
 
 
@@ -503,7 +503,7 @@ def test_a_brand_new_submit_after_ephemeral_death_is_refused_not_annotated() -> 
     # The whole SET closes, not just the retired ids: a fresh commandId
     # submitted after the discard would be retired terminalUnknown by a next
     # discharge — a fabricated "we don't know whether this ran" about input
-    # provably never sent to any host (SS2.13.3b).
+    # provably never sent to any host.
     s: PendingCommandSet[str] = PendingCommandSet()
     s.submitted("old", "x", anchor_after_item_id=None)
     s.discard_ephemeral()
@@ -514,7 +514,7 @@ def test_a_brand_new_submit_after_ephemeral_death_is_refused_not_annotated() -> 
 def test_a_shared_discard_registry_blocks_replay_across_set_instances() -> None:
     # The injected-by-reference option: one client shares a single discard
     # registry across the sessions it opens, so a FRESH set cannot replay a
-    # dead host's ids at a new host (SS2.13.3b).
+    # dead host's ids at a new host.
     shared: set[str] = set()
     first: PendingCommandSet[str] = PendingCommandSet(discarded_command_ids=shared)
     first.submitted("c1", "x", anchor_after_item_id=None)

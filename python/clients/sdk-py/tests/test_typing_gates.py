@@ -1,13 +1,13 @@
-"""PY-TEST-023 ``mypy_strict_and_py_typed`` (specs/638-muse-sdk-python).
+"""PY-the governing rule ``mypy_strict_and_py_typed``.
 
-FR-638-027 / ADR 638 D8 ruling 5: ``mypy --strict`` green and ``py.typed``
+The governing rule / the governing decision: ``mypy --strict`` green and ``py.typed``
 shipped are GATES, not workflow decoration. Three properties, each an arm:
 
 * the exact check the CI workflow runs (``mypy --strict`` over both source
   trees) passes, bound here so the pytest suite itself enforces it even if a
   workflow edit ever dropped the step;
 * both manifests ship the ``py.typed`` marker in their wheel package-data —
-  PY-TEST-007 pins the marker FILE, but a wheel that omits it from
+  PY-the governing rule pins the marker FILE, but a wheel that omits it from
   package-data silently strips typing from every installed consumer;
 * the public surface is strictly CONSUMABLE: a fully annotated consumer
   program type-checks under ``--strict`` against both packages, and a
@@ -67,7 +67,7 @@ def test_mypy_strict_is_green_over_both_source_trees(tmp_path: Path) -> None:
     """The CI gate itself: ``mypy --strict`` over both packages' src trees."""
     result = _run_mypy([str(MSP_SRC), str(SDK_SRC)], cwd=tmp_path, cache_dir=tmp_path / "cache")
     assert result.returncode == 0, (
-        "mypy --strict reds over the shipped source trees (FR-638-027):\n"
+        "mypy --strict reds over the shipped source trees:\n"
         f"{result.stdout}{result.stderr}"
     )
 
@@ -91,7 +91,7 @@ def _package_data(package_dir: Path) -> dict[str, Any]:
 def test_py_typed_ships_in_the_wheel_package_data(package_dir: Path, import_name: str) -> None:
     """The marker must reach the WHEEL: package-data, not just the src tree.
 
-    PY-TEST-007 already pins the marker file's existence; without this
+    PY-the governing rule already pins the marker file's existence; without this
     package-data entry setuptools builds a wheel with no ``py.typed`` and
     every installed consumer silently loses the types (PEP 561).
     """
@@ -99,7 +99,7 @@ def test_py_typed_ships_in_the_wheel_package_data(package_dir: Path, import_name
     assert "py.typed" in data.get(import_name, []), (
         f"{package_dir.name}/pyproject.toml does not ship py.typed in "
         f"[tool.setuptools.package-data] for {import_name}; installed "
-        "consumers would get no types (FR-638-027)"
+        "consumers would get no types"
     )
 
 
@@ -167,7 +167,7 @@ def test_a_strict_consumer_type_checks_against_the_public_surface(tmp_path: Path
     )
     assert result.returncode == 0, (
         "a fully annotated consumer fails mypy --strict against the public "
-        f"surface (FR-638-027):\n{result.stdout}{result.stderr}"
+        f"surface:\n{result.stdout}{result.stderr}"
     )
 
 

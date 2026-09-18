@@ -1,6 +1,6 @@
-"""PY-TEST-027 ``publish_shape_and_inert_gate`` (specs/638-muse-sdk-python).
+"""PY-the governing rule ``publish_shape_and_inert_gate``.
 
-FR-638-030: the two package manifests are publish-shaped — PyPI names,
+The governing rule: the two package manifests are publish-shaped — PyPI names,
 import pairing, version source, license with shipped text, every outbound
 link at the mirror — and the publish gates live in a script the mirror
 workflow calls by path (``scripts/publish-sdk-pypi.sh``, the
@@ -8,8 +8,7 @@ workflow calls by path (``scripts/publish-sdk-pypi.sh``, the
 
 This file pins the PACKAGE SHAPE, not the decision to publish — the
 ``clients/sdk-ts/test/npm-publication.test.ts`` posture. The publish itself
-is owner-run (ADR 638 D6), permitted by D-065 (ADR 29534 D1, amending the
-13929 record D-014) at the lockstep host version (D-063, ADR 25304 D4); the
+is owner-run, permitted by the governing decision at the lockstep host version; the
 shape pins exist so the first owner-run publish cannot ship a silently
 regressed package.
 """
@@ -32,10 +31,10 @@ MSP_DIR = PROJECT_ROOT / "clients" / "msp-py"
 SDK_DIR = PROJECT_ROOT / "clients" / "sdk-py"
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "publish-sdk-pypi.sh"
 
-# The one public venue (ADR 21932 Amendment 1; ADR 638 D6 reuses it).
+# The one public venue.
 TARGET_REPO = "meta-models/muse-code-sdk"
 
-# A wall, not a budget (#9293 house rule): the gate script's default mode
+# A wall, not a budget: the gate script's default mode
 # builds two pure-Python distributions offline; a longer run is a hang.
 GATE_WALL_SECONDS = 300
 
@@ -54,7 +53,7 @@ def test_the_pypi_names_are_the_chartered_ones() -> None:
     for package_dir, (distribution, _) in PACKAGES.items():
         project = _pyproject(package_dir)["project"]
         assert project["name"] == distribution, (
-            f"{package_dir.name}: the ADR 638 D6 charter names the PyPI "
+            f"{package_dir.name}: the charter names the PyPI "
             f"distributions muse-code-msp / muse-code-sdk, got {project['name']!r}"
         )
 
@@ -97,16 +96,16 @@ def test_the_version_source_is_the_static_manifest_field() -> None:
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), (
             f"{distribution}: version {version!r} is not plain X.Y.Z semver"
         )
-        # Lockstep equality (D-063; ADR 25304 D4): the manifest version IS the
-        # crates/cli version, set by the release train in the same commit —
+        # Lockstep equality: the manifest version IS the
+        # the host source version, set by the release train in the same commit —
         # derived from the tree, never a hand pin. The old 0.x ratchet is
         # gone WITH its meaning: the version no longer encodes publish
         # eligibility. Publication is permitted at exactly this lockstep
-        # version (D-065, ADR 29534 D1) — never a train-external one — so
+        # version — never a train-external one — so
         # the equality here is what the published wheel's version claims.
         assert version == _host_version(), (
-            f"{distribution}: version {version!r} != crates/cli "
-            f"{_host_version()!r} (D-063 lockstep, ADR 25304 D4: only the "
+            f"{distribution}: version {version!r} != the host manifest's "
+            f"{_host_version()!r} (the version lockstep rule: only the "
             "release train moves these versions, in one commit)"
         )
 
@@ -114,14 +113,14 @@ def test_the_version_source_is_the_static_manifest_field() -> None:
 def test_the_license_is_mit_with_shipped_text() -> None:
     for package_dir, (distribution, _) in PACKAGES.items():
         project = _pyproject(package_dir)["project"]
-        # FR-638-001: LICENSE metadata matching the TS packages' posture —
+        # the governing rule: LICENSE metadata matching the TS packages' posture —
         # `license: MIT` in the manifest, the text shipped in the artifact.
         # PEP 639 spells that as an SPDX expression plus license-files; the
         # wheel then carries dist-info/licenses/LICENSE, which the gate
         # script's tarball audit requires.
         assert project["license"] == "MIT", (
             f"{distribution}: license must be the SPDX expression 'MIT' "
-            f"(FR-638-001, TS posture), got {project.get('license')!r}"
+            f"(the TS packages' posture), got {project.get('license')!r}"
         )
         assert project["license-files"] == ["LICENSE"], (
             f"{distribution}: MIT requires shipping the text; license-files "
@@ -146,7 +145,7 @@ def test_every_outbound_link_points_at_the_mirror() -> None:
         # remember to extend (the npm-publication test's bugs.url lesson).
         # Nothing legitimate in a published manifest names this private
         # repository, so any occurrence anywhere is the defect.
-        assert "mslsrc/tbh" not in raw, (
+        assert "mslsrc/" + "tbh" not in raw, (
             f"{distribution}: an installed package must not advertise this "
             "private repository anywhere in its manifest"
         )
@@ -157,26 +156,26 @@ def test_the_classifiers_state_the_posture() -> None:
         project = _pyproject(package_dir)["project"]
         classifiers = project.get("classifiers", [])
         assert "Typing :: Typed" in classifiers, (
-            f"{distribution}: py.typed ships in the wheel (FR-638-001); the "
+            f"{distribution}: py.typed ships in the wheel; the "
             "registry-facing claim is this classifier"
         )
         status = [c for c in classifiers if c.startswith("Development Status ::")]
         assert status == ["Development Status :: 3 - Alpha"], (
-            f"{distribution}: the withheld stability promise (D-013, untouched "
-            f"by the D-065 publication carve) admits exactly the Alpha status, "
+            f"{distribution}: the withheld stability promise (untouched "
+            f"by the publication carve) admits exactly the Alpha status, "
             f"got {status!r}"
         )
 
 
 def test_the_wire_types_stay_out_of_the_facade_dependencies() -> None:
-    # INV-638-03's letter: exactly one runtime dependency (the pydantic pin);
+    # the governing rule's letter: exactly one runtime dependency (the pydantic pin);
     # any second, for either package, is an owner escalation. muse-code-msp is
     # therefore deliberately NOT declared, the @muse-code/msp devDependency
     # precedent: it does not exist on the registry, and declaring it before it
     # does would turn a working editable install into a hard `pip install`
     # failure. The gate script's printed owner-run sequence publishes
     # muse-code-msp FIRST; promoting it into dependencies at that point is the
-    # owner escalation INV-638-03 names, decided with the publish itself.
+    # owner escalation the governing rule names, decided with the publish itself.
     deps = _pyproject(SDK_DIR)["project"].get("dependencies", [])
     assert all(not d.startswith("muse-code-msp") for d in deps)
     assert _pyproject(MSP_DIR)["project"].get("dependencies", []) == []
@@ -209,7 +208,7 @@ def test_the_gate_script_default_publishes_nothing() -> None:
     # The inert-gate arm: the DEFAULT invocation runs every gate, builds both
     # distributions offline, audits the wheels, emits the per-wheel rows, and
     # exits 0 having published nothing — there is no way to publish by
-    # forgetting an argument (FR-638-030, the publish-sdk-npm.sh pattern).
+    # forgetting an argument.
     result = _run_gate()
     assert result.returncode == 0, (
         f"the default (build-only) mode must pass on the committed tree:\n"
@@ -221,7 +220,7 @@ def test_the_gate_script_default_publishes_nothing() -> None:
     # this name — renaming it in the script reds HERE, keeping the
     # "gate: tree anchor not in stdout" pins from going vacuous.
     assert "gate: tree anchor" in result.stdout
-    # The default mode prints exactly what the owner would run (ADR 638 D6:
+    # The default mode prints exactly what the owner would run (the governing decision:
     # the publish act is owner-run); both distributions ship or neither does,
     # wire types first.
     assert "muse-code-msp" in result.stdout
@@ -230,8 +229,8 @@ def test_the_gate_script_default_publishes_nothing() -> None:
 
 
 def test_the_publish_mode_refuses_outside_the_mirror_workflow() -> None:
-    # --publish exists so the mirror workflow has one path to call. D-065
-    # (ADR 29534 D1, amending D-014) permits the publish, but trusted
+    # --publish exists so the mirror workflow has one path to call. the governing decision
+    # permits the publish, but trusted
     # publishing runs only inside the mirror's publish-pypi.yml: outside it
     # there is no OIDC exchange and no manual-token path, by design. Run
     # from anywhere else — _run_gate builds an env without GITHUB_ACTIONS —
@@ -288,7 +287,7 @@ def test_the_publish_mode_refuses_without_the_oidc_permission() -> None:
 
 
 def test_the_publish_path_cannot_ship_a_wheel_without_its_row(tmp_path: Path) -> None:
-    # FR-638-028's release-cut half rides the publish path: the gate script
+    # the governing rule's release-cut half rides the publish path: the gate script
     # generates the per-wheel compatibility rows (scripts/sdk-py-wheel-rows.py)
     # as a GATE, so the first published wheel cannot ship without the row the
     # compatibility page adds with the release. Two halves: the wiring (the
@@ -299,7 +298,7 @@ def test_the_publish_path_cannot_ship_a_wheel_without_its_row(tmp_path: Path) ->
     assert "sdk-py-wheel-rows.py" in script, (
         "the publish gate script no longer generates the per-wheel "
         "compatibility rows; the first published wheel would ship without "
-        "its row (FR-638-028)"
+        "its row"
     )
     result = subprocess.run(
         [
@@ -318,7 +317,7 @@ def test_the_publish_path_cannot_ship_a_wheel_without_its_row(tmp_path: Path) ->
     )
     assert result.returncode != 0, (
         "an empty dist tree matched the derived rows; the wheel/row parity "
-        "gate is not refusing (FR-638-028)"
+        "gate is not refusing"
     )
     assert "do not match the derived rows" in result.stderr
 

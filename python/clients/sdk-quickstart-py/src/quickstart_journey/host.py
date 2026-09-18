@@ -1,6 +1,6 @@
 """One owned ``muse serve`` host, plus the notification recorder the
 streaming assertions wait on — the Python twin of
-``clients/sdk-cookbook/src/kit/host.ts`` (spec 638 FR-638-022 / T040).
+``clients/sdk-cookbook/src/kit/host.ts``.
 
 Everything here goes through the shipped ``muse-code-sdk`` public surface —
 :func:`muse_code.connection.spawn_msp_connection`,
@@ -28,7 +28,7 @@ _T = TypeVar("_T")
 
 SDK_GATE_ENV = "MUSE_EXPERIMENTAL_SDK_ENABLED"
 """The ``sdk_enabled`` dev override, spelled out exactly as
-``crates/cli/tests/msp_process_harness/mod.rs`` does so a gate rename has to
+``the host source`` does so a gate rename has to
 be noticed here too. This is how the JOURNEY's own child is launched; it is
 not reader guidance, and README.md says so."""
 
@@ -37,7 +37,7 @@ STUB_VIEW_CURSOR = "pending:seam-c-session-view-fold"
 
 HOST_DRAIN_WINDOW_MS = 30_000
 """The drain window every journey host runs under — OWNED, not restated from
-the SDK's unexported default (the TS kit's #25986 lesson): every spawn passes
+the SDK's unexported default: every spawn passes
 THIS constant as ``shutdown_timeout_ms``."""
 
 
@@ -229,7 +229,7 @@ class Host:
         return self.msp.connection
 
     async def close(self, budget_ms: int) -> ProcessExit:
-        """Close stdin and wait for the orderly drain (14990 Scenario 4.4)."""
+        """Close stdin and wait for the orderly drain."""
         return await within(
             "the host's orderly drain and exit", budget_ms, self.msp.close()
         )

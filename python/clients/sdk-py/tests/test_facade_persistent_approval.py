@@ -1,7 +1,7 @@
-"""Spec 638 FR-638-019b: server-offered choices and idempotent submission.
+"""the owning spec the governing rule: server-offered choices and idempotent submission.
 
-TEST-33067-8 / FR-33067-9 refers forward to the spec 287 amendment in #33166.
-Policy-store persistence is proved separately by #33166.
+The governing rule / the governing rule refers forward to the owning spec amendment in a tracked issue.
+Policy-store persistence is proved separately by a tracked issue.
 """
 from __future__ import annotations
 

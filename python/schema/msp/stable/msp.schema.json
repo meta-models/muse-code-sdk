@@ -547,7 +547,7 @@
           "type": "string"
         },
         "kind": {
-          "description": "Open discriminator: `shell | fileAccess | network | process | tool`.",
+          "description": "Open discriminator: `shell | fileAccess | network | unixSocket | process | tool`.",
           "type": "string"
         },
         "origin": {

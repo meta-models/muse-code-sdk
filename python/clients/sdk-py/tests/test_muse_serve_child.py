@@ -1,7 +1,6 @@
-"""PY-TEST-011/012: SS2.11 classification and the bounded close ladder.
+"""PY-the governing rule: the protocol classification and the bounded close ladder.
 
-Port of ``clients/sdk-ts/test/muse-serve-child.test.ts`` (spec 638
-FR-638-016/017/018, Scenario 4). The fixture-driven table arms run only when
+Port of ``clients/sdk-ts/test/muse-serve-child.test.ts``. The fixture-driven table arms run only when
 a prebuilt ``muse-conformance`` binary is available (the Python CI lane
 carries no Rust toolchain; the throwaway-child arms carry the ladder
 coverage everywhere).
@@ -41,7 +40,7 @@ from helpers_host_lifetime import (
     reap,
 )
 
-POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="FR-638-018 is POSIX-only")
+POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="the governing rule is POSIX-only")
 FIXTURE_BIN = fixture_host_bin()
 NEEDS_FIXTURE = pytest.mark.skipif(
     FIXTURE_BIN is None,
@@ -80,17 +79,17 @@ async def _exit_fixture(code: int, stderr_lines: int = 3) -> MuseServeChild:
 @pytest.mark.parametrize("code", sorted(CLASSIFICATIONS))
 async def test_stderr_tail_and_exit_code_table(code: int) -> None:
     # Identical opaque text drives every branch: classification can only come
-    # from the exit status, never from parsing stderr (INV-010 carry).
+    # from the exit status, never from parsing stderr.
     child = await _exit_fixture(code)
     classification = await asyncio.wait_for(asyncio.shield(child.exit), FAILURE_CAP_S)
-    assert classification.kind == CLASSIFICATIONS[code], f"SS2.11 exit {code}"
+    assert classification.kind == CLASSIFICATIONS[code], f"host exit-classification row for exit {code}"
     assert len(child.stderr_tail) == 3, f"exit {code} retains all short evidence"
     assert all(line for line in child.stderr_tail)
     if classification.kind != "cleanShutdown":
         assert classification.stderr_tail == child.stderr_tail
     if classification.kind == "unhandledError":
         assert classification.exit_code == code
-        assert classification.retry is None, "exit 1 makes no retry claim (SS2.11)"
+        assert classification.retry is None, "exit 1 makes no retry claim"
     elif classification.kind not in ("cleanShutdown", "crash"):
         assert classification.exit_code == code
         assert classification.retry == RETRY[code]
@@ -139,7 +138,7 @@ async def test_byte_cap_trims_heavy_lines_before_the_line_cap() -> None:
 
 @pytest.mark.asyncio
 async def test_close_sends_eof_and_resolves_on_the_observed_exit() -> None:
-    # TEST-15943-1 CONTROL: a draining host is never signalled; close()
+    # the governing rule CONTROL: a draining host is never signalled; close()
     # classifies the exit it observed (cleanShutdown), causally on EOF.
     child = await MuseServeChild.spawn(
         muse_bin=sys.executable,
@@ -197,7 +196,7 @@ async def test_close_escalates_to_sigkill_when_sigterm_is_trapped() -> None:
 @pytest.mark.asyncio
 async def test_a_late_but_voluntary_exit_keeps_its_own_classification() -> None:
     # Escalation is a way to REACH an exit, never a classification of its own
-    # (INV-011 carry): a host that traps SIGTERM and exits 3 is configError.
+    #: a host that traps SIGTERM and exits 3 is configError.
     probe = PidProbe()
     child = await MuseServeChild.spawn(
         muse_bin=sys.executable,
@@ -268,7 +267,7 @@ async def test_close_terminates_the_spawned_host_process_group() -> None:
         assert classification.exit_signal == "SIGKILL"
         assert not is_alive(pid), "close() leaves no orphaned host process"
         assert await ended_within(grandchild_pid, 5.0), (
-            "group escalation ends the stdout-holding grandchild too (#26323: "
+            "group escalation ends the stdout-holding grandchild too (a tracked issue:"
             "a zombie awaiting init's reap counts as ended)"
         )
     finally:
@@ -282,7 +281,7 @@ async def test_a_failed_group_signal_falls_back_to_the_direct_child() -> None:
     # The bare except in the ladder is normative: group capability CLAIMED but
     # the child was spawned without a new session, so its pid is not a pgid
     # and every group signal fails deterministically — only the fallback can
-    # end the child (FR-638-018's never-rethrow sentence).
+    # end the child.
     probe = PidProbe()
     child = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -312,7 +311,7 @@ async def test_a_failed_group_signal_falls_back_to_the_direct_child() -> None:
 @pytest.mark.asyncio
 async def test_close_terminates_a_host_that_never_reads_stdin() -> None:
     # The P0 leg: a filled pipe means EOF never completes; gating the ladder
-    # on it reproduces the #15943 wedge inside the fix.
+    # on it reproduces the a tracked issue wedge inside the fix.
     probe = PidProbe()
     child = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -360,8 +359,8 @@ async def test_out_of_range_shutdown_timeout_is_refused_before_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # WHERE the raise happens is the load-bearing half: a transport-level
-    # throw leaves the child running with no owner. CAUSAL oracle (#25315;
-    # PR #30094 review, thread 10): create_subprocess_exec is stubbed to
+    # throw leaves the child running with no owner. CAUSAL oracle (a tracked issue;
+    # a prior review): create_subprocess_exec is stubbed to
     # fail the test if it is ever reached — no wall clock, no sentinel race.
     from muse_code.connection import spawn as spawn_module
 
@@ -399,7 +398,7 @@ async def test_out_of_range_shutdown_timeout_is_refused_before_spawn(
 async def test_bad_spawn_options_reject_with_the_typed_error_before_spawn(
     monkeypatch: pytest.MonkeyPatch, bad_options: dict[str, object]
 ) -> None:
-    # C-638-2 seam 2 (owner ruling #31276, arm (a)): spawn options validate
+    # C-638-2 seam 2 (owner ruling a tracked issue, arm (a)): spawn options validate
     # through a pydantic model at construction, rejecting with the SDK's
     # typed error BEFORE any process exists. Same causal oracle as the
     # budget-range test above: reaching create_subprocess_exec is the fail.
@@ -431,9 +430,9 @@ async def test_bad_spawn_options_reject_with_the_typed_error_before_spawn(
 )
 @pytest.mark.asyncio
 async def test_a_realtime_signal_still_maps_to_the_crash_row() -> None:
-    # PR #30094 review, thread 3: signal.Signals(35) raises on Linux, so a
+    # a prior review: signal.Signals(35) raises on Linux, so a
     # host killed by a real-time signal must still classify as the crash row
-    # (INV-011 totality), never throw out of `exit` / `close()`. The pid is
+    #, never throw out of `exit` / `close()`. The pid is
     # known causally from spawn() — no pid file, no poll; the RT default
     # disposition terminates whenever the signal lands. Guarded ABOVE the
     # spawn so a non-Linux run never orphans the wedged child.
@@ -454,13 +453,13 @@ async def test_a_realtime_signal_still_maps_to_the_crash_row() -> None:
 
 @pytest.mark.asyncio
 async def test_flush_and_drain_share_one_deadline() -> None:
-    # PR #30094 review, threads 2/3/4 (the PY-TEST-012 shared-budget arm):
+    # a prior review, threads 2/3/4:
     # ONE deadline is minted for the whole shutdown — flush wait AND drain
     # window — and expiring that single deadline advances the ladder. A
     # fresh-budget-per-half refactor mints two and fails the count. The seam
     # lives on the module-internal ChildStdioTransport ctor only (never the
     # public spawn signature), the mint IS the sync event (no sleep-poll),
-    # and after close() settles no task may remain pending (FR-638-017) —
+    # and after close() settles no task may remain pending —
     # the deadline-abandoned flush wait must be cancelled, not leaked.
     minted_event = asyncio.Event()
     minted: list[FakeDeadline] = []
@@ -502,9 +501,9 @@ async def test_flush_and_drain_share_one_deadline() -> None:
     outcome = await asyncio.wait_for(asyncio.shield(transport.exited), FAILURE_CAP_S)
     await asyncio.wait_for(closer, FAILURE_CAP_S)
     assert len(minted) == 1, "no second deadline appeared for the drain half"
-    assert minted[0].cleared, "FR-638-017: close() must disarm its deadline timer"
+    assert minted[0].cleared, "the governing rule: close() must disarm its deadline timer"
     assert outcome.signal is not None, f"the wedged host ends on a signal: {outcome}"
-    # FR-638-017: with the flush wait still pending when the deadline won,
+    # the governing rule: with the flush wait still pending when the deadline won,
     # close() settling must leave NO pending task behind.
     leftovers = {
         task for task in asyncio.all_tasks() if task is not asyncio.current_task()
@@ -516,7 +515,7 @@ async def test_flush_and_drain_share_one_deadline() -> None:
 class _ParkedDeadline:
     """A deadline that never expires on its own and reports when the
     shutdown is parked awaiting it — the causal sync for the teardown-cancel
-    arms (#25315: no sleeps). ``release()`` lets any expiry task a cancel
+    arms. ``release()`` lets any expiry task a cancel
     stranded finish before the loop closes."""
 
     def __init__(self, budget_ms: int) -> None:
@@ -538,7 +537,7 @@ class _ParkedDeadline:
 
 @pytest.mark.asyncio
 async def test_a_cancelled_close_ladder_still_kills_the_host() -> None:
-    # PR #30094 review, round 18 (reviewkit P0 + zdwmeta, the PY-TEST-012
+    # a prior review, round 18 (reviewkit P0 + zdwmeta, the PY-the governing rule
     # teardown-cancel arm): cancelling close() while the ladder is parked in
     # its FIRST drain window (Ctrl-C during asyncio.run teardown) must still
     # end the host — `_shutdown`'s finally sends one synchronous SIGKILL.
@@ -584,7 +583,7 @@ async def test_a_cancelled_close_ladder_still_kills_the_host() -> None:
             "a cancelled ladder never orphans the SIGTERM-ignoring host"
         )
         # The kill is SYNCHRONOUS under the cancel, so the deadline the
-        # shutdown minted was still disarmed on the way out (FR-638-017).
+        # shutdown minted was still disarmed on the way out.
         assert minted[0].cleared, "the cancelled shutdown must disarm its deadline"
         await asyncio.wait_for(asyncio.shield(transport.exited), FAILURE_CAP_S)
         # Deterministic teardown the cancelled ladder never reached: settle
@@ -604,7 +603,7 @@ async def test_a_cancelled_close_ladder_still_kills_the_host() -> None:
 
 @pytest.mark.asyncio
 async def test_a_cancel_parked_on_the_flush_wait_still_kills_the_host() -> None:
-    # PR #30094 review, round 18 (zdwmeta): `_shutdown` first parks on the
+    # a prior review, round 18 (zdwmeta): `_shutdown` first parks on the
     # FLUSH wait, and that window is as long as shutdown_timeout_ms — a
     # ladder-local kill guard never fires for a cancel landing there (the
     # round-17 regression). The guard lives in `_shutdown`'s finally now, so
@@ -670,7 +669,7 @@ async def test_a_cancel_parked_on_the_flush_wait_still_kills_the_host() -> None:
 
 @pytest.mark.asyncio
 async def test_stderr_multibyte_split_across_read_chunks_never_garbles_evidence() -> None:
-    # PR #30094 review, thread 7: the drain reads 8 KiB chunks, so a UTF-8
+    # a prior review: the drain reads 8 KiB chunks, so a UTF-8
     # character straddling two reads must be carried by ONE incremental
     # decoder, never decoded into replacement characters in the tail.
     child = await MuseServeChild.spawn(
@@ -691,9 +690,9 @@ async def test_stderr_multibyte_split_across_read_chunks_never_garbles_evidence(
 
 @pytest.mark.asyncio
 async def test_line_cap_bounds_the_tail_to_the_100_most_recent_lines() -> None:
-    # PR #30094 review, thread 11 (the TS twin's dedicated line-cap arm):
+    # a prior review (the TS twin's dedicated line-cap arm):
     # 400 short lines stay far under the byte budget, so only the 100-line
-    # half of the FR-638-016 bound can do the trimming.
+    # half of the governing rule bound can do the trimming.
     child = await MuseServeChild.spawn(
         muse_bin=sys.executable,
         args=[
@@ -714,7 +713,7 @@ async def test_line_cap_bounds_the_tail_to_the_100_most_recent_lines() -> None:
 
 @pytest.mark.asyncio
 async def test_write_after_close_raises_the_typed_stdin_closed_error() -> None:
-    # PR #30094 review, thread 16: a request issued after close() has begun
+    # a prior review: a request issued after close() has begun
     # must reject immediately with the typed error, never silently drop the
     # frame into a closed pipe.
     child = await MuseServeChild.spawn(
@@ -729,7 +728,7 @@ async def test_write_after_close_raises_the_typed_stdin_closed_error() -> None:
 
 @pytest.mark.asyncio
 async def test_a_consumer_timeout_on_exit_never_breaks_close() -> None:
-    # PR #30094 review, thread 18: `exit` hands out a shield, so a consumer's
+    # a prior review: `exit` hands out a shield, so a consumer's
     # own wait_for timeout cancels only its wait — with the raw watcher task
     # exposed, that cancellation broke close() and orphaned the host.
     probe = PidProbe()
@@ -754,7 +753,7 @@ async def test_a_consumer_timeout_on_exit_never_breaks_close() -> None:
 
 @pytest.mark.asyncio
 async def test_close_stays_bounded_when_a_detached_grandchild_holds_stderr() -> None:
-    # PR #30094 review, thread 19: asyncio's Process.wait() settles only when
+    # a prior review: asyncio's Process.wait() settles only when
     # every stdio pipe hits EOF, so a detached helper holding the inherited
     # stderr pipe kept close() waiting forever after the host itself was
     # reaped. The ladder must resolve on the REAP (returncode), bounded.
@@ -784,7 +783,7 @@ async def test_close_stays_bounded_when_a_detached_grandchild_holds_stderr() -> 
 
 @pytest.mark.asyncio
 async def test_stdout_multibyte_split_across_chunks_decodes_whole(tmp_path) -> None:
-    # PR #30094 review, thread 15 (PY-TEST-016's real split): only the stdout
+    # a prior review: only the stdout
     # incremental decoder can see a code point straddling two READS — the
     # str-slicing arm cannot cut one. The stub flushes half the character,
     # then blocks on stdin, so the boundary is causal, not scheduled.
@@ -819,13 +818,13 @@ async def test_stdout_multibyte_split_across_chunks_decodes_whole(tmp_path) -> N
 async def test_facade_close_is_bounded_and_leaks_nothing_with_a_held_pipe(
     holder: str,
 ) -> None:
-    # PR #30094 review, round 8 (zdwmeta): the PUBLIC facade close —
+    # a prior review, round 8 (zdwmeta): the PUBLIC facade close —
     # Connection.close() -> transport.close(), NOT MuseServeChild.close() —
     # must be bounded and leave no task/pipe behind on the 3.10 CI lane, for
     # a helper holding EITHER fd 2 (else _classified + drain leak and the
     # transport stays open -> "Event loop is closed" at teardown) or fd 1
     # (else the read loop never EOFs and _closed hangs). The shutdown owner
-    # cuts once for both (FR-638-017).
+    # cuts once for both.
     from muse_code.connection import Connection
     from muse_code.connection.spawn import MspHandshake
 
@@ -837,7 +836,7 @@ async def test_facade_close_is_bounded_and_leaks_nothing_with_a_held_pipe(
         # close can only come from the REAP-driven path — a regression that
         # gated close() on pipe EOF would ride this whole budget and blow the
         # cap, where 150 ms would let a stale escalate-to-SIGKILL sneak in
-        # (PR #30094 review, round 9).
+        #.
         shutdown_timeout_ms=60_000,
         on_stderr=probe.on_stderr,
     )
@@ -863,7 +862,7 @@ async def test_facade_close_is_bounded_and_leaks_nothing_with_a_held_pipe(
 
 @pytest.mark.asyncio
 async def test_end_stdin_never_joins_a_wedged_drain_as_a_second_waiter() -> None:
-    # PR #30094 review, round 18 (sechegaray): before the GH-74116 backport
+    # a prior review, round 18 (sechegaray): before the GH-74116 backport
     # (< 3.10.8) asyncio's _drain_helper allows ONE waiter — close() calling
     # drain() while a wedged write() is parked in it died with
     # AssertionError, which _end_stdin's except does not catch and
@@ -924,7 +923,7 @@ async def test_end_stdin_never_joins_a_wedged_drain_as_a_second_waiter() -> None
 
 @pytest.mark.asyncio
 async def test_close_stays_bounded_when_a_wedged_write_and_a_helper_hold_stdin() -> None:
-    # PR #30094 review, round 4 (sechegaray): stdin.close() is a no-op after
+    # a prior review, round 4 (sechegaray): stdin.close() is a no-op after
     # _end_stdin's write_eof(), so a wedged 2 MiB write plus a helper holding
     # fd 0 kept close() waiting on the drain forever. The ladder now aborts
     # our end of the pipe outright.
@@ -940,7 +939,7 @@ async def test_close_stays_bounded_when_a_wedged_write_and_a_helper_hold_stdin()
     transport = ChildStdioTransport(child, probe.on_stderr, shutdown_timeout_ms=0)
     # Acquire the pids INSIDE the try so a probe timeout (marker never
     # arrives) still reaps whatever did spawn — the sleeper + its detached
-    # grandchild otherwise survive an hour (PR #30094 review, round 12).
+    # grandchild otherwise survive an hour.
     pid = grandchild_pid = None
     try:
         pid = await probe.pid()
@@ -962,7 +961,7 @@ async def test_close_stays_bounded_when_a_wedged_write_and_a_helper_hold_stdin()
 
 @pytest.mark.asyncio
 async def test_a_raising_on_stderr_callback_never_logs_an_unretrieved_exception() -> None:
-    # PR #30094 review, round 7 (reviewkit): an on_stderr callback that raises
+    # a prior review, round 7 (reviewkit): an on_stderr callback that raises
     # settles the drain task with an exception; close()/classify must retrieve
     # it (both drain-wait sites) so asyncio never logs "exception was never
     # retrieved" at GC into the consumer's process.
@@ -1009,13 +1008,13 @@ async def test_a_raising_on_stderr_callback_never_logs_an_unretrieved_exception(
 async def test_child_exit_is_bounded_after_a_natural_exit_with_a_held_pipe(
     holder: str,
 ) -> None:
-    # PR #30094 review, round 11 P0 / round 15: a host that exits on its OWN
+    # a prior review, round 11 P0 / round 15: a host that exits on its OWN
     # (nobody calls close()) while a leaked helper holds a stdio pipe must not
     # hang a consumer passively awaiting child.exit. Held stderr exercises
     # `_classified`'s bounded drain wait; held stdout isolates `_await_exit`'s
     # returncode-poll (the stderr drain EOFs fine there, but Process.wait()
     # stays blocked on the held stdout). Reverting either bound hangs the
-    # matching arm (FR-638-017).
+    # matching arm.
     probe = PidProbe()
     grandchild_pid = None
     try:
@@ -1037,13 +1036,13 @@ async def test_child_exit_is_bounded_after_a_natural_exit_with_a_held_pipe(
 
 @pytest.mark.asyncio
 async def test_facade_close_delivers_a_hosts_full_stdout_then_settles() -> None:
-    # PR #30094 review, round 11 (reviewkit): the round-8 stdout-preservation
+    # a prior review, round 11 (reviewkit): the round-8 stdout-preservation
     # half. `_finalize_reaped` waits (bounded) for a live consumer's stdout to
     # reach EOF before force-closing, so a cleanly-exited host's full output
     # is delivered and the facade close still settles. Note: this cannot
     # deterministically RED the eof-wait's removal — asyncio's StreamReader
     # read-ahead pulls the pipe into the reader before any force-close, so a
-    # truncation assertion would be a race (#25315). It guards the delivered
+    # truncation assertion would be a race. It guards the delivered
     # output + bounded settle; the held-pipe force-close is pinned by
     # test_facade_close_is_bounded_and_leaks_nothing_with_a_held_pipe.
     from muse_code.connection import Connection
@@ -1077,7 +1076,7 @@ async def test_facade_close_delivers_a_hosts_full_stdout_then_settles() -> None:
 def test_fixture_host_bin_fails_closed_on_a_missing_explicit_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # PR #30094 review, round 15: an explicit MUSE_CONFORMANCE_BIN that is
+    # a prior review, round 15: an explicit MUSE_CONFORMANCE_BIN that is
     # not a file must RAISE, not fall through to a silent skip — restoring
     # the old `if explicit and Path(explicit).is_file()` shape would bring
     # back the "11 host arms silently skipped, lane green" incident.
@@ -1088,14 +1087,14 @@ def test_fixture_host_bin_fails_closed_on_a_missing_explicit_path(
 
 @pytest.mark.asyncio
 async def test_a_bare_incoming_attribute_probe_does_not_arm_the_close_penalty() -> None:
-    # PR #30094 review, round 15: `_stdout_consumed` must be set on generator
+    # a prior review, round 15: `_stdout_consumed` must be set on generator
     # ITERATION, not by the `incoming` getter — else a `getattr`/`hasattr`
     # discovery sweep (the DuplexTransport Protocol documents that idiom)
     # would make every later close() wait the full stdout-EOF grace for a
     # reader that never runs. The direct oracle is the flag: a bare attribute
     # probe must leave it False, and a single iteration must flip it True.
     # (A timing assert on close() would be the public oracle but is a
-    # wall-clock green-path assert #25315 forbids; the flag pins it
+    # wall-clock green-path assert a tracked issue forbids; the flag pins it
     # deterministically.)
     child = await MuseServeChild.spawn(
         muse_bin=sys.executable,

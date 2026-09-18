@@ -1,15 +1,14 @@
-"""PY-TEST-009: the SS1.4 handshake and typed errors over `serve-fixture`.
+"""PY-the governing rule: the protocol handshake and typed errors over `serve-fixture`.
 
-Spec ``specs/638-muse-sdk-python`` Scenario 3 / FR-638-012/013/014, driven
-against the real #210 fixture host over the recorded handshake transcripts
+Spec ``the owning spec` its acceptance scenario / the governing rule, driven
+against the real a tracked issue fixture host over the recorded handshake transcripts
 (``schema/msp/transcripts/README.md``, "Testing your client against the
 canned host").
 
 The recorded ``InitializeResult`` carries the RECORDING-time bundle
 fingerprint, not the current stable pin (the additive repin flow re-pins
 manifests, never wire bytes). There is deliberately NO expected-fingerprint
-parameter (a public knob would switch the strict gate off — PR #30094
-review, thread 1): the fixture arms retarget the gate by setting
+parameter: the fixture arms retarget the gate by setting
 ``muse_code.EXPECTED_SCHEMA_FINGERPRINT`` for the test's scope
 (monkeypatch), which the handshake reads at call time. The C-638-4 strict
 gate is itself proven against the real host: the unpatched arm must fail
@@ -56,7 +55,7 @@ def _recorded(scenario: str) -> tuple[dict[str, Any], str]:
         if frame.get("method") == "initialize"
     )
     params = dict(init["params"])
-    # Identity is ours (unified by the harness, #23963); ids are ours too.
+    # Identity is ours; ids are ours too.
     params["clientInfo"] = {"name": "muse-code-sdk-py-tests", "version": "0.0.0"}
     result = next(
         frame
@@ -79,7 +78,7 @@ async def test_granted_handshake_surfaces_granted_capabilities(
     params, recorded_fp = _recorded("handshake-usershell-granted")
     monkeypatch.setattr(muse_code, "EXPECTED_SCHEMA_FINGERPRINT", recorded_fp)
     handshake = await _spawn("handshake-usershell-granted")
-    # The pre-`initialized` handshake exposes NO traffic verb (FR-638-012):
+    # The pre-`initialized` handshake exposes NO traffic verb:
     # a request/notify/command forward would type-check clean otherwise.
     for verb in ("request", "notify", "command"):
         assert not hasattr(handshake, verb), f"handshake must not expose {verb}"
@@ -130,7 +129,7 @@ async def test_capability_required_is_a_typed_error_branch(
             )
         )
     assert excinfo.value.kind == "capabilityRequired", (
-        "the SS1.6 branch is data.kind, never message text (INV-012)"
+        "the protocol branch is data.kind, never message text"
     )
     exit_ = await asyncio_wait(connection.close())
     assert exit_.code == 0 and exit_.signal is None, (

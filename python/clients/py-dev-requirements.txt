@@ -1,7 +1,8 @@
-# Dev/build tooling for the Python SDK lane (specs/638-muse-sdk-python
-# FR-638-002): exact pins only — the CI lane installs from this file, and
-# clients/sdk-py/tests/test_manifests.py rejects any non-exact line.
-# Build/dev-time only; the packages' RUNTIME posture is INV-638-03.
+# Dev/build tooling for the Python SDK lane: exact pins only — the CI lane
+# installs from this file, and clients/sdk-py/tests/test_manifests.py
+# rejects any non-exact line. Build/dev-time only; the packages' RUNTIME
+# dependency posture (zero for the wire types, exactly the pinned pydantic
+# for the SDK) is a separate, tested contract.
 build==1.6.1
 mypy==2.3.1
 pydantic==2.13.5

@@ -1,11 +1,11 @@
 """The journey's provider-configured mode: a loopback fake first-party
 endpoint plus the ``HOME`` that points ``muse serve`` at it — the Python twin
-of ``clients/sdk-quickstart/src/provider.ts`` (spec 638 FR-638-022 / T040).
+of ``clients/sdk-quickstart/src/provider.ts``.
 
 It serves the same two routes with the same bodies, and the ``HOME`` it seeds
 carries the same two files with the same shape:
 
-- ``GET  <base>/muse-code/models`` → one visible, dated row, so the host's
+- ``GET <base>/muse-code/models`` → one visible, dated row, so the host's
   default-model pick yields a model.
 - ``POST <base>/responses`` → a text SSE turn, or ONE scripted ``bash`` tool
   call (see below).

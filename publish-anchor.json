@@ -96,9 +96,10 @@
   ],
   "source": {
    "repository": "mslsrc/tbh",
-   "commit": "99735106089a8ff928e0e4652cee0e7c62d62e0c"
+   "commit": "b0adcdc89e9b8ef2fd35d2f000df17265e6b9a1a",
+   "note": "an upstream scrub-branch commit (its PR was not yet merged at push time; the anchor is re-pointed at the merged commit when it lands) \u2014 pushed early on the coordinator's direction so the public tree carries no internal identifiers while the upstream PR rides review"
   },
-  "published_at": "2026-09-15T08:35:00Z",
+  "published_at": "2026-09-17T01:55:00Z",
   "closure_paths": [
    "python/clients/msp-py",
    "python/clients/py-dev-requirements.txt",
@@ -106,6 +107,7 @@
    "python/clients/sdk-py",
    "python/clients/sdk-quickstart-py",
    "python/schema/msp/stable",
+   "python/scripts/check-sdk-py-external-audience.py",
    "python/scripts/publish-sdk-pypi.sh",
    "python/scripts/sdk-py-wheel-rows.py"
   ],

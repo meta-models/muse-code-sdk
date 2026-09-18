@@ -1,8 +1,7 @@
 """Run the cookbook recipes — ``python -m cookbook_recipes [--only <id>]``.
 
-The harness half of FR-638-024: reads ``MUSE_BIN`` / ``MUSE_CONFORMANCE_BIN``
-itself (harnesses own that knob; the LIBRARY reads no environment,
-INV-638-08) and passes explicit paths down. Exit 0 only when every selected
+The harness half of the governing rule: reads ``MUSE_BIN`` / ``MUSE_CONFORMANCE_BIN``
+itself and passes explicit paths down. Exit 0 only when every selected
 recipe's journey is OK.
 """
 

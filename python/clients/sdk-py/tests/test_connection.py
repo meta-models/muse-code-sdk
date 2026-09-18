@@ -1,5 +1,4 @@
-"""PY-TEST-009/010 halves of the connection contract (spec 638
-FR-638-011/013/014/015): port of ``clients/sdk-ts/test/connection.test.ts``
+"""PY-the governing rule halves of the connection contract: port of ``clients/sdk-ts/test/connection.test.ts``
 — every runtime case, transport-less over the in-memory duplex harness.
 """
 
@@ -40,7 +39,7 @@ async def test_requests_are_newline_framed_awaited_and_correlated_by_typed_id() 
     assert sent[0]["id"] != sent[1]["id"], "in-flight request ids are unique"
 
     # Responses may arrive in either order, split across arbitrary chunks;
-    # a preceding CR is tolerated on input (SS1.1).
+    # a preceding CR is tolerated on input.
     transport.chunks.push('{"jsonrpc":"2.0","id":2,"result":{"value":"two"}}\r')
     transport.chunks.push('\n{"jsonrpc":"2.0","id":1,"result":{"value":"one"}}\n')
     assert await second == {"value": "two"}
@@ -50,7 +49,7 @@ async def test_requests_are_newline_framed_awaited_and_correlated_by_typed_id() 
 
 @pytest.mark.asyncio
 async def test_typed_errors_expose_data_kind_and_preserve_the_payload_verbatim() -> None:
-    # INV-012.
+    # the governing rule
     transport = FakeDuplex()
     connection = Connection(transport)
     pending = connection.request("session/userShell", {})
@@ -126,7 +125,7 @@ async def test_server_requests_use_their_own_id_space_and_notifications_reach_th
 
 @pytest.mark.asyncio
 async def test_nothing_admitted_retry_reuses_command_id_and_replay_ack_must_be_value_identical() -> None:
-    # TEST-010 / PY-TEST-010.
+    # the governing rule / PY-the governing rule
     transport = FakeDuplex()
     minted = 0
 
@@ -225,7 +224,7 @@ async def test_nothing_admitted_retry_reuses_command_id_and_replay_ack_must_be_v
 
 @pytest.mark.asyncio
 async def test_a_session_start_result_may_omit_the_redundant_command_id_echo() -> None:
-    # TEST-018 omit arm 1.
+    # the governing rule omit arm 1.
     transport = FakeDuplex()
     connection = Connection(transport)
     pending = connection.command(
@@ -253,7 +252,7 @@ async def test_a_session_start_result_may_omit_the_redundant_command_id_echo() -
 
 @pytest.mark.asyncio
 async def test_a_session_resume_result_may_omit_the_redundant_command_id_echo() -> None:
-    # TEST-018 omit arm 2.
+    # the governing rule omit arm 2.
     transport = FakeDuplex()
     connection = Connection(transport)
     pending = connection.command(
@@ -281,7 +280,7 @@ async def test_a_session_resume_result_may_omit_the_redundant_command_id_echo() 
 
 @pytest.mark.asyncio
 async def test_a_result_that_does_carry_command_id_must_still_echo_it_exactly() -> None:
-    # TEST-018 mismatch twin.
+    # the governing rule mismatch twin.
     transport = FakeDuplex()
     connection = Connection(transport)
     pending = connection.command(
@@ -308,7 +307,7 @@ async def test_a_result_that_does_carry_command_id_must_still_echo_it_exactly() 
 
 @pytest.mark.asyncio
 async def test_a_contradictory_command_error_is_terminal_not_retryable() -> None:
-    # TEST-010 / FM-008 boundary: -32030 with a retryable-pair kind.
+    # the governing rule / the governing rule boundary: -32030 with a retryable-pair kind.
     transport = FakeDuplex()
     connection = Connection(
         transport, mint_command_id=lambda: "018f6a1e-9b3c-7c21-a54a-000000000099"
@@ -344,7 +343,7 @@ async def test_a_contradictory_command_error_is_terminal_not_retryable() -> None
 
 @pytest.mark.asyncio
 async def test_a_malformed_or_oversized_inbound_line_is_reported_and_later_frames_still_work() -> None:
-    # FM-007.
+    # the governing rule
     transport = FakeDuplex()
     connection = Connection(transport, frame_limit_bytes=128)
     errors: list[ProtocolError] = []
@@ -405,7 +404,7 @@ async def test_flush_rethrows_a_transport_write_failure_instead_of_swallowing_it
 
 @pytest.mark.asyncio
 async def test_a_cancelled_requests_late_reply_is_dropped_not_fatal() -> None:
-    # PR #30094 review, thread 2: cancelling a request (asyncio.wait_for
+    # a prior review: cancelling a request (asyncio.wait_for
     # timeout included) then receiving the host's late reply must drop the
     # reply and keep the connection healthy — settling the done future used
     # to raise InvalidStateError inside the read loop and finish the
@@ -439,7 +438,7 @@ async def test_a_cancelled_requests_late_reply_is_dropped_not_fatal() -> None:
 
 @pytest.mark.asyncio
 async def test_command_stops_after_max_attempts_of_backpressure() -> None:
-    # PR #30094 review, thread 17 (FR-638-015): the retry loop is BOUNDED —
+    # a prior review: the retry loop is BOUNDED —
     # a host that answers `backpressured` on every attempt gets exactly
     # max_attempts frames, all under one commandId, then the typed error.
     transport = FakeDuplex()
@@ -450,7 +449,7 @@ async def test_command_stops_after_max_attempts_of_backpressure() -> None:
         if attempt >= 2:
             # Bounded RED for the loop-unbounded mutant: a third attempt
             # would first schedule this delay — fail here, never hang.
-            pytest.fail("retry past max_attempts=2 (FR-638-015)")
+            pytest.fail("retry past max_attempts=2")
         waits.append(attempt)
 
     command = connection.command(
@@ -469,7 +468,7 @@ async def test_command_stops_after_max_attempts_of_backpressure() -> None:
     await wait_for_writes(transport, 2)
     second = json.loads(transport.writes[1])
     assert second["params"]["commandId"] == first["params"]["commandId"], (
-        "the retry reuses the SAME commandId (INV-013)"
+        "the retry reuses the SAME commandId"
     )
     transport.chunks.push(
         frame({"jsonrpc": "2.0", "id": second["id"], "error": backpressured})
@@ -484,13 +483,13 @@ async def test_command_stops_after_max_attempts_of_backpressure() -> None:
 
 @pytest.mark.asyncio
 async def test_input_too_large_is_never_auto_retried() -> None:
-    # PR #30094 review, thread 17 (FR-638-015): `inputTooLarge` is not in the
+    # a prior review: `inputTooLarge` is not in the
     # retryable pair — the delay hook firing at all is the failure.
     transport = FakeDuplex()
     connection = Connection(transport)
 
     async def must_not_wait(_attempt: int, _error: MspError) -> None:
-        pytest.fail("inputTooLarge must never schedule a retry (FR-638-015)")
+        pytest.fail("inputTooLarge must never schedule a retry")
 
     command = connection.command(
         "turn/start", {"n": 1}, max_attempts=3, retry_delay=must_not_wait
@@ -519,7 +518,7 @@ async def test_input_too_large_is_never_auto_retried() -> None:
 
 @pytest.mark.asyncio
 async def test_command_immediately_followed_by_close_still_writes_the_frame() -> None:
-    # PR #30094 review, thread 20: command() is EAGER — the first attempt
+    # a prior review: command() is EAGER — the first attempt
     # joins the submit tail before it returns, so a close() on the very next
     # line still delivers the frame instead of silently dropping it.
     transport = FakeDuplex()
@@ -537,7 +536,7 @@ async def test_command_immediately_followed_by_close_still_writes_the_frame() ->
 
 @pytest.mark.asyncio
 async def test_a_non_encodable_frame_rejects_only_itself_never_the_connection() -> None:
-    # PR #30094 review, thread 8: a lone surrogate (an os.fsdecode filename)
+    # a prior review: a lone surrogate (an os.fsdecode filename)
     # survives json.dumps but fails the transport's UTF-8 encode. That is the
     # CALLER's defect: the one frame rejects typed, the connection and every
     # sibling in flight stay alive.
@@ -567,7 +566,7 @@ async def test_a_non_encodable_frame_rejects_only_itself_never_the_connection() 
 
 @pytest.mark.asyncio
 async def test_a_non_encodable_handler_reply_answers_the_peer_and_survives() -> None:
-    # PR #30094 review, round 4 (zdwmeta + reviewkit): the THIRD writer —
+    # a prior review, round 4 (zdwmeta + reviewkit): the THIRD writer —
     # server-request replies — must not treat a handler's lone surrogate as
     # transport death either: the peer is still waiting on that id, so it
     # gets a fixed-ASCII -32603 instead, and the connection plus every
@@ -609,11 +608,11 @@ async def test_a_non_encodable_handler_reply_answers_the_peer_and_survives() -> 
 async def test_a_request_with_a_non_serializable_param_rejects_and_frees_the_id(
     bad_value: object,
 ) -> None:
-    # PR #30094 review: a param that cannot become valid JSON — a Path
+    # a prior review: a param that cannot become valid JSON — a Path
     # (TypeError) or a NaN/Infinity float (ValueError under allow_nan=False,
     # else a bare `NaN` token the host can't parse) — must reject request()'s
     # own future AND pop the pending id, never strand it "in flight" nor hang
-    # the caller until EOF, while the connection stays healthy (FM-638-7).
+    # the caller until EOF, while the connection stays healthy.
     transport = FakeDuplex()
     # A fixed request id: the id-freed contract is oracled publicly — if the
     # doomed frame stranded its pending entry, REUSING the id would reject
@@ -636,11 +635,11 @@ async def test_a_request_with_a_non_serializable_param_rejects_and_frees_the_id(
 
 @pytest.mark.asyncio
 async def test_a_command_with_a_non_serializable_param_rejects_its_future() -> None:
-    # PR #30094 review, round 18 (sechegaray): command() promises a future,
+    # a prior review, round 18 (sechegaray): command() promises a future,
     # but _canonical ran json.dumps before the frame reached _enqueue_write —
     # a non-JSON param (a Path) leaked a raw synchronous TypeError while the
     # same params through request() reject with ProtocolError. The signature
-    # step now settles the same typed FM-638-7 rejection, nothing is
+    # step now settles the same typed the governing rule rejection, nothing is
     # stranded, and the connection stays healthy.
     transport = FakeDuplex()
     connection = Connection(transport, mint_request_id=lambda: 7)
@@ -659,10 +658,10 @@ async def test_a_command_with_a_non_serializable_param_rejects_its_future() -> N
 
 @pytest.mark.asyncio
 async def test_a_raised_msp_error_with_unserializable_data_answers_the_peer() -> None:
-    # PR #30094 review, round 7 (reviewkit): a handler that RAISES MspError
+    # a prior review, round 7 (reviewkit): a handler that RAISES MspError
     # whose data is not JSON-serializable (a set) must not kill the
     # connection — the error reply itself is unencodable, so the peer's id is
-    # answered with the fixed-ASCII -32603 fallback (FM-638-7).
+    # answered with the fixed-ASCII -32603 fallback.
     transport = FakeDuplex()
     connection = Connection(transport)
     innocent = connection.request("innocent/sibling")
@@ -696,10 +695,10 @@ async def test_a_raised_msp_error_with_unserializable_data_answers_the_peer() ->
 
 @pytest.mark.asyncio
 async def test_command_retries_overloaded_on_the_same_command_id() -> None:
-    # PR #30094 review, round 10 (sechegaray): FR-638-015 retries BOTH
+    # a prior review, round 10 (sechegaray): the governing rule retries BOTH
     # `-32001 overloaded` and `-32031 backpressured` on the same commandId;
     # every other retry arm only exercises backpressured, so the overloaded
-    # half can regress with T023 still ticked. This is its twin.
+    # half can regress with its task still ticked. This is its twin.
     transport = FakeDuplex()
     connection = Connection(transport)
 
@@ -727,7 +726,7 @@ async def test_command_retries_overloaded_on_the_same_command_id() -> None:
     await wait_for_writes(transport, 2)
     retry = json.loads(transport.writes[1])
     assert retry["params"]["commandId"] == first["params"]["commandId"], (
-        "overloaded retries reuse the SAME commandId (INV-013)"
+        "overloaded retries reuse the SAME commandId"
     )
     ack = {"commandId": retry["params"]["commandId"], "status": "accepted"}
     transport.chunks.push(frame({"jsonrpc": "2.0", "id": retry["id"], "result": ack}))

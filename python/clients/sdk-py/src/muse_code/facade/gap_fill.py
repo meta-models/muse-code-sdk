@@ -1,20 +1,19 @@
-"""SS4.8 gap recovery by splice-fill (spec 638 FR-638-019c / T032, carrying
-spec 14990 FR-020; tdd SS4.8). Port of ``clients/sdk-ts/src/facade/gap-fill.ts``.
+"""Gap recovery by splice-fill. Port of the TypeScript SDK's gap-fill module.
 
 Split out of ``session.py`` for the same reason ``approval.py`` and
 ``turn_submit.py`` were: this is a delivery-plane concern with its own buffer,
 page walk, and failure vocabulary, and ``Session`` was already the package's
 largest module.
 
-THE RECIPE, verbatim from tdd SS4.8 and unchanged here: buffer live events at
-cursors at or after ``next`` as they arrive; page forward from ``after`` with
-``view/page`` until the walk reaches ``next``; discard the paged events the
-buffer already holds; splice the buffer after the paged prefix. D-030's second
-sanctioned path (drop state and re-anchor at the latest compaction snapshot)
-is NOT built here — it is the #208 lane's spec work, and building both would
-be a second concrete path for one current use.
+THE RECIPE, verbatim from the protocol's gap-recovery rule and unchanged
+here: buffer live events at cursors at or after ``next`` as they arrive;
+page forward from ``after`` with ``view/page`` until the walk reaches
+``next``; discard the paged events the buffer already holds; splice the
+buffer after the paged prefix. The protocol's second sanctioned path (drop
+state and re-anchor at the latest compaction snapshot) is NOT built here —
+building both would be a second concrete path for one current use.
 
-CURSORS STAY OPAQUE (tdd SS4.1). Nothing below orders two cursors: "at or
+CURSORS STAY OPAQUE. Nothing below orders two cursors: "at or
 after ``next``" is delivery ORDER, not a comparison — every live frame that
 arrives after the gap marker is, by the server's own delivery contract, at or
 after ``next``. The walk stops on cursor EQUALITY with the target or on the
@@ -110,7 +109,7 @@ class GapFillerOptions(Generic[_I]):
         connection: Absent on a fold-only ``Session``: nothing to page through.
         fold: The fold whose ``pending_gap``/``gap_filled`` the walk drives.
         apply: Fold and route ONE frame, collecting what it produced.
-        discarded: SS2.13.3b — a discharged session folds nothing, fill or no
+        discarded: the protocol — a discharged session folds nothing, fill or no
             fill.
     """
 
@@ -122,7 +121,7 @@ class GapFillerOptions(Generic[_I]):
 
 
 class GapFiller(Generic[_I]):
-    """Drives the SS4.8 splice-fill for one session (spec 638 FR-638-019c)."""
+    """Drives the protocol splice-fill for one session."""
 
     def __init__(self, options: GapFillerOptions[_I]) -> None:
         """Builds the filler over its session's seams."""
@@ -141,7 +140,7 @@ class GapFiller(Generic[_I]):
         # set covers the other window: the wire promises no order between the
         # marker and the frame at ``next``, so a twin can legally arrive after
         # the fill completed, when the buffer is gone. Folding it then re-runs
-        # its routing — for a ``turn/started``, a duplicate SS4.13
+        # its routing — for a ``turn/started``, a duplicate the protocol
         # queue-movement replay on the wire.
         #
         # SELF-DRAINING: an entry is removed the moment its twin arrives, and
@@ -154,12 +153,12 @@ class GapFiller(Generic[_I]):
         # worth per TARGET.
         #
         # Two prunes were tried on the TS twin and both were defects (PR
-        # #24930 review rounds 2–4), so neither is here: clearing per fill
+        # a tracked issue review rounds 2–4), so neither is here: clearing per fill
         # drops the refusal for a twin still on its way, and retiring inside
         # the WALK when it meets the cursor before its own target deletes a
         # buffered twin's only refusal (the walk cannot see the buffer).
         # Deciding staleness any other way means ordering two opaque cursors,
-        # which tdd SS4.1 forbids.
+        # which the protocol spec forbids.
         self._served_twins: set[str] = set()
 
     @property
@@ -203,8 +202,7 @@ class GapFiller(Generic[_I]):
         ``None`` rather than an already-settled awaitable, deliberately: the
         caller feeds the return into the ``io`` channel, and an entry there
         forces ``_settled_io`` onto its gather arm, which needs a running
-        loop a fold-only ``apply`` may not have (PR #32249 review round 1 —
-        the same shape as ``ApprovalRouter.requested``).
+        loop a fold-only ``apply`` may not have.
         """
         gap = self._options.fold.pending_gap
         # Only reachable if a caller invokes this with nothing outstanding; the
@@ -245,7 +243,7 @@ class GapFiller(Generic[_I]):
         # can fold inside it, and a ``view/gap`` arriving after this task step
         # finds ``_filling`` already false and starts its own walk from
         # ``apply``. A Python restart block would be unreachable defense
-        # (PR #32249 review round 1 proved it dead by mutation).
+        #.
         return await self._drain(paged)
 
     async def _walk(self, connection: Connection, paged: List[WireFrame]) -> None:
@@ -296,7 +294,7 @@ class GapFiller(Generic[_I]):
                 # exists to prevent.
                 already_applied = cursor in self._served_twins
                 # Equality, never a relational compare: ``next`` is a cursor,
-                # and cursors are opaque (tdd SS4.1). Set BEFORE the skip
+                # and cursors are opaque. Set BEFORE the skip
                 # below, or a target the walk skips is a target the walk never
                 # reaches, and it pages straight past its own stopping point.
                 if cursor == target:
@@ -315,8 +313,8 @@ class GapFiller(Generic[_I]):
                 if reached:
                     self._served_twins.add(cursor)
             # The server's own end of the view. ``next`` names a LIVE cursor
-            # and ``view/page`` serves durable-sourced events only (tdd
-            # SS4.7.3), so a hole whose tail was ephemeral ends here and never
+            # and ``view/page`` serves durable-sourced events only (protocol spec
+            # the protocol), so a hole whose tail was ephemeral ends here and never
             # at ``target``. An ABSENT ``nextCursor`` is a different fact — the
             # member is "never omitted", so it falls through to the stall arm.
             if "nextCursor" in result and result["nextCursor"] is None:
@@ -393,7 +391,7 @@ class GapFiller(Generic[_I]):
         buffered = list(self._buffer)
         self._buffer.clear()
         self._filling = False
-        # SS2.13.3b outranks the fill: a session discharged while the walk was
+        # the protocol outranks the fill: a session discharged while the walk was
         # in flight folds nothing more, and neither half of the splice is
         # exempt.
         if self._options.discarded():

@@ -1,5 +1,5 @@
-"""The MSP connection plane (spec 638 FR-638-011..018): the transport-less
-NDJSON connection machine, the owned-process spawn path, and host discovery.
+"""The MSP connection plane: the transport-less NDJSON connection machine,
+the owned-process spawn path, and host discovery.
 """
 
 from __future__ import annotations

@@ -1,21 +1,20 @@
-"""PY-TEST-022 ``docs_reference_generation_gates`` (specs/638-muse-sdk-python).
+"""PY-the governing rule ``docs_reference_generation_gates``.
 
-FR-638-026 / ADR 638 D8 ruling 2: the ``python/`` reference tree is generated
+The governing rule / the governing decision: the ``python/`` reference tree is generated
 from Google-style docstrings + type hints through the site's existing
 ``generate`` script — the extraction half of that script is
-``developer-docs/scripts/extract-python-reference.py``, exercised here
+``the docs-site source``, exercised here
 directly (stdlib-only, so this suite needs no Node toolchain):
 
 * clean extraction over the real tree succeeds, covers exactly
   ``muse_code.__all__``, and is deterministic (byte-identical double run —
   the regen-clean substrate; the docs build's double-build manifest
   comparison enforces the same property over the rendered tree);
-* a seeded missing docstring fails extraction NAMING the symbol (FM-638-5).
+* a seeded missing docstring fails extraction NAMING the symbol.
 
-FR-638-025's language-tab arm of this test id lives in the docs-lane
-suite ``developer-docs/tests/language-tabs.test.mjs`` — ONE copy, in the
-lane that triggers on every page-changing PR (see the spec's arm-homes
-note on PY-TEST-022).
+The governing rule's language-tab arm of this test id lives in the docs-lane
+suite ``the docs-site source`` — ONE copy, in the
+lane that triggers on every page-changing PR.
 """
 
 from __future__ import annotations
@@ -47,7 +46,7 @@ def _run_extractor(*args: str) -> subprocess.CompletedProcess[str]:
 def test_extraction_over_the_real_tree_is_clean_and_covers_all() -> None:
     result = _run_extractor()
     assert result.returncode == 0, (
-        f"reference extraction reds over the shipped tree (FR-638-026):\n{result.stderr}"
+        f"reference extraction reds over the shipped tree:\n{result.stderr}"
     )
     model = json.loads(result.stdout)
     sys.path.insert(0, str(MUSE_CODE_SRC))
@@ -68,7 +67,7 @@ def test_extraction_is_deterministic() -> None:
     assert first.returncode == 0 and second.returncode == 0
     assert first.stdout == second.stdout, (
         "two extractions over one tree differ; the docs build's determinism "
-        "gate would red on this (FR-638-026 regen-clean)"
+        "gate would red on this"
     )
 
 
