@@ -21,7 +21,7 @@
  */
 
 import { SessionFold } from "../fold/session-fold.js";
-import type { FoldOutcome, ViewEvent } from "../fold/session-fold.js";
+import type { DeepReadonly, FoldOutcome, ViewEvent } from "../fold/session-fold.js";
 import { PendingCommandSet } from "../pending/pending-command-set.js";
 import type {
   PendingRetirement,
@@ -53,6 +53,7 @@ import type { FoldedItem, Turn } from "./turn-handle.js";
 
 import type {
   ApprovalRequestParams,
+  ApprovalUpdatedParams,
   Item,
   ItemDeltaParams,
   ItemKind,
@@ -510,6 +511,19 @@ export class Session<I = unknown> {
         if (outcome.kind === "approvalPending") this.#approvalRequested(known.params, tasks);
         break;
 
+      case "approval/updated":
+        // FR-019's outbound half too (#36949): a stage advance is delivered by
+        // this frame alone on the notification plane, so it must drive the
+        // handler — the why and the request merge live on
+        // `ApprovalRouter.updated`. The same fold verdict gates it: an update
+        // the fold IGNORED (unknown or already-resolved approval) authors
+        // nothing, and the verdict itself carries the retained request the
+        // merge needs.
+        if (outcome.kind === "approvalPending") {
+          this.#approvalUpdated(outcome.requested, known.params, tasks);
+        }
+        break;
+
       // Folded, deliberately NOT routed to a turn handle. Listed rather than
       // defaulted so this switch is exhaustive over `ViewEvent`: the fold's
       // `AssertNever` forces each new #206 view notification into that union,
@@ -522,13 +536,6 @@ export class Session<I = unknown> {
       case "view/gap":
       case "turn/retracted": // the turn still reaches its own terminal
       case "turn/retryScheduled": // non-terminal by contract (SS4.5.1)
-      // An UPDATE refreshes a pending approval; it never opens one, and it
-      // carries none of the request-shape members (`itemId`, `turnId`,
-      // `toolName`) an `ApprovalHandler` is typed on. SS5.6.3: a re-issued
-      // REQUEST embodies the refresh, and that is the frame that drives the
-      // handler — so calling it from here would either lie about the request
-      // or need a second, thinner handler type for one wire event.
-      case "approval/updated":
       case "approval/resolved":
       case "userInput/requested":
       case "userInput/settled":
@@ -863,6 +870,17 @@ export class Session<I = unknown> {
     // An approval decision retires no pending command — it is not an SS4.13
     // entry — but it still has to be awaitable through the same `io`, or a
     // consumer has no barrier for the round trip it just triggered.
+    if (decided !== undefined) tasks.push(decided.then(() => []));
+  }
+
+  /** The #36949 stage-advance re-route; the merge lives on `ApprovalRouter.updated`. */
+  #approvalUpdated(
+    requested: DeepReadonly<ApprovalRequestParams>,
+    params: ApprovalUpdatedParams,
+    tasks: Promise<readonly PendingRetirement<I>[]>[],
+  ): void {
+    const decided = this.#approvals.updated(requested, params);
+    // Awaitable through `io`, same as `#approvalRequested` above.
     if (decided !== undefined) tasks.push(decided.then(() => []));
   }
 

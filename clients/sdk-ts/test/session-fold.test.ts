@@ -1172,8 +1172,9 @@ test("snapshot getters are deep-readonly: a field write is a compile error", () 
 test("apply()'s sessionState outcome is deep-readonly (#23556 item 2)", () => {
   // The store returns the very object it just stored, so before the seal
   // `out.outcome.current.modelId = "HIJACKED"` mutated fold state with zero
-  // casts — the one `FoldOutcome` arm carrying a params object, which is why
-  // D-14's getter sweep missed it. Every other arm carries only ids,
+  // casts — the first of the two `FoldOutcome` arms carrying a params object
+  // (`approvalPending.requested`, #36949, is the other — probed below), which
+  // is why D-14's getter sweep missed it. Every other arm carries only ids,
   // numbers, and booleans.
   const fold = new SessionFold();
   const model: SessionModelChangedParams = {
@@ -1206,6 +1207,20 @@ test("apply()'s sessionState outcome is deep-readonly (#23556 item 2)", () => {
   // it narrows by family already, so no cast is needed here.
   // @ts-expect-error — sessionState.get(...) is deep-readonly
   fold.sessionState.get("session/modelChanged")!.modelId = "HIJACKED";
+});
+
+test("apply()'s approvalPending outcome seals the retained request (#36949, D-14)", () => {
+  // The second params-carrying arm: the verdict hands back the very object
+  // the fold stores (`requested: params` / `held.requested`), so only the
+  // `DeepReadonly` on the arm keeps a consumer from writing into fold state
+  // and breaking INV-002 replay equality. This probe pins the seal — with the
+  // wrapper removed, `tsc --build` exits 0 and the live handle ships silently.
+  const fold = new SessionFold();
+  const out = fold.apply(approvalRequested("a-1", "v:s:1"));
+  assert.equal(out.kind, "approvalPending");
+  if (out.kind !== "approvalPending") return;
+  // @ts-expect-error — the retained request is sealed (D-14)
+  out.requested.rawArgs = "HIJACKED";
 });
 
 test("the items surface is an ALLOWLIST: it cannot fail open as the store grows", () => {

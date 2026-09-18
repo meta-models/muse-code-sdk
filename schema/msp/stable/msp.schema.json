@@ -726,7 +726,8 @@
       "description": "A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry\njoins this domain as an additive open-enum extension when SS6 un-defers\n(#13929, Scenario 5 AS-3) — closed would make that a retype.",
       "enum": [
         "userShell",
-        "sessionMcp"
+        "sessionMcp",
+        "sessionListStream"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -3025,6 +3026,19 @@
         "items",
         "mode",
         "snapshot"
+      ],
+      "type": "object"
+    },
+    "SessionListChangedParams": {
+      "description": "`session/listChanged` params (#33084, ADR 33084 D3): one changed row of\nthe `session/list` shape — the full SS2.4 Session object as the answering\nhost's list face serves it at emission (the ADR 29243 live-overlaid row),\na replace, never a delta. Emitted only on connections that negotiated the\n`sessionListStream` capability at `initialize` (ADR 33084 D2); row birth\nstays on `session/started`, unload pairs with `session/closed`.",
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/Session",
+          "description": "The served list row for the changed session."
+        }
+      },
+      "required": [
+        "session"
       ],
       "type": "object"
     },
@@ -6020,7 +6034,8 @@
   "capabilities": {
     "grantable": [
       "userShell",
-      "sessionMcp"
+      "sessionMcp",
+      "sessionListStream"
     ],
     "reserved": [
       {
@@ -6693,6 +6708,12 @@
       "description": "The session's goal block changed value; replace wholesale, an explicit null clears (SS4.6.2).",
       "params": {
         "$ref": "#/$defs/SessionGoalChangedParams"
+      }
+    },
+    "session/listChanged": {
+      "description": "The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated (#33084, ADR 33084 D2/D3).",
+      "params": {
+        "$ref": "#/$defs/SessionListChangedParams"
       }
     },
     "session/modelChanged": {

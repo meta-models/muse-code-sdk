@@ -236,7 +236,7 @@ export interface BranchState {
 }
 
 /** A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when SS6 un-defers (#13929, Scenario 5 AS-3) — closed would make that a retype. */
-export type CapabilityName = "userShell" | "sessionMcp" | (string & {});
+export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | (string & {});
 
 /** The client's requested capability posture (SS1.4.1). Every member defaults; an absent `capabilities` object means all defaults. */
 export interface ClientCapabilities {
@@ -1163,6 +1163,12 @@ export interface SessionHistory {
   noneReason?: HistoryNoneReason;
   /** The folded view state when `mode` is `snapshot` or `anchoredSnapshot`; `null` otherwise. */
   snapshot: ViewSnapshot | null;
+}
+
+/** `session/listChanged` params (#33084, ADR 33084 D3): one changed row of the `session/list` shape — the full SS2.4 Session object as the answering host's list face serves it at emission (the ADR 29243 live-overlaid row), a replace, never a delta. Emitted only on connections that negotiated the `sessionListStream` capability at `initialize` (ADR 33084 D2); row birth stays on `session/started`, unload pairs with `session/closed`. */
+export interface SessionListChangedParams {
+  /** The served list row for the changed session. */
+  session: Session;
 }
 
 /** `session/list` params (tdd SS2.5.4). Read-only; never touches leases. */
@@ -2343,7 +2349,7 @@ export interface WorkflowControlResult {
 /** Every wire method in this schema (SS1.9 index). */
 export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "task/background" | "task/stop" | "task/stopAll" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "usage/read";
 /** Every wire notification in this schema (SS1.9 index). */
-export type MspNotification = "initialized" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "usage/changed";
+export type MspNotification = "initialized" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */

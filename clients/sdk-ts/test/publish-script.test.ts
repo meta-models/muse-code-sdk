@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..", "..", "..", "..");
 const script = join(projectRoot, "scripts", "publish-sdk-npm.sh");
+const audienceChecker = join(projectRoot, "scripts", "check-sdk-py-external-audience.py");
 const realPackageDir = join(projectRoot, "clients", "sdk-ts");
 
 interface RunResult {
@@ -498,6 +499,64 @@ test("a MIT-labelled tarball that ships no licence text fails the audit", () => 
   assert.match(result.combined, /LICENSE/);
 });
 
+// ---- the external-audience gate arms (#37515) ------------------------------
+//
+// The README is the npm long description and the manifest description is the
+// listing summary; 0.1.1 shipped both citing artifacts only the producing
+// repository resolves. The shared checker's per-class refusals are proven in
+// the Python suite that owns it; these arms prove THIS script's wiring: the
+// gate audits the packed tarball, fires in pack-only (so the leak class reds
+// the PR, not the publish), and fails closed when the checker is missing.
+
+test("the audience gate refuses a tarball whose README cites private artifacts", () => {
+  const pkg = fixtureWith(() => {});
+  // The posture clauses are present, so the only refusal left is the leak.
+  writeFileSync(
+    join(pkg, "README.md"),
+    `${POSTURE_README}\nOwning spec: specs/14990-muse-sdk (INV-009).\n`,
+  );
+  const result = run([], { SDK_PACKAGE_DIR: pkg });
+  assert.notEqual(result.status, 0, "a leaking README must fail pack-only");
+  assert.match(
+    result.combined,
+    /spec-path/,
+    `the refusal must name the leak class:\n${result.combined}`,
+  );
+  assert.match(result.combined, /37515/, "the message must name the tracking issue");
+});
+
+test("the audience gate refuses a manifest description citing private artifacts", () => {
+  const pkg = fixtureWith((m) => {
+    m.description = "The MSP TypeScript facade; owning spec specs/14990-muse-sdk.";
+  });
+  writeFileSync(join(pkg, "README.md"), POSTURE_README);
+  const result = run([], { SDK_PACKAGE_DIR: pkg });
+  assert.notEqual(result.status, 0, "a leaking manifest description must fail pack-only");
+  assert.match(
+    result.combined,
+    /package\.json description/,
+    `the refusal must name the description site, not just the README:\n${result.combined}`,
+  );
+});
+
+test("the audience gate fails closed when the checker is missing from the tree", () => {
+  // Exactly the shape a republish that drops the closure file would produce.
+  // Publishing unaudited is the failure the gate exists to prevent, so a
+  // missing checker is a refusal, never a skip.
+  const result = runMirror(mirrorFixture({ host_version: "0.0.0" }, { withChecker: false }), []);
+  assert.notEqual(result.status, 0, "a missing checker must fail the run");
+  assert.match(
+    result.combined,
+    /check-sdk-py-external-audience\.py is missing/,
+    `the message must name the missing file:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /sdk-source-closure\.json/,
+    "the message must point at the closure manifest that carries it",
+  );
+});
+
 test("the script handles no credential at all, so none can leak", () => {
   const source = readFileSync(script, "utf8");
   const code = source.replace(/^\s*#.*$/gm, ""); // comments describe, they do not run
@@ -754,7 +813,10 @@ test("no shipped declaration imports a package that is not on the registry", () 
 // prove that arm on a mirror-shaped fixture: the script copied to a root with
 // no `crates/`, a committed clean tree, and an anchor to read.
 
-function mirrorFixture(anchor: Record<string, unknown> | string | null): {
+function mirrorFixture(
+  anchor: Record<string, unknown> | string | null,
+  { withChecker = true }: { withChecker?: boolean } = {},
+): {
   script: string;
   pkg: string;
 } {
@@ -762,6 +824,14 @@ function mirrorFixture(anchor: Record<string, unknown> | string | null): {
   fixtureDirs.push(root);
   mkdirSync(join(root, "scripts"), { recursive: true });
   cpSync(script, join(root, "scripts", "publish-sdk-npm.sh"));
+  if (withChecker) {
+    // The mirror carries the shared audience checker under its python/ tree
+    // (the Python-closure layout), not next to this script; the fixture
+    // mirrors that so these arms also prove the script's two-layout
+    // resolution.
+    mkdirSync(join(root, "python", "scripts"), { recursive: true });
+    cpSync(audienceChecker, join(root, "python", "scripts", "check-sdk-py-external-audience.py"));
+  }
   const pkg = join(root, "clients", "sdk-ts");
   cpSync(realPackageDir, pkg, {
     recursive: true,

@@ -401,6 +401,36 @@ for f in "${REQUIRED_ENTRIES[@]}"; do
 done
 ok "main, types, LICENSE and README present in the tarball"
 
+# ---------------------------------------------------------------------------
+# Gate 6 — external audience. The README is the package's npm long description
+# and the manifest description is its listing summary; 0.1.1 shipped both
+# citing artifacts only the producing repository resolves (#37515, the npm
+# instance of the PyPI #36888 leak class). The checker audits the PACKED
+# tarball, so what is gated is what the upload step would actually ship. It
+# runs in pack-only too, on purpose: pack-only rides CI on every sdk-lane PR,
+# which is what reds a new leak before merge instead of at publish time.
+#
+# The checker is shared with the Python publish gate. Upstream it sits next to
+# this script; in the public mirror the Python closure lands under python/, so
+# both layouts are tried. A missing checker fails closed: a republish that
+# drops it must dead-end here, not publish unaudited (the publish-sdk-pypi.sh
+# posture; the closure manifest names the file for the re-sync).
+# ---------------------------------------------------------------------------
+step "gate: external audience (README + manifest description)"
+AUDIENCE_CHECKER=""
+for candidate in \
+  "$REPO_ROOT/scripts/check-sdk-py-external-audience.py" \
+  "$REPO_ROOT/python/scripts/check-sdk-py-external-audience.py"; do
+  [[ -f "$candidate" ]] && AUDIENCE_CHECKER="$candidate" && break
+done
+[[ -n "$AUDIENCE_CHECKER" ]] ||
+  die "check-sdk-py-external-audience.py is missing from this tree (looked under scripts/ and python/scripts/). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the audience audit would risk re-shipping the 0.1.1 leak class (#37515)."
+command -v python3 >/dev/null 2>&1 ||
+  die "python3 is required for the external-audience gate (it runs check-sdk-py-external-audience.py over the packed tarball)"
+python3 "$AUDIENCE_CHECKER" --npm-tarball "$TARBALL" ||
+  die "the packed tarball's README/description reference private repository artifacts (#37515). Rewrite them for an npm reader; the findings above name each leak class."
+ok "no private repository references in the packed README/description"
+
 echo ""
 echo "would publish: $NAME@$VERSION  ($(wc -c <"$TARBALL" | tr -d ' ') bytes)"
 printf '    %s\n' "${ENTRIES[@]}"

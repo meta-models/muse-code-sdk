@@ -402,15 +402,19 @@ test(
 );
 
 test(
-  "T031/TEST-013: approval/updated refreshes the stage without authoring a decision",
+  "T031/TEST-013: an approval/updated whose requirement is ALREADY DECIDED authors no decision",
   { timeout: ARM_TIMEOUT },
   async () => {
-    // The update path carries no `approval/request` shape (no itemId/turnId/
-    // toolName), so it cannot honestly call a handler typed on the request.
-    // SS5.6.3 says a re-issued REQUEST embodies the refresh; that is the frame
-    // that drives the handler, and the update alone must not.
+    // The refresh route (#36949) reuses the per-stage latch, so an update that
+    // does NOT advance the requirement — a `policyPersistence` report for the
+    // stage just decided, say — must not re-ask the handler or author a second
+    // decide against the same requirementId.
     const { session, transport } = wired();
-    session.onApproval(() => ({ choiceId: "allow_once" }));
+    let calls = 0;
+    session.onApproval(() => {
+      calls += 1;
+      return { choiceId: "allow_once" };
+    });
     const first = session.apply(approvalRequested());
     await waitForWrites(transport, 1);
     answer(transport, 0, decideResult("mint-0"));
@@ -419,8 +423,8 @@ test(
     const update: ApprovalUpdatedParams = {
       approvalId: "a-1",
       availableChoices: CHOICES,
-      change: { kind: "stageAdvanced" },
-      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      change: { kind: "policyPersistence", status: "succeeded" },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 0 },
       sessionId: SESSION,
       sourceRange: SOURCE,
       subject: { kind: "shell", command: "ls" },
@@ -430,7 +434,286 @@ test(
     await outcome.io;
     await settleMicrotasks();
 
+    assert.equal(calls, 1, "an already-decided stage must not re-ask the handler");
     assert.equal(transport.writes.length, 1);
+  },
+);
+
+test(
+  "T031/TEST-013 #36949: an approval/updated that ADVANCES the requirement re-asks the handler and decides the new stage",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The reporter's exact sequence (#36949): a 3-stage shell
+    // approval where stages 0 and 2 need decisions. The host resolves stage 0,
+    // advances `currentRequirementId` 0 → 2 via `approval/updated`
+    // (`change.kind: stageResolved`) and re-issues NO second
+    // `approval/requested` — the SS5.6 item-3 re-issue is the protected
+    // `approval/request` SERVER-REQUEST dual, which is not on the notification
+    // plane this SDK consumes. Routing only `approval/requested` therefore
+    // leaves stage 2 undecided and the turn pending forever.
+    const { minted, session, transport } = wired();
+    const seen: ApprovalRequestParams[] = [];
+    session.onApproval((request) => {
+      seen.push(request);
+      // Stage 2 answers with a choice stage 0 NEVER offered, so a router that
+      // handed the handler stage 0's retained choices — or validated against
+      // them — refuses it and this arm reds (D-006 runs on `availableChoices`).
+      return {
+        choiceId: request.currentRequirementId.sourceIndex === 2 ? "allow_write" : "allow_once",
+      };
+    });
+
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    // The stage decision is accepted but the APPROVAL is not terminal.
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: false });
+    await first.io;
+
+    const STAGE_TWO_CHOICES: ApprovalChoice[] = [
+      ...CHOICES,
+      { choiceId: "allow_write", decision: "approved", label: "Allow write", scope: "once" },
+    ];
+    const SUBAGENT_ORIGIN = {
+      childRunId: "run-9",
+      childSessionId: "s-child",
+      subagentId: "sub-1",
+    };
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: STAGE_TWO_CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 2 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subagentOrigin: SUBAGENT_ORIGIN,
+      subject: { kind: "shell", command: "echo two > b.txt" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    const updated = session.apply({ method: "approval/updated", params: update });
+
+    // The advanced stage reaches the wire as its own decision, choosing from
+    // the UPDATE's refreshed choices.
+    await waitForWrites(transport, 2);
+    assert.equal(sentFrame(transport, 1)["method"], "approval/decide");
+    assert.deepEqual(sentParams(transport, 1)["requirementId"], {
+      approvalId: "a-1",
+      sourceIndex: 2,
+    });
+    assert.equal(sentParams(transport, 1)["choiceId"], "allow_write");
+    assert.deepEqual(minted, ["mint-0", "mint-1"]);
+    // The handler saw an HONEST refreshed request: stage-scoped members from
+    // the update — choices, subject, and the #36182 child provenance included —
+    // identity members from the retained original request.
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[1]?.currentRequirementId, { approvalId: "a-1", sourceIndex: 2 });
+    assert.deepEqual(seen[1]?.availableChoices, STAGE_TWO_CHOICES);
+    assert.deepEqual(seen[1]?.subagentOrigin, SUBAGENT_ORIGIN);
+    assert.deepEqual(seen[1]?.subject, { kind: "shell", command: "echo two > b.txt" });
+    assert.equal(seen[1]?.itemId, "i-1");
+    assert.equal(seen[1]?.turnId, "turn-1");
+    assert.equal(seen[1]?.toolName, "shell");
+    answer(transport, 1, { approvalId: "a-1", commandId: "mint-1", status: "accepted", terminal: true });
+    await updated.io;
+
+    // A LATE re-issued approval/requested for the same stage (a host that does
+    // both) authors no second decide: the stage latch already claimed it.
+    const reissued = session.apply(
+      approvalRequested({
+        availableChoices: CHOICES,
+        currentRequirementId: { approvalId: "a-1", sourceIndex: 2 },
+      }),
+    );
+    await reissued.io;
+    await settleMicrotasks();
+    assert.equal(seen.length, 2, "one stage asks the consumer once, whichever frame delivers it");
+    assert.equal(transport.writes.length, 2, "the re-issued request must author no third decide");
+
+    // The round trip closes exactly as the reporter's raw-decide control did.
+    session.apply({
+      method: "approval/resolved",
+      params: {
+        approvalId: "a-1",
+        decidedByCommandId: "mint-1",
+        decision: "approved",
+        itemId: "i-1",
+        policyResult: { kind: "allowed" },
+        resolvedBy: { kind: "client" },
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        stageEvidence: [],
+        turnId: "turn-1",
+        viewCursor: "v:4",
+      },
+    } as unknown as Parameters<Session<string>["apply"]>[0]);
+    assert.equal(session.fold.pendingApprovals().length, 0);
+  },
+);
+
+test(
+  "T031/TEST-013 #36949: a stageResolved update AFTER a terminal decide ack asks nothing and writes nothing",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The #37538 producer race: a stage-0 answer whose rule also satisfies the
+    // remaining stages terminalizes the approval in one submission, but the
+    // runtime records only the RESOLVED stage, so the view fold emits one
+    // trailing `stageResolved` update naming a frontier the host already
+    // closed — right before `approval/resolved`. The ack's `terminal: true`
+    // is the router's evidence that stage names nobody's question.
+    const { session, transport } = wired();
+    let calls = 0;
+    session.onApproval(() => {
+      calls += 1;
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    // The host closed the WHOLE approval on this decision.
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: true });
+    await first.io;
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    // Settle and assert BEFORE awaiting `io` (same shape as the arm below): a
+    // regression authors a decide nobody answers, and `io` would pend forever.
+    await settleMicrotasks();
+    assert.equal(calls, 1, "a stage the host already closed must not re-ask the handler");
+    assert.equal(transport.writes.length, 1, "no decide may chase a terminal ack");
+    await outcome.io;
+
+    session.apply({
+      method: "approval/resolved",
+      params: {
+        approvalId: "a-1",
+        decidedByCommandId: "mint-0",
+        decision: "approved",
+        itemId: "i-1",
+        policyResult: { kind: "allowed" },
+        resolvedBy: { kind: "client" },
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        stageEvidence: [],
+        turnId: "turn-1",
+        viewCursor: "v:4",
+      },
+    } as unknown as Parameters<Session<string>["apply"]>[0]);
+    assert.equal(session.fold.pendingApprovals().length, 0);
+  },
+);
+
+test(
+  "T031/TEST-013 #36949: an alreadyTerminal approval/updated asks nothing and writes nothing",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // `alreadyTerminal` says the host holds a durable terminal the resolve
+    // frame has not delivered yet — a decision against it can only bounce
+    // -32051, so asking the consumer for one would be a pointless question.
+    const { session, transport } = wired();
+    let calls = 0;
+    session.onApproval(() => {
+      calls += 1;
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    answer(transport, 0, decideResult("mint-0"));
+    await first.io;
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: { kind: "alreadyTerminal" },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 2 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    // Settle and assert BEFORE awaiting `io`: a regression here authors a
+    // second decide nobody answers, so `io` would pend forever and the failure
+    // would surface only as the arm timeout instead of these asserts.
+    await settleMicrotasks();
+    assert.equal(calls, 1, "an alreadyTerminal update must not re-ask the handler");
+    assert.equal(transport.writes.length, 1);
+    await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013 #36949: an approval/updated the fold IGNORED asks nothing and writes nothing",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // FR-019's fourth author-nothing case, and a real wire sequence: a FAILED
+    // `localPersistent` policy write arrives as `approval/updated` AFTER
+    // `approval/resolved` (tdd SS5.5), when the fold no longer holds the
+    // entry. The fold's `ignoredStaleFrame` verdict must gate the route.
+    const { session, transport } = wired();
+    let calls = 0;
+    session.onApproval(() => {
+      calls += 1;
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    answer(transport, 0, decideResult("mint-0"));
+    await first.io;
+    session.apply({
+      method: "approval/resolved",
+      params: {
+        approvalId: "a-1",
+        decidedByCommandId: "mint-0",
+        decision: "approved",
+        itemId: "i-1",
+        policyResult: { kind: "allowed" },
+        resolvedBy: { kind: "client" },
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        stageEvidence: [],
+        turnId: "turn-1",
+        viewCursor: "v:2",
+      },
+    } as unknown as Parameters<Session<string>["apply"]>[0]);
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: { kind: "policyPersistence", reason: "disk", status: "failed" },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 5 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:4",
+    } as unknown as ApprovalUpdatedParams;
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await settleMicrotasks();
+
+    assert.equal(
+      (outcome.fold as { kind: string }).kind,
+      "ignoredStaleFrame",
+      "the fold must drop a post-resolve update",
+    );
+    assert.equal(calls, 1, "a dropped update must not re-ask the handler");
+    assert.equal(transport.writes.length, 1, "a dropped update must author nothing");
+    await outcome.io;
   },
 );
 

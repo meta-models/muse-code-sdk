@@ -14,8 +14,13 @@
  */
 
 import type { Connection } from "../connection/connection.js";
+import type { DeepReadonly } from "../fold/session-fold.js";
 
-import type { ApprovalDecideParams, ApprovalRequestParams } from "@muse-code/msp";
+import type {
+  ApprovalDecideParams,
+  ApprovalRequestParams,
+  ApprovalUpdatedParams,
+} from "@muse-code/msp";
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;
@@ -38,6 +43,42 @@ const DECIDE_FORWARDED = [
 ] as const;
 type _DecideIsExhaustive = AssertNever<
   Exclude<keyof DecideParams, (typeof DECIDE_FORWARDED)[number]>
+>;
+
+/**
+ * The #36949 refreshed-request merge, hand-listed by SOURCE. Stage-scoped
+ * members come from the `approval/updated` frame in hand; identity members
+ * come from the fold's retained request (stable across the stages of one
+ * approval). The `AssertNever` makes a regenerated member — REQUIRED or
+ * OPTIONAL — a build error until someone says which side of the merge it
+ * comes from: an optional addition (e.g. `subagentOrigin`, #36182) would
+ * otherwise just vanish from the refreshed request, `tsc`-green.
+ */
+const REFRESH_FROM_UPDATE = [
+  "availableChoices",
+  "currentRequirementId",
+  "sessionId",
+  "sourceRange",
+  "subagentOrigin",
+  "subject",
+  "viewCursor",
+] as const;
+const REFRESH_FROM_REQUEST = [
+  "approvalId",
+  "itemId",
+  "judgeEscalated",
+  "protectedWrite",
+  "rawArgs",
+  "taskId",
+  "toolCallId",
+  "toolName",
+  "turnId",
+] as const;
+type _RefreshIsExhaustive = AssertNever<
+  Exclude<
+    keyof ApprovalRequestParams,
+    (typeof REFRESH_FROM_UPDATE)[number] | (typeof REFRESH_FROM_REQUEST)[number]
+  >
 >;
 
 /**
@@ -95,6 +136,15 @@ export class ApprovalRouter {
    * per stage" holds absolutely.
    */
   readonly #decidedStages = new Set<string>();
+  /**
+   * Approvals whose `approval/decide` ACK came back `terminal: true`: the host
+   * closed the whole approval on that decision (a rule that also satisfied the
+   * remaining stages), so no later stage can need this consumer. Kept beside
+   * the stage latch because the runtime records only the RESOLVED stage
+   * (#37538), letting the view fold emit one trailing `stageResolved` update
+   * with a frontier the host already closed, right before `approval/resolved`.
+   */
+  readonly #terminalApprovals = new Set<string>();
 
   constructor(sessionId: string, connection: Connection | undefined) {
     this.#sessionId = sessionId;
@@ -135,6 +185,61 @@ export class ApprovalRouter {
     // would let both pass the check.
     this.#decidedStages.add(stage);
     return this.#decide(params, handler);
+  }
+
+  /**
+   * An `approval/updated` folded onto a STILL-PENDING approval (#36949).
+   *
+   * A multi-stage approval advances `currentRequirementId` through this frame
+   * ALONE on the notification plane — the SS5.6 item-3 re-issue on stage
+   * advance is the protected `approval/request` SERVER-REQUEST dual, which is
+   * not enrolled here (SHAPE NOTE above) — so waiting for a re-issued
+   * `approval/requested` notification leaves the new stage undecided and the
+   * turn pending forever.
+   *
+   * The update alone carries none of the request-shape members the handler is
+   * typed on, but the fold retains the original request and every identity
+   * member is stable across the stages of ONE approval, so the merged request
+   * below is honest (`REFRESH_FROM_*` above pins the split). Feeding it
+   * through {@link requested} reuses the per-stage latch, so an update whose
+   * requirement was already decided — and any later re-issued request for the
+   * stage this update decided — authors nothing.
+   */
+  updated(
+    requested: DeepReadonly<ApprovalRequestParams>,
+    params: ApprovalUpdatedParams,
+  ): Promise<void> | undefined {
+    // `alreadyTerminal` says the host holds a durable terminal whose resolve
+    // frame has not landed yet; a decision against it can only bounce -32051,
+    // so asking the consumer for one would be a pointless question.
+    if (params.change.kind === "alreadyTerminal") return undefined;
+    // Same fact, learned from OUR OWN decide ack: `terminal: true` means the
+    // host closed the whole approval on that decision, and the one trailing
+    // `stageResolved` update the fold can still emit (#37538) names a frontier
+    // that no longer exists — re-asking would prompt the consumer for a stage
+    // the host already closed, and the decide could only bounce -32051.
+    if (this.#terminalApprovals.has(requested.approvalId)) return undefined;
+    const refreshed: ApprovalRequestParams = {
+      approvalId: requested.approvalId,
+      availableChoices: params.availableChoices,
+      currentRequirementId: params.currentRequirementId,
+      itemId: requested.itemId,
+      judgeEscalated: requested.judgeEscalated,
+      protectedWrite: requested.protectedWrite,
+      rawArgs: requested.rawArgs,
+      sessionId: params.sessionId,
+      sourceRange: params.sourceRange,
+      subject: params.subject,
+      taskId: requested.taskId,
+      toolCallId: requested.toolCallId,
+      toolName: requested.toolName,
+      turnId: requested.turnId,
+      viewCursor: params.viewCursor,
+    };
+    // Omitted rather than nulled, like `feedback` above: absent on the
+    // parent's own approvals by contract (#36182 `skip_serializing_if`).
+    if (params.subagentOrigin !== undefined) refreshed.subagentOrigin = params.subagentOrigin;
+    return this.requested(refreshed);
   }
 
   static #stageKey(params: ApprovalRequestParams): string {
@@ -204,10 +309,13 @@ export class ApprovalRouter {
       // No explicit `commandId`: unlike `sendUserTurn`, nothing here needs the
       // id before the ack, so `Connection.command()` mints and stamps it — and
       // its own SS3.1.1 retry then reuses that id for free.
-      await connection.command(
+      const ack = await connection.command(
         "approval/decide",
         decideParams as unknown as Record<string, unknown>,
       );
+      // A `terminal: true` ack closed the WHOLE approval; remember it so the
+      // trailing stale-frontier update #37538 permits cannot re-prompt.
+      if (ack["terminal"] === true) this.#terminalApprovals.add(params.approvalId);
     } catch (error) {
       this.#report({ approvalId: params.approvalId, error, kind: "submitFailed" });
     }

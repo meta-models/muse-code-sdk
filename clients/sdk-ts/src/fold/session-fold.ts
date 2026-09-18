@@ -172,7 +172,15 @@ type AssertNever<T extends never> = T;
 // projection too: a command-plane broadcast over the session table, not a view
 // event — no `sourceRange`, not subscription-gated, folds no view state. The
 // SDK's session-table surface for it is #31983 follow-up work.
-type LiveHostStateProjection = "skill/changed" | "usage/changed" | "session/statusChanged";
+// `session/listChanged` (tdd SS2.6.4, ADR 33084 D3) is the same class: the
+// changed `session/list` ROW (full-row replace), opt-in per connection, no
+// `viewCursor` and no `sourceRange` — a row-table consumer applies it out of
+// band; it folds no transcript state.
+type LiveHostStateProjection =
+  | "skill/changed"
+  | "usage/changed"
+  | "session/statusChanged"
+  | "session/listChanged";
 type NonFoldNotification =
   | "initialized"
   | "session/viewHealthChanged"
@@ -286,15 +294,28 @@ export type FoldOutcome =
    * store hands back the very object it just stored, so an unsealed
    * `current` is a live handle into fold state — `out.outcome.current
    * .modelId = "..."` would mutate the fold with no cast and break INV-002
-   * replay equality. This is the one `FoldOutcome` arm that carries a
-   * params object; every other arm carries only ids, numbers, and booleans,
-   * which is why D-14 missed it (#23556 item 2).
+   * replay equality. This and `approvalPending.requested` (#36949) are the
+   * two `FoldOutcome` arms that carry a params object; every other arm
+   * carries only ids, numbers, and booleans, which is why D-14 originally
+   * missed this one (#23556 item 2). Both seals are pinned by
+   * `@ts-expect-error` write probes in `session-fold.test.ts`.
    */
   | {
       readonly kind: "sessionState";
       readonly outcome: DeepReadonly<StateApplyOutcome<SessionStateParams>>;
     }
-  | { readonly kind: "approvalPending"; readonly approvalId: string }
+  | {
+      readonly kind: "approvalPending";
+      readonly approvalId: string;
+      /**
+       * The pending entry's retained request (#36949): the facade's
+       * `approval/updated` re-route needs the request-shape members, and
+       * carrying them on the verdict itself makes "the fold vouched for this
+       * entry" and "here is that entry" one fact instead of a re-lookup a
+       * contract drift could silently miss.
+       */
+      readonly requested: DeepReadonly<ApprovalRequestParams>;
+    }
   | {
       readonly kind: "approvalResolved";
       readonly approvalId: string;
@@ -834,7 +855,7 @@ export class SessionFold {
     // the new request with the OLD update would show stale stage/choices and
     // a decide against them bounces -32053.
     this.#pendingApprovals.set(params.approvalId, { requested: params });
-    return { kind: "approvalPending", approvalId: params.approvalId };
+    return { kind: "approvalPending", approvalId: params.approvalId, requested: params };
   }
 
   #approvalUpdated(params: ApprovalUpdatedParams): FoldOutcome {
@@ -853,7 +874,7 @@ export class SessionFold {
       return { kind: "ignoredStaleFrame", method: "approval/updated", id: params.approvalId };
     }
     held.latestUpdate = params;
-    return { kind: "approvalPending", approvalId: params.approvalId };
+    return { kind: "approvalPending", approvalId: params.approvalId, requested: held.requested };
   }
 
   #approvalResolved(params: ApprovalResolvedParams): FoldOutcome {
