@@ -9,11 +9,34 @@
     "Rows are GENERATED, never hand-typed: scripts/publish-sdk-pypi.sh emits",
     "each release's rows via scripts/sdk-py-wheel-rows.py, and the publish",
     "integration commit appends them here (the bot-owned generated-artifact",
-    "shape). No wheel is published yet — the publish is owner-run (ADR 638",
-    "D6; permitted by D-065, ADR 29534 D1) and none has happened — so the",
-    "list is empty, and clients/sdk-py/tests/test_compatibility_row.py holds",
-    "it empty until a real owner-run publish appends its rows."
+    "shape). The publish is owner-run (ADR 638 D6; permitted by D-065,",
+    "ADR 29534 D1). The 1.3.0 rows below are the first publish's generated",
+    "output, appended verbatim; the immutable anchor is the mirror",
+    "meta-models/muse-code-sdk publish-pypi.yml run 35056045080 (2026-09-16,",
+    "dry_run=false), built from mirror commit",
+    "94e98141a8074d50d2ac418de7acb5b16d8024fa. The record is append-only:",
+    "clients/sdk-py/tests/test_compatibility_row.py holds every published",
+    "row present."
   ],
   "schemaVersion": 1,
-  "wheels": []
+  "wheels": [
+    {
+      "distribution": "muse-code-msp",
+      "importName": "muse_code_msp",
+      "version": "1.3.0",
+      "wheel": "muse_code_msp-1.3.0-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.3.0",
+      "schemaFingerprint": "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852"
+    },
+    {
+      "distribution": "muse-code-sdk",
+      "importName": "muse_code",
+      "version": "1.3.0",
+      "wheel": "muse_code_sdk-1.3.0-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.3.0",
+      "schemaFingerprint": "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852"
+    }
+  ]
 }

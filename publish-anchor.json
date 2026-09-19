@@ -96,9 +96,9 @@
   ],
   "source": {
    "repository": "mslsrc/tbh",
-   "commit": "99735106089a8ff928e0e4652cee0e7c62d62e0c"
+   "commit": "fdf85f86a2f552749bcbe4a2b0900cd1a2f09385"
   },
-  "published_at": "2026-09-15T08:35:00Z",
+  "published_at": "2026-09-16T10:31:46Z",
   "closure_paths": [
    "python/clients/msp-py",
    "python/clients/py-dev-requirements.txt",
@@ -109,6 +109,6 @@
    "python/scripts/publish-sdk-pypi.sh",
    "python/scripts/sdk-py-wheel-rows.py"
   ],
-  "pypi_publication": "pending (owner-run: dispatch .github/workflows/publish-pypi.yml; muse-code-msp -> environment pypi, muse-code-sdk -> environment pypi-sdk)"
+  "pypi_publication": "published: run 35056045080 (2026-09-16, dry_run=false, from commit 94e98141a8074d50d2ac418de7acb5b16d8024fa) shipped muse-code-msp 1.3.0 and muse-code-sdk 1.3.0; the integration commit upstream (mslsrc/tbh fdf85f86a2f552749bcbe4a2b0900cd1a2f09385) recorded the per-wheel rows, re-mirrored here"
  }
 }
