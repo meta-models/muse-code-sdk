@@ -129,7 +129,7 @@ def _recorded_fingerprint(transcript_dir: Path) -> str:
 def pinned_to(fingerprint: str) -> Iterator[None]:
     """Scope ``muse_code.EXPECTED_SCHEMA_FINGERPRINT`` to ``fingerprint``.
 
-    The sanctioned retarget for driving recorded bundles through the C-638-4
+    The sanctioned retarget for driving recorded bundles through the contract
     strict gate (the ``test_spawn_handshake.py`` pattern): the SDK
     deliberately has no expected-fingerprint parameter, and the handshake
     reads the module attribute at call time. Recipes run serially, so the

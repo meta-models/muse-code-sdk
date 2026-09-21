@@ -307,6 +307,10 @@
         "sourceRange": {
           "$ref": "#/$defs/SourceRange"
         },
+        "subagentOrigin": {
+          "$ref": "#/$defs/ApprovalSubagentOrigin",
+          "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
+        },
         "subject": {
           "$ref": "#/$defs/ApprovalSubject"
         },
@@ -426,6 +430,10 @@
           },
           "type": "array"
         },
+        "subagentOrigin": {
+          "$ref": "#/$defs/ApprovalSubagentOrigin",
+          "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
+        },
         "turnId": {
           "type": "string"
         },
@@ -534,6 +542,29 @@
       ],
       "type": "object"
     },
+    "ApprovalSubagentOrigin": {
+      "description": "Child (native subagent) provenance for an approval projected onto the\nPARENT session's approval plane (#36182 / ADR 36182): identifies the\noriginating child run/agent so a client can attribute the prompt. Omitted\n(`skip_serializing_if`) on the parent's own approvals, so pre-existing\nparent frames stay byte-identical.",
+      "properties": {
+        "childRunId": {
+          "description": "The child run that parked on this approval.",
+          "type": "string"
+        },
+        "childSessionId": {
+          "description": "The child session stream id whose records carry this approval.",
+          "type": "string"
+        },
+        "subagentId": {
+          "description": "The originating child's subagent id, from the parent session's\ndurable subagent control records.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "childRunId",
+        "childSessionId",
+        "subagentId"
+      ],
+      "type": "object"
+    },
     "ApprovalSubject": {
       "description": "Open approval subject union. Unknown kinds are rendered generically and\nnever auto-approved by clients (tdd SS5.2).",
       "properties": {
@@ -547,7 +578,7 @@
           "type": "string"
         },
         "kind": {
-          "description": "Open discriminator: `shell | fileAccess | network | process | tool`.",
+          "description": "Open discriminator: `shell | fileAccess | network | unixSocket | process | tool`.",
           "type": "string"
         },
         "origin": {
@@ -625,6 +656,10 @@
         "sourceRange": {
           "$ref": "#/$defs/SourceRange"
         },
+        "subagentOrigin": {
+          "$ref": "#/$defs/ApprovalSubagentOrigin",
+          "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
+        },
         "subject": {
           "$ref": "#/$defs/ApprovalSubject"
         },
@@ -691,7 +726,8 @@
       "description": "A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry\njoins this domain as an additive open-enum extension when SS6 un-defers\n(#13929, Scenario 5 AS-3) — closed would make that a retype.",
       "enum": [
         "userShell",
-        "sessionMcp"
+        "sessionMcp",
+        "sessionListStream"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2046,6 +2082,10 @@
             "string",
             "null"
           ]
+        },
+        "variants": {
+          "$ref": "#/$defs/ModelReasoningEffortVariants",
+          "description": "Complete ordered selectable efforts. Optional only for decoding older\nhosts; a present value is never null. Current hosts always send it."
         }
       },
       "required": [
@@ -2159,6 +2199,20 @@
         "source"
       ],
       "type": "object"
+    },
+    "ModelReasoningEffortVariants": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ReasoningEffort"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/UnknownModelReasoningEffortVariants"
+        }
+      ],
+      "description": "A complete ordered effort set, or an explicit unknown capability."
     },
     "ModelSelection": {
       "description": "A model selection (tdd SS3.8). Empty strings are normalized to absent.",
@@ -2856,6 +2910,91 @@
       ],
       "type": "object"
     },
+    "SessionDeleteCompletedParams": {
+      "description": "The persisted deletion terminal, separate from admission (SS3.24).\nThe shared schema is one object. Actual failed producers send both optional\nfields; completed producers omit both. Clients enforce those obligations\nbefore interpreting a known outcome. Preserve unknown strings without\ntreating them as successful completion.",
+      "properties": {
+        "commandId": {
+          "description": "Idempotency key of the original deletion command.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SessionDeleteOutcome",
+          "description": "Deletion result; an unknown value leaves the command pending."
+        },
+        "physicalChange": {
+          "$ref": "#/$defs/SessionDeletePhysicalChange",
+          "description": "Erasure evidence for a failed result; omitted for a completed result."
+        },
+        "reason": {
+          "$ref": "#/$defs/SessionDeleteFailureReason",
+          "description": "Required for a failed result and omitted for a completed result."
+        },
+        "sessionId": {
+          "description": "Session named by the original deletion command.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "outcome",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionDeleteFailureReason": {
+      "description": "Stable deletion-failure vocabulary known to this version (SS3.24).\nThe server emits only these values. Future reason strings remain an open\nresult vocabulary; consumers cannot infer completion from any reason.",
+      "enum": [
+        "ownershipUnavailable",
+        "sharedSource",
+        "writerBusy",
+        "unsafeSource",
+        "sourceChanged",
+        "quiescenceFailed",
+        "cancelled",
+        "storageFailure",
+        "cleanupIncomplete",
+        "unsupportedLayout"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "SessionDeleteOutcome": {
+      "description": "Known terminal outcomes. A future outcome cannot authorize success or exit.",
+      "enum": [
+        "completed",
+        "failed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "SessionDeleteParams": {
+      "description": "`session/delete` params. The host validates a non-nil legacy-valid UUID\ntarget and a UUID-v7 command identity before admission. Unknown members\nare ignored and do not enter the normalized command identity (SS1.5.4).",
+      "properties": {
+        "commandId": {
+          "description": "UUID-v7 idempotency key for this deletion command.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "Non-nil UUID of the session selected for deletion.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionDeletePhysicalChange": {
+      "description": "The failed attempt's immutable snapshot of persisted physical evidence.\n`possible` is recorded before a detach/unlink, `confirmed` after a proved\nowned effect. A failure never resets that evidence merely because the\nsession path is absent. Unknown strings remain representable; consumers\nmust treat them conservatively as `possible`.",
+      "enum": [
+        "none",
+        "possible",
+        "confirmed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "SessionDurability": {
       "description": "Whether this host writes its sessions to disk (SS1.4.1, SS2.13). A\nproperty of the host process, fixed at construction and identical for\nevery session and every connection it serves — never requested, granted,\nor negotiated, which is why it is not a capability. Open: the\nunrepresented degraded state (#14401) has candidate resolutions that add a\nthird value here, so closed would make that a breaking change.",
       "enum": [
@@ -2990,6 +3129,19 @@
         "items",
         "mode",
         "snapshot"
+      ],
+      "type": "object"
+    },
+    "SessionListChangedParams": {
+      "description": "`session/listChanged` params (#33084, ADR 33084 D3): one changed row of\nthe `session/list` shape — the full SS2.4 Session object as the answering\nhost's list face serves it at emission (the ADR 29243 live-overlaid row),\na replace, never a delta. Emitted only on connections that negotiated the\n`sessionListStream` capability at `initialize` (ADR 33084 D2); row birth\nstays on `session/started`, unload pairs with `session/closed`.",
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/Session",
+          "description": "The served list row for the changed session."
+        }
+      },
+      "required": [
+        "session"
       ],
       "type": "object"
     },
@@ -5217,6 +5369,14 @@
       ],
       "type": "object"
     },
+    "UnknownModelReasoningEffortVariants": {
+      "description": "The only scalar alternative to a known effort array. Kept as a closed\nsingleton so arbitrary strings and uppercase spellings fail decoding.",
+      "enum": [
+        "unknown"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
     "UsageReadResult": {
       "description": "`usage/read` result: `{usage?}` — omitted, never `null`, when the host\nhas observed nothing (ADR 32563 D2: truthful absence, no\n\"nothing observed\" error).",
       "properties": {
@@ -5985,7 +6145,8 @@
   "capabilities": {
     "grantable": [
       "userShell",
-      "sessionMcp"
+      "sessionMcp",
+      "sessionListStream"
     ],
     "reserved": [
       {
@@ -6658,6 +6819,12 @@
       "description": "The session's goal block changed value; replace wholesale, an explicit null clears (SS4.6.2).",
       "params": {
         "$ref": "#/$defs/SessionGoalChangedParams"
+      }
+    },
+    "session/listChanged": {
+      "description": "The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated (#33084, ADR 33084 D2/D3).",
+      "params": {
+        "$ref": "#/$defs/SessionListChangedParams"
       }
     },
     "session/modelChanged": {

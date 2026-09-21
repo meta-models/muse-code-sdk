@@ -1,4 +1,4 @@
-"""The SS4.13 ``PendingCommand`` fold (client-local; spec 638 FR-638-008)."""
+"""The ``PendingCommand`` fold (client-local)."""
 
 from muse_code.pending.pending_command_set import (
     COMMAND_REJECTED_CODE,

@@ -1,6 +1,6 @@
-"""PY-TEST-021 ``cookbook_twins_execute`` (specs/638-muse-sdk-python).
+"""The charter test ``cookbook_twins_execute``.
 
-FR-638-024 / ADR 638 D8 ruling 3: a Python twin per cookbook recipe, the set
+The governing rule / the governing decision: a Python twin per cookbook recipe, the set
 DISCOVERED from the TS cookbook tree (never a count), each CI-executed
 against the release-built host and the ``muse-conformance`` fixture host.
 
@@ -15,8 +15,7 @@ Three properties:
   silently pass) when the env does not provide them, and the
   ``cookbook-py-journeys`` CI job provides both, so CI is where the arms are
   always real. The one owner-directed divergence is inside the
-  ``fingerprint-mismatch`` twin itself (the strict C-638-4 fork; its
-  docstring names it).
+  ``fingerprint-mismatch`` twin itself.
 """
 
 from __future__ import annotations
@@ -82,10 +81,18 @@ def test_every_ts_recipe_has_a_twin(ts_id: str) -> None:
     twin = _twins().get(ts_id)
     assert twin is not None, (
         f"the TS cookbook exports recipe {ts_id!r} "
-        f"({ts['export']}) but the Python manifest has no twin (FR-638-024)"
+        f"({ts['export']}) but the Python manifest has no twin"
     )
     assert twin.title == ts["title"], f"{ts_id}: the twin's title drifted from the TS recipe's"
-    assert twin.docs_page == ts["docsPage"], (
+    # The Python twin stores the PUBLIC docs-site slug; the TS manifest still
+    # stores the docs source path (an upstream-only input this test reads).
+    # Derive slug from path here, assembled so this shipped test file carries
+    # no producing-repo path of its own.
+    ts_slug = ts["docsPage"]
+    ts_prefix = "developer-" + "docs/src/content/docs/"
+    if ts_slug.startswith(ts_prefix) and ts_slug.endswith(".mdx"):
+        ts_slug = ts_slug[len(ts_prefix):-len(".mdx")]
+    assert twin.docs_page == ts_slug, (
         f"{ts_id}: the twin backs a different docs page than the TS recipe"
     )
 
@@ -103,7 +110,7 @@ def test_no_orphan_twins_and_the_ratified_order_holds() -> None:
     assert array is not None, "the TS manifest lost its RECIPES array; update this parser"
     export_order = [name.strip().rstrip(",") for name in array.group(1).split("\n") if name.strip()]
     by_export = {metadata["export"]: metadata["id"] for metadata in _ts_recipes().values()}
-    # An unmappable manifest export must fail LOUD: FR-638-024 says the
+    # An unmappable manifest export must fail LOUD: the charter says the
     # manifest IS the set, so an entry the discovery cannot map (a second
     # export in one file, a recipe outside the glob) is a gate defect, never
     # a silently-shrunk comparison (review finding on this PR).
@@ -138,7 +145,7 @@ def _hosts_or_skip(recipe: Recipe) -> RecipeHosts:
 
 @pytest.mark.parametrize("recipe", RECIPES, ids=[recipe.id for recipe in RECIPES])
 def test_cookbook_twins_execute(recipe: Recipe) -> None:
-    """FR-638-024's execution half: the twin's whole journey, for real."""
+    """The charter's execution half: the twin's whole journey, for real."""
     hosts = _hosts_or_skip(recipe)
     report = asyncio.run(run_recipes([recipe], hosts))
     assert report.ok, f"recipe {recipe.id} failed:\n{format_cookbook_report(report)}"

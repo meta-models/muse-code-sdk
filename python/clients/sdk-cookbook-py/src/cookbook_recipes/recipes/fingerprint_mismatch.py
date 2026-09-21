@@ -2,8 +2,7 @@
 
 The TS recipe teaches the warning posture (``checkServedFingerprint`` returns
 a warning value; the client carries on). The Python SDK's posture is the
-OWNER-RULED STRICT fork (spec 638 C-638-4, recorded as owner-directed in
-FR-638-024's carve-out): at ``initialize``, a mismatch FAILS with the exact
+OWNER-RULED STRICT fork: at ``initialize``, a mismatch FAILS with the exact
 ``MuseHostMismatchError`` naming the required host version and the
 compatibility page — there is no warning value and no bypass, because the
 wheel ships without a host and a wrong pairing must be loud at connect time.
@@ -129,8 +128,7 @@ async def _mismatch_is_strict(context: Context) -> None:
             equals(error.pinned, NEWER_HOST_FINGERPRINT, "the error's pinned fingerprint")
             return
         raise AssertionError(
-            "a mismatched fingerprint completed the handshake; the C-638-4 "
-            "strict gate did not fire"
+            "a mismatched fingerprint completed the handshake; the strict gate did not fire"
         )
 
 
@@ -150,7 +148,7 @@ SEGMENTS: tuple[Segment[Context], ...] = (
         "The served fingerprint matches the SDK's pin, so the handshake completed",
         _match,
     ),
-    # The TS id, kept per the FR-638-024 carve-out; what it teaches here is
+    # The TS id, kept per the ruled naming carve-out; what it teaches here is
     # the owner-ruled strict fork.
     Segment(
         "mismatch-is-a-warning",
@@ -176,7 +174,7 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
 RECIPE = Recipe(
     id="fingerprint-mismatch",
     title="Handle a schema fingerprint mismatch",
-    docs_page="developer-docs/src/content/docs/cookbook/handle-a-fingerprint-mismatch.mdx",
+    docs_page="cookbook/handle-a-fingerprint-mismatch",
     needs=("muse_bin",),
     run=_run,
 )

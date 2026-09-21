@@ -14,7 +14,7 @@ is configured, so the host cannot run a model and the model-dependent
 segments fail for real. That run is useful for isolating the segments that
 need no model; it is NOT the acceptance artifact.
 
-``--sync`` runs the Scenario 7.1 rewrite: the same twelve steps on the sync
+``--sync`` runs the sync rewrite: the same twelve steps on the sync
 wrapper (``SyncMuseClient``), blocking verbs end to end.
 
 Exit 0 means every required segment passed and every expect-block is still
@@ -49,10 +49,10 @@ def main(argv: list[str]) -> int:
     muse_bin = argument("--bin") or os.environ.get("MUSE_BIN") or ""
     if not muse_bin:
         sys.stderr.write(
-            "usage: python -m quickstart_journey --bin <path-to-release-built-muse>"
+            "usage: python -m quickstart_journey --bin <path-to-muse-binary>"
             " [--no-provider] [--sync]\n"
-            "       (or set MUSE_BIN). Build it with:\n"
-            "       cargo build --release -p tbh-cli --bin tbh\n"
+            "       (or set MUSE_BIN to an installed `muse` binary, or to a"
+            " release build of the host)\n"
         )
         return 2
 

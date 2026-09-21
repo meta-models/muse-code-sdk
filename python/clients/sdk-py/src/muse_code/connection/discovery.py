@@ -1,13 +1,13 @@
-"""Host discovery for the UNBUNDLED wheel (spec 638 FR-638-020, INV-638-08).
+"""Host discovery for the UNBUNDLED wheel.
 
-The wheel carries no host binary and no code path assumes one (#29216 fence).
-Exactly the two ruled tiers, first hit wins: an explicit ``muse_bin``
-argument, then a ``muse`` on ``PATH``. The LIBRARY reads no environment
-variable (TS parity: ``spawn.ts`` takes a required command; ``MUSE_BIN`` is
-a knob of the quickstart/cookbook HARNESSES, which read it themselves and
-pass the explicit parameter down — PR #29277 review, thread 6). No
-discoverable host fails BEFORE any process is spawned, with an exact error
-naming the parameter and the compatibility page.
+The wheel carries no host binary and no code path assumes one. Exactly the
+two ruled tiers, first hit wins: an explicit ``muse_bin`` argument, then a
+``muse`` on ``PATH``. The LIBRARY reads no environment variable (TS parity:
+the TS spawn module takes a required command; ``MUSE_BIN`` is a knob of the
+quickstart/cookbook HARNESSES, which read it themselves and pass the
+explicit parameter down). No discoverable host fails BEFORE any process is
+spawned, with an exact error naming the parameter and the compatibility
+page.
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ HOST_BINARY_NAME = "muse"
 
 
 def discover_muse_bin(muse_bin: str | None = None) -> str:
-    """Resolves the MSP host binary to spawn (spec 638 FR-638-020).
+    """Resolves the MSP host binary to spawn.
 
-    Exactly two ruled inputs (FR-638-020 / INV-638-08): an explicit
+    Exactly two ruled inputs: an explicit
     ``muse_bin``, else the process ``PATH``. There is deliberately no ``env``
     knob — no production caller passes one, the TS twin has none, and a
     harness wanting hermetic discovery exports ``PATH`` itself; a future S3
-    consumer that needs the child's own env adds it there (PR #30094 review).
+    consumer that needs the child's own env adds it there.
 
     Args:
         muse_bin: An explicit host path; when given it wins outright and is
