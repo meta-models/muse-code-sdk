@@ -1,9 +1,9 @@
-"""The Python quickstart journey (spec 638 FR-638-022/023, S4).
+"""The Python quickstart journey.
 
 The first acceptance milestone's program: the ``muse-code-sdk`` first-session
 narrative — start the agent, run a turn, answer its permission request,
 cancel it, reload the session later, shut down — against a release-built
-host, at step parity with the TS journey's registry, plus the Scenario 7.1
+host, at step parity with the TS journey's registry, plus the sync-rerun
 rerun of the same steps on the sync wrapper. See ``journey.py`` and
 ``README.md`` beside this package.
 """

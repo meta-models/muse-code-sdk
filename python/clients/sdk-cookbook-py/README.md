@@ -11,11 +11,11 @@ This is a test-lane harness, never installed or published. It consumes only
 the shipped `muse-code-sdk` public surface and shares the quickstart
 harness's kit (`clients/sdk-quickstart-py`).
 
-Run everything (from `projects/tbh`, with the SDK packages importable — see
+Run everything (from the repository root, with the SDK packages importable — see
 `clients/sdk-quickstart-py/README.md` for the environment):
 
 ```sh
-MUSE_BIN=$PWD/target/release/tbh \
+MUSE_BIN=$(command -v muse) \
 MUSE_CONFORMANCE_BIN=$PWD/target/release/muse-conformance \
   python3 -m pytest clients/sdk-cookbook-py/tests
 ```
@@ -28,7 +28,7 @@ MUSE_CONFORMANCE_BIN=$PWD/target/release/muse-conformance \
   python3 -m cookbook_recipes --only stream-a-turn
 ```
 
-One deliberate divergence from the TypeScript cookbook, owner-directed
-(spec 638 C-638-4): the `fingerprint-mismatch` twin teaches the Python
+One deliberate divergence from the TypeScript cookbook, owner-directed:
+the `fingerprint-mismatch` twin teaches the Python
 SDK's STRICT posture — a fingerprint mismatch fails `initialize` with
 `MuseHostMismatchError` — where the TS recipe teaches the warning value.
