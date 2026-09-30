@@ -14,7 +14,12 @@
     "dry_run=false), built from mirror commit",
     "94e98141a8074d50d2ac418de7acb5b16d8024fa. The record is append-only:",
     "clients/sdk-py/tests/test_compatibility_row.py holds every published",
-    "row present."
+    "row present.",
+    "",
+    "The 1.3.1 rows below are the republish exception's generated output, appended verbatim; the immutable anchor is the mirror",
+    "meta-models/muse-code-sdk publish-pypi.yml run 35667900606 (2026-09-21,",
+    "dry_run=false), built from mirror commit",
+    "a7c10c5dd3f66be412077d29f9d11111af70317b (python_tree at tbh@6713ff08f6f12953a619532cebdff152c465c46b)."
   ],
   "schemaVersion": 1,
   "wheels": [
@@ -35,6 +40,24 @@
       "requiresPython": ">=3.10",
       "hostVersion": "1.3.0",
       "schemaFingerprint": "sha256:ab69549a7ebb423fce94068762da0b5ff3cdec1f8fc263dcc17248eda117f852"
+    },
+    {
+      "distribution": "muse-code-msp",
+      "importName": "muse_code_msp",
+      "version": "1.3.1",
+      "wheel": "muse_code_msp-1.3.1-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.3.0",
+      "schemaFingerprint": "sha256:b1e6676d624e116e2c1b150fec3192200d2cbca8ed79898e44f8921759c7872f"
+    },
+    {
+      "distribution": "muse-code-sdk",
+      "importName": "muse_code",
+      "version": "1.3.1",
+      "wheel": "muse_code_sdk-1.3.1-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.3.0",
+      "schemaFingerprint": "sha256:b1e6676d624e116e2c1b150fec3192200d2cbca8ed79898e44f8921759c7872f"
     }
   ]
 }

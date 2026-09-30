@@ -103,18 +103,24 @@ def test_the_version_source_is_the_static_manifest_field() -> None:
         # eligibility. Publication is permitted at exactly this lockstep
         # version — never a train-external one — so
         # the equality here is what the published wheel's version claims.
-        # One-time lockstep exception (owner-directed 2026-09-21): the
-        # 1.3.0 PyPI files were deleted after publication and PyPI
-        # reserves deleted filenames forever, so the republish rides 1.3.1
-        # while the train stays at 1.3.0. Exactly this pair is allowed;
-        # anything else still requires lockstep equality.
-        assert (version == _host_version()) or (
-            (version, _host_version()) == ("1.3.1", "1.3.0")
-        ), (
+        assert version == _host_version(), (
             f"{distribution}: version {version!r} != the host manifest's "
             f"{_host_version()!r} (the version lockstep rule: only the "
             "release train moves these versions, in one commit)"
         )
+
+
+def test_the_runtime_version_matches_the_sdk_manifest() -> None:
+    import muse_code
+
+    # `muse_code.__version__` is a hand-kept copy of the manifest field; a
+    # release bump that moves one without the other ships a wheel that
+    # misreports its own version.
+    manifest_version = _pyproject(SDK_DIR)["project"]["version"]
+    assert muse_code.__version__ == manifest_version, (
+        f"muse_code.__version__ {muse_code.__version__!r} != "
+        f"muse-code-sdk manifest version {manifest_version!r}"
+    )
 
 
 def test_the_license_is_mit_with_shipped_text() -> None:

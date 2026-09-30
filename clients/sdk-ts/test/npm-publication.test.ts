@@ -84,9 +84,8 @@ test("the version is the host version (D-063 lockstep)", () => {
   );
   const hostVersion = /^\[package\][\s\S]*?^version = "([^"]+)"/m.exec(cliManifest)?.[1];
   assert.ok(hostVersion, "crates/cli/Cargo.toml must declare a version");
-  assert.equal(
-    manifest.version,
-    hostVersion,
+  assert.ok(
+    manifest.version === hostVersion,
     "ADR 25304 D1: clients/sdk-ts/package.json versions in lockstep with " +
       "crates/cli; only the release train (scripts/bump-main-version.sh) may " +
       "move either, in the same commit",
@@ -97,9 +96,8 @@ test("the version is the host version (D-063 lockstep)", () => {
   const mspManifest = JSON.parse(
     readFileSync(join(packageRoot, "..", "msp-ts", "package.json"), "utf8"),
   ) as { version: string };
-  assert.equal(
-    mspManifest.version,
-    hostVersion,
+  assert.ok(
+    mspManifest.version === hostVersion,
     "ADR 25304 D4: clients/msp-ts/package.json rides the same version train " +
       "(unpublished, but its manifest must stay lockstep so a future " +
       "publication is born aligned)",

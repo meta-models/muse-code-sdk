@@ -152,6 +152,14 @@ export type ViewEvent =
  *   before this fold exists. (The `view/gap` exclusion D-24021-1 recorded
  *   was removed by spec 14990 T032 when the marker became the `ViewEvent`
  *   arm above.)
+ * - `session/started` and `session/closed` (#33065's enrollment) are SS2.6
+ *   control-plane lifecycle broadcasts, not view events — they carry no
+ *   foldable view envelope (no `sourceRange`; `closed`'s `viewCursor` is a
+ *   final session head, not view state), and a fold over session-view state
+ *   has nothing to apply. Today a lifecycle frame keeps the pre-enrollment
+ *   runtime answer (`ignoredUnrecognizedMethod`, pinned by the session-fold
+ *   test); #33102 owns consciously surfacing the pair, the same sanctioned
+ *   initial-drop shape D-24021-1 used for `view/gap` before T032 flipped it.
  * - `session/viewHealthChanged` (#32557, ADR 32557) is a COMMAND-PLANE
  *   health push, not a view-fold event: it reports that the live view
  *   stream stopped, so it carries no cursor and folds into no transcript
@@ -181,9 +189,17 @@ type LiveHostStateProjection =
   | "usage/changed"
   | "session/statusChanged"
   | "session/listChanged";
+// The SS2.6 lifecycle pair (#33065) is server-owned HOST-scope lifecycle
+// broadcast, not host-state projection: a session loaded/unloaded. Excluded
+// from the fold for the structural reason above; #33102 owns the conscious
+// surfacing flip.
+type SessionLifecycleBroadcast = "session/started" | "session/closed";
 type NonFoldNotification =
   | "initialized"
   | "session/viewHealthChanged"
+  // ADR 36955 D2: command terminal, delivered outside the retired view stream.
+  | "session/deleteCompleted"
+  | SessionLifecycleBroadcast
   | LiveHostStateProjection;
 type UnfoldedViewNotification = Exclude<
   MspNotification,
@@ -201,11 +217,11 @@ type StaleViewArm = Exclude<ViewEvent["method"], MspNotification>;
 export type NoStaleViewArm = AssertNever<StaleViewArm>;
 
 /**
- * The same reverse pin for the hand-typed exclusion literal above:
+ * The same reverse pin for the hand-typed exclusion literals above:
  * `Exclude` silently ignores excluder members outside the union, so a
- * retired or renamed `initialized` would otherwise compile clean as dead
- * vocabulary (the PR #23087 rule, applied to this file's only other
- * hand-typed method set).
+ * retired or renamed `initialized` — or a lifecycle name that leaves the
+ * union — would otherwise compile clean as dead vocabulary (the PR #23087
+ * rule, applied to this file's only other hand-typed method set).
  */
 type StaleExclusion = Exclude<NonFoldNotification, MspNotification>;
 export type NoStaleExclusion = AssertNever<StaleExclusion>;

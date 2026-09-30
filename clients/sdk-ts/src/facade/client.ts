@@ -77,6 +77,7 @@ const START_FORWARDED = [
   "providerId",
   "sessionId",
   "workspaceRoot",
+  "workspaceRoots",
   "modelId",
 ] as const;
 type _StartIsExhaustive = AssertNever<
@@ -286,6 +287,7 @@ export class MuseClient {
     if (options.providerId != null) params.providerId = options.providerId;
     if (options.sessionId != null) params.sessionId = options.sessionId;
     if (options.workspaceRoot != null) params.workspaceRoot = options.workspaceRoot;
+    if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     if (options.modelId != null) params.modelId = options.modelId;
     const raw = await this.#connection.command("session/start", params);
     const result = raw as unknown as SessionStartResult;

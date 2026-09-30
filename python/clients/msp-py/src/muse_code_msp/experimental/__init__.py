@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:597b92e79f04421837f597e5d3ee29fc10ec84fa9809882954f110768b8198c0"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:d1cd20e2c2d82efb91479302f8dca4043884e628b636a5db85bce02328c410ce"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.3.0"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.2"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -62,7 +62,7 @@ BACKGROUND_INITIATOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "timeout",)
 
 # A grantable capability name. Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when the protocol spec un-defers — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback",)
 
 # The ack-status vocabulary: `"accepted"` for every admitted command; `session/compact` alone may answer `"noop"`. Closed: the protocol spec names exactly these two values, so SDK clients get a discriminated type and validation catches a wrong status — and a client that received a third value would have been told nothing it can act on, unlike [`TurnStartDisposition`], where "acked, not otherwise classified" is a usable reading.
 CommandAckStatus = Literal["accepted", "noop"]
@@ -91,6 +91,13 @@ CONTEXT_PRESSURE_LEVEL_KNOWN_VALUES: Final[tuple[str, ...]] = ("normal", "warnin
 ErrorKind = str  # open enum: unknown values stay representable
 ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid",)
 
+# `feedback/submit` classification: the four TUI classes in camelCase wire spelling. **Closed**: a client-selected param vocabulary.
+FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
+
+# `feedback/submit` result `outcome`: how one confirmed submit resolved, mirroring the TUI `FeedbackSubmitOutcome` taxonomy. **Open**: a server-produced result vocabulary — an older client reading a newer value it does not know follows the open-enum tolerance rule instead of rejecting it.
+FeedbackSubmitOutcome = str  # open enum: unknown values stay representable
+FEEDBACK_SUBMIT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("uploaded", "recorded", "acceptedWithoutReceipt", "trackingFailed", "trackingUncertain", "dark", "disabled", "noCredential", "authRejected", "rateLimited", "failed",)
+
 # What history a lifecycle result actually served. Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself".
 HistoryMode = str  # open enum: unknown values stay representable
 HISTORY_MODE_KNOWN_VALUES: Final[tuple[str, ...]] = ("anchoredSnapshot", "inline", "snapshot", "none",)
@@ -118,6 +125,10 @@ ITEM_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("inProgress", "completed", "
 
 # The literal `"2.0"` every frame carries.
 JsonRpcVersion = Literal["2.0"]
+
+# The login flow's terminal vocabulary. Open.
+McpOAuthLoginOutcome = str  # open enum: unknown values stay representable
+MCP_O_AUTH_LOGIN_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("granted", "denied", "expired", "cancelled", "failed",)
 
 # Where a model catalog came from. **Open**: an unrecognized value is an unknown source, not an error.
 ModelCatalogSource = str  # open enum: unknown values stay representable
@@ -151,6 +162,10 @@ REASONING_EFFORT_CHANGE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "
 # A request id: client-chosen string or integer. `1` and `"1"` do not compare equal; each direction owns its own id space.
 RequestId = int | str
 
+# The closed-reason vocabulary. Server-produced and published OPEN by owner ruling — the menu-B pick, which settles that this notification reason enum publishes open rather than resting on E2's result-vocabulary rule by analogy. A crash is deliberately not a reason, because a crash emits no notification at all.
+SessionClosedReason = str  # open enum: unknown values stay representable
+SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown",)
+
 # Stable deletion-failure vocabulary known to this version. The server emits only these values. Future reason strings remain an open result vocabulary; consumers cannot infer completion from any reason.
 SessionDeleteFailureReason = str  # open enum: unknown values stay representable
 SESSION_DELETE_FAILURE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("ownershipUnavailable", "sharedSource", "writerBusy", "unsafeSource", "sourceChanged", "quiescenceFailed", "cancelled", "storageFailure", "cleanupIncomplete", "unsupportedLayout",)
@@ -166,6 +181,9 @@ SESSION_DELETE_PHYSICAL_CHANGE_KNOWN_VALUES: Final[tuple[str, ...]] = ("none", "
 # Whether this host writes its sessions to disk. A property of the host process, fixed at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: the unrepresented degraded state has candidate resolutions that add a third value here, so closed would make that a breaking change.
 SessionDurability = str  # open enum: unknown values stay representable
 SESSION_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("durable", "ephemeral",)
+
+# A served session field `session/list` text search reads. The client selects it, so the set is closed.
+SessionListTextField = Literal["name", "title"]
 
 # Startup failure posture for a session MCP server.
 SessionMcpServerMode = Literal["required", "optional"]
@@ -272,8 +290,9 @@ class _AccountStateBase(TypedDict):
 
 
 class AccountState(_AccountStateBase, total=False):
-    """The one account payload shape: the `account/read` result and the `account/changed` params. Closed vocabulary; `label` is a display string that never carries key material and is omitted, never `null`, when absent."""
+    """The one account payload shape: the `account/read` result and the `account/changed` params. Closed vocabulary; `label` and `avatarUrl` are display values that never carry key material and are omitted, never `null`, when absent."""
 
+    avatarUrl: str
     label: str
 
 
@@ -542,12 +561,25 @@ class ContextUsage(_ContextUsageBase, total=False):
     windowTokens: int
 
 
-class CumulativeTokenUsage(TypedDict):
-    """Session running totals of counted-once usage."""
+class CumulativeCost(TypedDict):
+    """Server-computed session cost member of [`CumulativeTokenUsage`]."""
 
+    partial: bool
+    usd: float
+
+
+class _CumulativeTokenUsageBase(TypedDict):
     outputTokens: int
     promptTokens: int
     totalTokens: int
+
+
+class CumulativeTokenUsage(_CumulativeTokenUsageBase, total=False):
+    """Session running totals of counted-once usage. Amendment a tracked change: the cache splits and server-computed `cost` join the counters. The counters stay accumulate-only; `cost` is the documented exception — it may move either way on price re-adoption and is labeled estimate. `Copy` was dropped for the `cost` member."""
+
+    cacheReadTokens: int
+    cacheWriteTokens: int
+    cost: CumulativeCost
 
 
 class EffectiveApprovalModeState(TypedDict):
@@ -618,6 +650,38 @@ class ErrorResponse(TypedDict):
     error: ErrorObject
     id: RequestId | None
     jsonrpc: JsonRpcVersion
+
+
+class _FeedbackSubmitParamsBase(TypedDict):
+    classification: FeedbackClassification
+    note: str
+    sessionId: str
+    withFiles: bool
+
+
+class FeedbackSubmitParams(_FeedbackSubmitParamsBase, total=False):
+    """`feedback/submit` params: mirrors the TUI confirm-time `FeedbackRequest`. The call itself is the explicit confirm."""
+
+    attachSessionRecord: bool
+    clientArtifactsPath: str
+
+
+class _FeedbackSubmitResultBase(TypedDict):
+    bundlePath: str
+    outcome: FeedbackSubmitOutcome
+    sessionRecordAttached: bool
+    sessionRecordTruncated: bool
+
+
+class FeedbackSubmitResult(_FeedbackSubmitResultBase, total=False):
+    """`feedback/submit` result: the upload receipt."""
+
+    cause: str
+    localTracingNote: str
+    retryAfterMs: int
+    sessionNote: str
+    taskId: str
+    uploadId: str
 
 
 class ForkCutPoint(TypedDict):
@@ -858,6 +922,17 @@ class ItemUpdatedParams(TypedDict):
     viewCursor: str
 
 
+class _McpServerOAuthLoginCompletedParamsBase(TypedDict):
+    outcome: McpOAuthLoginOutcome
+    server: str
+
+
+class McpServerOAuthLoginCompletedParams(_McpServerOAuthLoginCompletedParamsBase, total=False):
+    """`mcpServer/oauthLoginCompleted` params."""
+
+    message: str
+
+
 class _MessageAttachmentBase(TypedDict):
     mediaType: str
     type: str
@@ -887,6 +962,8 @@ class _ModelCatalogEntryBase(TypedDict):
 class ModelCatalogEntry(_ModelCatalogEntryBase, total=False):
     """One visible catalog row. Catalog rows marked hidden never reach the wire, so a client cannot select one."""
 
+    defaultReasoningEffort: ReasoningEffort
+    reasoningEffortVariants: list[ModelDescribedReasoningEffort]
     variants: ModelReasoningEffortVariants
 
 
@@ -897,6 +974,16 @@ class ModelCost(TypedDict):
     currency: str | None
     input: str
     output: str
+
+
+class _ModelDescribedReasoningEffortBase(TypedDict):
+    tier: ReasoningEffort
+
+
+class ModelDescribedReasoningEffort(_ModelDescribedReasoningEffortBase, total=False):
+    """One described reasoning-effort tier of a `model/list` row: a selectable tier plus the catalog's display string for it when declared."""
+
+    description: str
 
 
 class ModelListParams(TypedDict, total=False):
@@ -1109,6 +1196,14 @@ class SessionBranchChangedParams(_SessionBranchChangedParamsBase, total=False):
     vcs: Vcs
 
 
+class SessionClosedParams(TypedDict):
+    """`session/closed` params: a loaded session was unloaded from this host, broadcast to every initialized connection. After it, the session is `notLoaded`; the log remains on disk and `session/resume` reloads it. A crash emits nothing — only the two orderly unload paths do, and both write the durable `SessionEnd` record first."""
+
+    reason: SessionClosedReason
+    sessionId: str
+    viewCursor: str | None
+
+
 class _SessionCompactParamsBase(TypedDict):
     commandId: str
     sessionId: str
@@ -1216,26 +1311,62 @@ class SessionHistory(_SessionHistoryBase, total=False):
     noneReason: HistoryNoneReason
 
 
+class SessionListBranchFilter(TypedDict):
+    """Exact branch selection."""
+
+    anyOf: list[str | None]
+
+
 class SessionListChangedParams(TypedDict):
     """`session/listChanged` params: one changed row of the `session/list` shape — the full Session object as the answering host's list face serves it at emission, a replace, never a delta. Emitted only on connections that negotiated the `sessionListStream` capability at `initialize`; row birth stays on `session/started`, unload pairs with `session/closed`."""
 
     session: Session
 
 
+class SessionListFilter(TypedDict, total=False):
+    """The `session/list` filter. Members are ANDed with each other and with the top-level `workspaceRoot` and `updatedAfter`; values inside each `anyOf` are ORed. The canonical form the server echoes deduplicates and sorts every set, spells session IDs as canonical UUIDs, lowercases text terms, and orders `text.fields` `name` then `title`."""
+
+    branch: SessionListBranchFilter
+    sessionId: SessionListSessionIdFilter
+    text: SessionListTextFilter
+
+
 class SessionListParams(TypedDict, total=False):
     """`session/list` params. Read-only; never touches leases."""
 
     cursor: str | None
+    filter: SessionListFilter
     limit: int
     updatedAfter: str
     workspaceRoot: str
 
 
-class SessionListResult(TypedDict):
-    """`session/list` result. Ordering is `updatedAt` descending."""
-
+class _SessionListResultBase(TypedDict):
     nextCursor: str | None
     sessions: list[Session]
+
+
+class SessionListResult(_SessionListResultBase, total=False):
+    """`session/list` result. Ordering is `updatedAt` descending."""
+
+    appliedFilter: SessionListFilter
+
+
+class SessionListSessionIdFilter(TypedDict):
+    """Exact session-ID selection."""
+
+    anyOf: list[str]
+
+
+class _SessionListTextFilterBase(TypedDict):
+    fields: list[SessionListTextField]
+
+
+class SessionListTextFilter(_SessionListTextFilterBase, total=False):
+    """Name/title token-prefix search. Each term is trimmed, lowercased with ordinary Unicode lowercase, then NFC- normalized, and matches the beginning of an alphanumeric token, accent-sensitively (`check` matches `Checkout`; `eck` does not). NFC means a decomposed and a precomposed spelling of one term are the same term, and the echo returns the composed form. Matching never reorders rows."""
+
+    allOf: list[str]
+    anyOf: list[str]
 
 
 class _SessionModelChangedParamsBase(TypedDict):
@@ -1407,6 +1538,7 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     providerId: str | None
     sessionId: str
     workspaceRoot: str
+    workspaceRoots: list[str]
 
 
 class SessionStartResult(TypedDict):
@@ -1414,6 +1546,12 @@ class SessionStartResult(TypedDict):
 
     session: Session
     viewCursor: str
+
+
+class SessionStartedParams(TypedDict):
+    """`session/started` params: a session became newly loaded on this host via `session/start` or `session/fork`, broadcast to every initialized connection. The one member is the same `$defs/Session` object the `session/start`/`session/fork` results carry, so the broadcast and the result describe one fact through one type — the host builds the broadcast payload as a `$defs/Session` — the fresh-start arm reuses the result's `session` member, the start-replay arm builds the live attach snapshot — and the emission is parity-gated against this type at the producer (`session-server` prod-assembly capture) and over the committed transcript corpus (conformance `session_lifecycle_enrollment`)."""
+
+    session: Session
 
 
 class _SessionStatusChangedParamsBase(TypedDict):
@@ -1838,6 +1976,7 @@ class TurnStartParams(_TurnStartParamsBase, total=False):
     displayText: str
     ifBusy: IfBusy
     reasoningEffort: ReasoningEffort
+    workspaceRoots: list[str]
 
 
 class TurnStartResult(TypedDict):
@@ -2239,6 +2378,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "account/read": {"description": "Reads the host's projected credential state: which credential lane is in effect, an optional display label, and whether the deployment needs a credential at all.", "params": None, "result": "AccountState"},
     "approval/decide": {"description": "Decides a pending approval, guarded by the current requirement id against the multi-stage race.", "params": "ApprovalDecideParams", "result": "ApprovalDecideResult"},
     "approval/listPending": {"description": "Reads the full pending approval and user-input payloads for a session; a lease-free fold read.", "params": "ApprovalListPendingParams", "result": "ApprovalListPendingResult"},
+    "feedback/submit": {"description": "Submits a first-party feedback report through the host, reusing the TUI submitter seam (consent, bundle-first persistence, redaction), and answers the upload receipt.", "params": "FeedbackSubmitParams", "result": "FeedbackSubmitResult"},
     "goal/clear": {"description": "Clears the session goal; never wakes and its ack never names a turn.", "params": "GoalClearParams", "result": "GoalCommandResult"},
     "goal/edit": {"description": "Replaces the current goal's objective under the same wake gate as goal/set.", "params": "GoalEditParams", "result": "GoalCommandResult"},
     "goal/pause": {"description": "Pauses the session goal; never wakes and its ack never names a turn.", "params": "GoalPauseParams", "result": "GoalCommandResult"},
@@ -2248,6 +2388,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "item/readOutput": {"description": "Byte-ranged read of stored full output the view truncated; works on loaded and unloaded sessions and takes no lease.", "params": "ItemReadOutputParams", "result": "ItemReadOutputResult"},
     "model/list": {"description": "Reads the catalog of models the host will accept in `session/setModel`; a query, not a command.", "params": "ModelListParams", "result": "ModelListResult"},
     "session/compact": {"description": "Compacts the session's conversation context; runs asynchronously, so the ack is admission only.", "params": "SessionCompactParams", "result": "SessionCompactResult"},
+    "session/delete": {"description": "Admits durable session deletion; completion arrives separately.", "params": "SessionDeleteParams", "result": "CommandAcceptedResult"},
     "session/fork": {"description": "Branches a session into a new id whose log copies the source through a cut point, with durable provenance.", "params": "SessionForkParams", "result": "SessionForkResult"},
     "session/list": {"description": "Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases.", "params": "SessionListParams", "result": "SessionListResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
@@ -2297,15 +2438,19 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "item/delta": {"description": "Streaming append to an open item's field path (ephemeral-sourced, no sourceRange; opt-out-able).", "params": "ItemDeltaParams"},
     "item/started": {"description": "An item opened on the transcript.", "params": "ItemStartedParams"},
     "item/updated": {"description": "An open item changed non-terminally: full re-emission at a higher revision.", "params": "ItemUpdatedParams"},
+    "mcpServer/oauthLoginCompleted": {"description": "An MCP OAuth login flow reached a terminal outcome (granted, denied, expired, cancelled, or failed). Delivered to every experimental connection that has not opted the method out, initiator or not; never carries the authorization URL or any key material.", "params": "McpServerOAuthLoginCompletedParams"},
     "session/approvalModeChanged": {"description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact.", "params": "SessionApprovalModeChangedParams"},
     "session/branchChanged": {"description": "A durable workspace-branch observation landed; null branch is a detached-HEAD fact.", "params": "SessionBranchChangedParams"},
+    "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},
     "session/contextUsage": {"description": "A provider-reported context-occupancy fact folded to a changed (windowTokens, usedTokens, pressure) triple.", "params": "SessionContextUsageParams"},
+    "session/deleteCompleted": {"description": "The persisted terminal result of an admitted session deletion.", "params": "SessionDeleteCompletedParams"},
     "session/goalChanged": {"description": "The session's goal block changed value; replace wholesale, an explicit null clears.", "params": "SessionGoalChangedParams"},
     "session/listChanged": {"description": "The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated.", "params": "SessionListChangedParams"},
     "session/modelChanged": {"description": "A durable model selection took effect.", "params": "SessionModelChangedParams"},
     "session/modelRouteUnserved": {"description": "An accepted login credential update installed a provider that cannot serve the session's standing model route; the standing selection is unchanged and a routable session/setModel repairs it.", "params": "SessionModelRouteUnservedParams"},
     "session/nameChanged": {"description": "A durable session-name record landed (rename or first naming): the fold of the session_name record.", "params": "SessionNameChangedParams"},
     "session/reasoningEffortChanged": {"description": "A durable session-default reasoning-effort change took effect.", "params": "SessionReasoningEffortChangedParams"},
+    "session/started": {"description": "A session became newly loaded on this host via session/start or session/fork; broadcast to every initialized connection.", "params": "SessionStartedParams"},
     "session/statusChanged": {"description": "A loaded session's (status, attention) flipped; command-plane broadcast, cursor-stamped, not subscription-gated.", "params": "SessionStatusChangedParams"},
     "session/todoListChanged": {"description": "The todo list was replaced wholesale; empty items is a cleared list.", "params": "SessionTodoListChangedParams"},
     "session/tokenUsage": {"description": "A model call completed with usage: raw counters plus counted-once derivations plus session cumulative.", "params": "SessionTokenUsageParams"},
@@ -2356,4 +2501,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32057, "kind": "userInputAnswerInvalid", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback",)
