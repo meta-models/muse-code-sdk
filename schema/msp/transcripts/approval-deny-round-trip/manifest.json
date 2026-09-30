@@ -4,9 +4,9 @@
   "scenario": "approval-deny-round-trip",
   "provenance": "hand-authored",
   "regenerationJustification": {
-    "cite": "owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
-    "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
-    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+    "cite": "coordinator dispatch on hub #29102 (2026-09-07, relayed as owner-directed; no named human in the dispatch record) settled WHAT ships \u2014 configOptions from model/list at session acquisition (spec 211 T041); the wire-level choices are recorded in spec 211 spec.md Clarifications (Session 2026-09-07, T041 catalog at acquisition), with the catalog-cost arm settled as Arm A by the 2026-09-08 owner ruling (mjdouglas; ADR docs/adr/18954-t041-catalog-at-acquisition.md; Constitution IV record on #18954 and PR #30991); prior content ruling preserved: owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
+    "rationale": "T041 moves catalog discovery to session acquisition: the adapter sends one model/list inside the session/new window (after session/start's result, sessionful) or, on session/load, a SESSIONLESS model/list BEFORE session/resume (SS3.10 allows listing before a session exists; the durable selection comes from the lifecycle result's own modelId). The host's SS2.5.2 re-issue order is untouched: pending asks still land right after the resume result, and the CLIENT (bridge) awaits their receipts before its first view/page. The inserted catalog is hand-authored COHERENT with the recorded session (provider muse, modelId muse-large-2; isActive only on sessionful lists, per SS3.10) rather than a copy of another host's capture. Beyond the inserted exchange, no frame, order, or value changes.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/18954"
   },
   "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
   "viewSchemaVersion": 1,
@@ -38,27 +38,31 @@
       "cite": "tdd SS2.5.1 wire example"
     },
     {
-      "lines": "7-10",
+      "lines": "7-8",
+      "cite": "tdd SS3.10 model/list request/result (spec 211 T041 catalog discovery at session acquisition; a sessionful list flags the session's effective model isActive)"
+    },
+    {
+      "lines": "9-12",
       "cite": "tdd SS3.2 and SS4.5.1-SS4.5.2 turn start and user message"
     },
     {
-      "lines": "11",
+      "lines": "13",
       "cite": "tdd SS4.5.5 toolCall item/started with approvalId linkage"
     },
     {
-      "lines": "12-14",
+      "lines": "14-16",
       "cite": "tdd SS5.3, SS5.3.2, SS5.3.3, and SS5.14.1 server-minted approval menu plus presentation receipt"
     },
     {
-      "lines": "15-17",
+      "lines": "17-19",
       "cite": "tdd SS5.4, SS5.5, and SS5.14.1 abort choice, accepted command, and durable deny resolution"
     },
     {
-      "lines": "18",
+      "lines": "20",
       "cite": "tdd SS4.5.5 and SS5.4 rejected linked tool terminal with model-visible denial"
     },
     {
-      "lines": "19-22",
+      "lines": "21-24",
       "cite": "tdd SS4.5.1, SS4.5.3, SS5.11, and freeze journey 3 turn continuation after typed denial"
     }
   ]

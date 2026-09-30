@@ -4,9 +4,9 @@
   "scenario": "userinput-cancel-round-trip",
   "provenance": "hand-authored",
   "regenerationJustification": {
-    "cite": "owner ruling on mslsrc/tbh#22785 comment 5417920913 (2026-08-25, Constitution IV directive record): the `view/page` result's `events` elements are nested `{method, params}` pairs; tdd SS4.7.3 and SS7.4",
-    "rationale": "The E1 contradiction resolved NESTED: SS7.4's spelling was correct and SS4.7.3's flattened text was the defect. `ServedEvent::to_wire_value` now emits the view notification minus `jsonrpc`/`emittedAtMs`, with `viewCursor` staying inside `params` where every view notification already carries it - nothing spliced, nothing re-inserted. The served event set, its order, and every field value are unchanged; only the element nesting moved.",
-    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+    "cite": "coordinator dispatch on hub #29102 (2026-09-07, relayed as owner-directed; no named human in the dispatch record) settled WHAT ships \u2014 configOptions from model/list at session acquisition (spec 211 T041); the wire-level choices are recorded in spec 211 spec.md Clarifications (Session 2026-09-07, T041 catalog at acquisition), with the catalog-cost arm settled as Arm A by the 2026-09-08 owner ruling (mjdouglas; ADR docs/adr/18954-t041-catalog-at-acquisition.md; Constitution IV record on #18954 and PR #30991); prior content ruling preserved: owner ruling on mslsrc/tbh#22785 comment 5417920913 (2026-08-25, Constitution IV directive record): the `view/page` result's `events` elements are nested `{method, params}` pairs; tdd SS4.7.3 and SS7.4",
+    "rationale": "T041 moves catalog discovery to session acquisition: the adapter sends one model/list inside the session/new window (after session/start's result, sessionful) or, on session/load, a SESSIONLESS model/list BEFORE session/resume (SS3.10 allows listing before a session exists; the durable selection comes from the lifecycle result's own modelId). The host's SS2.5.2 re-issue order is untouched: pending asks still land right after the resume result, and the CLIENT (bridge) awaits their receipts before its first view/page. The inserted catalog is hand-authored COHERENT with the recorded session (provider muse, modelId muse-large-2; isActive only on sessionful lists, per SS3.10) rather than a copy of another host's capture. Beyond the inserted exchange, no frame, order, or value changes.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/18954"
   },
   "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
   "viewSchemaVersion": 1,
@@ -32,22 +32,26 @@
     },
     {
       "lines": "4-5",
-      "cite": "tdd SS2.5.2 excludeItems metadata-only resume and pendingRequests"
+      "cite": "tdd SS3.10 sessionless model/list (spec 211 T041 catalog discovery before the resume; no isActive row \u2014 SS2.5.2's resume result names the model in force)"
     },
     {
       "lines": "6-7",
-      "cite": "tdd SS5.6 and SS5.10.1 late-joiner userInput/request re-issue and presentation receipt"
+      "cite": "tdd SS2.5.2 excludeItems metadata-only resume and pendingRequests"
     },
     {
       "lines": "8-9",
+      "cite": "tdd SS5.6 and SS5.10.1 late-joiner userInput/request re-issue and presentation receipt"
+    },
+    {
+      "lines": "10-11",
       "cite": "tdd SS4.7.3 forward view/page from genesis after excludeItems"
     },
     {
-      "lines": "10-12",
+      "lines": "12-14",
       "cite": "tdd SS5.10.2 userInput/cancel command and accepted ack; SS5.10.3 cancelled settlement"
     },
     {
-      "lines": "13-14",
+      "lines": "15-16",
       "cite": "tdd SS4.5.5 cancelled toolCall result and SS4.5.1 turn completion after the prompt settles"
     }
   ]

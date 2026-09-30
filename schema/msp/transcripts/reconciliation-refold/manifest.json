@@ -4,9 +4,9 @@
   "scenario": "reconciliation-refold",
   "provenance": "hand-authored",
   "regenerationJustification": {
-    "cite": "owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
-    "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
-    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+    "cite": "tdd SS4.1 one-cursor-space rule; #29473 Option 1, owner directive record https://github.com/mslsrc/tbh/issues/29473#issuecomment-5642915541 (mjdouglas, coordinator session 0e287afd, 2026-09-12T02:37:59Z, \"4. cursor 1.\")",
+    "rationale": "Regenerate the view frames from the unchanged records.jsonl through fold_session_view and ViewEvent::to_json_line. Source-less starts and deltas use fragment cursors without consuming durable ordinals. Only five viewCursor values change; event order, payloads, sourceRange citations, and the four durable / three ephemeral accounting stay unchanged. Provenance remains hand-authored: this is the T034b fold fixture, not Stage B host generation.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/34281"
   },
   "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
   "viewSchemaVersion": 1,

@@ -4,9 +4,9 @@
   "scenario": "text-run-single-turn",
   "provenance": "hand-authored",
   "regenerationJustification": {
-    "cite": "owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
-    "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
-    "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
+    "cite": "coordinator dispatch on hub #29102 (2026-09-07, relayed as owner-directed; no named human in the dispatch record) settled WHAT ships \u2014 configOptions from model/list at session acquisition (spec 211 T041); the wire-level choices are recorded in spec 211 spec.md Clarifications (Session 2026-09-07, T041 catalog at acquisition), with the catalog-cost arm settled as Arm A by the 2026-09-08 owner ruling (mjdouglas; ADR docs/adr/18954-t041-catalog-at-acquisition.md; Constitution IV record on #18954 and PR #30991); prior content ruling preserved: owner ruling on mslsrc/tbh#22946 review comment r3863946961 (2026-08-26, live session, \"approve required-nullable\"); tdd SS2.4 and the SS2.5.1 Session example",
+    "rationale": "T041 moves catalog discovery to session acquisition: the adapter sends one model/list inside the session/new window (after session/start's result, sessionful) or, on session/load, a SESSIONLESS model/list BEFORE session/resume (SS3.10 allows listing before a session exists; the durable selection comes from the lifecycle result's own modelId). The host's SS2.5.2 re-issue order is untouched: pending asks still land right after the resume result, and the CLIENT (bridge) awaits their receipts before its first view/page. The inserted catalog is hand-authored COHERENT with the recorded session (provider muse, modelId muse-large-2; isActive only on sessionful lists, per SS3.10) rather than a copy of another host's capture. Beyond the inserted exchange, no frame, order, or value changes.",
+    "trackingIssue": "https://github.com/mslsrc/tbh/issues/18954"
   },
   "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
   "viewSchemaVersion": 1,
@@ -39,22 +39,26 @@
     },
     {
       "lines": "7-8",
+      "cite": "tdd SS3.10 model/list request/result (spec 211 T041 catalog discovery at session acquisition; a sessionful list flags the session's effective model isActive)"
+    },
+    {
+      "lines": "9-10",
       "cite": "tdd SS3.2 wire example: turn/start ack (turnId == commandId per SS3.1.4)"
     },
     {
-      "lines": "9",
+      "lines": "11",
       "cite": "tdd SS4.5.1 turn/started example (run-stream sourceRange, seq 1)"
     },
     {
-      "lines": "10",
+      "lines": "12",
       "cite": "tdd SS4.5.2 userMessage single-shot item/completed example"
     },
     {
-      "lines": "11-14",
+      "lines": "13-16",
       "cite": "tdd SS4.5.3 agentMessage lifecycle: ephemeral item/started (no sourceRange, SS4.2), item/delta appends whose concatenation equals the final committed text (SS4.3.1), durable item/completed"
     },
     {
-      "lines": "15",
+      "lines": "17",
       "cite": "tdd SS4.5.1 turn/completed field table (terminal, durationMs, timeToFirstTokenMs, usage)"
     }
   ]
