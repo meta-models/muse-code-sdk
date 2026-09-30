@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
-"""External-audience gate for the published Python and npm packages (#36888).
+"""External-audience gate for the published Python and npm packages and
+the public python source tree.
 
-The PyPI 1.3.0 publish shipped long descriptions (the package READMEs), a
+The first PyPI publish shipped long descriptions (the package READMEs), a
 pyproject ``description``, and module docstrings that cite artifacts only
-this private repository resolves — spec paths, ADR/issue numbers, INV/FR
-ids, tdd section refs, internal dev loops. The npm 0.1.1 publish shipped the
-same class in the TypeScript SDK's README (#37515). A registry reader has
-the published package, the public mirror, and the public docs site —
-nothing else — so every such reference is a dead end at best and a
-disclosure at worst.
+the producing repository resolves — spec paths, ADR/issue numbers,
+requirement ids, protocol-spec section refs, internal dev loops — and a
+follow-up sweep found the same class in ledger notes, script comments, and
+test fixtures. The first npm publish shipped the same class in the
+TypeScript SDK's README. A registry reader has the published package, the
+public mirror, and the public docs site — nothing else — so every such
+reference is a dead end at best and a disclosure at worst.
 
-Four modes, one pattern table:
+Four modes, two pattern tiers:
 
-  (default)         check the committed Python sources under --repo-root:
-                    each package's README.md, its pyproject ``description``,
-                    and the module-level docstring of every .py under src/.
-                    This is what the pytest suite runs on every CI ride.
-  --dist DIR        check built Python distributions: each wheel's METADATA
-                    (summary + long description) and the module-level
-                    docstring of every packaged .py, plus each sdist's
-                    PKG-INFO. This is the publish gate: it audits what the
-                    upload step would actually ship, so a leak can never
-                    reach the registry again (scripts/publish-sdk-pypi.sh
-                    runs it after the build).
+  (default)         check the committed sources under --repo-root: package
+                    METADATA surfaces (each README.md, each pyproject
+                    ``description``, every src module-level docstring) with
+                    the full table, plus a TREE walk of every hand-written
+                    closure file with the tree tier. This is what the
+                    pytest suite runs on every CI ride.
+  --dist DIR        check built distributions: each wheel's METADATA and
+                    packaged module docstrings with the full table, every
+                    hand-written packaged .py whole (the sdist ships the
+                    tests/ tree), and each sdist's PKG-INFO. This is the
+                    publish gate: it audits what the upload step would
+                    actually ship, so a leak can never reach the registry
+                    again (scripts/publish-sdk-pypi.sh runs it after the
+                    build).
   --npm-source      check the committed npm package surface under
                     --repo-root: the TypeScript SDK's README.md (the npm
                     long description) and its package.json ``description``.
@@ -33,19 +38,18 @@ Four modes, one pattern table:
                     `npm pack`, before any publish, so it audits what the
                     upload step would actually ship.
 
-The pattern table is derived from the repository's citation-class table
-(developer-docs/scripts/citation-classes.mjs) plus the classes observed in
-the 1.3.0 leak; it is deliberately a Python restatement, not an import —
-this gate runs where only the dev-lock Python exists (the pytest lane and
-the mirror's publish workflow), with no Node available. Scope is likewise
-deliberate: METADATA and MODULE-LEVEL docstrings only. Inner (class and
-function) docstrings citing specs follow the mirrored-SOURCE posture
-(scripts/check-source-audience.mjs: reviewed policy treats source-comment
-citations as benign) and are tracked separately.
+The METADATA tier bans every repository path; the TREE tier bans only
+identifiers that resolve nowhere outside the producing repository, so
+closure-internal paths stay legal in tree files. The table is derived from
+the producing repository's docs-site citation-class table plus the classes
+observed in the leaks; it is deliberately a Python restatement, not an
+import — this gate runs where only the dev-lock Python exists (the pytest
+lane and the mirror's publish workflow), with no Node available.
 
-Deeper docstrings in the generated ``muse_code_msp`` modules come from the
-MSP schema bundle descriptions; scrubbing those means changing the schema
-export, not this package — also tracked separately.
+The generated ``muse_code_msp`` modules are sanitized at their codegen
+seam (schema descriptions render with citations removed) and are scanned
+here like every other file; the committed schema bundle is the raw input
+that sanitizer normalizes and is not walked.
 """
 
 from __future__ import annotations
@@ -68,7 +72,7 @@ PACKAGE_DIRS = ("clients/msp-py", "clients/sdk-py")
 NPM_PACKAGE_DIR = "clients/sdk-ts"
 
 # Each entry: (class id, compiled pattern). A hit anywhere in a gated text
-# fails the run. Keyed to developer-docs/scripts/citation-classes.mjs where a
+# fails the run. Keyed to the docs-site citation-class table where a
 # class exists there; the path classes are the 1.3.0 leak's own vocabulary.
 PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("spec-path", re.compile(r"specs/")),
@@ -78,14 +82,20 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("adr-path", re.compile(r"\bdocs/adr")),
     ("client-path", re.compile(r"\bclients/")),
     ("adr-citation", re.compile(r"\bADR \d+")),
-    # Tracker numbers (#638, #29216). Three digits with a guard against
+    # Tracker numbers (issue/PR '#' + digits). Three digits with a guard against
     # digit-leading hex colors, the citation-class table's lookahead.
     ("tracker-number", re.compile(r"(?<!&)#\d{3,}(?![0-9a-fA-F])")),
     ("requirement-id", re.compile(r"\b(?:INV|FR|FM|AS|TEST)-\d")),
+    # Spec clarification ids (the C-<spec>-<n> form) — the class the first
+    # review of this gate caught still shipping.
+    ("clarification-id", re.compile(r"\bC-\d{3,}-\d")),
     ("task-id", re.compile(r"\bT\d{3}\b")),
     ("decision-id", re.compile(r"\bD-\d{2,}\b")),
     ("scenario-ref", re.compile(r"\bScenario \d", re.IGNORECASE)),
-    ("spec-section", re.compile(r"\bSS\d+\.\d")),
+    # Whole-token incl. bare sections (SS2) and dash-joined ranges
+    # (SS2-SS5, en/em dashes) — the docs-site table's width.
+    ("spec-section", re.compile(r"\bSS\d+(?:\.\d+)*[a-z]?(?:\s?[–—-]\s?SS\d+)*\b")),
+    ("appendix-ref", re.compile(r"\bAppendix [A-Z]\b")),
     ("spec-number", re.compile(r"\bspecs? \d{3,}\b", re.IGNORECASE)),
     ("spec-doc", re.compile(r"\btdd\b")),
     # The [h] classes keep these pattern literals from counting as internal
@@ -93,8 +103,8 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # audience profile (the `pkill -f 'tbh-[g]ate'` trick).
     ("dev-loop-path", re.compile(r"\bprojects/tb[h]\b")),
     ("private-repo", re.compile(r"\b(?:mslsrc|par-msl)/tb[h]\b")),
-    # Internal workflow/crate names (tbh-muse-sdk-py, tbh-devtools). The
-    # public vocabulary is `muse`/`muse-code-*`; nothing external is `tbh-*`.
+    # Names carrying the internal product prefix (workflow and crate names).
+    # The public vocabulary is `muse`/`muse-code-*`.
     ("internal-name", re.compile(r"\btbh-[a-z][a-z0-9-]*")),
     # Spec-plan slice labels ("S0 skeleton", "plan slice S3"): internal
     # delivery vocabulary that also rots — the 1.3.0 description still called
@@ -103,10 +113,81 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("stale-status", re.compile(r"\bskeleton\b", re.IGNORECASE)),
 )
 
+# The TREE tier: identifiers that resolve ONLY inside the producing
+# repository, banned in EVERY hand-written file of the public python
+# closure — code comments and docstrings included (the owning spec's tree
+# contract). Closure-internal path classes (script-path, client-path,
+# schema-path) and the metadata-only status classes (slice-label,
+# stale-status) are deliberately NOT here: a mirror reader has the tree, so
+# a path into it resolves, and status words in code prose are ordinary
+# English. Package METADATA keeps the full table above.
+TREE_TIER_EXCLUDED_CLASSES = frozenset(
+    {"script-path", "client-path", "schema-path", "slice-label", "stale-status"}
+)
+TREE_PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (class_id, pattern)
+    for class_id, pattern in PRIVATE_REFERENCE_PATTERNS
+    if class_id not in TREE_TIER_EXCLUDED_CLASSES
+) + (
+    # Producing-repo trees a mirror clone never carries.
+    ("producing-docs-path", re.compile(r"\bdeveloper-docs/")),
+    # Internal test-charter ids (the docs-site table's requirement-id kin).
+    ("test-charter-id", re.compile(r"\bPY-TEST-\d")),
+)
 
-def findings_in(text: str, where: str) -> list[str]:
+# What the tree walk covers: every file in the python closure — the
+# generated wire-types modules included, whose codegen sanitizes schema
+# description text at render time — relative to --repo-root (the producing
+# repo's project root upstream, `python/` in the public mirror; the layouts
+# agree below these paths). Not walked: the committed schema bundle (the
+# raw input the sanitizer normalizes; also exportable from the public
+# binary) and this file itself, which IS the pattern table and cannot avoid
+# containing its own patterns — it is audited by review instead.
+TREE_WALK_PATHS = (
+    "clients/msp-py",
+    "clients/py-dev-requirements.txt",
+    "clients/sdk-cookbook-py",
+    "clients/sdk-py",
+    "clients/sdk-quickstart-py",
+    "scripts/publish-sdk-pypi.sh",
+    "scripts/sdk-py-wheel-rows.py",
+)
+# Python-closure manifest entries deliberately NOT in the walk, each with its
+# seam: this script is the pattern table (audited by review); the closure
+# manifest is the provenance record whose repository fields are a standing
+# owner item. Every OTHER "Python closure" manifest entry must be walked —
+# check_tree pins that, so a new python package cannot ship unscanned.
+TREE_WALK_EXCLUDED_CLOSURE_ENTRIES = frozenset(
+    {"scripts/check-sdk-py-external-audience.py", "scripts/sdk-source-closure.json"}
+)
+TREE_TEXT_SUFFIXES = {".py", ".md", ".toml", ".txt", ".json", ".sh", ".cfg", ".ndjson"}
+# Local build/tool litter the walk must never scan: an untracked virtualenv
+# under a closure root carries third-party strings that false-red the gate
+# on a dev machine (CI and the publish run on fresh checkouts). A closed
+# name set plus exactly ONE suffix arm (`*.egg-info`, applied in _pruned);
+# any other new directory name defaults to SCANNED.
+TREE_WALK_PRUNED_DIR_NAMES = frozenset(
+    {".venv", "venv", ".tox", ".pytest_cache", "__pycache__", ".mypy_cache",
+     "node_modules", ".ruff_cache"}
+)
+TREE_WALK_PRUNED_SUFFIXES = frozenset({".egg-info"})
+
+
+def _pruned(rel_parts: tuple[str, ...]) -> bool:
+    return any(
+        part in TREE_WALK_PRUNED_DIR_NAMES
+        or any(part.endswith(suffix) for suffix in TREE_WALK_PRUNED_SUFFIXES)
+        for part in rel_parts[:-1]
+    )
+
+
+def findings_in(
+    text: str,
+    where: str,
+    patterns: tuple[tuple[str, re.Pattern[str]], ...] = PRIVATE_REFERENCE_PATTERNS,
+) -> list[str]:
     out = []
-    for class_id, pattern in PRIVATE_REFERENCE_PATTERNS:
+    for class_id, pattern in patterns:
         for hit in {m.group(0) for m in pattern.finditer(text)}:
             out.append(f"{where}: {class_id}: {hit!r}")
     return out
@@ -136,6 +217,63 @@ def check_tree(repo_root: Path) -> list[str]:
                 module_docstring(module.read_text(), str(rel)),
                 f"{rel} module docstring",
             )
+    findings += tree_findings(repo_root)
+    _assert_walk_covers_the_closure(repo_root)
+    return findings
+
+
+def _assert_walk_covers_the_closure(repo_root: Path) -> None:
+    # The walk roots must never drift below the closure manifest: every
+    # manifest entry noted "Python closure" is walked or a named exclusion.
+    # Upstream the manifest sits beside this script; the public mirror's
+    # python/ tree does not carry it, so absence skips the pin there (the
+    # mirror runs the dist mode as its publish gate).
+    manifest_path = repo_root / "scripts" / "sdk-source-closure.json"
+    if not manifest_path.exists():
+        return
+    import json
+
+    manifest = json.loads(manifest_path.read_text())
+    notes = manifest.get("path_notes", {})
+    python_entries = {
+        entry
+        for entry in manifest.get("closure_paths", [])
+        if str(notes.get(entry, "")).startswith("Python closure")
+    }
+    uncovered = python_entries - set(TREE_WALK_PATHS) - TREE_WALK_EXCLUDED_CLOSURE_ENTRIES
+    if uncovered:
+        raise SystemExit(
+            "FAILED: Python-closure manifest entries missing from the tree "
+            f"walk (add to TREE_WALK_PATHS or the named exclusions): {sorted(uncovered)}"
+        )
+
+
+def tree_findings(repo_root: Path) -> list[str]:
+    # The TREE tier: whole-file scan of every hand-written closure file, so a
+    # producing-repo identifier in a comment, ledger note, or fixture cannot
+    # ship in the public tree again.
+    findings: list[str] = []
+    walked = 0
+    for root in TREE_WALK_PATHS:
+        path = repo_root / root
+        if not path.exists():
+            continue
+        for file in sorted([path] if path.is_file() else path.rglob("*")):
+            if not file.is_file() or file.suffix not in TREE_TEXT_SUFFIXES:
+                continue
+            rel_parts = file.relative_to(repo_root).parts
+            if _pruned(rel_parts):
+                continue
+            walked += 1
+            rel = file.relative_to(repo_root)
+            findings += findings_in(
+                file.read_text(), str(rel), TREE_PRIVATE_PATTERNS
+            )
+    if walked < 6:  # both packages' metadata plus a test at minimum; an empty walk is a bad root
+        raise SystemExit(
+            f"FAILED: the tree walk visited only {walked} files under "
+            f"{repo_root}; the closure roots look wrong"
+        )
     return findings
 
 
@@ -157,20 +295,30 @@ def check_dist(dist_root: Path) -> list[str]:
                         archive.read(entry).decode("utf-8"), where
                     )
                 elif entry.endswith(".py"):
+                    source = archive.read(entry).decode("utf-8")
                     findings += findings_in(
-                        module_docstring(
-                            archive.read(entry).decode("utf-8"), where
-                        ),
+                        module_docstring(source, where),
                         f"{where} module docstring",
                     )
+                    findings += findings_in(source, where, TREE_PRIVATE_PATTERNS)
     for sdist in sdists:
         with tarfile.open(sdist) as archive:
             for member in archive.getmembers():
+                where = f"{sdist.name}!{member.name}"
                 if member.name.endswith("PKG-INFO"):
                     payload = archive.extractfile(member)
                     assert payload is not None
+                    findings += findings_in(payload.read().decode("utf-8"), where)
+                elif member.name.endswith(".py"):
+                    # The sdist ships EVERYTHING setuptools collects — the
+                    # first sdist carried the whole tests/ tree, so packaged
+                    # .py files are public down to their comments (generated
+                    # modules included: their codegen sanitizes at render
+                    # time, and this is the proof it held).
+                    payload = archive.extractfile(member)
+                    assert payload is not None
                     findings += findings_in(
-                        payload.read().decode("utf-8"), f"{sdist.name}!{member.name}"
+                        payload.read().decode("utf-8"), where, TREE_PRIVATE_PATTERNS
                     )
     return findings
 
@@ -255,7 +403,7 @@ def main() -> int:
     if findings:
         print(
             "FAILED: the published package surface references private "
-            "repository artifacts (#36888, #37515):",
+            "repository artifacts:",
             file=sys.stderr,
         )
         for finding in findings:

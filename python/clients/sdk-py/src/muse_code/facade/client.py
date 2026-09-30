@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, fields
-from typing import Any, Awaitable, Generic, Mapping, Sequence, Set, TypeVar
+from typing import Any, Awaitable, Generic, List, Mapping, Sequence, Set, TypeVar
 
 from muse_code_msp import (
     ClientCapabilities,
@@ -77,6 +77,9 @@ class StartSessionOptions:
         session_id: A caller-chosen session id; omitted = the host mints one.
         workspace_root: The workspace the session works in; omitted = the
             host decides.
+        workspace_roots: The session's initial runtime workspace-root set
+            (wire ``workspaceRoots``; first root = the CWD). When
+            ``workspace_root`` is also given the two must agree.
         model_id: The model to serve the session with; omitted = the
             provider's default.
     """
@@ -85,6 +88,7 @@ class StartSessionOptions:
     provider_id: str | None = None
     session_id: str | None = None
     workspace_root: str | None = None
+    workspace_roots: List[str] | None = None
     model_id: str | None = None
 
 
@@ -322,6 +326,8 @@ class MuseClient(Generic[_I]):
             params["sessionId"] = options.session_id
         if options.workspace_root is not None:
             params["workspaceRoot"] = options.workspace_root
+        if options.workspace_roots is not None:
+            params["workspaceRoots"] = options.workspace_roots
         if options.model_id is not None:
             params["modelId"] = options.model_id
         raw = await self._connection.command("session/start", params)

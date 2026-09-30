@@ -52,7 +52,13 @@ export type SendUserTurnOptions<I> = Readonly<
  * the guard chain in `#params` is hand-listed — so a regenerated member fails
  * the BUILD here until it is forwarded.
  */
-const TURN_START_FORWARDED = ["input", "displayText", "ifBusy", "reasoningEffort"] as const;
+const TURN_START_FORWARDED = [
+  "input",
+  "displayText",
+  "ifBusy",
+  "reasoningEffort",
+  "workspaceRoots",
+] as const;
 type _TurnStartIsExhaustive = AssertNever<
   Exclude<
     keyof Omit<TurnStartParams, "commandId" | "sessionId">,
@@ -218,6 +224,7 @@ export class TurnSubmitter<I> {
     if (options.displayText != null) params.displayText = options.displayText;
     if (options.ifBusy != null) params.ifBusy = options.ifBusy;
     if (options.reasoningEffort != null) params.reasoningEffort = options.reasoningEffort;
+    if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     return params;
   }
 }

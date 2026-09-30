@@ -51,6 +51,9 @@ class SendUserTurnOptions(Generic[_I]):
         if_busy: How to treat a submit while a turn runs (wire ``ifBusy``).
         reasoning_effort: The turn's reasoning effort (wire
             ``reasoningEffort``).
+        workspace_roots: A sticky replacement of the session's runtime
+            workspace-root set for this turn and subsequent turns (wire
+            ``workspaceRoots``).
         composer_input: What to hand back to the composer if this submit is
             ever retired — the protocol restores the INPUT, not the wire parts.
             Optional: a consumer rendering nothing optimistically has nothing
@@ -61,6 +64,7 @@ class SendUserTurnOptions(Generic[_I]):
     display_text: str | None = None
     if_busy: IfBusy | None = None
     reasoning_effort: ReasoningEffort | None = None
+    workspace_roots: List[str] | None = None
     composer_input: _I | None = None
 
 
@@ -82,7 +86,7 @@ def _camel(field_name: str) -> str:
 # own field, never a wire member, so it is dropped
 # before the compare; `commandId`/`sessionId` are excluded because the
 # connection mints the first and the session owns the second.
-_TURN_WIRE_FIELDS = {"input", "display_text", "if_busy", "reasoning_effort"}
+_TURN_WIRE_FIELDS = {"input", "display_text", "if_busy", "reasoning_effort", "workspace_roots"}
 _TURN_EXCLUDED = {"commandId", "sessionId"}
 assert {
     _camel(f.name) for f in fields(SendUserTurnOptions) if f.name in _TURN_WIRE_FIELDS
@@ -283,4 +287,6 @@ class TurnSubmitter(Generic[_I]):
             params["ifBusy"] = options.if_busy
         if options.reasoning_effort is not None:
             params["reasoningEffort"] = options.reasoning_effort
+        if options.workspace_roots is not None:
+            params["workspaceRoots"] = options.workspace_roots
         return params

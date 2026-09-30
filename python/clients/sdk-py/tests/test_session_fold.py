@@ -806,6 +806,25 @@ def test_an_unrecognized_notification_method_folds_without_raising() -> None:
     assert fold.active_turn_id == "turn-1", "the rest of the fold is untouched"
 
 
+def test_a_session_lifecycle_broadcast_keeps_its_pre_enrollment_drop() -> None:
+    # The runtime twin of the TypeScript SDK's lifecycle pin: the generated
+    # NOTIFICATIONS union carries both lifecycle names, but they are
+    # control-plane broadcasts, not view events, and the fold deliberately
+    # keeps the pre-enrollment runtime answer (the same sanctioned initial
+    # drop the delivery-gap marker had before it became a fold input). This
+    # pin is the tripwire the SDK's conscious lifecycle surfacing must
+    # replace; it reds if a refactor makes a lifecycle frame seed an item or
+    # a state family instead.
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    for method in ("session/started", "session/closed"):
+        outcome = fold.apply({"method": method, "params": {"sessionId": SESSION}})
+        assert outcome == IgnoredUnrecognizedMethod(method)
+    assert fold.items.size == 0, "a lifecycle broadcast seeds no item"
+    assert fold.session_state.families() == [], "and no state family"
+    assert fold.active_turn_id == "turn-1", "the rest of the fold is untouched"
+
+
 def test_a_real_view_gap_frame_moves_the_folds_currency_and_no_store() -> None:
     fold = SessionFold()
     fold.apply(turn_started("turn-1", "cmd-1", "v:s:0"))
@@ -925,19 +944,34 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # push, not a view-fold input — it reports that the live view stream died,
     # so it carries no cursor and folds into no transcript state. Excluded here
     # like the handshake's `initialized`; the client handles it out of band.
-    non_fold_notifications = {"initialized", "session/viewHealthChanged"}
-    assert VIEW_EVENT_METHODS == set(NOTIFICATIONS) - non_fold_notifications - LIVE_HOST_STATE_PROJECTIONS, (
+    # Deletion completion has no view envelope or fold state.
+    non_fold_notifications = {"initialized", "session/viewHealthChanged", "session/deleteCompleted"}
+    # Session lifecycle broadcasts (a session was loaded or unloaded on the
+    # host) are control-plane notifications, not view events — they carry no
+    # view envelope, so they are facade inputs, not fold inputs. Today a
+    # lifecycle frame keeps the pre-enrollment runtime answer
+    # (``IgnoredUnrecognizedMethod``, pinned by the lifecycle runtime test)
+    # until the SDK consciously surfaces the pair.
+    session_lifecycle_broadcasts = {"session/started", "session/closed"}
+    assert VIEW_EVENT_METHODS == (
+        set(NOTIFICATIONS)
+        - non_fold_notifications
+        - session_lifecycle_broadcasts
+        - LIVE_HOST_STATE_PROJECTIONS
+    ), (
         "a protocol enrollment added or retired a view notification; route it in "
         "SessionFold.apply (exclusions: `initialized`, the command-plane "
-        "session/viewHealthChanged push, and the live host-state projections, "
-        "the governing decision)"
+        "session/viewHealthChanged push, the session lifecycle broadcasts, and "
+        "the live host-state projections, the governing decision)"
     )
     # The reverse pin (the TS StaleExclusion twin): every excluded projection
     # names a REAL generated notification, so a retired or renamed method
     # cannot rot in the exclusion set as dead vocabulary.
-    assert (LIVE_HOST_STATE_PROJECTIONS | non_fold_notifications) <= set(NOTIFICATIONS), (
-        "an excluded method (live host-state projection or non-fold "
-        "notification) names no generated notification"
+    assert (
+        LIVE_HOST_STATE_PROJECTIONS | non_fold_notifications | session_lifecycle_broadcasts
+    ) <= set(NOTIFICATIONS), (
+        "an excluded method (live host-state projection, lifecycle broadcast, "
+        "or non-fold notification) names no generated notification"
     )
 
     by_method: dict[str, dict[str, Any]] = {

@@ -937,6 +937,25 @@ test("an unrecognized notification method folds without throwing (SS1.5.4)", () 
   assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
 });
 
+test("a session lifecycle broadcast keeps its pre-enrollment drop until #33102 flips it", () => {
+  // #33065 enrolled the SS2.6 pair, so `MspNotification` now carries both
+  // names — but they are control-plane lifecycle broadcasts, not view
+  // events, and the fold deliberately keeps the pre-enrollment runtime
+  // answer (the D-24021-1 sanctioned-initial-drop shape `view/gap` had
+  // before T032). This pin is the tripwire #33102 must consciously replace
+  // when the SDK surfaces the pair; it reds if a refactor makes a lifecycle
+  // frame seed an item or a state family instead.
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  for (const method of ["session/started", "session/closed"]) {
+    const outcome = fold.apply({ method, params: { sessionId: SESSION } });
+    assert.deepEqual(outcome, { kind: "ignoredUnrecognizedMethod", method });
+  }
+  assert.equal(fold.items.size, 0, "a lifecycle broadcast seeds no item");
+  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
+  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
+});
+
 test("a real view/gap frame moves the fold's CURRENCY and no store (T032 flips D-24021-1's drop)", () => {
   // THE FLIP. D-24021-1 recorded the sanctioned drop —
   // `ignoredUnrecognizedMethod` — and named spec 14990 T032 as the lane that

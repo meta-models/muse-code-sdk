@@ -1,5 +1,578 @@
 # Changelog
 
+## 1.4.2
+
+### New
+
+- `/delete` asks before removing the current session and its child sessions; video-enabled sessions and sessions with unverified log ownership are kept with an explanation
+- Background Bash commands return a Work ID so agents can stop the command
+- Session protocol clients can grant several workspace roots at once — `session/start` and `turn/start` accept a `workspaceRoots` list of absolute paths; every listed root gets the same write access as the primary root, and a `turn/start` list replaces the set for that turn and later turns
+- Added `muse voice transcribe <file>`
+- Added `tbh model-profile show <model> --effort <tier>`, which prints what a model actually resolves to for each setting at that effort level
+- `session/list` accepts an optional `filter` that narrows the list by session ID, branch, or name and title words, and echoes the filter it applied as `appliedFilter`
+- The TUI serve lane honors several workspace roots at once — every listed root gets the same write access as the primary root, each extra root's own rules file loads under that root's recorded trust, and the system prompt names every root; extra roots never gain project trust
+- `muse serve` accepts feedback submitted by connected clients
+- Choose the provider and model for one `muse serve` process with `--provider` and `--model`, without changing saved settings
+
+### Improvements
+
+- The model or list described-tier schema type is now `ModelDescribedReasoningEffort`, and per-tier `description` is omitted when the catalog declares none
+- Subagent-tree live rows now breathe color smoothly — the ◆/◈/◇ glyph color rides a continuous cosine every frame instead of stepping through a few held shades, matching the resume startup row
+- A follow-up sent while your lane is still busy gets an immediate "Received, on it." instead of silence until the current step ends
+- Show alt(option) in tmux shortcut hints and explain Mac modifier names in shortcut help
+- When a project goal is unclear, the coordinator interviews you with the built-in grill skill (five focused questions at most); a single risky step on a clear goal gets one confirmation question with a recommended answer before it runs
+- Automatic history-preserving checkpoints every 16 MiB of session log are now off by default while their follow-up fixes land; set `context_compaction.periodic_checkpoint_bytes` to a positive byte count (for example 16777216) to opt back in, and compaction checkpoints are unaffected
+- Retry stalled model responses through the remaining attempt budget
+- Verify reminder no longer accepts a scoped "not run" disclosure as cancelling a done or fixed claim, lint alone as the covering gate when a test exercises the change, or "cannot run here" without a failed attempt to acquire the runtime or device (install, lease, launch)
+- When a managed policy restricts permission profiles, an interactive session whose saved default profile is not allowed now starts under the policy's default with a visible "overridden" notice instead of refusing to start; your saved setting is left unchanged, and `muse exec` and `muse serve` still refuse and list the allowed profiles
+- When a chat task turns out to need parallel work or a long wait, the coordinator now opens a project and worker threads on its own and updates the plan it already posted instead of posting a second plan or asking for confirmation; small tasks still run inline
+- Grill uses available project checks to focus follow-up questions
+- The full-screen monitor view shows the command or script the watch runs, with secret values masked
+- The rewind picker shows turns older than the live window as read-only history
+- Idle composer tips can now suggest using a workflow or asking the agent to monitor a long-running task
+- Compaction now shows `Compacting context` while running and `Context compacted` when done
+- While working on a `/goal`, the agent can pause its automatic follow-up turns for up to an hour while it waits on a background command or monitor, instead of checking again and again; the completion notice or your next message resumes the goal at once
+
+### Fixes
+
+- **Security:** Subagent worktree git probes and cleanup dirty checks now run in the actor-confined sandbox (ADR 33406), so hostile repo config in an agent-writable nested repo can no longer execute filter commands on the host. When the sandbox cannot be created, cleanup keeps the worktree for inspection instead of deleting it
+- Keep human messages that match generated summaries when replaying compacted conversations
+- Recover session name changes from saved checkpoints
+- Long sessions with a background monitor, running subagents or many open tool calls keep their live view history up to date instead of freezing
+- Keep previously completed Workflow indicators from reappearing when a session resumes
+- Ignore saved work-stop notices linked to a different session when resuming
+- Rejected peer messages no longer appear delivered or read
+- Completed message batches with invalid results show an unresolved status, consistent with message headers and groups
+- Lost task-stop confirmations no longer appear as a disconnected session
+- A subagent's final result stays visible in its detail view instead of briefly disappearing while the view refreshes
+- Unstarted subagents from older sessions without saved execution state are now marked failed after a restart instead of staying scheduled forever
+- Prompt Hint now sees the full conversation instead of only the last turn, Away Recap has its own session cache key, and side-call model requests carry a purpose label so they are no longer mistaken for the main conversation in session records
+- The verify reminder's checker now keeps its fixed `high` level only on the Muse Spark 1.3 models at `max` effort — the configuration that level was actually measured on. On any other model, a session at `max` now gets a checker at its own level instead. This mattered because `max` can be reached on models that do not offer it in the effort picker: a stored setting, an enterprise default, or an effort carried across a model switch all keep `max`, and those sessions were being checked with a level tuned for a different model
+- `muse exec` exits with the run's own result when post-run cleanup stops responding, instead of failing a completed run
+- Long reasoning turns are no longer cut off by the stream idle timeout while the model is still thinking
+- A finished subagent now shows above the agent's final reply in the live transcript, matching a resumed session
+- Restore recorded workflow completion and cancellation status when resuming a session
+- Stopping a watch shows one completion with its reason available in expanded details
+- Prevent `work_stop` from leaving the session waiting after a subagent's background tools stop
+- Keep repeated and queued messages distinct when continuing a conversation
+- Long sessions no longer fail every later turn with `Duplicate function_call_output` after an automatic context checkpoint
+- A session being deleted no longer appears in the session list while its removal is still in progress
+- Images read with `read_file` are re-encoded when over 2 MiB and requests keep image payload under a budget instead of failing with HTTP 413
+- The `agents` coordinator is now woken when a thread goes quiet without a report, so a question typed on the thread's own screen is no longer missed
+- An idle Muse session whose composer shows a shortcut tip rendered as `Alt(Option)+…` is read as empty again, so `send --type` and the agents idle wake work on those panes
+- `bash_input terminate` on a background command that carries a v2 Work ID now stops it (or returns its finished result) instead of failing with a Work Stop contract violation
+- Reopen saved sessions without losing their original checkpoint capture choice
+- Stop child agents consistently from tool requests and confirmed item or bulk actions
+- The `/model` flow no longer flashes the bottom status bar between the model and reasoning-effort pickers, and the reasoning-effort picker no longer repeats a hint line on the selected row
+- Keep restored workflow messages in their original conversation positions after session resume
+- Workflow stop receipts show cancellation after the workflow stops
+- A turn that includes a video input no longer fails with an invalid-checkpoint error when an automatic history-preserving checkpoint comes due; the checkpoint is skipped with a recorded reason and the previous one stays in place
+- Changing the Workflows setting between sessions is announced to the model on the next turn even when the session resumes through a checkpoint
+- `--model` now accepts the name shown in the /model picker and resolves it to that model's gateway id instead of failing with "model does not exist or you lack access"
+- Detail lines under the Thinking and Working status now start their connector under the status diamond instead of under the status text
+- Sessions no longer become unresumable when a checkpoint grows past the resume reader's size limit; the oversized checkpoint is skipped and the previous one stays in use
+- Resuming saved sessions now restores missing conversation history
+- Pending approvals listed for a session that is not open now point at the same place in its history as the session's saved view, on any machine
+- Sessions no longer exit silently at startup on terminals that never answer the cursor-position query
+- Preserve saved subagent stop results when retrying older long request IDs
+- A thread's blocking question can no longer be acknowledged and stranded: `agents.py relay` records the ask and sends the user's answer back to the waiting thread
+- Peer messages that cannot start a turn now show as parked until your next turn in the queue instead of looking stuck
+- Messages and follow-up instructions sent on later turns reach the original running subagent
+- A finished background result no longer stays hidden behind a stuck "Working" indicator when a new prompt lands as the previous turn ends
+- Use Up or Ctrl-P to recall a hook-blocked prompt while preserving your current draft
+- Oversized tool-call identifiers return a retryable error without interrupting other tool calls
+- Keep credentials in macOS Keychain across updates
+- Installing a plugin from `/plugins` now finishes on the plugin's own page with an "Installed <plugin> plugin." note instead of an extra screen, and Discover marks installed plugins so Esc takes you back where you started
+- When a checkpoint cannot be saved, the turn keeps going from the previous checkpoint instead of failing with `invalid context projection checkpoint`; the refused checkpoint leaves nothing behind for a later read or resume to trip on
+- Starting a session with a chosen id no longer fails with an id conflict while the host is cleaning up an unused session directory for that id
+- A clean session end no longer fails on a slow disk while shutdown time remains; the final log flush now uses the whole shutdown window instead of a fixed ten seconds
+- Reject new managed-work batches above the session limit while preserving existing work status and controls
+- The monitor view's command line keeps the rest of a command after a masked value that is glued to a separator
+- A session id carried in a web address (jsessionid or sessionid) is hidden like other address credentials before text reaches the model
+- Monitor commands with non-ASCII web addresses no longer crash the task view
+- Pasting a large block under load no longer occasionally strands its first character outside the collapsed paste placeholder
+- Keep subagent follow-ups working after resuming a session whose latest checkpoint was written with capture enabled, instead of failing the send with a session-read error
+- `muse serve` sessions whose saved permissions fall outside the enterprise policy now resume at the configured fallback instead of refusing to resume
+- Setting a goal right after resume no longer fails with a goal-store custody error while the previous session-log write settles
+- Preserve original instructions across context compaction
+- Session views stay readable while the server cleans up old sessions
+- Resuming a session after an automatic context checkpoint keeps its todo list, so the todo reminder and later compaction summaries show the accepted items instead of an empty list
+- An automatic history-preserving checkpoint (opt-in via `context_compaction.periodic_checkpoint_bytes`) now carries the reminder budgets inherited from earlier turns and waits for a turn's first model reply before publishing over an undelivered message, so the next turn keeps its due reminders and never compacts away text the model has not seen
+- Turns under the denyUnmatched approval mode no longer hang for about a minute after the answer is done
+- Switching sessions no longer fails when the previous session is slow to shut down
+- A workflow child turn refused by the enterprise-managed model allowlist (an off-list `model:` override or routed receipt) now reports `model_selection_denied` instead of `unsupported_model`, so the administrator's policy refusal reads the same everywhere and is not mistaken for a stale model list
+- Scrolling back through an open session whose saved history stopped updating no longer shows running work as failed; loading history newer than the last save now fails with an error instead
+- Resuming a session after an automatic context checkpoint no longer re-records a skill you read earlier or changes the skill reminder's view of it
+- Keep loaded skill instructions when trimming old tool results
+- On a machine without tmux, a lane that may still be running is now reported as unknown instead of ended, so a second steward is no longer started beside it; a delegation there now opens a fresh lane instead of failing, and the old lane, if still running, may keep going on its own until it ends
+- Reopen a session whose newest checkpoint cannot be replayed, instead of failing the whole open
+- Reconcile a saved reasoning effort against the selected model instead of failing the launch when the model does not serve it
+- Approved peer notifications wake idle agents by default and respect explicit delivery and wake settings
+- Resume workflows from the session copy you opened instead of a stale source path
+- `serve --no-session-log` sessions now emit live frames — `turn/started`, `turn/completed`, `session/statusChanged`, item events, and `approval/request` presentation — instead of acknowledging a turn and going silent; approvals parked under the profile's prompt-unmatched ceiling become visible and answerable
+- Let a resumed session send a follow-up to its dormant subagent after a periodic checkpoint instead of failing the send and repeating the subagent's earlier result
+- Resuming a session in the terminal app after its context was compacted delivers, exactly once, the messages from other sessions that were accepted but not yet delivered before the compaction
+- Work status reports when background Bash commands finish
+- Apps connected to `muse serve` can show a manual compaction as running while it runs, not only after it finishes
+- Start sessions when the app data folder is group-writable
+
+### Performance
+
+- Scrolling back through a session that is not open reads its saved view instead of rereading the whole session log
+- Long sessions with large retained task failure messages no longer re-copy that text on every refresh
+- Finishing background commands and monitors no longer rescan the whole transcript in long sessions
+- /fork no longer stalls on large session stores
+- Refreshing a session with a generated workflow child no longer rereads and rebuilds all of its settled task history on every refresh, so long workflow sessions stay responsive
+- `/resume` and `muse resume` find new sessions already listed, so they have less to catch up on when they open
+- Repeated scheduled prompts can use less space when created and delivered within the same run before compaction, while keeping distinct occurrences
+
+## 1.4.1
+
+### New
+
+
+### Improvements
+
+- `model/list` rows now carry each model's described reasoning-effort tiers (`reasoningEffortVariants`, with the catalog's per-tier display strings) and the row's catalog default (`defaultReasoningEffort`), so wire clients can render the effort picker without guessing
+- Expanded peer message rows show readable message details instead of internal status fields
+- Forking shows a progress status in the chat until the new session is ready
+
+### Fixes
+
+- A long session keeps its live view running when view checkpointing falls behind, instead of going dark
+- Unknown peer message results stay unresolved instead of borrowing a known delivery status
+- After a crash and reopen, a re-asked tool approval shows the arguments the model wrote again, not the runtime's internal version of them
+- Scrolling back through a session while a turn is still running no longer shows the running tool call as failed
+- Guidance that was trimmed from the system instructions in an earlier tuning pass is restored for every model and effort level except Muse Spark 1.3 at `max`, which is the only configuration that tuning was measured on. Sessions below `max`, and every other model, get the fuller instructions back — including the verification, evidence, and professional-objectivity guidance — while `max` keeps the trimmed version. Later formatting and summary improvements are kept in both
+- Stop failed session recovery from incorrectly quarantining pending subagents
+- Sessions on the Muse Spark 1.3 contributor model now get the todo, memory, and goal reminders below `max` effort, matching the other 1.3 models. They were switched off at every effort level because the model was never added to the list when that policy shipped, not because it was meant to be excluded
+- Interrupting, cancelling, unqueuing, compacting, or steering a turn from an older session, or one the server started itself (Goal steps, reminders, scheduled runs, queued follow-ups), no longer fails with `invalidParams`; ids the server creates for turns and approvals are now UUIDv7
+- Repeating `work_stop` for a stopped subagent reports its terminal state
+- Support `Ctrl+J` for newlines in feedback and editor inputs
+- Use `Ctrl+Alt+B` to background commands when tmux intercepts `Ctrl+B`, with matching shortcut hints
+- Keep task controls scoped to the selected session, including after recovery
+- Preserve each user input's identity when restoring compacted context
+- Completed Workflows show one accurate status and keep the full result available in details
+
+### Performance
+
+- Long sessions with many completed workflow-child tasks stay responsive instead of re-scanning retained task history on every child update
+- Long-running sessions stay responsive when the task list refreshes
+
+## 1.4.0
+
+### New
+
+- MSP clients can list a session's invocable skills with `skill/list`, receive `skill/changed` updates, and invoke a skill directly through a `turn/start` skill input part
+- `muse serve` clients receive live session status changes and an attention flag when a session has a pending approval or input
+- the serve protocol can now report your remaining subscription usage on demand — `usage/read` returns the last-seen 5-hour and weekly windows without spending a prompt, and `usage/changed` pushes updates when they move
+- Ctrl-R prompt history search gains a per-gesture scope: `Ctrl-S` cycles this session, this project, and everywhere, with the scope shown in the search row
+- Save MCP tool and network destination approvals across sessions with Always allow
+- Continue local Claude Code or Codex sessions with `/resume-claude` and `/resume-codex`
+- Herdr sidebar shows working, blocked, and idle for sessions in Windows panes
+- `/plugins install` accepts `--scope user` or `--scope project`, so a local plugin can be installed for the project instead of only for you
+- `muse serve` now pushes a best-effort `session/viewHealthChanged` notification when a session's live view becomes unavailable, with the reason, so clients need not wait for their next read to learn it
+- Set `MUSE_SKIP_PROMPT_HISTORY=1` to stop saving new prompts to history; prompts already saved still load and recall normally
+- the Errors tab's detected-plugin row now asks before installing a detected plugin, instead of installing it the moment you press Enter
+- The exported MSP schema now describes the `task/background`, `task/stop`, and `task/stopAll` commands
+- Choose a local Claude Code conversation in `muse resume` and continue it in a fresh session
+- Choose the Codex source in `muse resume` to continue a local Codex conversation in a fresh session
+- a hook can declare an `onFailure` fallback — when the hook fails (non-zero exit, timeout, or invalid output), the declared successor runs as an ordinary hook at the same event and can ask for your approval; a successor can never loosen a decision, widen the original tool call, or grant approval itself
+- Choose a local Claude Code or Codex conversation in `/resume` and continue it in a fresh session
+- `/permissions` (choose what Muse Code is allowed to do) is listed in the slash palette, Help, and inline completion instead of being hidden
+- Install the Python SDK from PyPI — muse-code-sdk and its wire-types companion muse-code-msp
+- Resume a session by its exact Session Name with `muse resume <name>`
+- Native subagents whose spawn result shows a Work ID can be stopped with `work_stop`
+- Choose which fields appear in the bottom status bar with `/hud`, with live preview and saved preferences
+- `muse exec --output-schema <FILE>` makes the final answer schema-shaped JSON by sending the file's JSON schema with the request (Meta provider; other providers refuse the flag at startup)
+- After a failed tool call, a `PostToolUseFailure` hook (or a failing hook's `onFailure` successor) can propose a corrected call through `updatedInput`; the correction re-runs as a new call through hooks, policy, and approval, bounded by the declared `onFailure` chain depth
+- MSP clients can opt in to a live session-list stream — request the `sessionListStream` capability at `initialize` to receive `session/listChanged` with the updated row instead of re-polling `session/list`
+- Sandboxed Bash commands on macOS can request one-time approval to connect to specific Unix sockets
+- Plugins that declare Claude-format agents now install and publish those agents as reviewable Agent Definitions, and unsafe or duplicate agent declarations are rejected at install instead of being silently ignored
+- `resume <id> --no-session-log` replays a saved session read-only and says up front that nothing is being recorded; `resume --last` and the startup picker still need session logging
+- Preview pending agent messages above the composer with sender labels
+- `plugins inspect` shows a Claude plugin's agent inventory with each agent's review status, and keeps showing it after the plugin's source files are removed
+- `/rename` aliases `/name`
+- `plugins approve` and `plugins reject` accept plugin agent selectors and persist review decisions safely
+- Native subagents can now be inspected with `work_status` using their Work ID; the status shows their spawn-time state and does not yet reflect completion
+- The TUI Plugins screen shows each Claude plugin's agent count, one row per Agent definition with its review status, and the passive Agent inventory alongside the live package review
+- Review pending plugin hooks at startup, with options to trust them or continue without approval
+- Claude plugin command and skill `allowed-tools` declarations can now be reviewed in plugin review, and an approved declaration skips approval prompts for matching tool calls while that command's or skill's invocation turn is live
+- Switch between the main conversation and a side chat with `Ctrl+/` without losing drafts or interrupting either run
+- Added an observation-only `Interrupt` hook that runs when you cancel a turn with Escape
+- `/bug` reports a bug with the type already selected
+- Use passive FTP from sandboxed commands with network approval; set TBH_DISABLE_FTP_PROXY=1 to disable FTP
+- The exported MSP schema now types the `session/started` and `session/closed` lifecycle notifications, so generated clients decode the first frame a session broadcasts instead of hand-parsing an untyped payload
+- `/models` picker now offers a reasoning-level step right after each model switch
+- renaming a session now pushes the updated row to `session/listChanged` subscribers — your own accepted `session/rename` streams instead of waiting for the next `session/list` poll
+- press Delete on a supported settings row (`/settings`) to reset it to its default — the saved choice is removed and the setting returns to what it would be without it (some rows take effect next session; rows without a reset say so)
+- `/copy` now opens a scope picker over the last response when it contains code blocks or ran shell commands, so you can copy the full text, one block, or one command; Enter copies, `w` writes the focused item to a file, and the Always row (or the new Copy full response setting) skips the picker from then on. `/copy N` targets an older response
+- Bare `/fork` in a Herdr pane opens the fork in a new tab, with a resume-command fallback note when the tab cannot open
+- `muse resume` and `/resume` now list sessions with a damaged log by their ID; choosing one starts a new session that continues the work from that log, which is left unchanged
+- Inspect recorded cross-agent links with `muse trace inspect --session-log --causal`
+
+### Improvements
+
+- The startup resume picker's "session already open" notice now names the process holding the session (pid, host, and lock age) and, when that process is on your machine and still running, shows the exact `kill` command to free it
+- Prompts saved by earlier versions and prompts from other projects no longer show on Up/Down; find them with `Ctrl-R`
+- Up/Down prompt recall shows only prompts from the current project, starting with this session's
+- Todo, memory, and goal reminders are on by default only in muse-spark-1.2 and muse-spark-1.3 sessions below `max` reasoning effort, and off by default elsewhere
+- Muse now gets guidance for saving your first memories and importing local Claude Code or Codex memories
+- Subagent results report their working folder, starting commit, excluded parent changes, and cleanup status
+- Image and video attachments now keep numbered references across prompts and replay
+- `@muse-code/sdk` now versions in lockstep with Muse Code, so the SDK version matches the release it ships with
+- Voice input is enabled by default on Windows x64 and ARM64
+- Expand automated checks for Workflow restart recovery
+- `muse exec` reports retained subagent workspace paths and setup or cleanup failures on stderr
+- `/upgrade` and subscription quota guidance are now available to everyone without a launch flag
+- New subagents receive explicit guidance to follow parent task updates within the user’s constraints and their existing permissions
+- Align `/usage` card styling with `/status` and `/mcp`
+- Running `resume` with `--no-session-log` now says the flag turned session logging off, how to resume, and that sensitive-mode launches always set it
+- Live tool activity uses the same pulsing diamond as Thinking
+- When the skills catalog must compress entries to fit, compressed skills keep their short description, plugin and prompt-named skills keep full detail first, and the catalog and `/skills` say how many entries were compressed
+- Agent tree commands now reject non-sound ancestry while keeping healthy branches controllable
+- Preserve shell output colors in `Ctrl+O` and `!` commands on supported terminals
+- `/resume-codex` and `/resume-claude` ask which session to resume when no session ID or log path is given
+- Show context Warning/Blocked alarms as a percentage whenever the provider's context limit is known
+- Subagent views show workspace paths, base commits, and cleanup status, including after reopening a session
+- Claude plugin skills that declare `allowed-tools` now show a not-yet-enforced compatibility row (plugin status `partial`); a malformed `allowed-tools` value rejects the plugin
+- Work status results show a plain-language summary instead of raw JSON
+- Workflow results show where child tasks ran and whether their workspaces were kept, removed, or could not be cleaned up
+- The built-in grill skill credits the upstream skills it adapts, and the core plugin ships their MIT notice
+- Recover prompts cleared with `Ctrl+C` from prompt history
+- Recurring scheduled prompts give the agent an expiration countdown on their final three runs
+- Built-in capabilities activate without asking for review
+- Foreign hooks only ask for re-review when their own command or script changes
+- whole-plugin `plugins reject <plugin-id>` reports how many trust rows it disabled instead of listing each capability
+- Keep pending peer-message sends running in the background after the initial wait
+- Feedback reports can include redacted local trace files after you approve file attachments
+- `/stop` and Tasks Stop actions now use the same durable Work Stop path for workflows, background commands, and monitors
+- Avoid repeated plugin hook approval after script-only or metadata-only updates
+- Clarified workflow recovery documentation and remaining limitations
+- Document planned durability requirements for Workflow and Bash status updates
+- Clarified Name and Description in `/name` help and resume search
+- Quota in the HUD no longer shows a `(stale)` suffix
+- Keep later session message status updates in the sender's conversation without repeating the original message
+- SDK clients can discover each model's supported reasoning-effort choices
+- Vim composer editing is available; turn it on for the session with `/vim` or persist it with `tui.editor_mode` set to `vim`
+- `/plugins` no longer lists the TBH Reminders row — bundled reminders run invisibly like every other builtin
+- muse-spark-1.3-contributor and muse-spark-1.3-internal now default to max reasoning effort when no effort is set in user settings
+- Message results show receipt details alongside the send outcome
+- The `monitor` tool is now available by default
+- `/skills` list rows for third-party skills show a short source tag (e.g. `[x] threejs · threejs.org`), and `skills inspect` reports the skill's `source` and `license`
+- Built-in grill skill ships cleaner instructions with corrected upstream credit
+- Long assistant answers now show up to 300 lines before folding behind `ctrl+o`
+- Session Name lookup reports former names as unknown and lists affected UUIDs in recovery errors
+- Startup memory summary keeps more of your saved notes before trimming
+- MCP plugins can declare literal environment values and named host variables
+- Plugins with up to 20,000 files and folders now install instead of refusing over 4,096
+- Prompts with many media labels, malformed markers, or unpaired marker text are scanned in one forward pass instead of repeatedly searching the remaining prompt, so composer history, launch, and retraction stay responsive on long prompts
+- When asked for a short summary, the agent names user-visible features and stops — no run instructions, ports, file inventories, or version strings
+- Plans stay in chat and clearly tell you how to start or revise the work
+- Allow sessions to share the same name
+- When a file edit finds no exact match, the failure now names where the snippet appears at a different indentation and by how much it is shifted, so the retry can be issued with the file's own indentation instead of guessing
+- New sessions at Max effort (the default on `muse-spark-1.3-internal` when you set none) now allow 64 concurrent agents including the main agent, matching Ultra; set `agents.execution_capacity` to keep a smaller pool
+- Resume search now matches the Settings input, with a visible cursor and the end of long searches kept in view
+- Pasted text now searches sessions in both `/resume` and the startup resume picker
+- Submitted prompts appear dimmer while held above the composer awaiting a response
+- The resume startup progress row (muse resume) now breathes with a ◆/◈/◇ diamond glyph (like the working-activity row) instead of a braille spinner, brightening and dimming smoothly with the breath
+- Subagent, workflow, and background terminal rows in the session tree now breathe with the diamond activity glyph instead of a braille spinner, and finished rows show a static diamond in their success or failure color
+
+### Fixes
+
+- **Security:** When `settings.json` cannot be read, feedback and diagnostic upload stay off instead of turning back on over a saved opt-out
+- **Security:** Prompts carrying a credential in a recognized format — a token with a known vendor prefix such as `sk-` or `ghp_`, credentials in a URL, an `Authorization:` header, a private key, or `/login` with its argument — are no longer saved to prompt history or offered by recall; prompts saved before this change are unaffected
+- **Security:** the local prompt-history file and its lock file are now created owner-only, so the workspace paths and session ids recorded beside each prompt are not readable by other accounts on a shared machine; a history file that already exists keeps its permissions until the store is next rewritten at the entry cap, when the owner-only replacement takes over
+- **Security:** Plugin agent definitions now bind the plugin package contents into their review approval, so a previously approved agent shows as modified and stays inactive until you approve it again in the plugins drawer
+- **Security:** Background Git status checks now run inside the sandbox, so a program named in a workspace's Git configuration cannot change files on your machine or reach the network
+- **Security:** Plugin agent definitions are no longer loaded from a stale or tampered installed record; a stale record asks for a plugin refresh and a tampered one is refused as an inventory integrity failure
+- **Security:** `MUSE_TRANSPORT_TRACE` no longer prints your API bearer token when a request is retried after the credential refreshes
+- **Security:** Windows sandbox Root:Read now grants the sandbox group read-only access through an optional background worker; existing write, credential, token, desktop, Job and network limits remain
+- **Security:** The Linux sandbox now drops every capability before running a command, so sandboxed code can no longer unmount the sandbox's own protective mounts; set `TBH_LINUX_SANDBOX_CAP_DROP=0` to temporarily restore the previous behavior
+- **Security:** Subagents keep their admitted permission authority as a ceiling. A committed human mode change reaches running subagents at their next action in either direction, but never widens one beyond that ceiling; a request already pending keeps its captured posture
+- **Security:** Sapling repository commands now run inside the sandbox, so a `[hooks]` entry in a repository's own config can no longer execute unconfined when a workspace opens
+- **Security:** Limit TCP network approval rules to the exact host and port
+- **Security:** Redact credential-like values from provider error request and trace IDs
+- Keep the todo list up to date when long sessions compact older context
+- Active goals keep making progress after a mid-run update instead of stalling
+- A command that reaches a session just as it stops now fails cleanly instead of waiting forever for its reply
+- a video attached to a model that cannot accept video no longer breaks the session with a repeating API error; the video is skipped with an inline note and the conversation continues, including for sessions already stuck before this fix
+- a resumed workflow that replays its previous result now settles the workflows row instead of spinning forever
+- Collapsed tool headers fit narrow terminals while keeping reminder and goal outcomes visible and marking shortened text with an ellipsis
+- Improve recovery of queued subagent messages after interrupted session saves
+- Completed subagent command rows no longer reappear when switching between Main and child views
+- Subagent commands accept requests containing extra fields
+- Forking preserves user messages when the initial prompt changes after a reminder
+- A session started while the session-name registry is briefly locked still gets its name once the lock clears
+- Context compaction no longer reports you as logged out after `/login`
+- Skills opened with `read_skill` now show their folder location, so helper files open on the first try
+- Errors for invalid subagent tool lists explain the cause instead of suggesting an ineffective retry
+- pressing `p` to resume a paused Workflow no longer answers "resume handoff unavailable" when the monitor still holds a stale stop snapshot; the typed resume handoff reaches the runtime
+- Allow `git init` on Windows around empty `.git` directories while preserving protected metadata and existing access denials
+- Goals recovering after a restart keep the finished update instead of starting it over
+- Preserve conversation output when loading history needs a retry
+- Memories saved after a session starts, on this or another device, now show up in that session at the next turn instead of staying hidden until restart
+- pressing Up to recall a very large prompt from history no longer floods the composer with the whole text — it comes back as the same `[Pasted Content N chars]` placeholder a fresh paste shows, and Enter still sends the full original prompt
+- when your saved prompt history cannot be read, the footer now says so and names the file instead of starting up as if you had none
+- Inside a Herdr pane, workspace requests now use Herdr instead of opening SSH sessions
+- Sessions whose history view was poisoned by a since-fixed defect recover on the next open instead of staying empty
+- Trusted project `.mcp.json` files now load MCP servers and override user settings
+- A command still waiting for its acknowledgement when a session stops now fails at once instead of waiting out its whole budget
+- a session without a resolved model (for example a first run without a plan) now fails each prompt with a clear "no model configured" message instead of sending an invalid request and showing a provider 400 error
+- Show recovered task failures in the session timeline after restart
+- `read_skill` no longer fails with unknown-skill after a plugin is installed or updated from another terminal; the session picks up the current packages on the next prompt submit
+- Retyping a prompt in a different project saves it to that project's history instead of silently dropping it
+- Keep subagent cancellation retries scoped to their original parent session after restart
+- `/new` and `/clear` start the fresh session with the `/effort` level in force when you typed the command
+- A failed `muse exec` run now shows the recorded reason on its final stderr line instead of a generic exit message
+- one malformed model catalog row in settings no longer hides every model of that provider
+- Context compaction preserves the todo list across turns
+- Restore queued subagent input state when resuming from a checkpoint
+- Resuming a workflow now keeps healthy tasks available when one task has invalid recovery state
+- The TypeScript SDK declares `@types/node` as an optional peer dependency, so package managers surface the types install strict consumers need instead of missing-type errors
+- Explicit tool selections consistently limit the main conversation's tools
+- A session no longer becomes permanently stuck after the model tries to call a tool that is not available; the invalid call is automatically corrected on the way to the model and the session keeps working, with no conversation history removed
+- Manual and automatic context compaction work after multiple tools run together, including after restarting a session
+- Keep emoji and joined text intact in terminal tab titles
+- Workflow child activity appears reliably when a child run starts
+- Resuming a rewound conversation no longer sticks the footer on the tasks-still-running warning once the original session has ended with no live tasks
+- Preserve working directory context for pending tool approvals and their hooks
+- Pasting Windows image paths with spaces creates an image attachment
+- `/goal set` issued during a run that is then cancelled delivers once a later turn finishes instead of stalling
+- Expanded Workflow blocks label every agent row by name instead of a raw session id
+- Interrupted goal runs no longer stall on resume with the goal stuck active
+- Preserve Windows sandbox credentials and stored permissions when upgrading sandbox setup
+- Messages sent to Claude Code include the command for replying to the source Muse session
+- A first run with no interactive terminal now stops with a message naming --trust-workspace instead of waiting on the workspace-trust prompt
+- Background reminder agents now follow the same permission setting as the session that started them
+- Subagent status shows the command, elapsed time, and latest output when a background command keeps the child running
+- Human-approved `require_escalated` commands run under restricted permission profiles
+- Keep the main conversation usable when subagent input recovery fails
+- Plugin agent definitions reviewed before the source-bound trust review now show a one-time notice explaining why they resolve modified and that reviewing them again clears it
+- Apply Windows read-deny rules to the shared sandbox group and protect their saved state
+- Subagent settlement warnings appear in the parent conversation without disrupting typing
+- `settings.json` no longer drops an unrecognized top-level member in silence: startup now names each one (`reason=unknown_member location=<member>`, with the file path) while the rest of the file still applies, so a wrapped `{"schema_version":1,"settings":{...}}` document is reported instead of quietly losing its whole configuration
+- Restored guidance for Markdown tables, clickable links, and consistent answer formatting
+- Stopping your own persistent monitor with `work_stop` now settles the Workflow Stop receipt as succeeded instead of "manual reconciliation required"
+- The `/status` card ACCESS row shows the permission display name verbatim (Ask me, not Ask · me)
+- Agents keep running when session logs run out of disk space instead of failing while saving tool results
+- Preserve drafts, attachments and conversation history when opening and closing side chats
+- Reject conflicting command IDs before a new subagent followup changes conversation history
+- Preserve saved session activity times in the resume list
+- Prevent delayed terminal color replies from appearing in the input box during startup
+- A warm `session/resume` on a session started with a `workspaceRoot` that carries MCP additions the loaded session was not built with is now rejected with `session_configuration_conflict` instead of acking success with the servers silently unattached
+- Keep delayed side chat results in the conversation that started them
+- Stop unanswered questions from blocking input after resuming an interrupted session
+- MCP stdio server processes no longer outlive the session when its terminal or process is killed on Linux
+- A launch prompt longer than the screen no longer leaves its own tail and footer in terminal scrollback above the committed prompt
+- `work_status` calls now show a readable "Checked work status" header instead of the generic "Used tool operation" fallback
+- Re-sending a turn interrupt after the app restarts now returns its original accepted answer instead of a spurious rejection
+- Forked and rewound sessions keep mid-turn instructions (including attached images) sent while a goal reminder fired in the same turn
+- Receiver limits declared under `local_session_messaging.receiver_limits` in settings.json now bound the peer-message receiver in the TUI and `muse exec` instead of being ignored; an out-of-envelope or malformed entry now makes that receiver refuse every peer message for the session (the session itself keeps running), where before it was silently dropped
+- Workflow launch preparation refusals no longer leave successful completion receipts
+- Returning an unanswered prompt to the composer with `Esc` or `Ctrl+C` no longer shows an `Interrupted` notice
+- Subagent commands in restored sessions remain recorded across crashes
+- approval prompts raised by subagents now appear in connected clients on the parent session and can be approved or denied there
+- Recover from subagent startup failures without leaving the child active or blocking later work
+- Resume interrupted workflows after a restart without dropping or duplicating the recovery notice
+- Keep background run results in the conversation that started them
+- Tree header return hint names the workflow it returns to
+- Honor the Context option in `/hud` without enabling an experiment
+- Limit `Ctrl+O` history expansion to at most ten recent terminal screens
+- The `search` tool accepts `output_mode: "content"` as an alias of `text` instead of rejecting the call
+- Keep tool-returned images attached to their matching tool results when using Meta models in tool batches without video
+- Preserve every image label and attachment association when a media-bearing turn is rewound or forked
+- multi-stage approvals no longer hang in the TypeScript SDK — `session.onApproval` is re-invoked with the refreshed requirement when the host advances a compound approval to its next stage
+- Use Unicode, spaces, punctuation and single words in session names with `/name`
+- A gate override banner printed at the start of an interactive direct resume now stays visible above the resume progress instead of being erased by the spinner, which also no longer leaves a stale "Preparing resume" row behind
+- Keep a pending tool approval out of the review list until its request is durably recorded
+- Vim mode redraws no longer clear terminal scrollback
+- Zed (ACP) adapter: session/set_mode now works — switching approval mode from the agent panel no longer fails with "Method not found"
+- `muse mcp login` now keeps and reuses its OAuth client registration across logins (no more one-new-client-per-attempt), asks for the same scopes at registration that it uses at authorize (fixes `invalid_scope` on servers like Clerk), and answers the browser callback tab with a "you can close this window" page — or the error name when authorization fails
+- Slow stdio MCP servers now connect on the first try instead of restarting during startup
+- Resuming a session with a different `--model` now keeps that model on later resumes
+- /clear and /new now refuse a damaged outgoing session journal before switching and name the validator failure instead of blaming session logging; a same-process retry after write access is restored succeeds on the first attempt
+- `/side` and `/fork` preserve images returned by tools when reopening saved conversations
+- Give Japanese halfwidth katakana voiced marks their own column so kana text is not clipped
+- sessions served over `muse serve` now send turns to the model pinned at `session/start` or via `session/setModel`, instead of always using the default model
+- When a hook corrects a failed tool call, the corrected call and its result now appear in the transcript as their own entry marked as a retry of the original call; previously only the failure was shown
+- Subagent transcripts are readable over the SDK — `session/read`, `view/page`, and `item/readOutput` now accept the `childSessionId` that session items advertise, instead of answering "session not found" for a child transcript that exists on disk
+- Keep the session name and description in sync after `/name`
+- Native subagents stopped with Work Stop no longer fail again while the child finishes
+- Quitting after browsing `/resume` no longer crashes when session discovery is still running
+- `muse serve` now sends the interactive `approval/request` when a tool call parks on an approval while a client is attached, so MSP/ACP clients get the permission prompt instead of a forever-parked turn
+- Scheduled-task data can be backed up while a session is running
+- Show retained subagent workspaces and cleanup failures when `muse exec` is interrupted
+- Make workflow names required in model tool instructions
+- A subagent's result that finished just before a context checkpoint is now readable after you resume the session, instead of being reported as never ready
+- Resumed sessions retain conversation context from interrupted tool calls
+- Missing reasoning history provenance is explained without claiming a provider switch
+- A `/goal` set typed while the previous run is still finishing keeps its usage and reminders attributed to that goal
+- Redirected subagents resume after their previous attempt settles
+- Readable default colors when attaching with tmux control mode
+- Retrying a session start after a host restart no longer fails because that host is cleaning up an unused session
+- Esc while browsing prompt history during a running turn restores your draft instead of interrupting the turn
+- let Esc leave Vim editing mode before interrupting a running turn
+- when an onFailure correction's corrected call is itself rewritten by a PreToolUse updatedInput, that rewrite now counts as exactly one attempt against the same declared chain depth instead of a free extra attempt — and a tool call made from code mode inside a corrected call keeps its own updatedInput rewrite instead of being refused as over budget
+- Long pending-input queues preserve the composer and bottom bar in short terminals
+- Agent Tree capacity rejections now show the exact cause and next step in the TUI
+- Preserve agent recovery state when restarting a session
+- Resumed workflows keep their Work ID and show the correct target for the next resume
+- Keep recovered Workflows responsive when a missing child history is quarantined
+- Forking or rewinding a session with a persistent monitor no longer silently drops the monitor's wake turns from the branch's model context — the branch now conditions on the same wake bodies and answers the original conversation did
+- V1 workflows reject missing or blank names with a retryable error and include the current name in resume guidance
+- Keep completed tool failures from hiding later assistant replies
+- Prevent duplicate message delivery after reopening a compacted session
+- Stopping an approved Bash command after restart now follows the shared Work Stop path and records its real cancelled terminal
+- A persistent watch armed while `tbh exec` is settling is stopped with its receipt instead of failing to start
+- Subagent input status stays correct after interruption and resume
+- Clear queued input and show the reply when Enter arrives as a turn finishes
+- Agent path-length rejections report byte counts and guidance for shortening the path
+- Sessions with one damaged background task now reopen with healthy work still available
+- Parent task updates guide the same running subagent on its next eligible model call, without restarting it; downgrading is unsupported when resuming a subagent that received one of these updates
+- Accept fenced reports in workflow recovery evaluations
+- A persistent `ws` monitor caught by exec end-of-run while still connecting now stops with its normal receipt (stopped terminal plus stop notice) instead of failing the start with no receipt
+- Reject duplicate keys in standalone Agent Tree authority records before decoding
+- Committed Agent Tree Spawn retries remain replayable when a later command has an unconfirmed write
+- Keep subagent background command results in their own conversation
+- Resume sessions whose failed or cancelled runs lost tool results, and recognize native Windows disk-full errors during log retention
+- Launching a subagent without an agent type now trims the requested tools to what the parent has instead of failing
+- Keep Work Stop responsive while cancellation settles and report unconfirmed stops after 30 seconds
+- Several images sent into one turn keep their separate numbered labels when the session is resumed
+- Forked sessions keep the correct conversation history after compaction
+- a project `.mcp.json` entry with Claude's `"type": "http"` now lights up as a streamable-HTTP server instead of disabling all MCP
+- Resuming a session and prompting right away no longer skips peer messages that were already waiting for it
+- Tools approved after a restart keep their original run identity
+- /side and /fork no longer refuse a session because an earlier tool call was cancelled while it was still running; the cancelled turn keeps its committed output with the standard pending-tool placeholder, matching what /resume replays
+- Declining workspace trust now also stops the background Sapling snapshot commands from running in that workspace, and a session with no workspace configuration is treated as untrusted
+- Refuse session forks when retained history cannot establish consistent delegation settings
+- Paste text into clarification answer notes and custom choices
+- Keep installed plugin files available while their capabilities are being loaded
+- Finished background tasks no longer stick in the subagent tree — press `x` to dismiss one, or it retires on its own after 30 seconds
+- On resuming a session mid-correction, a corrected tool call now appears next to the call it retried instead of at the bottom of the transcript
+- Typing right after approving a command no longer loses the first `p`, `y`, or digit to the finished approval prompt
+- Typing a plugin skill name in the `/` palette shows one row instead of both `/name` and `/plugin:name`
+- A steer you send while a reviewed command's or skill's turn is running now ends that turn's approved-tool suppression even when the steer itself is rejected, so the turn's next matching tool call asks for approval again
+- Sessions created by `muse exec --session-id` with `--yolo`, `--disable-approval`, or an explicit human permission profile now publish context checkpoints like TUI sessions, so resuming them reads only the newest checkpoint plus its suffix instead of replaying the whole log
+- Generated plugin runtime files no longer disable an otherwise valid plugin
+- Plugin skill reads keep their selected files available across plugin updates
+- Refuse unsafe image replay when retained session authority is missing or ambiguous
+- After a blocked command is corrected and succeeds, the assistant reports the corrected result on the current turn, not only after the session is resumed
+- An open child thread view refreshes its status card when the child finishes instead of showing running until reopen
+- Retry a peer message whose receiver briefly answers owner_unavailable instead of dropping it after the first attempt
+- previously approved plugin hooks carry over once without re-approval after upgrade; later declaration changes still require review
+- Start default plugin installation after headless startup finishes so a stalled clone cannot block startup plugin reads
+- A subagent result that arrives after its turn has finished no longer breaks resume of that turn or blocks later context checkpoints
+- Trust prompt actions now appear directly after the workspace safety text
+- The `/feedback` note screen now answers arrow keys, Home/End, and Delete so typed feedback can be edited in place
+- Peer message summaries retain reported progress when no final send outcome is available
+- Messages accepted by another app no longer appear as unsent
+- A reviewed plugin command no longer skips the approval prompt when it reaches a symlink planted inside the installed plugin package, and every `read_file` path refuses to follow a symlink inside a plugin package instead of only the direct one
+- metacode exec on a catalog-default muse-spark-1.3 model now submits max reasoning effort on the wire instead of high
+- A peer message admitted while the session is idle always reaches the very next turn, even when the runtime is CPU-starved
+- Resuming a paused workflow after restarting lets its new child submit the result
+- An expired or rejected credential reported after a response starts streaming now shows as a sign-in problem instead of a model error
+- Malformed message receipts no longer use the normal sender status marker
+- Queued parent updates stay visible in the child view through exit and resume
+- Subagent rows show queued parent-message counts, and child views distinguish queued messages from delivered messages
+- Prevent Windows sandbox permission failures after repeated commands
+- Preserve browser sign-in URL parameters on Windows for `muse mcp login`
+- First-login sessions on muse-spark-1.3 models now show max reasoning effort immediately instead of high until restart
+- downgrade-save-upgrade cycles no longer re-run the one-time legacy hook trust amnesty
+- Side chats (`/side`, `/btw`) now use the main session's history to answer questions about its work, progress, or status instead of claiming they have no context
+- Automated code reviews no longer eat approvals when reading peer feedback fails — the review re-reads once before concluding it cannot verify
+- Recover background task handles after context compaction so active work can still be stopped
+- Peer message headers preserve waiting, held, and unavailable states. Generic rejection and missing-target results now use "Message status"; admission timeouts, expired reply contexts, and unsupported requests use warning-colored "Message status" headers
+- A resume refused at startup no longer duplicates a session-log sequence, so the session log stays readable afterwards
+- `plugins validate` and `plugins install` now warn (`agent-definition-unsupported`) and name the file when a plugin Agent Definition resolves no identity — for example a `name` outside the `^[a-z]+(?:-[a-z]+)*$` grammar — and `plugins inspect` carries the closed reason; the definition was already inert but nothing told the author
+- Tab-completing a slash command that takes an argument (e.g. `/effort`) now leaves one space after the command, so typing the argument no longer fuses it into the command name and sends it to the model as prose
+- /side and /fork no longer refuse a session whose earlier turn died while a tool was running; that turn is left out of the branch exactly as it is left out of a resumed session, a side chat survives its own interrupted turn, and a rewind past a turn that failed at the provider no longer carries that failed prompt into the child
+- Steering a running turn stops a reviewed plugin command from skipping approval prompts right away
+- An approved plugin `allowed-tools` rule such as `Bash(cat ${CLAUDE_PLUGIN_ROOT}/notes.md)`, where the plugin folder placeholder is not the first word, now skips the approval prompt for the command it describes instead of asking every time
+- Verified peer messages show receipt progress, keep receipt conditions visible when expanded, and preserve full message text; safety refusals hide the body. Accepted messages keep normal grouping, and unknown results retain their diagnostic details
+- Unconfirmed peer messages stay separate instead of appearing as a successful send count
+- Subagents keep large structured results instead of failing the submission
+- Hook-blocked prompts keep their source and reason visible in the conversation, including after reopening the session
+- Resuming a session after a clean exit no longer marks a long-completed turn as interrupted when its compaction checkpoint was followed by a late background-task notice, and a session already carrying that stale mark opens and accepts prompts again instead of failing every message and /compact with a duplicate-terminal projection error
+- Plugins installed just before a capability scan are no longer silently skipped while other programs are being launched
+- Installing a Claude plugin no longer fails when one skill or command writes its `allowed-tools` `:*` marker in a place Muse cannot use; that one rule goes inert and the rest of the package installs
+- `/compact` after a background-task notification now compacts the latest conversation turn instead of answering "no compactable run is available"
+- Restore compaction for older saved sessions hosted by `muse serve`
+- Background commands started by subagents stop without timing out
+- Paste clipboard images on Linux, with `Ctrl+Alt+V` as an alternate shortcut
+- Workflow sub-agents keep repository instructions instead of losing them
+- Retry transient macOS Keychain reads and preserve unsent messages when credential access fails
+- Preserve conversation context when forking sessions with unfinished turns or unrecognized history records
+- Conversation summaries follow the selected provider after an account change
+- Peer messages with a receipt but no send outcome show the available receipt progress and full message text when expanded; they remain unresolved in message groups and batch status
+- Stopping a background task no longer shows as unresolved once it has stopped
+- Quitting after a resumed workflow finishes no longer warns about its earlier paused tasks
+- Show the process observation error when MCP cleanup must keep waiting
+- `/skills` shows a credited skill's full source URL under the selected row
+- Toggling a skill in `/skills` no longer flashes the status bar
+- Sessions you leave with `/new`, `/clear`, or `/resume` can be resumed from another window right away instead of being reported as already open
+- Resumed workflows stop showing as running after their recovered agents finish
+- Resuming a conversation keeps earlier messages after a prompt is taken back
+- Withheld peer replies hide message text and private identifiers
+- Plain `muse exec` shows progress while retrying an interrupted model turn
+- A resume that is refused at startup no longer writes anything to the session log; the previous run's crash marker now lands together with the resume record only when the resume succeeds
+- Git over SSH uses system SSH configuration correctly on Linux
+- Side chat follows Main for message steering, queueing, and draft recovery
+- While an approval is waiting, typing no longer leaks into the hidden composer and Enter approves the selected choice instead of sending the draft (feedback mbfb_a4bovnao7dwttxhqarf27tsiqu)
+- Approving or denying a tool action now works after you rename a session; the decision no longer fails with an "approval not found" error
+- write_file/edit_file no longer fail with "tool output storage failed before result publication" when the Muse data directory is on NFS or another filesystem without renameat2 flag support, and the local session registry stops logging "Invalid argument" there
+- Keep delayed terminal color replies out of the input box
+- On-request approval now prompts before `sl hide` and `sl phase --secret` instead of auto-allowing them
+- Oversized session records and traces attached to /feedback are truncated to fit instead of being dropped
+- Rewind in long sessions now drops history the latest compaction checkpoint already covers, keeping memory bounded and the picker scoped to entries after that checkpoint
+- Workflow authoring guidance preserves large child result references and explains compact summaries and file artifacts
+- Paged transcript history, live-stream replays, and approval replies now number events like the live stream when the model reports context usage, so paged history lines up with live updates in most sessions
+- Avoid duplicate background compaction cancellations after a temporary storage error
+- Keep images and compatible reasoning when continuing or compacting Muse sessions
+- a session that starts logged out and logs in in-session now shows max reasoning effort on its first post-login use of muse-spark-1.3-contributor instead of high, matching every other launch
+- The `/status` context row keeps projecting after a fast follow-up turn instead of falling back to not projected
+- Resume saved subagent launches after restarting a session
+- Resumed Workflow monitors stop spinning after followup agents finish
+- Checkpoint suffix writing no longer rescans all retained session records for every distinct task owner, so resuming sessions with many subagent-owned tasks stays fast instead of slowing quadratically
+- Fixed startup failing with `meta provider resolution did not construct its credential-provider handle` when a saved login was paired with a keyless custom endpoint; the session now starts without the withheld credential
+- The resume picker and `--last` no longer offer sessions that another Muse window is still using; they reappear once that window exits
+- An MCP server's `tool_timeout_sec` above 600 seconds now takes effect instead of being silently capped by the foreground tool deadline, so long-running MCP tools can run to their configured budget
+- Mark read subagent results closed and display final text once
+- Preserve known message receipts when background tracking cannot start
+- MSP clients get a retryable `commandRejected` (`runtime_busy`) instead of an internal error when a session is busy and refuses `turn/start` or `turn/steer`
+- a new `/loop` job now runs until you delete it instead of stopping on its own after about a week — for a loop you started earlier, delete it and run `/loop` once more
+- Cancel unfinished SessionEnd hooks before they exhaust the session shutdown budget
+- Prevent macOS diagnostic messages from overwriting the input composer
+- The verify reminder's checker now runs at the session's own reasoning effort instead of a fixed level. Previously every session was checked at `high`, so a session thinking harder than that — `xhigh`, `max`, or `ultra` — was judged by a weaker model than the one doing the work, and a session below `high` was judged by a stronger one. Sessions at `max` keep the existing `high` checker; `high` is unchanged; `xhigh` and `ultra` gain a checker at their own level; and `medium` and `low` now get a checker at their own level rather than `high`
+- Make `work_status` report ordinary Workflow launches by their returned v1 work IDs
+- `muse login` and `muse auth set` save credentials again on Windows and Linux
+- Fix event-log errors when resuming work after tool output
+- Keep composer text visible while typing during an active run
+- A session no longer stays busy for the rest of the process after a finished turn's Goal accounting fails; the next turn starts normally while the accounting retries a few times in the background
+- Preserve Markdown formatting and handoff notes in conversation summaries
+- Reading or resuming a session you already opened no longer re-reads its whole history each time
+- Exit confirmation stops listing completed Workflows after a later prompt
+- Approving or denying a tool action no longer fails with an "approval not found" error in a session where MCP startup audit failed
+
+### Performance
+
+- Read-only MCP tools called in one model turn now run in parallel instead of one at a time
+- `muse resume` no longer hangs for minutes at "Initializing runtime" on sessions whose subagent logs carry many run generations — startup now reads each subagent journal once instead of once per run
+- Faster exit from long-running saved sessions
+- Resuming a long session needs far less memory for the pre-open log read, and hydration checks for the next keystroke less often
+- Resuming a long session no longer keeps a second copy of the whole saved log in memory while the session opens
+- Resuming a long session is about a third faster and uses less memory, thanks to a new memory allocator
+- Resuming a session with many runs no longer re-walks the whole saved log once per run while goal progress is recovered
+- Long sessions resume faster when a large amount of history follows the last checkpoint
+- Keymap validation in `tui.keymap` settings stays fast even when one action lists hundreds of bindings
+- Resuming a session with many orphaned or unreadable runs recovers them with a single shared history pass instead of rescanning the whole log for each run
+- Keymap validation in `tui.keymap` settings stays fast when bindings repeat one key under different spellings
+- Submitting a draft with many collapsed large pastes no longer slows down as the paste count grows
+- Long sessions publish a history-preserving checkpoint every 16 MiB of retained log (tunable with `context_compaction.periodic_checkpoint_bytes`; `0` disables it), so a later resume reads the checkpoint plus its suffix instead of the whole log; compaction keeps publishing its own checkpoints unchanged
+- Task-status refreshes stay fast in long sessions with many completed tool tasks
+- Reduce terminal lag when refreshing child command status in sessions with many completed tasks
+- Task-status refreshes stay fast in long sessions as more tool tasks complete, instead of slowing down with every finished task
+
 ## 1.2.1
 
 ### New
