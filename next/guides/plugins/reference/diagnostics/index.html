@@ -178,7 +178,7 @@ for file problems.</p>
 <td><code dir="auto">invalid-capability-id</code></td>
 <td>error</td>
 <td>An entry has no string <code dir="auto">id</code>, or the id breaks the identifier grammar.</td>
-<td>Add an <code dir="auto">id</code> that matches <code dir="auto">^[a-z0-9][a-z0-9._-]{0,79}$</code>.</td>
+<td>Add an <code dir="auto">id</code> that matches <code dir="auto">^[a-z0-9][a-z0-9._-]{0,79}$</code> (a Claude command name may also use upper-case letters: <code dir="auto">^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$</code>).</td>
 </tr>
 <tr>
 <td><code dir="auto">duplicate-capability-id</code></td>
@@ -253,7 +253,7 @@ Agent Plugins manifest. What each format imports is described in
 <tr>
 <td><code dir="auto">unsupported-capability</code> (foreign cases)</td>
 <td>error, or warning when other capabilities are supported</td>
-<td>A Claude or Codex MCP server is rejected (non-stdio transport, non-empty <code dir="auto">env</code>, an unknown key, or a placeholder other than the plugin root and data variables); a conditional hook with an invalid <code dir="auto">if</code> selector is left inactive; a Claude <code dir="auto">Setup</code> hook is skipped; <code dir="auto">agents</code>, <code dir="auto">dependencies</code>, <code dir="auto">lspServers</code>, <code dir="auto">outputStyles</code>, <code dir="auto">requiredPlugins</code>, <code dir="auto">settings</code>, <code dir="auto">userConfig</code> (Claude) or <code dir="auto">apps</code> (Codex) are declared; a Claude <code dir="auto">commands</code> value is a bare string instead of a path array. A rejected MCP server or a <code dir="auto">dependencies</code> or <code dir="auto">requiredPlugins</code> declaration also blocks install.</td>
+<td>A Claude or Codex MCP server is rejected (non-stdio transport, non-empty <code dir="auto">env</code>, an unknown key, or a placeholder other than the plugin root and data variables); a conditional hook with an invalid <code dir="auto">if</code> selector is left inactive; a Claude <code dir="auto">Setup</code> hook is skipped; <code dir="auto">agents</code>, <code dir="auto">dependencies</code>, <code dir="auto">lspServers</code>, <code dir="auto">outputStyles</code>, <code dir="auto">requiredPlugins</code>, <code dir="auto">settings</code>, <code dir="auto">userConfig</code> (Claude) or <code dir="auto">apps</code> (Codex) are declared; a Claude <code dir="auto">commands</code> value is a bare string instead of a path array; two Claude commands in one plugin have names that differ only in letter case (both stay inactive). A rejected MCP server or a <code dir="auto">dependencies</code> or <code dir="auto">requiredPlugins</code> declaration also blocks install.</td>
 <td>The message names the entry and the clause. Fix the MCP server entry; drop the unsupported declaration or accept that it stays inactive.</td>
 </tr>
 <tr>

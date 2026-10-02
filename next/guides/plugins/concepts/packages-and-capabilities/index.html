@@ -181,6 +181,14 @@ digit; at most 80 characters. <code dir="auto">notes</code>, <code dir="auto">me
 <code dir="auto">log_prompts</code> are valid; <code dir="auto">Notes</code>, <code dir="auto">-notes</code> and <code dir="auto">my notes</code> are not. A bad
 plugin <code dir="auto">name</code> fails with <code dir="auto">invalid-plugin-id</code>, a bad capability id with
 <code dir="auto">invalid-capability-id</code>.</p>
+<p>One exception: a command imported from a Claude plugin’s command Markdown
+files (the <code dir="auto">commands/</code> folder or command paths its manifest declares) takes
+its name from the file name or its frontmatter <code dir="auto">name</code>, and that name may
+also use upper-case ASCII letters (<code dir="auto">reviewPullRequest</code>). It runs only by its
+exact spelling. Two such commands in one plugin whose names differ only in
+letter case are both left inactive with an <code dir="auto">unsupported-capability</code> warning
+and the rest of the plugin installs; a plugin with nothing else to install is
+refused.</p>
 <p>Ids must be unique within their family, and skills, commands and reminders
 also share one namespace inside a plugin: a command may not reuse a skill
 id, and a reminder may not reuse a skill or command id

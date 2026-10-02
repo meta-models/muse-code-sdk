@@ -197,6 +197,10 @@ top level are reported as <code dir="auto">unsupported-capability</code>. See
 <li>The first character is a letter or a digit.</li>
 <li>At most 80 characters.</li>
 </ul>
+<p>A command imported from a Claude plugin’s command Markdown files (the
+<code dir="auto">commands/</code> folder or command paths its manifest declares) is the one
+exception: its name, the file name or its frontmatter <code dir="auto">name</code>, may also use
+upper-case ASCII letters.</p>
 <p>Ids are unique within a family. Across families, a command id may not
 repeat a skill id, and a reminder id may not repeat a skill or a command
 id, because skills, commands and reminders share the <code dir="auto">/&lt;plugin-id&gt;:&lt;id&gt;</code>
