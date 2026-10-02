@@ -188,8 +188,9 @@ is checked for syntax and published as a review candidate; the command itself
 runs under ordinary tool approval. A <code dir="auto">.mcp.json</code> would be imported as
 well, as long as every server is stdio, has no <code dir="auto">env</code> and uses only the plugin
 root and data placeholders; <code dir="auto">agents</code>, <code dir="auto">lspServers</code>, <code dir="auto">outputStyles</code>,
-<code dir="auto">settings</code> and <code dir="auto">userConfig</code> stay inactive, and <code dir="auto">dependencies</code> or
-<code dir="auto">requiredPlugins</code> block the install.</p>
+<code dir="auto">settings</code> and <code dir="auto">userConfig</code> stay inactive, and each <code dir="auto">dependencies</code> or
+<code dir="auto">requiredPlugins</code> entry gets a warning that says whether that plugin is
+installed; Muse Code does not download them.</p>
 <p>From the Codex package Muse Code imports the metadata, every <code dir="auto">SKILL.md</code>
 under the directory the <code dir="auto">skills</code> key names, and the hook group in
 <code dir="auto">hooks/hooks.json</code>. MCP servers follow the same stdio-only, no-<code dir="auto">env</code> rules as
@@ -254,8 +255,8 @@ the package publishes one invocation-preapproval review candidate, listed as
 <code dir="auto">review_needed</code> until you approve it. A declaration Muse Code cannot represent
 exactly keeps an <code dir="auto">unsupported</code> row, publishes no candidate, and makes the
 summary <code dir="auto">partial</code>. Either way the command runs under ordinary tool approval.
-Both install; only an <code dir="auto">unsupported</code> summary, or a rejected MCP server or
-dependency, blocks the install.</p>
+Both install; only an <code dir="auto">unsupported</code> summary or a rejected MCP server blocks
+the install.</p>
 <p>The Codex package’s JSON has the same shape with two declarations, both
 supported, and a <code dir="auto">full</code> summary. Its hook id is <code dir="auto">hook-7488bef2c6b21737</code>;
 the <code dir="auto">shell_command</code> is the <code dir="auto">${PLUGIN_ROOT}</code> string from its <code dir="auto">hooks.json</code>,
@@ -388,7 +389,7 @@ you test them.</p></div></aside>
 </tr>
 <tr>
 <td><code dir="auto">env</code> on MCP servers, <code dir="auto">userConfig</code>, <code dir="auto">agents</code>, <code dir="auto">lspServers</code>, <code dir="auto">outputStyles</code>, <code dir="auto">settings</code>.</td>
-<td>An MCP server with <code dir="auto">env</code> blocks the install; the rest are inactive. <code dir="auto">dependencies</code> and <code dir="auto">requiredPlugins</code> block the install.</td>
+<td>An MCP server with <code dir="auto">env</code> blocks the install; the rest are inactive. <code dir="auto">dependencies</code> and <code dir="auto">requiredPlugins</code> install, with a warning per entry that says whether that plugin is installed.</td>
 </tr>
 <tr>
 <td><code dir="auto">/summarize-notes</code> only.</td>
@@ -466,7 +467,7 @@ rows are specific to the Codex format:</p>
 <td>Add <code dir="auto">"skills": "&lt;dir&gt;"</code> pointing at a directory with a <code dir="auto">SKILL.md</code>, or an MCP server.</td>
 </tr>
 <tr>
-<td><code dir="auto">validate</code> prints <code dir="auto">diagnostic=unsupported-capability severity=warning path=… message=Codex MCP server `api` rejected: non-empty-env</code> and reports <code dir="auto">valid</code>, but <code dir="auto">install</code> prints <code dir="auto">plugin declares a retained unsupported MCP or dependency boundary</code> and exits 1</td>
+<td><code dir="auto">validate</code> prints <code dir="auto">diagnostic=unsupported-capability severity=warning path=… message=Codex MCP server `api` rejected: non-empty-env</code> and reports <code dir="auto">valid</code>, but <code dir="auto">install</code> prints <code dir="auto">plugin declares a retained unsupported MCP boundary</code> and exits 1</td>
 <td>An MCP server in the package carries <code dir="auto">env</code>. The same happens for a Claude Code <code dir="auto">.mcp.json</code> server with <code dir="auto">env</code>, a non-stdio transport or an unknown placeholder.</td>
 <td>Move the server to <code dir="auto">settings.json</code>, where credentials are supported, or remove it from the package.</td>
 </tr>
