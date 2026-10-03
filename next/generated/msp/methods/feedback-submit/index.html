@@ -93,7 +93,7 @@
 <td><code dir="auto">boolean</code></td>
 <td></td>
 <td>optional</td>
-<td>Consent to attach the session record; honored only for <code dir="auto">bug</code>/<code dir="auto">badResult</code>. <code dir="auto">true</code> with <code dir="auto">with_files: false</code> or a non-<code dir="auto">bug</code>/<code dir="auto">badResult</code> classification is <code dir="auto">invalidParams</code> (F4). Defaults to <code dir="auto">false</code>.</td>
+<td>Consent to attach the session record; honored only for <code dir="auto">bug</code>/<code dir="auto">badResult</code> with <code dir="auto">session_id</code> present. <code dir="auto">true</code> with <code dir="auto">with_files: false</code>, with a non-<code dir="auto">bug</code>/<code dir="auto">badResult</code> classification, or without <code dir="auto">session_id</code> is <code dir="auto">invalidParams</code> (F4, F8). Defaults to <code dir="auto">false</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">classification</code></td>
@@ -120,8 +120,8 @@
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
-<td>required</td>
-<td>Names the session this call is about (required, F3): the bundle always lands in that session’s dir. Names a session this host owns; a client with no session cannot send feedback.</td>
+<td>optional</td>
+<td>Names the session this call is about when present (F8, superseding F3): the bundle lands in that session’s dir. Names a session this host owns. When absent, the bundle lands in the host-level feedback folder and the <code dir="auto">session_id</code> tag is omitted.</td>
 </tr>
 <tr>
 <td><code dir="auto">withFiles</code></td>
