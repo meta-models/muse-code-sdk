@@ -100,6 +100,13 @@ burst on connect).</p>
 <td>Attention flags after the transition; present only when at least one flag is set.</td>
 </tr>
 <tr>
+<td><code dir="auto">permissionState</code></td>
+<td><a href="../../types/effectivepermissionstate/">EffectivePermissionState</a></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The folded effective permission state — the same object the <code dir="auto">Session</code> carries as <code dir="auto">permissionState</code>. <strong>Additive- optional</strong>: a loaded session carries it; a <code dir="auto">"notLoaded"</code> unload frame and an older host omit it (the <code dir="auto">attention</code> precedent), and absence is unknown, never active. A projection of the ONE stored attach face <code dir="auto">session/read</code> and the <code dir="auto">session/list</code> rows serve, never a restatement. Part of the change gate: a change in ONLY this answer — with <code dir="auto">(status, attention)</code> unchanged — is a publishable change, deduped only when value-identical, carried on the next <code dir="auto">session/statusChanged</code> frame.</td>
+</tr>
+<tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
