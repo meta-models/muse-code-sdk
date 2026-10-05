@@ -374,8 +374,11 @@ It receives <code dir="auto">HOME</code>, <code dir="auto">PATH</code>, <code di
 <code dir="auto">PATHEXT</code>, <code dir="auto">SystemRoot</code> and <code dir="auto">WINDIR</code> on Windows), and a managed hook
 additionally receives the names listed in <code dir="auto">managed_hooks_env_vars</code>. Provider
 API keys, proxy settings, toolchain variables and everything else are
-withheld. There is no session id in the environment; read <code dir="auto">session_id</code> from
-stdin. The user hook in the managed example above saw exactly:</p>
+withheld. Muse Code sets <code dir="auto">MUSE_SESSION_ID</code> to the top-level chat and
+<code dir="auto">MUSE_THREAD_ID</code> to the chat or subagent the hook fires for (both equal in a
+top-level chat); any other value for those two names is replaced. The user
+hook in the managed example above, which ran before these two variables
+existed, saw exactly:</p>
 <div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="text"><code><div class="ec-line"><div class="code"><span style="--0:#d6deeb;--1:#403f53">_ HOME LANG LOGNAME OLDPWD PATH PWD SHELL SHLVL TERM TMPDIR USER</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="_ HOME LANG LOGNAME OLDPWD PATH PWD SHELL SHLVL TERM TMPDIR USER"><div></div></button></div></figure></div>
 <p><strong>In the payload’s working directory.</strong> The process starts in the absolute
 <code dir="auto">cwd</code> written into its stdin: the session’s workspace for lifecycle events,

@@ -593,8 +593,28 @@ listed in <code dir="auto">managed_hooks_env_vars</code> (see <a href="../../../
 </tr>
 </tbody>
 </table>
-<p>Nothing else is passed: no provider credentials, no proxy variables and no
-session id. A hook learns the session from <code dir="auto">session_id</code> on stdin. Native
+<p>Every hook, plugin or not, also receives two session variables, applied
+last so no other source can set them:</p>
+<table>
+<thead>
+<tr>
+<th>Set by Muse Code</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">MUSE_SESSION_ID</code></td>
+<td>The top-level chat the hook’s work belongs to.</td>
+</tr>
+<tr>
+<td><code dir="auto">MUSE_THREAD_ID</code></td>
+<td>The chat or subagent the hook fires for; equal to <code dir="auto">MUSE_SESSION_ID</code> in a top-level chat.</td>
+</tr>
+</tbody>
+</table>
+<p>A run with no real session gets neither. Nothing else is passed: no provider
+credentials and no proxy variables. Native
 plugin hook and MCP commands get no placeholder substitution; Muse Code rewrites
 exactly one argv element, the one that spells a relative path declared in
 the manifest, to the installed copy, and scripts read <code dir="auto">MUSE_PLUGIN_ROOT</code> for

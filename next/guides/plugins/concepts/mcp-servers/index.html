@@ -243,8 +243,9 @@ these variables:</p>
 </tbody>
 </table>
 <p>Nothing else reaches the server: no proxy settings, no language toolchain
-variables, and never a provider API key. Hooks get the same variables except
-<code dir="auto">MUSE_SESSION_ID</code>, which only MCP children receive.</p>
+variables, and never a provider API key. Hooks get the same variables, plus
+<code dir="auto">MUSE_THREAD_ID</code>; an MCP server gets no <code dir="auto">MUSE_THREAD_ID</code> because one server
+serves every subagent of the chat.</p>
 <p>The <code dir="auto">MUSE_PLUGIN_DATA_DIR</code> directory may not exist yet, so create it before
 writing to it. Native hook and MCP commands get no placeholder substitution:
 Muse Code rewrites exactly one argv element, the one that spells a relative
