@@ -74,9 +74,9 @@
    "hand-authored exception to the mirror doctrine, not drift.",
    "A publisher that force-pushes or otherwise replaces the tree wholesale will",
    "delete them silently and still report success. That failure mode is real and",
-   "has been observed on the gh-pages branch of this repository (mslsrc/tbh",
-   "issue 25904, where an automated publish would have dropped the hand-pushed",
-   "schema/msp pack). Preserve these paths, or publish them from a producer that",
+   "has been observed on this repository's published branch, where an",
+   "automated publish would have dropped hand-pushed files.",
+   "Preserve these paths, or publish them from a producer that",
    "owns them."
   ]
  },
