@@ -133,6 +133,13 @@ if the experimental field graduates.
 <td>The target session.</td>
 </tr>
 <tr>
+<td><code dir="auto">tokenBudget</code></td>
+<td><code dir="auto">integer</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>This turn’s token budget in tokens: an integer floor of 1, riding to workflow-launch admission and inert when no workflow launches. Omitted means no budget; 0 or a non-integer is invalid params, as is explicit <code dir="auto">null</code>. No wire upper bound beyond the integer type. Experimental: D6 rules names and shape only, v1 membership stays open, so the member ships off the stable bundle until a v1 ruling graduates it.</td>
+</tr>
+<tr>
 <td><code dir="auto">workspaceRoots</code></td>
 <td><code dir="auto">string</code>[]</td>
 <td></td>

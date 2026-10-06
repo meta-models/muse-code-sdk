@@ -123,6 +123,13 @@ running turn.</p>
 <td>required</td>
 <td>The target session.</td>
 </tr>
+<tr>
+<td><code dir="auto">tokenBudget</code></td>
+<td><code dir="auto">integer</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>This steer’s token budget in tokens. Same vocabulary as the <code dir="auto">turn/start</code> member: an integer floor of 1, omitted means unspecified (never a reset of the running turn’s budget), 0 or a non-integer is invalid params, as is explicit <code dir="auto">null</code>. Experimental like its twin: v1 membership stays open, so the member ships off the stable bundle until a v1 ruling graduates it.</td>
+</tr>
 </tbody>
 </table>
 <details>
