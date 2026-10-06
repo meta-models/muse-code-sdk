@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..", "..", "..", "..");
 const script = join(projectRoot, "scripts", "publish-sdk-npm.sh");
-const audienceChecker = join(projectRoot, "scripts", "check-sdk-py-external-audience.py");
+const audienceChecker = join(projectRoot, "python", "scripts", "check-sdk-py-external-audience.py");
 const realPackageDir = join(projectRoot, "clients", "sdk-ts");
 
 interface RunResult {
