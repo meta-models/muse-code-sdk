@@ -284,10 +284,15 @@ class GapFiller(Generic[_I]):
                 return
             result = await self._page(connection, self._cursor)
             reached = False
+            # The last cursor this page served, skipped events included —
+            # where a walk toward an extended target resumes after an
+            # end-of-view page.
+            last_served: str | None = None
             events = result["events"]
             for event in events:
                 self._require_own_session(event, after, target)
                 cursor = str(event["params"]["viewCursor"])
+                last_served = cursor
                 # An EARLIER fill already served — and applied — this durable
                 # event. A later walk may legally page through the same range,
                 # and re-applying it here is the same double fold the discard
@@ -317,7 +322,15 @@ class GapFiller(Generic[_I]):
             # the protocol), so a hole whose tail was ephemeral ends here and never
             # at ``target``. An ABSENT ``nextCursor`` is a different fact — the
             # member is "never omitted", so it falls through to the stall arm.
+            #
+            # The cursor still advances to the last event served: if a
+            # ``view/gap`` extended the target while this page was in flight,
+            # ``_walk`` comes back here toward the new one, and re-asking from
+            # where this walk started would re-serve, and fold a second time,
+            # every event this page just delivered.
             if "nextCursor" in result and result["nextCursor"] is None:
+                if last_served is not None:
+                    self._cursor = last_served
                 return
             next_cursor = result.get("nextCursor")
             # PROGRESS is the only bound on this walk, and it has to be,

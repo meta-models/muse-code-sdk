@@ -255,20 +255,23 @@ detail), or `clientEof` (you hung up while `expectedFrame` was still owed;
 `receivedFrame` is `null`). Usage errors exit 2; an unreadable or invalid
 fixture exits 3 — the harness's problem, never your client's.
 
-### User-input answer and cancel scenarios
+### User-input answer, cancel, and interrupt scenarios
 
-The interactive user-input family has two explicit client-playable scripts:
-`userinput-answer-round-trip` and `userinput-cancel-round-trip`. Both attach
+The interactive user-input family has three explicit client-playable scripts:
+`userinput-answer-round-trip`, `userinput-cancel-round-trip`, and
+`userinput-interrupt-round-trip`. All three attach
 with `session/resume { excludeItems: true }`, accept the re-issued
 `userInput/request`, page history forward from genesis with `view/page`, and
 then settle the same server-minted prompt id. The answer scenario sends
 `userInput/answer`; the capability-less scenario sends the typed
-`userInput/cancel` with its required reason.
+`userInput/cancel` with its required reason; the interrupt scenario sends a
+`userInput/engaged` note and then `userInput/interrupt` carrying a confirmed
+answer.
 
 They are separate because `serve-fixture` is an exact linear oracle. One
 recorded client position cannot lawfully accept two different commands. The
 original `snapshot-suffix-pending-userinput` remains the SS4.9.2 checkpoint
-fixture; these two companions exercise the modern metadata-only load path
+fixture; these three companions exercise the modern metadata-only load path
 without changing that snapshot evidence.
 
 ### Testing stderr capture and process-exit handling

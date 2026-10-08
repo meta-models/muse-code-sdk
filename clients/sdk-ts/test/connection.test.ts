@@ -5,6 +5,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 
 import {
   Connection,
@@ -64,6 +66,43 @@ async function waitForWrites(transport: FakeDuplex, count: number): Promise<void
     await Promise.resolve();
   }
   assert.equal(transport.writes.length, count, `expected ${count} write(s)`);
+}
+
+/**
+ * A transport that retains NOTHING it is given: every written frame is parsed
+ * for its request id and dropped. The memory test below needs this — a
+ * transport-side write log would dwarf the connection-side retention it
+ * measures, for the fixed code as well as the broken code.
+ */
+class NullTransport implements DuplexTransport {
+  readonly chunks = new AsyncChunks();
+  readonly incoming = this.chunks;
+  #writes = 0;
+  #lastId: unknown;
+
+  get writeCount(): number {
+    return this.#writes;
+  }
+
+  get lastId(): unknown {
+    return this.#lastId;
+  }
+
+  async write(chunk: string): Promise<void> {
+    this.#lastId = (JSON.parse(chunk) as Record<string, unknown>)["id"];
+    this.#writes += 1;
+  }
+
+  async waitForWrites(count: number): Promise<void> {
+    for (let turn = 0; turn < 1000 && this.#writes < count; turn += 1) {
+      await Promise.resolve();
+    }
+    assert.equal(this.#writes, count, `expected ${count} write(s)`);
+  }
+
+  async close(): Promise<void> {
+    this.chunks.end();
+  }
 }
 
 test("requests are newline-framed, awaited, and correlated by typed id", async () => {
@@ -350,6 +389,77 @@ test("a non-integer injected request id is rejected before any write", { timeout
   const connection = new Connection(transport, { mintRequestId: () => 1.5 });
   await assert.rejects(connection.request("bad/id"), /string or integer/);
   assert.equal(transport.writes.length, 0, "the malformed frame never reaches the wire");
+  await connection.close();
+});
+
+test("command() keeps only a fixed-size fingerprint per command, never the payload (#45137)", async () => {
+  // A forced FULL collection (mark-sweep): `heapUsed` without one also
+  // counts dead garbage — the 256 KiB canonical strings and frames live in
+  // large-object space, which only a full GC reclaims; allocation pressure
+  // merely scavenges the young generation and the bound flakes. Acquired
+  // lazily inside this arm: an acquisition failure must fail only this
+  // test, not all 14 arms in the file. Enabled at runtime so the committed
+  // test command stays flag-free.
+  setFlagsFromString("--expose-gc");
+  const fullGc = runInNewContext("gc") as () => void;
+  const transport = new NullTransport();
+  const connection = new Connection(transport);
+  // One image-sized payload, SHARED by every command: retention is
+  // per-command, so N commands must not retain N copies of it — neither
+  // of the request params nor of the ack, which echoes the same image.
+  const image = "i".repeat(256 * 1024);
+  let sent = 0;
+  const one = async (turn: number): Promise<void> => {
+    const pending = connection.command(
+      "turn/start",
+      { sessionId: "s-1", input: [{ type: "image", data: image }] },
+      { maxAttempts: 1 },
+    );
+    sent += 1;
+    await transport.waitForWrites(sent);
+    transport.chunks.push(
+      frame({
+        jsonrpc: "2.0",
+        id: transport.lastId,
+        result: { status: "accepted", turnId: `t-${turn}`, echo: image },
+      }),
+    );
+    await pending;
+  };
+  // Warm up outside the window: JIT, decoders, and first-ack paths settle here.
+  for (let turn = 0; turn < 5; turn += 1) await one(turn);
+  fullGc();
+  const baseline = process.memoryUsage().heapUsed;
+  for (let turn = 5; turn < 105; turn += 1) await one(turn);
+  fullGc();
+  const growth = process.memoryUsage().heapUsed - baseline;
+  const growthMiB = (growth / 1024 / 1024).toFixed(1);
+  assert.ok(
+    growth < 4 * 1024 * 1024,
+    `100 image-carrying commands grew the heap by ${growthMiB} MiB; ` +
+      `the connection retains every command's full payload or ack (#45137)`,
+  );
+  await connection.close();
+});
+
+test("reusing a commandId with a different payload is still refused (#45137 guard)", async () => {
+  const transport = new FakeDuplex();
+  const connection = new Connection(transport);
+  const commandId = "018f6a1e-9b3c-7c21-a54a-000000000451";
+  const first = connection.command("turn/start", { sessionId: "s-1" }, { commandId, maxAttempts: 1 });
+  await waitForWrites(transport, 1);
+  const request = JSON.parse(transport.writes[0] as string) as Record<string, unknown>;
+  transport.chunks.push(
+    frame({ jsonrpc: "2.0", id: request["id"], result: { status: "accepted", turnId: "t-1" } }),
+  );
+  await first;
+  // The fingerprint change must preserve the dedup contract: same id plus a
+  // different payload rejects WITHOUT touching the wire.
+  await assert.rejects(
+    connection.command("turn/start", { sessionId: "s-2" }, { commandId, maxAttempts: 1 }),
+    /reused with a different payload/,
+  );
+  assert.equal(transport.writes.length, 1, "the refused replay never reaches the wire");
   await connection.close();
 });
 

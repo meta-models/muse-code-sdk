@@ -64,6 +64,8 @@ class SendUserTurnOptions(Generic[_I]):
     display_text: str | None = None
     if_busy: IfBusy | None = None
     reasoning_effort: ReasoningEffort | None = None
+    # No token_budget: the member is experimental-gated (v1 membership
+    # unruled), and this SDK serves the stable surface only.
     workspace_roots: List[str] | None = None
     composer_input: _I | None = None
 
@@ -287,6 +289,7 @@ class TurnSubmitter(Generic[_I]):
             params["ifBusy"] = options.if_busy
         if options.reasoning_effort is not None:
             params["reasoningEffort"] = options.reasoning_effort
+        # No tokenBudget forward: experimental-gated, stable SDK omits it.
         if options.workspace_roots is not None:
             params["workspaceRoots"] = options.workspace_roots
         return params

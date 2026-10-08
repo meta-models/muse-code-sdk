@@ -144,6 +144,12 @@ export type { GapFillFailureHandler } from "./facade/gap-fill.js";
 // with no consumer, and a barrel export would freeze them into `@muse-code/sdk`'s
 // contract the moment #211 adopts the package.
 export { MuseHostDiedError, readSessionDurability } from "./facade/host-death.js";
+// The #49791 handshake-failure arm of Scenario 4: `MuseClient.spawn`'s typed
+// rejection when the host is lost before the handshake completes. The
+// reader `hostStartFailure` stays OFF the barrel (Constitution XI): it is
+// `spawn`'s internal with no consumer.
+export { MuseHostStartError } from "./facade/host-start.js";
+export type { HostStartFailure } from "./facade/host-start.js";
 export type {
   AbnormalExit,
   HostDeathDischarge,

@@ -149,6 +149,7 @@ TREE_WALK_PATHS = (
     "clients/sdk-cookbook-py",
     "clients/sdk-py",
     "clients/sdk-quickstart-py",
+    "scripts/check-public-mirror-text.py",
     "scripts/publish-sdk-pypi.sh",
     "scripts/sdk-py-wheel-rows.py",
 )

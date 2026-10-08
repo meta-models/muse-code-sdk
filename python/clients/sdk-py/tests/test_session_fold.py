@@ -110,6 +110,19 @@ def retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     }
 
 
+def foreground_completed(turn_id: str, view_cursor: str) -> dict[str, Any]:
+    return {
+        "method": "turn/foregroundCompleted",
+        "params": {
+            "blockingAgents": ["goal-reminder"],
+            "sessionId": SESSION,
+            "sourceRange": SOURCE,
+            "turnId": turn_id,
+            "viewCursor": view_cursor,
+        },
+    }
+
+
 def item(item_id: str, revision: int, **extra: Any) -> dict[str, Any]:
     fixture: dict[str, Any] = {
         "itemId": item_id,
@@ -207,6 +220,7 @@ def user_input_settled(user_input_id: str, outcome: str, view_cursor: str) -> di
         "params": {
             "answers": [],
             "clarification": None,
+            "decidedAt": "2025-08-07T18:23:20.100Z",
             "decidedByCommandId": None,
             "outcome": outcome,
             "reason": None,
@@ -479,6 +493,58 @@ def test_a_replayed_page_never_re_plants_the_retry_hint_on_a_turn_that_left_runn
     assert fold.apply(retry) == IgnoredStaleFrame("turn/retryScheduled", "turn-1")
 
 
+def test_turn_completed_clears_the_foreground_hint() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(foreground_completed("turn-1", "v:s:2"))
+    held = fold.turn("turn-1")
+    assert held is not None and held.foreground_completed is not None, (
+        "the hint is set while the turn runs"
+    )
+
+    fold.apply(turn_completed("turn-1", "completed", "v:s:3"))
+
+    held = fold.turn("turn-1")
+    assert held is not None and held.foreground_completed is None
+
+
+def test_turn_foreground_completed_is_non_terminal_the_turn_keeps_running() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(foreground_completed("turn-1", "v:s:2"))
+
+    assert fold.active_turn_id == "turn-1", "a foreground notice never settles a turn"
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "running"
+    assert held.foreground_completed is not None
+    assert held.foreground_completed["blockingAgents"] == ["goal-reminder"]
+
+
+def test_a_replayed_page_never_re_plants_the_foreground_hint_on_a_turn_that_left_running() -> None:
+    fold = SessionFold()
+    notice = foreground_completed("turn-1", "v:s:2")
+    page = [
+        turn_started("turn-1", "cmd-1", "v:s:1"),
+        notice,
+        turn_completed("turn-1", "cancelled", "v:s:3"),
+        turn_retracted("turn-1", "cmd-1", "v:s:4"),
+    ]
+    for event in page:
+        fold.apply(event)
+    held = fold.turn("turn-1")
+    assert held is not None and held.foreground_completed is None, "in-order delivery is clean"
+
+    for event in page:
+        fold.apply(event)
+
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "retracted"
+    assert held.foreground_completed is None, "the replayed hint is dropped"
+    assert fold.apply(notice) == IgnoredStaleFrame("turn/foregroundCompleted", "turn-1")
+
+
 def test_turns_are_listed_in_first_observed_order() -> None:
     fold = SessionFold()
     fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
@@ -643,6 +709,7 @@ def test_user_input_requested_adds_a_pending_prompt_and_settled_retires_it() -> 
     assert [(s["userInputId"], s["outcome"]) for s in fold.settled_user_inputs()] == [
         ("u-1", "answered")
     ]
+    assert fold.settled_user_inputs()[0]["decidedAt"] == "2025-08-07T18:23:20.100Z"
 
 
 def test_the_first_user_input_settlement_wins_a_second_never_overwrites_it() -> None:
@@ -944,8 +1011,13 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # push, not a view-fold input — it reports that the live view stream died,
     # so it carries no cursor and folds into no transcript state. Excluded here
     # like the handshake's `initialized`; the client handles it out of band.
-    # Deletion completion has no view envelope or fold state.
-    non_fold_notifications = {"initialized", "session/viewHealthChanged", "session/deleteCompleted"}
+    # `userInput/engaged` is client-to-server, like the handshake's
+    # `initialized` — the fold never sees it.
+    non_fold_notifications = {
+        "initialized",
+        "session/viewHealthChanged",
+        "userInput/engaged",
+    }
     # Session lifecycle broadcasts (a session was loaded or unloaded on the
     # host) are control-plane notifications, not view events — they carry no
     # view envelope, so they are facade inputs, not fold inputs. Today a
@@ -1005,6 +1077,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "turn/completed": turn_completed("turn-t", "completed", "v:t:6"),
         "turn/retracted": turn_retracted("turn-t2", "cmd-t2", "v:t:7"),
         "turn/retryScheduled": retry_scheduled("turn-t3", "v:t:8"),
+        "turn/foregroundCompleted": foreground_completed("turn-t5", "v:t:23"),
         "turn/unqueued": turn_unqueued("turn-t4", "cmd-t4", "v:t:9"),
         "approval/requested": approval_requested("a-t", "v:t:10"),
         "approval/updated": approval_updated("a-t", "v:t:10b"),

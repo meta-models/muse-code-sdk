@@ -15,6 +15,7 @@ regressed package.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -239,6 +240,31 @@ def test_the_gate_script_default_publishes_nothing() -> None:
     assert "muse-code-msp" in result.stdout
     assert "muse-code-sdk" in result.stdout
     assert result.stdout.index("muse-code-msp") < result.stdout.index("muse-code-sdk")
+
+
+def test_the_build_only_mode_keeps_distributions_when_asked(tmp_path: Path) -> None:
+    # The release-cut keep seam: TBH_SDK_KEEP_DIR asks the default
+    # (build-only) mode to keep the built distributions plus the derived
+    # wheel rows in the named dir (the release lane uploads it as a run
+    # artifact). Unset, nothing is kept — the inert default arm above.
+    keep = tmp_path / "keep"
+    result = _run_gate("--build-only", env={"TBH_SDK_KEEP_DIR": str(keep)})
+    assert result.returncode == 0, (
+        "build-only with TBH_SDK_KEEP_DIR must pass on the committed tree:\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    wheels = sorted(keep.rglob("*.whl"))
+    sdists = sorted(keep.rglob("*.tar.gz"))
+    assert len(wheels) == 2, f"expected two kept wheels, got {wheels}"
+    assert len(sdists) == 2, f"expected two kept sdists, got {sdists}"
+    rows = json.loads((keep / "wheel-rows.json").read_text())
+    assert [row["distribution"] for row in rows["wheels"]] == [
+        "muse-code-msp",
+        "muse-code-sdk",
+    ], "the kept rows must name both distributions, wire types first"
+    assert {row["wheel"] for row in rows["wheels"]} == {
+        wheel.name for wheel in wheels
+    }, "the kept rows must name exactly the kept wheels"
 
 
 def test_the_publish_mode_refuses_outside_the_mirror_workflow() -> None:

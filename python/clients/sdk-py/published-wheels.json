@@ -19,7 +19,12 @@
     "The 1.3.1 rows below are the republish exception's generated output, appended verbatim; the immutable anchor is the mirror",
     "meta-models/muse-code-sdk publish-pypi.yml run 35667900606 (2026-09-21,",
     "dry_run=false), built from mirror commit",
-    "a7c10c5dd3f66be412077d29f9d11111af70317b (python_tree at tbh@6713ff08f6f12953a619532cebdff152c465c46b)."
+    "a7c10c5dd3f66be412077d29f9d11111af70317b (python_tree at tbh@6713ff08f6f12953a619532cebdff152c465c46b).",
+    "",
+    "The 1.4.2 rows below are the generated output, appended verbatim; the immutable anchor is the mirror",
+    "meta-models/muse-code-sdk publish-pypi.yml run 36779918444 (2026-09-30,",
+    "dry_run=false), built from mirror commit",
+    "cd4134968074ec9aa6c55e0a4c9daf0b5bea2ee1 (python_tree at tbh@fda770fcbb7d5c47b11c3d19e54929abc5372473, releases/muse/1.4.2)."
   ],
   "schemaVersion": 1,
   "wheels": [
@@ -58,6 +63,24 @@
       "requiresPython": ">=3.10",
       "hostVersion": "1.3.0",
       "schemaFingerprint": "sha256:b1e6676d624e116e2c1b150fec3192200d2cbca8ed79898e44f8921759c7872f"
+    },
+    {
+      "distribution": "muse-code-msp",
+      "importName": "muse_code_msp",
+      "version": "1.4.2",
+      "wheel": "muse_code_msp-1.4.2-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.4.2",
+      "schemaFingerprint": "sha256:61afea3112e0906e9dc3a536144278a74cb4b36fc6e20901a91d4432ba3568e2"
+    },
+    {
+      "distribution": "muse-code-sdk",
+      "importName": "muse_code",
+      "version": "1.4.2",
+      "wheel": "muse_code_sdk-1.4.2-py3-none-any.whl",
+      "requiresPython": ">=3.10",
+      "hostVersion": "1.4.2",
+      "schemaFingerprint": "sha256:61afea3112e0906e9dc3a536144278a74cb4b36fc6e20901a91d4432ba3568e2"
     }
   ]
 }

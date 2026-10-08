@@ -57,6 +57,8 @@ const TURN_START_FORWARDED = [
   "displayText",
   "ifBusy",
   "reasoningEffort",
+  // No "tokenBudget" (#45454): experimental-gated, and this SDK serves the
+  // stable surface only.
   "workspaceRoots",
 ] as const;
 type _TurnStartIsExhaustive = AssertNever<
@@ -224,6 +226,7 @@ export class TurnSubmitter<I> {
     if (options.displayText != null) params.displayText = options.displayText;
     if (options.ifBusy != null) params.ifBusy = options.ifBusy;
     if (options.reasoningEffort != null) params.reasoningEffort = options.reasoningEffort;
+    // No tokenBudget forward (#45454): experimental-gated, stable SDK omits it.
     if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     return params;
   }

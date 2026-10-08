@@ -250,9 +250,13 @@ export class GapFiller<I> {
       if (this.#options.discarded()) return;
       const result = await this.#page(connection, this.#cursor);
       let reached = false;
+      // The last cursor this page served, skipped events included — where a
+      // walk toward an extended target resumes after an end-of-view page.
+      let lastServed: string | undefined;
       for (const event of result.events) {
         this.#requireOwnSession(event, after, target);
         const cursor = event.params.viewCursor;
+        lastServed = cursor;
         // An EARLIER fill already served — and applied — this durable event.
         // A later walk may legally page through the same range, and re-applying
         // it here is the same double fold the discard exists to prevent (PR
@@ -283,7 +287,16 @@ export class GapFiller<I> {
       // The server's own end of the view. `next` names a LIVE cursor and
       // `view/page` serves durable-sourced events only (tdd SS4.7.3), so a
       // hole whose tail was ephemeral ends here and never at `target`.
-      if (result.nextCursor === null) return;
+      //
+      // The cursor still advances to the last event served (#50252, the Rust
+      // SDK's INV-002 rule from #49869): if a `view/gap` extended the target
+      // while this page was in flight, `#walk` comes back here toward the new
+      // one, and re-asking from where this walk started would re-serve — and
+      // fold a second time — every event this page just delivered.
+      if (result.nextCursor === null) {
+        if (lastServed !== undefined) this.#cursor = lastServed;
+        return;
+      }
       // PROGRESS is the only bound on this walk, and it has to be, because a
       // legitimate fill is unbounded in length: an attempt cap would silently
       // truncate one. A page that carries no event, repeats the cursor it was

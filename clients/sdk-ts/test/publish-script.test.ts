@@ -35,14 +35,43 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** `dist/test/` -> `dist/` -> `clients/sdk-ts/` -> `clients/` -> project root. */
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..", "..", "..", "..");
 const script = join(projectRoot, "scripts", "publish-sdk-npm.sh");
-const audienceChecker = join(projectRoot, "python", "scripts", "check-sdk-py-external-audience.py");
+/**
+ * Regular-file probe matching the publish script's `-f` test: a missing
+ * path — or a directory sitting at one — is not a checker.
+ */
+function isFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+/**
+ * First regular-file candidate wins; none existing resolves the first, so a
+ * missing checker keeps failing loud at the producing-tree path instead
+ * of surfacing an empty string far from the failure.
+ */
+function resolveCheckerPath(first: string, ...rest: string[]): string {
+  for (const candidate of [first, ...rest]) {
+    if (isFile(candidate)) return candidate;
+  }
+  return first;
+}
+const audienceChecker = resolveCheckerPath(
+  join(projectRoot, "scripts", "check-sdk-py-external-audience.py"),
+  join(projectRoot, "python", "scripts", "check-sdk-py-external-audience.py"),
+);
+const mirrorTextChecker = resolveCheckerPath(
+  join(projectRoot, "scripts", "check-public-mirror-text.py"),
+  join(projectRoot, "python", "scripts", "check-public-mirror-text.py"),
+);
 const realPackageDir = join(projectRoot, "clients", "sdk-ts");
 
 interface RunResult {
@@ -174,6 +203,22 @@ test("the default run is pack-only and cannot reach npm publish", () => {
     !/^\s*\+?\s*npm publish/m.test(result.combined),
     "a default run must never invoke npm publish",
   );
+});
+
+test("pack-only keeps the tarball when TBH_SDK_KEEP_DIR is set (#45542)", () => {
+  // The release-cut seam: the keep dir asks the default (pack-only) mode to
+  // keep the audited tarball there (tag-release uploads it as a run
+  // artifact). Unset, nothing is kept — the inert default arm above.
+  const keep = mkdtempSync(join(tmpdir(), "sdk-publish-keep-"));
+  fixtureDirs.push(keep);
+  const result = run(["--pack-only"], { TBH_SDK_KEEP_DIR: keep });
+  assert.equal(
+    result.status,
+    0,
+    `pack-only with TBH_SDK_KEEP_DIR must pass every gate:\n${result.combined}`,
+  );
+  const kept = readdirSync(keep).filter((f) => f.endsWith(".tgz"));
+  assert.equal(kept.length, 1, `expected one kept tarball, got ${kept}`);
 });
 
 test("the license gate fails before npm, and names the license", () => {
@@ -543,7 +588,7 @@ test("the audience gate fails closed when the checker is missing from the tree",
   // Exactly the shape a republish that drops the closure file would produce.
   // Publishing unaudited is the failure the gate exists to prevent, so a
   // missing checker is a refusal, never a skip.
-  const result = runMirror(mirrorFixture({ host_version: "0.0.0" }, { withChecker: false }), []);
+  const result = runMirror(mirrorFixture({ host_version: "0.0.0" }, { withAudienceChecker: false }), []);
   assert.notEqual(result.status, 0, "a missing checker must fail the run");
   assert.match(
     result.combined,
@@ -804,6 +849,47 @@ test("no shipped declaration imports a package that is not on the registry", () 
   );
 });
 
+// The shared checkers sit beside the publish script in one layout and one
+// directory deeper in the other; the fixture builders must resolve them in
+// both (#46158).
+test("checker paths probe both layouts", () => {
+  const root = mkdtempSync(join(tmpdir(), "sdk-checker-layout-"));
+  fixtureDirs.push(root);
+  const flat = join(root, "scripts", "checker.py");
+  const nested = join(root, "python", "scripts", "checker.py");
+  mkdirSync(dirname(nested), { recursive: true });
+  writeFileSync(nested, "nested\n");
+  // Nested-only resolves nested; a flat copy wins once present (the
+  // producing-tree resolution is unchanged); missing resolves flat so the
+  // fixture copy keeps failing loud at the same path.
+  assert.equal(resolveCheckerPath(flat, nested), nested);
+  mkdirSync(dirname(flat), { recursive: true });
+  writeFileSync(flat, "flat\n");
+  assert.equal(resolveCheckerPath(flat, nested), flat);
+  rmSync(flat);
+  mkdirSync(flat);
+  // A directory at the flat path is not a checker; resolution falls
+  // through to nested.
+  assert.equal(resolveCheckerPath(flat, nested), nested);
+  const missingFlat = join(root, "missing-a.py");
+  assert.equal(
+    resolveCheckerPath(missingFlat, join(root, "missing-b.py")),
+    missingFlat,
+  );
+});
+
+test("wired checker constants resolve to the shipped scripts", () => {
+  // The constants above must name the real checker files in whichever
+  // layout this tree uses; a wrong join fails here, not deep in a fixture.
+  for (const [resolved, name] of [
+    [audienceChecker, "check-sdk-py-external-audience.py"],
+    [mirrorTextChecker, "check-public-mirror-text.py"],
+  ] as const) {
+    assert.equal(basename(resolved), name);
+    assert.ok(isFile(resolved), `${resolved} must exist in this layout`);
+  }
+});
+
 // ---- the mirror-anchor gate arm (ADR 25304 D1) -----------------------------
 //
 // The registry is only contacted from the meta-models mirror, whose tree is
@@ -812,25 +898,86 @@ test("no shipped declaration imports a package that is not on the registry", () 
 // `publish-anchor.json` (`host_version`, written by the re-sync). These arms
 // prove that arm on a mirror-shaped fixture: the script copied to a root with
 // no `crates/`, a committed clean tree, and an anchor to read.
+//
+// The verifiable-version arms below extend the fixture: the shared
+// public-bound-text gate plus a closure manifest listing the fixture's own
+// files, so an anchor builder callback can digest the fixture root and write
+// an anchor the script's anchor gate recomputes. Seeds that would name the
+// producing side are assembled from fragments at runtime (the employee-id
+// dodge above); no live private reference appears in this file.
+
+// A 40-hex shape and an org-qualified pin target, assembled so the
+// fragments stay inert under the source gates.
+const SEED_SHA40 = "d".repeat(40);
+const SEED_ORG = ["msl", "src/tb", "h"].join("");
+const SEED_ISSUE = ["tb", "h#", "46483"].join("");
+
+type AnchorBody = Record<string, unknown> | string;
+
+function v2Anchor(root: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const digest = execFileSync(
+    "python3",
+    [
+      mirrorTextChecker,
+      "digest-tree",
+      "--root",
+      root,
+      "--manifest",
+      join(root, "python", "scripts", "sdk-source-closure.json"),
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  return { host_version: manifest.version, content_sha256: digest, ...overrides };
+}
 
 function mirrorFixture(
-  anchor: Record<string, unknown> | string | null,
-  { withChecker = true }: { withChecker?: boolean } = {},
+  anchor: AnchorBody | null | ((root: string) => AnchorBody),
+  {
+    withAudienceChecker = true,
+    withTextChecker = true,
+  }: { withAudienceChecker?: boolean; withTextChecker?: boolean } = {},
 ): {
   script: string;
   pkg: string;
+  root: string;
 } {
   const root = mkdtempSync(join(tmpdir(), "sdk-publish-mirror-"));
   fixtureDirs.push(root);
   mkdirSync(join(root, "scripts"), { recursive: true });
   cpSync(script, join(root, "scripts", "publish-sdk-npm.sh"));
-  if (withChecker) {
+  if (withAudienceChecker) {
     // The mirror carries the shared audience checker under its python/ tree
     // (the Python-closure layout), not next to this script; the fixture
     // mirrors that so these arms also prove the script's two-layout
     // resolution.
     mkdirSync(join(root, "python", "scripts"), { recursive: true });
     cpSync(audienceChecker, join(root, "python", "scripts", "check-sdk-py-external-audience.py"));
+  }
+  if (withTextChecker) {
+    // Same layout for the shared public-bound-text gate and the closure
+    // manifest it digests: the manifest lists the fixture's own files so
+    // the anchor builder below digests a real (small) closure.
+    mkdirSync(join(root, "python", "scripts"), { recursive: true });
+    cpSync(mirrorTextChecker, join(root, "python", "scripts", "check-public-mirror-text.py"));
+    writeFileSync(
+      join(root, "python", "scripts", "sdk-source-closure.json"),
+      `${JSON.stringify(
+        {
+          closure_paths: [
+            "clients/sdk-ts/README.md",
+            "clients/sdk-ts/package.json",
+            "scripts/check-public-mirror-text.py",
+            "scripts/publish-sdk-npm.sh",
+            "scripts/sdk-source-closure.json",
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
   }
   const pkg = join(root, "clients", "sdk-ts");
   cpSync(realPackageDir, pkg, {
@@ -845,12 +992,9 @@ function mirrorFixture(
   manifest.scripts = scripts;
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   writeFileSync(join(pkg, "README.md"), POSTURE_README);
-  if (anchor !== null) {
-    const body = typeof anchor === "string" ? anchor : `${JSON.stringify(anchor, null, 2)}\n`;
-    writeFileSync(join(root, "publish-anchor.json"), body);
-  }
   // The real mirror is a git checkout and --publish's tree-anchor gate demands
-  // one, clean; commit the fixture so the run reaches the version gates.
+  // one, clean; the digest also reads the tracked set, so init and stage
+  // before the anchor builder digests.
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", root, ...args], {
       encoding: "utf8",
@@ -864,8 +1008,14 @@ function mirrorFixture(
   git("config", "user.email", ["t", "example.invalid"].join("@"));
   git("config", "user.name", "t");
   git("add", "-A");
+  const resolved = typeof anchor === "function" ? anchor(root) : anchor;
+  if (resolved !== null) {
+    const body = typeof resolved === "string" ? resolved : `${JSON.stringify(resolved, null, 2)}\n`;
+    writeFileSync(join(root, "publish-anchor.json"), body);
+  }
+  git("add", "-A");
   git("commit", "-q", "-m", "mirror fixture");
-  return { script: join(root, "scripts", "publish-sdk-npm.sh"), pkg };
+  return { script: join(root, "scripts", "publish-sdk-npm.sh"), pkg, root };
 }
 
 function runMirror(
@@ -894,10 +1044,7 @@ function runMirror(
 }
 
 test("mirror shape: --publish reads the host version from publish-anchor.json and proceeds on a match", () => {
-  const manifest = JSON.parse(
-    readFileSync(join(realPackageDir, "package.json"), "utf8"),
-  ) as { version: string };
-  const result = runMirror(mirrorFixture({ host_version: manifest.version }));
+  const result = runMirror(mirrorFixture((root) => v2Anchor(root)));
   assert.match(
     result.combined,
     /publish anchor/,
@@ -971,4 +1118,246 @@ test("mirror shape: pack-only never depends on the anchor, malformed or not", ()
   );
   assert.match(result.combined, /Pack-only does not/);
   assert.doesNotMatch(result.combined, /SyntaxError/);
+});
+
+// ---- the verifiable-version anchor arms ------------------------------------
+//
+// The anchor carries the lockstep host version plus a content digest over
+// the carried closure; --publish recomputes the digest through the shared
+// public-bound-text gate and refuses anything else. Old-shape anchors
+// (version without a digest, still naming the producing side's repo and
+// commit), digest tampering, and anchor bytes carrying denied classes all
+// refuse; pack-only notes. The digests below are computed, never copied:
+// each builder digests its own fixture root through the real gate.
+
+test("mirror shape: --publish refuses an old-shape anchor with no verifiable version", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const result = runMirror(
+    mirrorFixture({
+      source: { repository: SEED_ORG, commit: SEED_SHA40 },
+      published_at: "2026-10-02T00:00:00Z",
+      host_version: manifest.version,
+    }),
+  );
+  assert.notEqual(result.status, 0, "an old-shape anchor must not publish");
+  assert.match(
+    result.combined,
+    /verifiable version/,
+    `the refusal must name the missing verifiable version:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(result.combined, /provenance/i);
+});
+
+test("mirror shape: --publish refuses when the anchor digest does not recompute", () => {
+  const result = runMirror(
+    mirrorFixture((root) => v2Anchor(root, { content_sha256: "00".repeat(32) })),
+  );
+  assert.notEqual(result.status, 0, "a tampered anchor must not publish");
+  assert.match(
+    result.combined,
+    /digest mismatch/,
+    `the refusal must name the digest mismatch:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(result.combined, /provenance/i);
+});
+
+test("mirror shape: --publish refuses anchor bytes carrying denied classes", () => {
+  const result = runMirror(
+    mirrorFixture((root) => v2Anchor(root, { note: `built from ${SEED_ISSUE}` })),
+  );
+  assert.notEqual(result.status, 0, "an anchor naming the producing side must not publish");
+  assert.match(
+    result.combined,
+    /anchor field/,
+    `the refusal must name the offending anchor field:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /anchor-verdict: content-refused/,
+    `the refusal must carry the gate verdict:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(result.combined, /provenance/i);
+});
+
+test("mirror shape: --publish fails closed when the text gate is missing from the tree", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const result = runMirror(
+    mirrorFixture(
+      { host_version: manifest.version, content_sha256: "00".repeat(32) },
+      { withTextChecker: false },
+    ),
+  );
+  assert.notEqual(result.status, 0, "a missing text gate must fail the run");
+  assert.match(
+    result.combined,
+    /check-public-mirror-text\.py is missing/,
+    `the message must name the missing file:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /sdk-source-closure\.json/,
+    "the message must point at the closure manifest that carries it",
+  );
+});
+
+test("mirror shape: pack-only notes a content-free old-shape anchor instead of refusing", () => {
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  // Shape failure only, no denied bytes: the note arm must not smuggle
+  // content past the gate.
+  const result = runMirror(mirrorFixture({ host_version: manifest.version }), []);
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green under a content-free old-shape anchor:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /verifiable version/,
+    `pack-only must note what --publish would refuse:\n${result.combined}`,
+  );
+});
+
+test("mirror shape: pack-only refuses anchor bytes carrying denied classes", () => {
+  const result = runMirror(
+    mirrorFixture((root) => v2Anchor(root, { note: `built from ${SEED_ISSUE}` })),
+    [],
+  );
+  assert.notEqual(result.status, 0, "denied content must refuse in pack-only too");
+  assert.match(
+    result.combined,
+    /denied classes/,
+    `the refusal must name the denied content:\n${result.combined}`,
+  );
+  // The gate's own finding, not just the die wrapper: proves the
+  // classifier fired on a real content hit rather than any nonzero exit.
+  assert.match(
+    result.combined,
+    /denied issue-reference/,
+    `the refusal must carry the gate finding:\n${result.combined}`,
+  );
+  // The machine verdict the classifier matched: proves the die came
+  // through the shared signal, not human-text parsing.
+  assert.match(
+    result.combined,
+    /anchor-verdict: content-refused/,
+    `the refusal must carry the gate verdict:\n${result.combined}`,
+  );
+});
+
+test("mirror shape: pack-only refuses a \\u-escaped anchor carrying denied classes", () => {
+  // The anchor file carries a JSON \u escape a raw-bytes classifier
+  // would miss; the decoded verdict must still refuse.
+  const fixture = mirrorFixture((root) => {
+    const digest = v2Anchor(root)["content_sha256"] as string;
+    const escaped = ["tb", "\\u0068#", "464", "83"].join("");
+    return (
+      `{"host_version": "9.9 built from ${escaped}", ` +
+      `"content_sha256": "${digest}"}\n`
+    );
+  });
+  // The fixture is genuinely escaped, not accidentally live: raw
+  // scanning must miss what the decoded gate catches.
+  assert.doesNotThrow(() =>
+    execFileSync("python3", [
+      mirrorTextChecker,
+      "scan-text",
+      "--file",
+      join(fixture.root, "publish-anchor.json"),
+    ]),
+  );
+  const result = runMirror(fixture, []);
+  assert.notEqual(result.status, 0, "escaped denied content must refuse in pack-only too");
+  assert.match(
+    result.combined,
+    /denied issue-reference/,
+    `the refusal must carry the gate finding:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /anchor-verdict: content-refused/,
+    `the refusal must carry the gate verdict:\n${result.combined}`,
+  );
+});
+
+test("mirror shape: pack-only notes a tampered anchor digest instead of refusing", () => {
+  // Digest tampering is a shape condition, not content: pack-only
+  // notes it instead of dying.
+  const result = runMirror(
+    mirrorFixture((root) => v2Anchor(root, { content_sha256: "00".repeat(32) })),
+    [],
+  );
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green under a tampered digest:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /would refuse/,
+    `pack-only must note what --publish would refuse:\n${result.combined}`,
+  );
+  assert.match(result.combined, /digest mismatch/);
+  assert.match(result.combined, /anchor-verdict: refused/);
+  assert.doesNotMatch(result.combined, /carries denied classes/);
+});
+
+test("mirror shape: pack-only notes a shape-only anchor quoting the verdict token", () => {
+  // A shape-only anchor quoting the verdict token must note, not die:
+  // the classifier matches the verdict as a full line, so quoted
+  // copies inside echoed anchor bytes cannot escalate it.
+  const manifest = JSON.parse(
+    readFileSync(join(realPackageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const result = runMirror(
+    mirrorFixture({
+      host_version: manifest.version,
+      "quoted anchor-verdict: content-refused (not a verdict)": "x",
+    }),
+    [],
+  );
+  assert.equal(
+    result.status,
+    0,
+    `pack-only must stay green under a token-quoting shape anchor:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /would refuse/,
+    `pack-only must note what --publish would refuse:\n${result.combined}`,
+  );
+  assert.match(result.combined, /anchor-verdict: refused/);
+  assert.doesNotMatch(result.combined, /carries denied classes/);
+});
+
+test("mirror shape: pack-only dies on the verdict without denied prose", () => {
+  // The classifier matches the machine verdict, not denied prose: a
+  // stub gate emitting only the verdict line (zero denied text) must
+  // still die. The stub carries no "denied" substring, so a
+  // prose-matching classifier notes and fails here.
+  const fixture = mirrorFixture((root) =>
+    v2Anchor(root, { content_sha256: "00".repeat(32) }),
+  );
+  const stubBody = 'import sys\nsys.stderr.write("anchor-verdict: content-refused\\n")\nsys.exit(1)\n';
+  assert.doesNotMatch(stubBody, /denied/);
+  writeFileSync(
+    join(fixture.root, "python", "scripts", "check-public-mirror-text.py"),
+    stubBody,
+  );
+  const result = runMirror(fixture, []);
+  assert.notEqual(result.status, 0, "a verdict-only stub gate must refuse pack-only");
+  assert.match(
+    result.combined,
+    /carries denied classes/,
+    `the refusal must come from the classifier:\n${result.combined}`,
+  );
+  assert.match(result.combined, /anchor-verdict: content-refused/);
 });

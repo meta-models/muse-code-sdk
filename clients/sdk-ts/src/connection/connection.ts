@@ -9,6 +9,8 @@
  * well-behaved transport, not the general guarantee.
  */
 
+import { createHash } from "node:crypto";
+
 import type {
   ErrorKind,
   ErrorObject,
@@ -57,6 +59,21 @@ export interface DuplexTransport {
 export const submissionTail = Symbol("Connection.submissionTail");
 
 /**
+ * Module-private friend seam, like {@link submissionTail}: a request whose
+ * promise also yields the exact response frame it settled on, so a caller
+ * that refuses a successful result (the handshake's schema-fingerprint
+ * check) can put the whole refused frame on `ProtocolError.line`, the same
+ * value every other refusal carries (#50588 review).
+ */
+export const requestWithFrame = Symbol("Connection.requestWithFrame");
+
+/** What {@link requestWithFrame} resolves with: the result and its wire line. */
+export interface FramedResult {
+  readonly result: Record<string, unknown>;
+  readonly line: string;
+}
+
+/**
  * Tuning knobs for a `Connection`. Every option is optional: the defaults
  * suit a spawned host, so most applications never pass this at all.
  */
@@ -89,13 +106,15 @@ export type NotificationHandler = (notification: Notification) => void;
 export type ProtocolErrorHandler = (error: ProtocolError) => void;
 
 interface PendingRequest {
-  readonly resolve: (value: Record<string, unknown>) => void;
+  readonly resolve: (value: Record<string, unknown>, line: string) => void;
   readonly reject: (error: unknown) => void;
 }
 
 interface CommandMemory {
+  /** SHA-256 hex of the canonical `{ method, params }` — never the payload. */
   readonly signature: string;
-  ack?: Record<string, unknown>;
+  /** SHA-256 hex of the canonical ack — never a copy of it. */
+  ack?: string;
 }
 
 /** The one typed error family consumers branch on (INV-012). */
@@ -117,6 +136,12 @@ export class MspError extends Error {
 
 /** A local framing/correlation violation, never a server-authored MSP error. */
 export class ProtocolError extends Error {
+  /**
+   * The inbound frame (wire line) the violation was detected on, when there
+   * is one — the whole line, e.g. the response a pending request refused;
+   * an oversized frame is cut to the frame limit. Absent for local state
+   * errors (closed connection, EOF) that no frame caused.
+   */
   readonly line: string | undefined;
 
   constructor(message: string, line?: string) {
@@ -163,6 +188,14 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+// FR-45137-1: the dedup guards compare fingerprints, so a remembered command
+// costs 64 hex chars no matter how large its payload (or ack) was. The hash
+// guards a correctness check, so it is SHA-256, not a faster non-crypto hash
+// whose collision would silently accept a different payload.
+function fingerprint(canonicalForm: string): string {
+  return createHash("sha256").update(canonicalForm, "utf8").digest("hex");
 }
 
 /** Create the SDK-owned UUIDv7 command-id source for a connection/client. */
@@ -272,6 +305,15 @@ export class Connection {
   }
 
   request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.#request(method, params).then((framed) => framed.result);
+  }
+
+  /** See {@link requestWithFrame}. */
+  [requestWithFrame](method: string, params?: Record<string, unknown>): Promise<FramedResult> {
+    return this.#request(method, params);
+  }
+
+  #request(method: string, params?: Record<string, unknown>): Promise<FramedResult> {
     if (this.#finished) return Promise.reject(new ProtocolError("connection is closed"));
     const id = this.#mintRequestId();
     if (typeof id !== "string" && (typeof id !== "number" || !Number.isInteger(id))) {
@@ -286,8 +328,11 @@ export class Connection {
       method,
       ...(params === undefined ? {} : { params }),
     };
-    return new Promise<Record<string, unknown>>((resolve, reject) => {
-      this.#pending.set(requestKey(id), { resolve, reject });
+    return new Promise<FramedResult>((resolve, reject) => {
+      this.#pending.set(requestKey(id), {
+        resolve: (result, line) => resolve({ result, line }),
+        reject,
+      });
       void this.#write(request).catch((error: unknown) => {
         this.#pending.delete(requestKey(id));
         reject(error);
@@ -345,7 +390,7 @@ export class Connection {
   ): Promise<Record<string, unknown>> {
     const commandId = options?.commandId ?? this.#mintCommandId();
     const commandParams = { ...params, commandId };
-    const signature = canonical({ method, params: commandParams });
+    const signature = fingerprint(canonical({ method, params: commandParams }));
     const memory = this.#commands.get(commandId);
     if (memory !== undefined && memory.signature !== signature) {
       throw new ProtocolError(`commandId ${commandId} was reused with a different payload`);
@@ -367,12 +412,13 @@ export class Connection {
             `${method} ack commandId ${String(ack["commandId"])} did not echo ${commandId}`,
           );
         }
-        if (remembered.ack !== undefined && canonical(remembered.ack) !== canonical(ack)) {
+        const ackFingerprint = fingerprint(canonical(ack));
+        if (remembered.ack !== undefined && remembered.ack !== ackFingerprint) {
           throw new ProtocolError(
             `${method} replay for commandId ${commandId} did not return a value-identical ack`,
           );
         }
-        remembered.ack = { ...ack };
+        remembered.ack = ackFingerprint;
         return ack;
       } catch (error) {
         const retryableNothingAdmitted =
@@ -589,7 +635,7 @@ export class Connection {
         pending.reject(new ProtocolError("response result must be an object", line));
         return;
       }
-      pending.resolve(result);
+      pending.resolve(result, line);
       return;
     }
     const error = frame["error"];

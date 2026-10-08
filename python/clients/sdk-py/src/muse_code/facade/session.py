@@ -34,6 +34,7 @@ from typing import (
 from muse_code_msp import (
     ITEM_KIND_KNOWN_VALUES,
     ApprovalRequestParams,
+    ApprovalUpdatedParams,
     Item,
     ItemDeltaParams,
     TurnCompletedParams,
@@ -612,6 +613,18 @@ class Session(Generic[_I]):
                 self._approval_requested(
                     cast(ApprovalRequestParams, params), sink.tasks
                 )
+        elif method == "approval/updated":
+            # A stage advance arrives as this frame alone on the notification
+            # plane, so it must drive the handler too (see
+            # ``ApprovalRouter.updated``). The same fold verdict gates it: an
+            # update the fold IGNORED (unknown or already-resolved approval)
+            # authors nothing.
+            if isinstance(outcome, ApprovalPending):
+                self._approval_updated(
+                    cast(ApprovalRequestParams, outcome.requested),
+                    cast(ApprovalUpdatedParams, params),
+                    sink.tasks,
+                )
         # ``view/gap`` deliberately routes to no turn: it names a hole in
         # DELIVERY, so what it moves is the fold's currency, and the recovery
         # it triggers is started by ``apply`` off the ``DeliveryGap`` verdict
@@ -892,6 +905,16 @@ class Session(Generic[_I]):
         # pending entry — but it still has to be awaitable through the same
         # ``io``, or a consumer has no barrier for the round trip it just
         # triggered.
+        if decided is not None:
+            tasks.append(_decided_io(decided))
+
+    def _approval_updated(
+        self,
+        requested: ApprovalRequestParams,
+        params: ApprovalUpdatedParams,
+        tasks: List[Awaitable[tuple[PendingRetirement[_I], ...]]],
+    ) -> None:
+        decided = self._approvals.updated(requested, params)
         if decided is not None:
             tasks.append(_decided_io(decided))
 

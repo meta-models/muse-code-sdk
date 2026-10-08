@@ -536,6 +536,7 @@ export class Session<I = unknown> {
       case "view/gap":
       case "turn/retracted": // the turn still reaches its own terminal
       case "turn/retryScheduled": // non-terminal by contract (SS4.5.1)
+      case "turn/foregroundCompleted": // non-terminal by contract (SS4.5.12)
       case "approval/resolved":
       case "userInput/requested":
       case "userInput/settled":

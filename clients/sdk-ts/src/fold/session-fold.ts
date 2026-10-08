@@ -13,7 +13,8 @@
  * are neither an item nor a state family:
  *
  *  - the TURN LIFECYCLE — `turn/started`, `turn/completed`, `turn/retracted`,
- *    `turn/unqueued`, and the non-terminal `turn/retryScheduled`;
+ *    `turn/unqueued`, and the non-terminal `turn/retryScheduled` and
+ *    `turn/foregroundCompleted`;
  *  - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending
  *    sets and their first durable terminal. The decision flow (choosing and
  *    sending a resolution) is the facade's, not the fold's;
@@ -49,6 +50,7 @@ import type {
   SessionTokenUsageParams,
   TurnCompletedParams,
   TurnError,
+  TurnForegroundCompletedParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -88,6 +90,7 @@ export type ViewEvent =
   | { readonly method: "item/delta"; readonly params: ItemDeltaParams }
   | { readonly method: "turn/started"; readonly params: TurnStartedParams }
   | { readonly method: "turn/completed"; readonly params: TurnCompletedParams }
+  | { readonly method: "turn/foregroundCompleted"; readonly params: TurnForegroundCompletedParams }
   | { readonly method: "turn/retracted"; readonly params: TurnRetractedParams }
   | { readonly method: "turn/retryScheduled"; readonly params: TurnRetryScheduledParams }
   | { readonly method: "turn/unqueued"; readonly params: TurnUnqueuedParams }
@@ -196,9 +199,9 @@ type LiveHostStateProjection =
 type SessionLifecycleBroadcast = "session/started" | "session/closed";
 type NonFoldNotification =
   | "initialized"
+  // Client-to-server, like `initialized` — the fold never sees it.
+  | "userInput/engaged"
   | "session/viewHealthChanged"
-  // ADR 36955 D2: command terminal, delivered outside the retired view stream.
-  | "session/deleteCompleted"
   | SessionLifecycleBroadcast
   | LiveHostStateProjection;
 type UnfoldedViewNotification = Exclude<
@@ -261,6 +264,7 @@ export type SessionStateMethod = ViewEvent["method"] & `session/${string}`;
 export type StaleDroppableMethod =
   | "turn/started"
   | "turn/completed"
+  | "turn/foregroundCompleted"
   | "turn/retryScheduled"
   | "approval/requested"
   | "approval/updated"
@@ -290,6 +294,12 @@ export interface TurnEntry {
   readonly error?: TurnError;
   /** The latest scheduled model retry; non-terminal (tdd SS4.5.1, D-026). */
   readonly retryScheduled?: TurnRetryScheduledParams;
+  /**
+   * The latest foreground-completed notice; non-terminal (tdd SS4.5.12).
+   * Tells a renderer the answer is done while `blockingAgents` hold the
+   * turn; clears on the turn's terminal.
+   */
+  readonly foregroundCompleted?: TurnForegroundCompletedParams;
 }
 
 /** An approval awaiting its first durable terminal. */
@@ -413,6 +423,7 @@ interface InternalTurn {
   terminal?: TurnTerminal;
   error?: TurnError;
   retryScheduled?: TurnRetryScheduledParams;
+  foregroundCompleted?: TurnForegroundCompletedParams;
 }
 
 interface InternalApproval {
@@ -651,6 +662,8 @@ export class SessionFold {
         return this.#turnUnqueued(typed.params);
       case "turn/retryScheduled":
         return this.#turnRetryScheduled(typed.params);
+      case "turn/foregroundCompleted":
+        return this.#turnForegroundCompleted(typed.params);
 
       case "approval/requested":
         return this.#approvalRequested(typed.params);
@@ -772,6 +785,9 @@ export class SessionFold {
     // turn's next event — which a completion is (tdd SS4.5.1). Leaving it set
     // makes a renderer show the countdown on a finished turn.
     turn.retryScheduled = undefined;
+    // Same for the foreground hint: a finished turn is not background-waiting
+    // (tdd SS4.5.12).
+    turn.foregroundCompleted = undefined;
     this.#clearActive(params.turnId);
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
@@ -815,6 +831,19 @@ export class SessionFold {
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
+  #turnForegroundCompleted(params: TurnForegroundCompletedParams): FoldOutcome {
+    // Non-terminal by contract: it never resolves a turn-wait (tdd SS4.5.12).
+    const turn = this.#turnFor(params.turnId);
+    // …but it is still a turn frame, so it takes the same redelivery guard
+    // as the retry hint: a replayed page must not re-plant the
+    // background-wait hint on a turn that already left `running`.
+    if (turn.state !== "running") {
+      return { kind: "ignoredStaleFrame", method: "turn/foregroundCompleted", id: params.turnId };
+    }
+    turn.foregroundCompleted = params;
+    return { kind: "turn", turnId: params.turnId, state: turn.state };
+  }
+
   #turnFor(turnId: string): InternalTurn {
     const held = this.#turns.get(turnId);
     if (held !== undefined) return held;
@@ -835,6 +864,9 @@ export class SessionFold {
       ...(turn.terminal !== undefined ? { terminal: turn.terminal } : {}),
       ...(turn.error !== undefined ? { error: turn.error } : {}),
       ...(turn.retryScheduled !== undefined ? { retryScheduled: turn.retryScheduled } : {}),
+      ...(turn.foregroundCompleted !== undefined
+        ? { foregroundCompleted: turn.foregroundCompleted }
+        : {}),
     };
   }
 

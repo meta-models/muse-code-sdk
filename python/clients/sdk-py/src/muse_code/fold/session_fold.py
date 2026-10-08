@@ -10,7 +10,7 @@ are neither an item nor a state family:
 
 - the TURN LIFECYCLE — ``turn/started``, ``turn/completed``,
   ``turn/retracted``, ``turn/unqueued``, and the non-terminal
-  ``turn/retryScheduled``;
+  ``turn/retryScheduled`` and ``turn/foregroundCompleted``;
 - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending sets
   and their first durable terminal. The decision flow (choosing and sending a
   resolution) is the facade's, not the fold's;
@@ -68,6 +68,7 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         "item/delta",
         "turn/started",
         "turn/completed",
+        "turn/foregroundCompleted",
         "turn/retracted",
         "turn/retryScheduled",
         "turn/unqueued",
@@ -127,6 +128,9 @@ class TurnEntry:
             ``turn/completed`` folded.
         error: Present iff the terminal was ``"failed"``.
         retry_scheduled: The latest scheduled model retry; non-terminal.
+        foreground_completed: The latest foreground-completed notice;
+            non-terminal. Tells a renderer the answer is done while
+            ``blockingAgents`` hold the turn; clears on the turn's terminal.
     """
 
     turn_id: str
@@ -135,6 +139,7 @@ class TurnEntry:
     terminal: str | None = None
     error: Params | None = None
     retry_scheduled: Params | None = None
+    foreground_completed: Params | None = None
 
 
 @dataclass(frozen=True)
@@ -183,9 +188,16 @@ class SessionStateFold:
 
 @dataclass(frozen=True)
 class ApprovalPending:
-    """An approval opened or refreshed; it awaits a durable terminal."""
+    """An approval opened or refreshed; it awaits a durable terminal.
+
+    Attributes:
+        approval_id: The wire approval id.
+        requested: The retained ``approval/requested`` params for this
+            approval, so a consumer can act on a refresh without a lookup.
+    """
 
     approval_id: str
+    requested: Params
 
 
 @dataclass(frozen=True)
@@ -399,6 +411,7 @@ class _InternalTurn:
     terminal: str | None = None
     error: Params | None = None
     retry_scheduled: Params | None = None
+    foreground_completed: Params | None = None
 
 
 @dataclass
@@ -548,6 +561,8 @@ class SessionFold:
             return self._turn_unqueued(params)
         if method == "turn/retryScheduled":
             return self._turn_retry_scheduled(params)
+        if method == "turn/foregroundCompleted":
+            return self._turn_foreground_completed(params)
         if method == "approval/requested":
             return self._approval_requested(params)
         if method == "approval/updated":
@@ -649,6 +664,9 @@ class SessionFold:
         # The retry hint is a "retrying in Ns" countdown, and it clears on the
         # turn's next event — which a completion is.
         turn.retry_scheduled = None
+        # Same for the foreground hint: a finished turn is not
+        # background-waiting.
+        turn.foreground_completed = None
         self._clear_active(turn_id)
         return TurnFold(turn_id, turn.state)
 
@@ -687,6 +705,18 @@ class SessionFold:
         turn.retry_scheduled = params
         return TurnFold(turn_id, turn.state)
 
+    def _turn_foreground_completed(self, params: Params) -> FoldOutcome:
+        # Non-terminal by contract: it never resolves a turn-wait.
+        turn_id = str(params["turnId"])
+        turn = self._turn_for(turn_id)
+        # ...but it is still a turn frame, so it takes the same redelivery
+        # guard as the retry hint: a replayed page must not re-plant the
+        # background-wait hint on a turn that already left `running`.
+        if turn.state != "running":
+            return IgnoredStaleFrame("turn/foregroundCompleted", turn_id)
+        turn.foreground_completed = params
+        return TurnFold(turn_id, turn.state)
+
     def _turn_for(self, turn_id: str) -> _InternalTurn:
         held = self._turns.get(turn_id)
         if held is not None:
@@ -708,6 +738,7 @@ class SessionFold:
             terminal=turn.terminal,
             error=turn.error,
             retry_scheduled=turn.retry_scheduled,
+            foreground_completed=turn.foreground_completed,
         )
 
     # ---- the delivery-plane marker ------------------------------------------
@@ -746,7 +777,7 @@ class SessionFold:
         # so pairing the new request with the OLD update would show stale
         # stage/choices and a decide against them bounces -32053.
         self._pending_approvals[approval_id] = _InternalApproval(requested=params)
-        return ApprovalPending(approval_id)
+        return ApprovalPending(approval_id, params)
 
     def _approval_updated(self, params: Params) -> FoldOutcome:
         # An update REFRESHES a pending view; it never opens one. An update
@@ -760,7 +791,7 @@ class SessionFold:
         if held is None:
             return IgnoredStaleFrame("approval/updated", approval_id)
         held.latest_update = params
-        return ApprovalPending(approval_id)
+        return ApprovalPending(approval_id, held.requested)
 
     def _approval_resolved(self, params: Params) -> FoldOutcome:
         approval_id = str(params["approvalId"])

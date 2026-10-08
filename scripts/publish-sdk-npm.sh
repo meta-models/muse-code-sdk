@@ -69,8 +69,15 @@
 # reports that and exits 0 without republishing. Re-running after a successful
 # publish is a no-op, not an error.
 #
-# Environment (test seams only; defaults are the real tree):
-#   SDK_PACKAGE_DIR   package directory to gate and pack
+# Environment:
+#   SDK_PACKAGE_DIR   test seam: package directory to gate and pack
+#
+#   TBH_SDK_KEEP_DIR  the release-cut keep dir (ADR 40626 D11, #45542): when
+#                   set, pack-only mode keeps the audited tarball here for
+#                   the release run's artifact upload. Unset, nothing is
+#                   kept. Not a test seam — tag-release sets it for real;
+#                   the contract suite drives it through a fake on the
+#                   helper's script seam instead.
 #
 set -euo pipefail
 
@@ -266,6 +273,55 @@ else
   fi
 fi
 
+# The mirror anchor verification (ADR 46483 D1/D3). The lockstep above proves
+# the anchor's host_version matches; this proves the anchor itself is the
+# verifiable-version shape (host_version plus a content digest, no
+# producing-side references) and that the digest recomputes over this tree,
+# through the shared public-bound-text gate every publish path calls. It runs
+# only on the anchor carrier: upstream the Cargo.toml carrier has no anchor
+# to verify. Publish refuses on any failure; pack-only notes the shape and
+# digest conditions but still refuses anchor bytes carrying denied classes —
+# content is never noteable (the Gate 4b posture). The classification reads
+# check-anchor's machine-readable verdict line, computed once in the shared
+# gate — never the human prose, so rewording a message cannot mute a
+# content refusal into a note. The match is a full line, not a
+# substring: the die echoes the anchor output, so a shape-only anchor
+# quoting the token would otherwise escalate a note into a die. A missing
+# checker or python3 dies in both modes: missing infrastructure, not a
+# condition. Pack-only omits --expect-version: the lockstep note above
+# already owns the version comparison there, so the anchor note covers only
+# shape and digest.
+if [[ "$host_version_carrier" == "publish-anchor.json" ]]; then
+  TEXT_CHECKER=""
+  for candidate in \
+    "$REPO_ROOT/scripts/check-public-mirror-text.py" \
+    "$REPO_ROOT/python/scripts/check-public-mirror-text.py"; do
+    [[ -f "$candidate" ]] && TEXT_CHECKER="$candidate" && break
+  done
+  [[ -n "$TEXT_CHECKER" ]] ||
+    die "check-public-mirror-text.py is missing from this tree (looked under scripts/ and python/scripts/). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the anchor audit would risk shipping an unverifiable anchor."
+  command -v python3 >/dev/null 2>&1 ||
+    die "python3 is required for the mirror-anchor verification (it runs check-public-mirror-text.py over publish-anchor.json)"
+  CLOSURE_MANIFEST=""
+  for candidate in \
+    "$REPO_ROOT/scripts/sdk-source-closure.json" \
+    "$REPO_ROOT/python/scripts/sdk-source-closure.json"; do
+    [[ -f "$candidate" ]] && CLOSURE_MANIFEST="$candidate" && break
+  done
+  anchor_args=(check-anchor --anchor "$REPO_ROOT/publish-anchor.json")
+  [[ -n "$CLOSURE_MANIFEST" ]] && anchor_args+=(--manifest "$CLOSURE_MANIFEST")
+  [[ "$MODE" == "publish" ]] && anchor_args+=(--expect-version "$VERSION")
+  if anchor_out="$(python3 "$TEXT_CHECKER" "${anchor_args[@]}" 2>&1)"; then
+    ok "mirror publish anchor verifies (host_version $VERSION, content digest matches)"
+  elif [[ "$MODE" == "publish" ]]; then
+    die "the mirror publish anchor failed verification: $anchor_out"
+  elif grep -q -x -F 'anchor-verdict: content-refused' <<<"$anchor_out"; then
+    die "the mirror publish anchor carries denied classes: $anchor_out. Content refuses in pack-only too."
+  else
+    echo "    note: the mirror publish anchor would refuse --publish ($anchor_out). Pack-only does not."
+  fi
+fi
+
 # The published posture condition (D-063; ADR 25304 D3). D-053's 0.x
 # experimental / no-stability posture was superseded when the lockstep landed:
 # the published README now states the product posture instead — the version
@@ -440,6 +496,14 @@ echo ""
 # Publish, or stop.
 # ---------------------------------------------------------------------------
 if [[ "$MODE" != "publish" ]]; then
+  # The release-cut keep seam (ADR 40626 D11, #45542): every gate passed,
+  # so the audited tarball may leave the scratch dir. Publish mode never
+  # reaches here — it publishes the tarball itself below.
+  if [[ -n "${TBH_SDK_KEEP_DIR:-}" ]]; then
+    mkdir -p "$TBH_SDK_KEEP_DIR"
+    cp "$TARBALL" "$TBH_SDK_KEEP_DIR/"
+    echo "kept $TARBALL in $TBH_SDK_KEEP_DIR"
+  fi
   echo "pack-only: every gate passed and NOTHING was published."
   echo "Re-run with --publish to publish (see --help for the owner one-timers)."
   exit 0

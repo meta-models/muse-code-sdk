@@ -62,9 +62,16 @@
 #                                              # publish-pypi.yml
 #   scripts/publish-sdk-pypi.sh --help
 #
-# Environment (test seams only; defaults are the real tree):
-#   SDK_PY_PYTHON   interpreter carrying the dev lock (build, setuptools);
-#                   defaults to python3 on PATH
+# Environment:
+#   SDK_PY_PYTHON   test seam: interpreter carrying the dev lock (build,
+#                   setuptools); defaults to python3 on PATH
+#
+#   TBH_SDK_KEEP_DIR  the release-cut keep dir: when set, build-only mode
+#                   copies the built distributions and wheel-rows.json here
+#                   for the release run's artifact upload. Unset, nothing is
+#                   kept. Not a test seam — the release lane sets it for
+#                   real; the contract suite drives it through fakes on the
+#                   helper's script seams instead.
 #
 set -euo pipefail
 
@@ -138,6 +145,93 @@ if [[ "$MODE" == "publish" ]]; then
   [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]] ||
     die "running in Actions but no OIDC token is available: the calling workflow needs 'permissions: id-token: write'"
   ok "inside the mirror workflow with an OIDC token available"
+fi
+
+# ---------------------------------------------------------------------------
+# Mirror-anchor gate — right after the trusted context, before the tooling
+# preflight and the build gates, so a refused --publish never runs them. The
+# anchor must be the verifiable-version shape (host_version plus a content
+# digest, no producing-side references) and the digest must recompute over
+# this tree, through the shared public-bound-text gate every publish path
+# calls. --publish refuses on any failure, including a missing anchor: a
+# publish from a tree that names no verifiable version is a publish of an
+# unverifiable version. Build-only notes a missing anchor or a shape/digest
+# failure (what --publish would refuse) but still refuses anchor bytes
+# carrying denied classes — content is never noteable (the Gate 4b
+# posture). The classification reads check-anchor's machine-readable
+# verdict line, computed once in the shared gate — never the human prose,
+# so rewording a message cannot mute a content refusal into a note.
+# The match is a full line, not a substring: the die echoes the anchor
+# output, so a shape-only anchor quoting the token would otherwise
+# escalate a note into a die.
+# A missing checker dies in both modes: missing infrastructure,
+# not a condition.
+# This gate binds shape and digest only: it runs before any manifest is
+# parsed, so it cannot yet name the built version. The version binding
+# lives in Gate 2, per package: --publish refuses on mismatch,
+# build-only notes it (npm lockstep-note parity). The tree is pinned
+# with --root, following the resolved anchor's layout: a rooted anchor
+# digests the repo root, a sibling anchor the mirror root. Only the
+# auto-resolution moves the root — an explicit SDK_ANCHOR_PATH pins the
+# anchor alone, never the tree, so proof anchors live outside it.
+# SDK_ANCHOR_PATH overrides the anchor location for tests; the publish
+# workflow never sets it.
+# ---------------------------------------------------------------------------
+step "gate: mirror anchor"
+command -v "$PYTHON" >/dev/null 2>&1 || die "$PYTHON is required for the mirror-anchor verification"
+TEXT_CHECKER=""
+for candidate in \
+  "$REPO_ROOT/scripts/check-public-mirror-text.py" \
+  "$REPO_ROOT/python/scripts/check-public-mirror-text.py"; do
+  [[ -f "$candidate" ]] && TEXT_CHECKER="$candidate" && break
+done
+[[ -n "$TEXT_CHECKER" ]] ||
+  die "check-public-mirror-text.py is missing from this tree (looked under scripts/ and python/scripts/). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the anchor audit would risk shipping an unverifiable anchor."
+ANCHOR_PATH="${SDK_ANCHOR_PATH:-$REPO_ROOT/publish-anchor.json}"
+ANCHOR_ROOT="$REPO_ROOT"
+if [[ -z "${SDK_ANCHOR_PATH:-}" && ! -f "$ANCHOR_PATH" ]]; then
+  # Mirror layout: publish-pypi.yml calls python/scripts/publish-sdk-pypi.sh,
+  # so REPO_ROOT is the mirror's python/ tree while the re-mirror writes the
+  # anchor at the mirror root — probe the verbatim sibling (the wheel-rows
+  # verbatim-sibling precedent: the rooted layout wins wherever it exists).
+  # The digest root follows the anchor: the digest covers the whole carried
+  # tree and only recomputes from the mirror root.
+  SIBLING_ROOT="$(dirname "$REPO_ROOT")"
+  if [[ -f "$SIBLING_ROOT/publish-anchor.json" ]]; then
+    ANCHOR_PATH="$SIBLING_ROOT/publish-anchor.json"
+    ANCHOR_ROOT="$SIBLING_ROOT"
+  fi
+fi
+ANCHOR_VERIFIED="" # set only by the mirror gate's ok branch
+if [[ ! -f "$ANCHOR_PATH" ]]; then
+  if [[ "$MODE" == "publish" ]]; then
+    die "no publish anchor at $ANCHOR_PATH, so --publish names no verifiable version. In the mirror, the re-sync writes publish-anchor.json; a publish from a tree without one is a publish of an unverifiable version."
+  else
+    echo "    note: no publish anchor found, so --publish would refuse. Build-only does not."
+  fi
+else
+  CLOSURE_MANIFEST=""
+  for candidate in \
+    "$REPO_ROOT/scripts/sdk-source-closure.json" \
+    "$REPO_ROOT/python/scripts/sdk-source-closure.json"; do
+    [[ -f "$candidate" ]] && CLOSURE_MANIFEST="$candidate" && break
+  done
+  anchor_args=(check-anchor --anchor "$ANCHOR_PATH" --root "$ANCHOR_ROOT")
+  [[ -n "$CLOSURE_MANIFEST" ]] && anchor_args+=(--manifest "$CLOSURE_MANIFEST")
+  if [[ "$MODE" == "publish" ]]; then
+    "$PYTHON" "$TEXT_CHECKER" "${anchor_args[@]}" ||
+      die "the publish anchor failed verification (findings above); refusing an unverifiable version"
+    ok "publish anchor verifies (verifiable version, content digest matches)"
+  else
+    if anchor_out="$("$PYTHON" "$TEXT_CHECKER" "${anchor_args[@]}" 2>&1)"; then
+      ok "publish anchor verifies (verifiable version, content digest matches)"
+      ANCHOR_VERIFIED=1
+    elif grep -q -x -F 'anchor-verdict: content-refused' <<<"$anchor_out"; then
+      die "the publish anchor carries denied classes: $anchor_out. Content refuses in build-only too."
+    else
+      echo "    note: the publish anchor would refuse --publish ($anchor_out). Build-only does not."
+    fi
+  fi
 fi
 
 command -v "$PYTHON" >/dev/null 2>&1 || die "$PYTHON is required"
@@ -218,6 +312,51 @@ for package in "${PACKAGE_DIRS[@]}"; do
   # derivation first.
   [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$package: version '$VERSION' is not plain X.Y.Z semver (a PEP 440 suffix changes the built wheel's filename; extend scripts/sdk-py-wheel-rows.py before publishing a pre-release)"
   ok "version $VERSION"
+
+  # Publish-only anchor version binding: the mirror gate above verified
+  # anchor shape and content digest, but a stale anchor for another
+  # version verifies too when the mirrored bytes are unchanged between
+  # releases — so each package binds the anchor's host_version to its
+  # own built version here. Build-only omits the binding (npm parity).
+  if [[ "$MODE" == "publish" ]]; then
+    version_args=(check-anchor --anchor "$ANCHOR_PATH" --root "$ANCHOR_ROOT")
+    [[ -n "$CLOSURE_MANIFEST" ]] && version_args+=(--manifest "$CLOSURE_MANIFEST")
+    version_args+=(--expect-version "$VERSION")
+    "$PYTHON" "$TEXT_CHECKER" "${version_args[@]}" ||
+      die "$package: the publish anchor names a different version than the built $VERSION (findings above); refusing a version-unverifiable publish"
+  elif [[ -n "$ANCHOR_VERIFIED" ]]; then
+    # Build-only notes what --publish would refuse (npm lockstep-note
+    # parity): a stale anchor version notes here and dies there. The
+    # mirror gate already proved shape, digest, and content on this
+    # exact tree, so any refusal from this --expect-version rerun is a
+    # version mismatch by elimination — classified on the verdict
+    # token like every publisher, never on the checker's prose.
+    version_args=(check-anchor --anchor "$ANCHOR_PATH" --root "$ANCHOR_ROOT")
+    [[ -n "$CLOSURE_MANIFEST" ]] && version_args+=(--manifest "$CLOSURE_MANIFEST")
+    version_args+=(--expect-version "$VERSION")
+    if version_out="$("$PYTHON" "$TEXT_CHECKER" "${version_args[@]}" 2>&1)"; then
+      :  # Bound: build-only stays silent on a matching version.
+    elif grep -q -x -F 'anchor-verdict: content-refused' <<<"$version_out"; then
+      # Unreachable on a static tree (the mirror gate dies on content
+      # first); die here so an anchor swapped between gates cannot
+      # sail past denied bytes (Gate 4b: content refuses in
+      # build-only too).
+      die "the publish anchor carries denied classes: $version_out. Content refuses in build-only too."
+    elif grep -q -x -F 'anchor-verdict: refused' <<<"$version_out"; then
+      # The verdict decides note-vs-silent (the token rule: verdict
+      # token, never the checker's prose); the prose below only picks
+      # the note's wording after refusal is established, so a checker
+      # rewording degrades the text to the generic note, never to
+      # silence.
+      if grep -q -F "version mismatch for" <<<"$version_out"; then
+        echo "    note: the publish anchor names a different version than the built $VERSION, so --publish would refuse on version binding. Build-only does not."
+      else
+        echo "    note: the publish anchor version recheck refused ($version_out), so --publish would refuse. Build-only does not."
+      fi
+    else
+      echo "    note: the publish anchor version recheck failed without a verdict ($version_out), so --publish would refuse. Build-only does not."
+    fi
+  fi
 
   LICENSE="$(field "$MANIFEST" project.license)"
   [[ "$LICENSE" == "$EXPECTED_LICENSE" ]] ||
@@ -351,6 +490,15 @@ echo ""
 # Publish, or stop.
 # ---------------------------------------------------------------------------
 if [[ "$MODE" != "publish" ]]; then
+  # The release-cut keep seam: every gate passed, so the verified
+  # distributions may leave the scratch dir. Publish mode never reaches
+  # here — its dist/ staging below is the only publish path.
+  if [[ -n "${TBH_SDK_KEEP_DIR:-}" ]]; then
+    mkdir -p "$TBH_SDK_KEEP_DIR"
+    cp -r "$DISTDIR/." "$TBH_SDK_KEEP_DIR/"
+    cp "$ROWS_FILE" "$TBH_SDK_KEEP_DIR/wheel-rows.json"
+    echo "kept the built distributions and wheel rows in $TBH_SDK_KEEP_DIR"
+  fi
   echo "build-only: every gate passed and NOTHING was published."
   echo ""
   echo "The owner-run sequence (see the one-timers above):"

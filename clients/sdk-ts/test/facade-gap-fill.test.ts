@@ -435,6 +435,116 @@ test(
 );
 
 test(
+  "#50252: an end-of-view page before an EXTENDED target re-pages from the last served cursor, folding nothing twice",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The Rust INV-002 rule (#49869) mirrored. A second `view/gap` extends the
+    // target while the first page is in flight; that page ends the view before
+    // the OLD target, so the walk must page on toward the new one — from the
+    // last cursor it was served, not from where it started. Re-asking from the
+    // start re-serves the page's events, and the walk's twin set holds only
+    // cursors at or after a reached target, so they fold twice: here a
+    // `turn/started` for another turn, which is SS4.13 queue movement and
+    // authors one `turn/start` replay per fold.
+    const { session, transport } = wired();
+    const submit = session.sendUserTurn({ composerInput: "hi", input: [{ text: "hi", type: "text" }] });
+    await waitForWrites(transport, 1);
+    const queuedAck = {
+      commandId: "mint-0",
+      disposition: "queued",
+      startedNewTurn: false,
+      status: "accepted",
+      turnId: "t-queued",
+    };
+    answer(transport, 0, queuedAck);
+    await submit;
+
+    const started = paged("turn/started", "v:2", { commandId: "c-other", turnId: "t-other" });
+    const tail = itemEvent("item/started", "v:7", item("i-2", 1));
+    // The host's durable view, as a function of the cursor it is asked from:
+    // a stale re-page really does re-serve `v:2`.
+    const pageFrom = (cursor: unknown): readonly unknown[] =>
+      cursor === "v:1" ? [started, tail] : cursor === "v:2" ? [tail] : [];
+
+    const gap = session.apply(gapFrame("v:1", "v:3"));
+    await waitForWrites(transport, 2);
+    assert.equal(sentParams(transport, 1)["cursor"], "v:1");
+    // The second hole opens while page 1 is in flight; the target extends.
+    session.apply(gapFrame("v:4", "v:7"));
+    assert.deepEqual(session.fold.pendingGap, { after: "v:1", next: "v:7", sessionId: SESSION });
+
+    // Page 1 serves `v:2` and ends the view short of the OLD target `v:3`.
+    answer(transport, 1, { events: [started], nextCursor: null });
+    await waitForWrites(transport, 3);
+    assert.equal(sentFrame(transport, 2)["method"], "view/page");
+    assert.equal(
+      sentParams(transport, 2)["cursor"],
+      "v:2",
+      "the walk pages on from the last cursor it was served, never from where it started",
+    );
+    await answerPage(transport, 2, pageFrom(sentParams(transport, 2)["cursor"]), null);
+    await settleMicrotasks();
+
+    // Write 0 is the submit itself (also a `turn/start`); replays come after.
+    const replays = transport.writes
+      .map((_, index) => sentFrame(transport, index))
+      .slice(1)
+      .filter((frame) => frame["method"] === "turn/start");
+    assert.equal(replays.length, 1, "one fold of `v:2`, so ONE replay of the queued command");
+    answer(transport, transport.writes.length - 1, queuedAck);
+    await gap.io;
+    assert.equal(session.fold.current, true);
+  },
+);
+
+test(
+  "#50459: an end-of-view page whose LAST event is an already-served twin still moves the resume cursor to it",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // FR-50252-1's "(already-applied events included)" clause. An end-of-view
+    // page can end on an event an EARLIER fill already served and applied; the
+    // walk skips it, but it was still served, so a walk toward a target a
+    // mid-walk `view/gap` extended must resume from it. Recording the cursor
+    // only for freshly applied events resumes one event short and asks the
+    // host for a range it has already delivered.
+    const { session, transport } = wired();
+
+    // Fill 1 serves its target `v:3` and then `v:9`, which lands in the
+    // served-twin set (served at or after a reached target).
+    const first = session.apply(gapFrame("v:1", "v:3"));
+    await answerPage(
+      transport,
+      0,
+      [itemEvent("item/started", "v:3", item("i-1", 1)), itemEvent("item/started", "v:9", item("i-9", 1))],
+      "v:9",
+    );
+    await first.io;
+    assert.equal(session.fold.current, true, "fill 1 completed");
+
+    // Fill 2: a hole below `v:9`, extended while its first page is in flight.
+    const second = session.apply(gapFrame("v:4", "v:6"));
+    await waitForWrites(transport, 2);
+    assert.equal(sentParams(transport, 1)["cursor"], "v:4");
+    session.apply(gapFrame("v:6", "v:12"));
+    // Page 1 ends the view on the already-served twin `v:9`.
+    answer(transport, 1, {
+      events: [itemEvent("item/started", "v:5", item("i-5", 1)), itemEvent("item/started", "v:9", item("i-9", 1))],
+      nextCursor: null,
+    });
+    await waitForWrites(transport, 3);
+    assert.equal(
+      sentParams(transport, 2)["cursor"],
+      "v:9",
+      "the resume cursor is the last event SERVED, an already-applied twin included",
+    );
+    await answerPage(transport, 2, [itemEvent("item/started", "v:12", item("i-12", 1))], null);
+    await second.io;
+    assert.equal(session.fold.current, true);
+    assert.equal(transport.writes.length, 3, "three pages, no extra round trip");
+  },
+);
+
+test(
   "a COALESCED gap still discards its buffered twins across the page boundary",
   { timeout: ARM_TIMEOUT },
   async () => {

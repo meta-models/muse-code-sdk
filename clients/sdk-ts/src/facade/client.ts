@@ -37,7 +37,7 @@
  */
 
 import type { Connection } from "../connection/connection.js";
-import { spawnMspConnection } from "../connection/spawn.js";
+import { initializeAnswered, spawnMspConnection } from "../connection/spawn.js";
 import type {
   ExitClassification,
   MuseServeChild,
@@ -47,7 +47,10 @@ import { MuseSessionDiscardedError } from "../errors.js";
 import { DiscardedSessions } from "./discarded.js";
 import { isAbnormalHostDeath, readSessionDurability } from "./host-death.js";
 import type { SessionDurabilityProfile } from "./host-death.js";
+import { MspError, ProtocolError } from "../connection/connection.js";
+import { hostStartFailure } from "./host-start.js";
 import { Session } from "./session.js";
+import type { SessionOpening } from "./session.js";
 import type {
   InitializeParams,
   InitializeResult,
@@ -66,6 +69,9 @@ type ResumeParams = Omit<SessionResumeParams, "commandId">;
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;
+
+/** One inbound view notification as the connection hands it to `#route`. */
+type ViewFrame = { readonly method: string; readonly params?: unknown };
 
 /**
  * Every `StartParams` member `startSession` forwards. `config` is temporarily
@@ -160,6 +166,15 @@ export class MuseClient {
   readonly #discarded: DiscardedSessions;
   /** Sessions this client opened, so one death notification reaches them all. */
   readonly #sessions = new Set<Session>();
+  /**
+   * Frames naming a session this client has not registered YET, held only
+   * while a `session/start`/`session/resume` is in flight (#49790): the host
+   * flushes the resume replay BEFORE the result, and the promise awaiting that
+   * result resumes only after the whole chunk has been routed. `#route` holds,
+   * `#openSession` drains, `#open` clears when the last open settles.
+   */
+  readonly #held = new Map<string, ViewFrame[]>();
+  #opening = 0;
   /** The spawned host, when `spawn` built this client. */
   readonly #child: MuseServeChild | undefined;
   readonly #initializeResult: InitializeResult | undefined;
@@ -203,14 +218,25 @@ export class MuseClient {
    * session: `Session.apply` already tolerates unknown methods, but only the
    * frames that name a `sessionId` have an owner to route to. A frame naming
    * an UNKNOWN session is dropped for the same reason — routing it anywhere
-   * would trip the foreign-frame throw on a session it does not belong to.
+   * would trip the foreign-frame throw on a session it does not belong to —
+   * UNLESS an open is in flight, when it may be that open's own session named
+   * by the server before the awaiting promise has run (#49790): then it is
+   * held for `#openSession` to fold, or for `#open` to clear.
    */
-  #route(notification: { readonly method: string; readonly params?: unknown }): void {
+  #route(notification: ViewFrame): void {
     const named = (notification.params as { sessionId?: unknown } | undefined)?.sessionId;
     if (typeof named !== "string") return;
+    let delivered = false;
     for (const session of this.#sessions) {
-      if (session.sessionId === named) session.apply(notification);
+      if (session.sessionId === named) {
+        session.apply(notification);
+        delivered = true;
+      }
     }
+    if (delivered || this.#opening === 0) return;
+    const held = this.#held.get(named);
+    if (held === undefined) this.#held.set(named, [notification]);
+    else held.push(notification);
   }
 
   /**
@@ -221,6 +247,15 @@ export class MuseClient {
    * reason this factory exists beside the bare constructor: SS2.13.1 makes the
    * absent/unrecognized distinction load-bearing, and a caller re-deriving it
    * by hand is a caller that can get it wrong.
+   *
+   * Rejects with {@link MuseHostStartError} when the host is lost before the
+   * handshake completes (the binary could not be spawned, or the process
+   * ended first — exit code or signal plus the bounded stderr tail;
+   * `answeredInitialize` says whether it died after a usable answer). A host
+   * that answers with a reply the SDK refuses keeps its own error: an
+   * `MspError` for an SS1.6 refusal, or a `ProtocolError` (with the whole
+   * refused frame on `line`) for a reply the SDK cannot use, such as one with
+   * no schema fingerprint.
    */
   static async spawn(options: MuseClientSpawnOptions): Promise<MuseClient> {
     const handshake = spawnMspConnection({
@@ -242,7 +277,23 @@ export class MuseClient {
     } catch (error) {
       // A failed handshake must not leak the process it already spawned.
       await handshake.close().catch(() => undefined);
-      throw error;
+      // A host that ANSWERED `initialize` is not a lost host, however it ends
+      // once we close it: its answer is the actionable error. "Answered" is
+      // evidence that a response frame came back — an SS1.6 `MspError`, or a
+      // `ProtocolError` carrying the frame the SDK refused (a malformed or
+      // version-skewed reply) — never the error's class alone (#49912).
+      // Decided before the exit is read, so our own close ladder can never
+      // dress an answer up as a death.
+      const answered =
+        error instanceof MspError || (error instanceof ProtocolError && error.line !== undefined);
+      if (answered) throw error;
+      // No refused frame: the host was lost — before answering, or after a
+      // usable answer while we sent `initialized` (the error then says so).
+      // close() ended at its observed exit (or its spawn failure), so the
+      // evidence is settled: the typed error carries the spawn error or the
+      // SS2.11 row plus the stderr tail instead of the transport's first
+      // symptom (#49791, #49912).
+      throw await hostStartFailure(handshake.child, error, handshake[initializeAnswered]());
     }
     return new MuseClient(spawned.connection, {
       durability: readSessionDurability(spawned.initializeResult),
@@ -289,15 +340,13 @@ export class MuseClient {
     if (options.workspaceRoot != null) params.workspaceRoot = options.workspaceRoot;
     if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     if (options.modelId != null) params.modelId = options.modelId;
-    const raw = await this.#connection.command("session/start", params);
-    const result = raw as unknown as SessionStartResult;
     // Keyed by the id the SERVER named, never the one the caller asked for:
     // `sessionId` is a REQUEST on start, and a session keyed by a hopeful id
     // would reject every one of its own events as foreign.
-    return this.#openSession(result.session.sessionId, {
-      result,
+    return this.#open("session/start", params, (raw) => ({
+      result: raw as unknown as SessionStartResult,
       verb: "session/start",
-    });
+    }));
   }
 
   /**
@@ -315,12 +364,10 @@ export class MuseClient {
     if (options.cursor != null) params.cursor = options.cursor;
     if (options.excludeItems != null) params.excludeItems = options.excludeItems;
     if (options.history != null) params.history = options.history;
-    const raw = await this.#connection.command("session/resume", params);
-    const result = raw as unknown as SessionResumeResult;
-    return this.#openSession(result.session.sessionId, {
-      result,
+    return this.#open("session/resume", params, (raw) => ({
+      result: raw as unknown as SessionResumeResult,
       verb: "session/resume",
-    });
+    }));
   }
 
   /**
@@ -350,10 +397,29 @@ export class MuseClient {
     await this.#connection.close();
   }
 
-  #openSession(
-    sessionId: string,
-    opening: NonNullable<ConstructorParameters<typeof Session>[0]["opening"]>,
-  ): Session {
+  /**
+   * The window `#route` holds unknown-session frames for: from the request to
+   * the Session's registration. Counted, not flagged, so two concurrent opens
+   * keep it open until the LAST settles; cleared on settle so a frame that
+   * named no session this client opened is held no longer than the open it
+   * rode in with (#49790).
+   */
+  async #open(
+    verb: "session/start" | "session/resume",
+    params: StartParams | ResumeParams,
+    opening: (raw: Record<string, unknown>) => SessionOpening,
+  ): Promise<Session> {
+    this.#opening += 1;
+    try {
+      const opened = opening(await this.#connection.command(verb, params));
+      return this.#openSession(opened.result.session.sessionId, opened);
+    } finally {
+      this.#opening -= 1;
+      if (this.#opening === 0) this.#held.clear();
+    }
+  }
+
+  #openSession(sessionId: string, opening: SessionOpening): Session {
     const session = new Session({
       connection: this.#connection,
       discarded: this.#discarded,
@@ -362,6 +428,14 @@ export class MuseClient {
       sessionId,
     });
     this.#sessions.add(session);
+    // The frames that named this session while its verb was in flight fold
+    // NOW, in arrival order — synchronously, so nothing the pump routes next
+    // can overtake them.
+    const held = this.#held.get(sessionId);
+    if (held !== undefined) {
+      this.#held.delete(sessionId);
+      for (const frame of held) session.apply(frame);
+    }
     return session;
   }
 

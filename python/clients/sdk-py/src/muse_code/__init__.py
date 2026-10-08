@@ -47,6 +47,7 @@ __all__ = [
     "MuseForeignSessionError",
     "MuseGapFillError",
     "MuseHostDiedError",
+    "MuseHostStartError",
     "MuseSessionDiscardedError",
     "PendingCommandSet",
     "PendingCommandView",
@@ -77,7 +78,7 @@ __all__ = [
 ]
 
 EXPECTED_SCHEMA_FINGERPRINT: Final[str] = (
-    "sha256:61afea3112e0906e9dc3a536144278a74cb4b36fc6e20901a91d4432ba3568e2"
+    "sha256:7c94f153c41659cb3f1bd3c3e04438be254644cb2a97d65d48edc7449b74858a"
 )
 """The stable schema-bundle fingerprint this SDK was built against.
 
@@ -89,7 +90,7 @@ Python SDK reds this lane instead of drifting silently.
 # The lockstep rule: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
 # time.
-__version__: Final[str] = "1.4.2"
+__version__: Final[str] = "1.4.4"
 
 # The facade is imported last so the constants above are already bound: the
 # spawn path reads ``EXPECTED_SCHEMA_FINGERPRINT`` (lazily, at initialize
@@ -108,6 +109,7 @@ from .facade import (  # noqa: E402
     MuseClientOptions,
     MuseClientSpawnOptions,
     MuseHostDiedError,
+    MuseHostStartError,
     PendingCommandView,
     ResumeSessionOptions,
     SendUserTurnOptions,

@@ -165,6 +165,75 @@ def test_the_per_wheel_rows_derive_from_the_tree() -> None:
         assert row["schemaFingerprint"] == SCHEMA_FINGERPRINT
 
 
+def _write_mirror_python_tree(root: Path) -> Path:
+    # A mirror-layout python/ tree: the publish script resolves repo_root to
+    # python/, which carries the clients but never the stable bundle (the
+    # closure manifest scopes no schema path under python/).
+    python_root = root / "python"
+    package = python_root / "clients" / "msp-py" / "src" / "muse_code_msp"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        'REQUIRED_HOST_VERSION = "9.9.9"\nSCHEMA_FINGERPRINT = "sha256:abc"\n'
+    )
+    (python_root / "clients" / "msp-py" / "pyproject.toml").write_text(
+        '[project]\nname = "muse-code-msp"\nversion = "9.9.9"\n'
+        'requires-python = ">=3.10"\n'
+    )
+    (python_root / "clients" / "sdk-py").mkdir(parents=True)
+    (python_root / "clients" / "sdk-py" / "pyproject.toml").write_text(
+        '[project]\nname = "muse-code-sdk"\nversion = "9.9.9"\n'
+        'requires-python = ">=3.10"\n'
+    )
+    return python_root
+
+
+def _run_wheel_rows(repo_root: Path) -> "subprocess.CompletedProcess[str]":
+    return subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts" / "sdk-py-wheel-rows.py"),
+            "--repo-root",
+            str(repo_root),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=EXTRACT_WALL_SECONDS,
+        check=False,
+    )
+
+
+def test_the_rows_resolve_the_stable_bundle_at_the_verbatim_layout(
+    tmp_path: Path,
+) -> None:
+    # Mirror layout: repo_root is the mirror's python/ tree and the stable
+    # bundle lives only at the verbatim sibling — the rows still derive.
+    python_root = _write_mirror_python_tree(tmp_path)
+    stable = tmp_path / "schema" / "msp" / "stable"
+    stable.mkdir(parents=True)
+    (stable / "manifest.json").write_text('{"fingerprint": "sha256:abc"}\n')
+    result = _run_wheel_rows(python_root)
+    assert result.returncode == 0, f"wheel-row emit failed:\n{result.stderr}"
+    emitted = json.loads(result.stdout)
+    assert [row["wheel"] for row in emitted["wheels"]] == [
+        "muse_code_msp-9.9.9-py3-none-any.whl",
+        "muse_code_sdk-9.9.9-py3-none-any.whl",
+    ]
+    assert {row["hostVersion"] for row in emitted["wheels"]} == {"9.9.9"}
+    assert {row["schemaFingerprint"] for row in emitted["wheels"]} == {"sha256:abc"}
+
+
+def test_the_rows_refuse_when_the_stable_bundle_is_missing_everywhere(
+    tmp_path: Path,
+) -> None:
+    # Same fixture without the verbatim sibling: no stable bundle under
+    # either layout refuses with the location, never a traceback.
+    python_root = _write_mirror_python_tree(tmp_path)
+    result = _run_wheel_rows(python_root)
+    assert result.returncode != 0
+    assert "stable-bundle manifest is missing" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_the_published_wheels_record_rides_the_docs_build() -> None:
     # The accumulated record of published wheels is the committed
     # integration-time artifact the docs build reads: the compatibility emit

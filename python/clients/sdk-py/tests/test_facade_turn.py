@@ -139,6 +139,19 @@ def turn_retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     }
 
 
+def turn_foreground_completed(turn_id: str, view_cursor: str) -> dict[str, Any]:
+    return {
+        "method": "turn/foregroundCompleted",
+        "params": {
+            "blockingAgents": ["goal-reminder"],
+            "sessionId": SESSION,
+            "sourceRange": SOURCE,
+            "turnId": turn_id,
+            "viewCursor": view_cursor,
+        },
+    }
+
+
 def item(item_id: str, revision: int, **extra: Any) -> dict[str, Any]:
     return {
         "itemId": item_id,
@@ -312,6 +325,32 @@ async def test_turn_retry_scheduled_never_settles_the_wait() -> None:
     for _ in range(5):
         await asyncio.sleep(0)
     assert settled is False, "a scheduled retry is a fact about a RUNNING turn"
+
+    s.apply(turn_completed("t-1", "completed", "v:3"))
+    assert (await turn.completed).kind == "completed"
+    await watcher
+
+
+@pytest.mark.asyncio
+async def test_turn_foreground_completed_never_settles_the_wait() -> None:
+    s = session()
+    turn = s.turn("t-1")
+    s.apply(turn_started("t-1", "v:1"))
+    s.apply(turn_foreground_completed("t-1", "v:2"))
+
+    settled = False
+
+    async def watch() -> None:
+        nonlocal settled
+        await turn.completed
+        settled = True
+
+    import asyncio
+
+    watcher = asyncio.ensure_future(watch())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert settled is False, "foreground done while background checks hold the turn is a RUNNING turn"
 
     s.apply(turn_completed("t-1", "completed", "v:3"))
     assert (await turn.completed).kind == "completed"

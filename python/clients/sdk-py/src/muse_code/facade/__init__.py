@@ -39,6 +39,7 @@ from .host_death import (
     is_abnormal_host_death,
     read_session_durability,
 )
+from .host_start import MuseHostStartError
 from .session import (
     PendingCommandView,
     Session,
@@ -67,6 +68,7 @@ __all__ = [
     "MuseClientOptions",
     "MuseClientSpawnOptions",
     "MuseHostDiedError",
+    "MuseHostStartError",
     "PendingCommandView",
     "ResumeSessionOptions",
     "SendUserTurnOptions",

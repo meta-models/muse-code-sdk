@@ -13,7 +13,7 @@ Three properties:
 * execution — every twin's journey runs to an OK report, one test per
   recipe. The execution arms need the two host binaries; they SKIP (never
   silently pass) when the env does not provide them, and the
-  ``cookbook-py-journeys`` CI job provides both, so CI is where the arms are
+  ``muse-sdk-journeys-py`` CI job (its cookbook-py shard) provides both, so CI is where the arms are
   always real. The one owner-directed divergence is inside the
   ``fingerprint-mismatch`` twin itself.
 """
@@ -138,7 +138,7 @@ def _hosts_or_skip(recipe: Recipe) -> RecipeHosts:
                 )
             pytest.skip(
                 f"recipe {recipe.id} needs {HOST_ENV[need]}; the "
-                "cookbook-py-journeys CI job provides it"
+                "muse-sdk-journeys-py (cookbook-py shard) CI job provides it"
             )
     return RecipeHosts(transcript_root=str(TRANSCRIPT_ROOT), **provided)
 

@@ -10,6 +10,7 @@ import type { InitializeParams, InitializeResult } from "@muse-code/msp";
 import {
   Connection,
   ProtocolError,
+  requestWithFrame,
   submissionTail,
 } from "./connection.js";
 import type {
@@ -104,6 +105,12 @@ export interface MuseServeChildOptions {
    * `0..2147483647`; anything else throws `RangeError` at spawn.
    */
   readonly shutdownTimeoutMs?: number;
+  /**
+   * Deterministic-test seam; production always uses `child_process.spawn`.
+   * A stub here observes the exact options the call site passes, so a
+   * `windowsHide` override at the call site fails the pin (FR-45141-1).
+   */
+  readonly spawnFn?: typeof spawn;
 }
 
 const DEFAULT_STDERR_MAX_BYTES = 8 * 1024;
@@ -120,6 +127,13 @@ const SIGTERM_GRACE_MS = 2_000;
 const MAX_SHUTDOWN_TIMEOUT_MS = 2_147_483_647;
 const ownedTransport = Symbol("MuseServeChild.transport");
 const adoptFlushSource = Symbol("ChildStdioTransport.adoptFlushSource");
+/**
+ * Module friend seam: did `initialize` get a usable answer before the
+ * handshake failed? Exported from this MODULE only (never the package
+ * barrel) so the facade can word a host lost AFTER answering truthfully
+ * (#49912) without a new public member on `MspHandshake`.
+ */
+export const initializeAnswered = Symbol("MspHandshake.initializeAnswered");
 
 /**
  * Shutdown deadline contract: `expired` resolves and never rejects; after
@@ -470,6 +484,28 @@ export class ChildStdioTransport implements DuplexTransport {
   }
 }
 
+/**
+ * The exact options `MuseServeChild.spawn` hands to `child_process.spawn`,
+ * factored out so the spawn-options pin can assert on them without spawning.
+ * Exported from this MODULE only (never the package barrel) — the same
+ * module-only-test-seam precedent as `isBenignCloseRace`.
+ */
+export function buildSpawnOptions(options: {
+  readonly cwd?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly detached: boolean;
+}): SpawnOptionsWithoutStdio {
+  return {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+    detached: options.detached,
+    // FR-45141-1: `muse serve` is never meant to be seen. Without this, a
+    // Windows host with no console of its own pops a console window for the
+    // life of the connection; the flag is a no-op on other platforms.
+    windowsHide: true,
+  };
+}
+
 /** One owned MSP host process with SS2.11 diagnostics and total exit mapping. */
 export class MuseServeChild {
   readonly #tail = new StderrTail();
@@ -509,13 +545,14 @@ export class MuseServeChild {
     // PID is a POSIX primitive, and pretending otherwise would fake
     // subtree containment there.
     const ownsProcessGroup = process.platform !== "win32";
-    const spawnOptions: SpawnOptionsWithoutStdio = {
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      ...(options.env === undefined ? {} : { env: options.env }),
+    const spawnOptions = buildSpawnOptions({
+      cwd: options.cwd,
+      env: options.env,
       detached: ownsProcessGroup,
-    };
+    });
+    const spawnChild = options.spawnFn ?? spawn;
     return new MuseServeChild(
-      spawn(options.museBin, [...(options.args ?? [])], spawnOptions),
+      spawnChild(options.museBin, [...(options.args ?? [])], spawnOptions),
       options.onStderr,
       options.shutdownTimeoutMs,
       ownsProcessGroup,
@@ -543,6 +580,7 @@ export class MspHandshake {
   readonly child: MuseServeChild;
   readonly #transport: ChildStdioTransport;
   #started = false;
+  #answered = false;
 
   constructor(options: SpawnMspConnectionOptions) {
     this.child = MuseServeChild.spawn({
@@ -585,16 +623,25 @@ export class MspHandshake {
     return await this.#transport.exited;
   }
 
+  /** See {@link initializeAnswered}. */
+  [initializeAnswered](): boolean {
+    return this.#answered;
+  }
+
   async initialize(params: InitializeParams): Promise<SpawnedMspConnection> {
     if (this.#started) throw new ProtocolError("initialize may be sent only once per connection");
     this.#started = true;
-    const raw = await this.#connection.request(
+    const { result: raw, line } = await this.#connection[requestWithFrame](
       "initialize",
       params as unknown as Record<string, unknown>,
     );
+    this.#answered = true;
     const result = raw as unknown as InitializeResult;
     if (typeof result.schema?.fingerprint !== "string") {
-      throw new ProtocolError("initialize result has no schema fingerprint");
+      // The whole refused frame rides on the error, as on every other
+      // refusal: a host that answered with an unusable result was not lost,
+      // and the facade tells the two apart by it (#49912, #50588 review).
+      throw new ProtocolError("initialize result has no schema fingerprint", line);
     }
     const fingerprintWarning = checkServedFingerprint(result.schema.fingerprint);
     this.#connection.notify("initialized");

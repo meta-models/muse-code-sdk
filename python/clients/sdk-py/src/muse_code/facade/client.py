@@ -23,7 +23,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, fields
-from typing import Any, Awaitable, Generic, List, Mapping, Sequence, Set, TypeVar
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generic,
+    List,
+    Mapping,
+    Sequence,
+    Set,
+    TypeVar,
+)
 
 from muse_code_msp import (
     ClientCapabilities,
@@ -45,6 +55,7 @@ from ..connection.spawn import (
 )
 from ..errors import MuseSessionDiscardedError
 from .discarded import DiscardedSessions
+from .host_start import MuseHostStartError, keeps_its_own_error
 from .host_death import (
     SessionDurabilityProfile,
     TransportEof,
@@ -204,6 +215,14 @@ class MuseClient(Generic[_I]):
         # sharing knob would be declared-ahead surface (Constitution XI).
         self._discarded = DiscardedSessions()
         self._sessions: Set[Session[_I]] = set()
+        # Frames naming a session this client has not registered YET, held
+        # only while a ``session/start``/``session/resume`` is in flight: the
+        # host flushes the resume replay BEFORE the result, and the coroutine
+        # awaiting that result resumes only after the whole chunk has been
+        # routed. ``_route`` holds, ``_open_session`` drains,
+        # ``_open`` clears when the last open settles.
+        self._opening = 0
+        self._held: dict[str, List[Mapping[str, Any]]] = {}
         host = options.host
         self._child: MuseServeChild | None = host.child if host is not None else None
         self._initialize_result: InitializeResult | None = (
@@ -239,6 +258,19 @@ class MuseClient(Generic[_I]):
 
         Returns:
             A wired client, its connection already initialized.
+
+        Raises:
+            MuseHostStartError: The host ended before the handshake
+                completed; it carries the exit classification row, the
+                bounded stderr tail, and ``answered_initialize`` (``True``
+                when the host answered ``initialize`` and died while this
+                client sent ``initialized``). A host whose answer was itself
+                the failure — its own error, a fingerprint mismatch or a
+                malformed result — keeps that error; an ``initialize`` frame
+                this client cannot encode (for example a non-UTF-8
+                ``client_info``) keeps its ``ProtocolError``; a cancellation
+                stays a cancellation; and a binary that cannot be started
+                raises the operating system's own error from the spawn call.
         """
         handshake = await spawn_msp_connection(
             options.muse_bin,
@@ -260,7 +292,7 @@ class MuseClient(Generic[_I]):
             init_params["capabilities"] = options.capabilities
         try:
             spawned = await handshake.initialize(init_params)
-        except BaseException:
+        except BaseException as error:
             # A failed handshake must not leak the process it already spawned.
             # (``initialize`` already closes on its own failure paths; this is
             # the belt-and-braces close for anything that escapes it.)
@@ -268,7 +300,22 @@ class MuseClient(Generic[_I]):
                 await handshake.close()
             except BaseException:
                 pass
-            raise
+            # A cancellation or interrupt is the caller's, a frame that never
+            # left this process is the caller's, and a host that ANSWERED was
+            # not lost: decided before the exit is read, so our own close
+            # ladder can never dress any of them up as a death.
+            if not isinstance(error, Exception) or keeps_its_own_error(error):
+                raise
+            # The host was lost: before answering, or after a usable answer
+            # while we sent ``initialized`` (the error then says so). close()
+            # ended at its observed exit, so the row is settled: raise it with
+            # the stderr tail instead of the transport's first symptom.
+            child = handshake.child
+            raise MuseHostStartError(
+                await child.exit,
+                child.stderr_tail,
+                answered_initialize=handshake._answered,
+            ) from error
         return MuseClient(
             spawned.connection,
             MuseClientOptions(
@@ -330,15 +377,10 @@ class MuseClient(Generic[_I]):
             params["workspaceRoots"] = options.workspace_roots
         if options.model_id is not None:
             params["modelId"] = options.model_id
-        raw = await self._connection.command("session/start", params)
-        result: Mapping[str, Any] = raw
         # Keyed by the id the SERVER named, never the one the caller asked for:
         # ``sessionId`` is a REQUEST on start, and a session keyed by a hopeful
         # id would reject every one of its own events as foreign.
-        return self._open_session(
-            str(result["session"]["sessionId"]),
-            _StartOpening(result=result),
-        )
+        return await self._open("session/start", params, _StartOpening)
 
     async def resume_session(self, options: ResumeSessionOptions) -> Session[_I]:
         """Load an existing session and subscribe this connection to its view.
@@ -355,12 +397,7 @@ class MuseClient(Generic[_I]):
             params["excludeItems"] = options.exclude_items
         if options.history is not None:
             params["history"] = options.history
-        raw = await self._connection.command("session/resume", params)
-        result: Mapping[str, Any] = raw
-        return self._open_session(
-            str(result["session"]["sessionId"]),
-            _ResumeOpening(result=result),
-        )
+        return await self._open("session/resume", params, _ResumeOpening)
 
     async def close(self) -> None:
         """Shut the host down in an orderly way.
@@ -384,6 +421,29 @@ class MuseClient(Generic[_I]):
             return
         await self._connection.close()
 
+    async def _open(
+        self,
+        verb: str,
+        params: dict[str, Any],
+        opening: Callable[[Mapping[str, Any]], SessionOpening],
+    ) -> Session[_I]:
+        # The window ``_route`` holds unknown-session frames for: from the
+        # request to the Session's registration. Counted, not flagged, so two
+        # concurrent opens keep it open until the LAST settles; cleared on
+        # settle so a frame that named no session this client opened is held
+        # no longer than the open it rode in with.
+        self._opening += 1
+        try:
+            raw = await self._connection.command(verb, params)
+            result: Mapping[str, Any] = raw
+            return self._open_session(
+                str(result["session"]["sessionId"]), opening(result)
+            )
+        finally:
+            self._opening -= 1
+            if self._opening == 0:
+                self._held.clear()
+
     def _open_session(
         self, session_id: str, opening: SessionOpening
     ) -> Session[_I]:
@@ -395,6 +455,11 @@ class MuseClient(Generic[_I]):
             opening=opening,
         )
         self._sessions.add(session)
+        # The frames that named this session while its verb was in flight
+        # fold NOW, in arrival order — synchronously, so nothing the pump
+        # routes next can overtake them.
+        for held in self._held.pop(session_id, ()):
+            session.apply(held)
         return session
 
     def _assert_reattach_allowed(self, session_id: str) -> None:
@@ -414,16 +479,25 @@ class MuseClient(Generic[_I]):
 
     def _route(self, notification: Mapping[str, Any]) -> None:
         # Deliver one view notification to the session(s) it names. A frame
-        # naming NO session is dropped here rather than fed to every session,
-        # and a frame naming an UNKNOWN session is dropped for the same reason
+        # naming NO session is dropped here rather than fed to every session
         # — routing it anywhere would trip the foreign-frame throw.
         params = notification.get("params")
         named = params.get("sessionId") if isinstance(params, dict) else None
         if not isinstance(named, str):
             return
+        delivered = False
         for session in self._sessions:
             if session.session_id == named:
                 session.apply(notification)
+                delivered = True
+        # An UNKNOWN session with no open in flight is dropped, for the same
+        # reason as a nameless frame.
+        if delivered or self._opening == 0:
+            return
+        # An open is in flight and this may be ITS session, named by the
+        # server before the awaiting coroutine has run: hold it for
+        # ``_open_session`` to fold, or for ``_open`` to clear.
+        self._held.setdefault(named, []).append(notification)
 
     async def _watch_closed(self) -> None:
         try:

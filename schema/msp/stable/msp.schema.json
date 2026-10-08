@@ -403,6 +403,10 @@
         "approvalId": {
           "type": "string"
         },
+        "decidedAt": {
+          "description": "The decision time as RFC3339, projected from the durable\n`DecisionApplied` record's own stamp (ADR 45450 D3): optional on the\nwire so decoders tolerate its absence, always populated by current\nhosts.",
+          "type": "string"
+        },
         "decidedByCommandId": {
           "type": "string"
         },
@@ -784,6 +788,74 @@
       ],
       "type": "object"
     },
+    "CodeModeLanguage": {
+      "description": "The language a Code Mode cell ran in (ADR 42727 D2). Open: values are\nlowercase VS Code language identifiers, and only `javascript` (the V8\nengine) is minted today.",
+      "enum": [
+        "javascript"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "CodeModeOutputSpan": {
+      "description": "One public-output span inside the item's `visibleOutput` (ADR 42727 D3).\n\nOffsets index the UTF-8 encoding of the **decoded** `visibleOutput`\nstring, never the JSON-escaped wire text; both ends fall on code-point\nboundaries; named and measured like `item/readOutput`'s byte range.",
+      "properties": {
+        "lengthBytes": {
+          "description": "Length of the span, in bytes.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offsetBytes": {
+          "description": "Start of the span, in bytes.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stream": {
+          "$ref": "#/$defs/CodeModeOutputStream",
+          "description": "What the bytes are."
+        }
+      },
+      "required": [
+        "lengthBytes",
+        "offsetBytes",
+        "stream"
+      ],
+      "type": "object"
+    },
+    "CodeModeOutputStream": {
+      "description": "What a Code Mode output span's bytes are (ADR 42727 D3). Open: each\nengine mints its own values.",
+      "enum": [
+        "transcript"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "CodeModeReceipt": {
+      "description": "Code Mode's `details` payload (ADR 42727 D2/D3).\n\nEvery member is absent when it does not apply, never `null`; an empty\n`outputSpans` list is never served.",
+      "properties": {
+        "cellItemId": {
+          "description": "`wait` only, when the producer resolved it: the `itemId` of the\n`execute` item that started the cell.",
+          "type": "string"
+        },
+        "language": {
+          "$ref": "#/$defs/CodeModeLanguage",
+          "description": "`execute`, and `wait` when the producer resolved the originating\nexecute: the language the cell ran in."
+        },
+        "outputSpans": {
+          "description": "The public cell-output spans, ascending and non-overlapping; absent\nwhen there is no cell body or a hook rewrote the served body.",
+          "items": {
+            "$ref": "#/$defs/CodeModeOutputSpan"
+          },
+          "type": "array"
+        },
+        "sourceArg": {
+          "description": "`execute` only: the top-level key of the item's `args` object whose\nvalue is the cell source. A pointer, never source bytes.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "CommandAcceptedResult": {
       "description": "The uniform SS3.1.2 command acknowledgement: admission only, never an\noutcome. `session/compact` alone may answer `\"noop\"`; every other command\nanswers `\"accepted\"`.",
       "properties": {
@@ -848,6 +920,101 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ComputerUseBlockedApp": {
+      "description": "One row of the Settings blocked-apps list.",
+      "properties": {
+        "bundleId": {
+          "description": "The app's bundle ID, or the family prefix when `prefix` is true.",
+          "type": "string"
+        },
+        "locked": {
+          "description": "A built-in block, which Settings cannot remove (ADR 630 D18.8).",
+          "type": "boolean"
+        },
+        "prefix": {
+          "description": "A built-in family row: it blocks every bundle ID that starts with\n`bundleId`. Omitted means false; only locked rows are prefixes.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bundleId",
+        "locked"
+      ],
+      "type": "object"
+    },
+    "ComputerUseChoice": {
+      "description": "A capability dropdown's value (ADR 630 D18.4). **Open**: the read result\ncarries it, so an older client tolerates a value it does not know.",
+      "enum": [
+        "ask",
+        "alwaysAllow"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ComputerUseSettings": {
+      "description": "`computerUseSettings/read` result, also answered by\n`computerUseSettings/update`.",
+      "properties": {
+        "blockedApps": {
+          "description": "The user's blocks in the order they were added, then the built-in\nblocks when `showBuiltIns` asked for them.",
+          "items": {
+            "$ref": "#/$defs/ComputerUseBlockedApp"
+          },
+          "type": "array"
+        },
+        "computerControl": {
+          "$ref": "#/$defs/ComputerUseChoice",
+          "description": "The computer-control dropdown, as it applies: `ask` while the stored\nblocked-apps list can't be read (ADR 630 D18.4)."
+        },
+        "screenshots": {
+          "$ref": "#/$defs/ComputerUseChoice",
+          "description": "The screenshots dropdown, under the same rule."
+        }
+      },
+      "required": [
+        "blockedApps",
+        "computerControl",
+        "screenshots"
+      ],
+      "type": "object"
+    },
+    "ComputerUseSettingsReadParams": {
+      "description": "`computerUseSettings/read` params.",
+      "properties": {
+        "showBuiltIns": {
+          "description": "Also list the built-in blocks as locked rows (the D18.8 toggle).\nOmitted means false.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ComputerUseSettingsUpdateParams": {
+      "description": "`computerUseSettings/update` params: a patch. Omitted members are left\nalone; the whole patch applies or none of it does.",
+      "properties": {
+        "blockApps": {
+          "description": "Bundle IDs to add to the user's blocked apps. A built-in block is\nrefused: it is already blocked.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "computerControl": {
+          "$ref": "#/$defs/ComputerUseChoice",
+          "description": "The new computer-control dropdown value."
+        },
+        "screenshots": {
+          "$ref": "#/$defs/ComputerUseChoice",
+          "description": "The new screenshots dropdown value."
+        },
+        "unblockApps": {
+          "description": "Bundle IDs to remove from the user's blocked apps. Only the user's own\nentries can be removed; a built-in block stays.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "ContextPressureLevel": {
       "description": "Context pressure level (tdd SS4.6.6): hard threshold first, both\ninclusive `>=`. Open.",
       "enum": [
@@ -877,6 +1044,45 @@
       "required": [
         "pressure",
         "usedTokens"
+      ],
+      "type": "object"
+    },
+    "CronReceipt": {
+      "description": "Cron's `details` payload (ADR 42728 D2, thirteenth directive).\n\nEvery field a family owns lives here, under the container's one\n`details` key, rather than flat beside the discriminators — ADR 43399 D5\nas amended. Each is a **bounded machine fact**: scalars, short\nidentifiers and a small fixed-shape array of those.",
+      "properties": {
+        "jobId": {
+          "description": "Cron `create` and `delete`: the job id. On `delete`'s `missing` arm\nthis is the caller's own id echoed back under ADR 43399 D1's declared\necho — that arm has no server-side subject to name.\n\nAlso the field ADR 42728 D4's D8 declaration names as conveying the\nhidden fact on the declared `created` + `cancelled` pairing: a job row\nwas committed and will fire.",
+          "type": "string"
+        },
+        "jobs": {
+          "description": "Cron `list`: the served jobs in server order, `active` and `firing`\nrows only.",
+          "items": {
+            "$ref": "#/$defs/CronReceiptJob"
+          },
+          "type": "array"
+        },
+        "nextFireAtMs": {
+          "description": "Cron `create` (`created`, `duplicate`): absolute epoch-milliseconds of\nthe job's next scheduled fire (the existing job's on `duplicate`,\nADR 42728 D2).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "CronReceiptJob": {
+      "description": "One row of the Cron `list` receipt's `jobs` array (ADR 42728 D2).\n\nServer order, and **`active` + `firing` rows only** — the owner's\n`Serve active+firing only` directive. A small fixed-shape array of\nscalars, which is what keeps it inside D5's bounded-machine-fact rule.",
+      "properties": {
+        "jobId": {
+          "description": "The job's server-owned id.",
+          "type": "string"
+        },
+        "nextFireAtMs": {
+          "description": "Absolute epoch-milliseconds of the job's next scheduled fire.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "jobId",
+        "nextFireAtMs"
       ],
       "type": "object"
     },
@@ -1101,6 +1307,10 @@
           "$ref": "#/$defs/UserInputSettlementSummary",
           "description": "Winning settlement on `userInputAlreadySettled`."
         },
+        "uploadId": {
+          "description": "The rejected upload id on `uploadNotFound` (`-32038`, SS3.33).",
+          "type": "string"
+        },
         "userInputId": {
           "description": "User-input prompt identity on SS5.10 errors.",
           "type": "string"
@@ -1143,6 +1353,8 @@
         "commandRejected",
         "backpressured",
         "skillNotFound",
+        "computerUseUnavailable",
+        "uploadNotFound",
         "viewTruncated",
         "outputUnavailable",
         "boundaryPruned",
@@ -1245,7 +1457,7 @@
       "description": "`feedback/submit` params (tdd SS3.25): mirrors the TUI confirm-time\n`FeedbackRequest`. The call itself is the explicit confirm.",
       "properties": {
         "attachSessionRecord": {
-          "description": "Consent to attach the session record; honored only for\n`bug`/`badResult`. `true` with `with_files: false` or a\nnon-`bug`/`badResult` classification is `invalidParams` (F4).\nDefaults to `false`.",
+          "description": "Consent to attach the session record; honored only for\n`bug`/`badResult` with `session_id` present. `true` with\n`with_files: false`, with a non-`bug`/`badResult` classification,\nor without `session_id` is `invalidParams` (F4, F8).\nDefaults to `false`.",
           "type": "boolean"
         },
         "classification": {
@@ -1261,7 +1473,7 @@
           "type": "string"
         },
         "sessionId": {
-          "description": "Names the session this call is about (required, F3): the bundle\nalways lands in that session's dir. Names a session this host owns;\na client with no session cannot send feedback.",
+          "description": "Names the session this call is about when present (F8,\nsuperseding F3): the bundle lands in that session's dir. Names a\nsession this host owns. When absent, the bundle lands in the\nhost-level feedback folder and the `session_id` tag is omitted.",
           "type": "string"
         },
         "withFiles": {
@@ -1272,7 +1484,6 @@
       "required": [
         "classification",
         "note",
-        "sessionId",
         "withFiles"
       ],
       "type": "object"
@@ -1557,6 +1768,113 @@
       "type": "string",
       "x-msp-openness": "closed"
     },
+    "HookCatalogEntry": {
+      "description": "One installed handler (tdd SS3.26.1).",
+      "properties": {
+        "enabled": {
+          "description": "The row's own switch (tdd SS3.26.1). Non-enabled rows are\nincluded as `false`, never dropped.",
+          "type": "boolean"
+        },
+        "event": {
+          "$ref": "#/$defs/HookEventName",
+          "description": "The event the handler runs on (ADR 33398 D7 item 2)."
+        },
+        "handlerKind": {
+          "$ref": "#/$defs/HookHandlerKind",
+          "description": "Where the handler comes from (ADR 33398 D7 item 1)."
+        },
+        "key": {
+          "description": "The handler key (config key or plugin hook id).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "event",
+        "handlerKind",
+        "key"
+      ],
+      "type": "object"
+    },
+    "HookEventName": {
+      "description": "Hook event names (tdd SS3.26.1, ADR 33398 D7 item 2): the\nlowercase-first-letter spelling of every `HookEventKind::all()`\nvariant. Open (server-produced result vocabulary, the #22785\nenum-openness rule): a future event value is additive.",
+      "enum": [
+        "sessionStart",
+        "userPromptSubmit",
+        "preToolUse",
+        "permissionRequest",
+        "postToolUse",
+        "preCompact",
+        "postCompact",
+        "subagentStart",
+        "subagentStop",
+        "stop",
+        "sessionEnd",
+        "notification",
+        "postToolUseFailure",
+        "stopFailure",
+        "postToolBatch",
+        "interrupt",
+        "sessionFork",
+        "toolUseStart",
+        "preLLMCall",
+        "postLLMCall"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "HookHandlerKind": {
+      "description": "A hook row's origin (tdd SS3.26.1, ADR 33398 D7 item 1): the config\n`HookSourceKind` values plus plugin-contributed. Open (server-produced\nresult vocabulary, the #22785 enum-openness rule): a future origin is\nadditive.",
+      "enum": [
+        "managed",
+        "user",
+        "project",
+        "plugin"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "HookListParams": {
+      "description": "`hook/list` params (tdd SS3.26.1). Per-session because hook scope\nfollows the session's workspace and plugin state.",
+      "properties": {
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HookListResult": {
+      "description": "`hook/list` result (tdd SS3.26.1): one row per installed handler per\nevent — a `ResolvedHookHandler` carries one event, and grouping would\nlose matcher/command identity (ADR 33398 D7 item 1).",
+      "properties": {
+        "hooks": {
+          "description": "The session's installed hook rows (tdd SS3.26.1 promises the\nset, not an order).",
+          "items": {
+            "$ref": "#/$defs/HookCatalogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hooks"
+      ],
+      "type": "object"
+    },
+    "HookRunStatus": {
+      "description": "`hookRun` durable outcome (tdd SS4.5.11). Open: new outcomes are\nadditive, and clients MUST render unknown values generically.",
+      "enum": [
+        "completed",
+        "blocked",
+        "failed",
+        "timedOut",
+        "cancelled"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "IfBusy": {
       "description": "Disposition when a turn is already running (tdd SS3.2). The wire default\nis `queue`: an SDK caller who has not looked at session state should not\nsilently mutate an in-flight turn.",
       "enum": [
@@ -1640,7 +1958,7 @@
       "type": "object"
     },
     "Item": {
-      "description": "One transcript item at one revision (tdd SS4.4.1 common fields plus the\nper-kind fields of SS4.5.2–4.5.10, all optional and owned by the kind\ntheir doc names). `item/started`, `item/updated`, and `item/completed`\ncarry the full object; `item/delta` appends to it by field path.",
+      "description": "One transcript item at one revision (tdd SS4.4.1 common fields plus the\nper-kind fields of SS4.5.2–4.5.11, all optional and owned by the kind\ntheir doc names). `item/started`, `item/updated`, and `item/completed`\ncarry the full object; `item/delta` appends to it by field path.",
       "properties": {
         "agentPath": {
           "description": "`subagent`: agent definition path.",
@@ -1669,9 +1987,20 @@
           "$ref": "#/$defs/BackgroundInitiator",
           "description": "`toolCall`: who backgrounded the task; absent on pre-split records —\nnever inferred (tdd SS4.5.5)."
         },
+        "blocking": {
+          "description": "`reminderChild`: `true` when this child is a blocking reminder (it holds\nthe turn open until it settles); absent otherwise, never `false` (ADR\n41191 D4). The status word stays off the wire; clients name the\nreminder from `reminderAgentId`.",
+          "type": "boolean"
+        },
         "callId": {
           "description": "`toolCall`: the provider call id (`call_...`), opaque.",
           "type": "string"
+        },
+        "childPromptRefs": {
+          "description": "`workflow`: one `outputRef`-shaped link per recorded child spawn\nwith an objective (`kind: \"workflow_child_prompt\"`), fetched via\n`item/readOutput` (tdd SS4.5.8/SS4.7.4, #45449).",
+          "items": {
+            "$ref": "#/$defs/OutputRef"
+          },
+          "type": "array"
         },
         "childSessionId": {
           "description": "`subagent`/`reminderChild`: the child's own session id, readable via\n`session/read`/`view/page` — child transcript drill-down without a\nsecond protocol (tdd SS4.5.7).",
@@ -1700,6 +2029,10 @@
           "$ref": "#/$defs/SubagentControlStatus",
           "description": "`subagent`: camelCased `SubagentControlStatus` (open enum); `status`\nstays the generic item vocabulary."
         },
+        "declaredPhase": {
+          "description": "`workflow`: the run-level declared-phase label — the last `Phase`\ndetail-row label of the reconciled projection; terminal-only, absent\nwhile live (tdd SS4.5.8, #45449).",
+          "type": "string"
+        },
         "depth": {
           "description": "`subagent`: nesting depth.",
           "type": "integer"
@@ -1709,12 +2042,16 @@
           "type": "string"
         },
         "durationMs": {
-          "description": "`userShell`/`subagent`: observed wall-clock duration.",
+          "description": "`userShell`/`subagent`: observed wall-clock duration. `workflow`: the\nrun's wall time from launch to reconciliation, set only on the\nsettling `item/completed` — never a sum of child durations.",
           "type": "integer"
         },
         "entryId": {
           "description": "`workflow`: launched entry identity.",
           "type": "string"
+        },
+        "event": {
+          "$ref": "#/$defs/HookEventName",
+          "description": "`hookRun`: the hook event in Q2 camelCase vocabulary (tdd SS4.5.11)."
         },
         "exitCode": {
           "description": "`userShell`: the process exit code, when it exited by code.",
@@ -1736,9 +2073,17 @@
           "description": "Server-provided one-line human summary any kind MAY carry, for\ngeneric rendering of kinds a client does not recognize; new kinds\nSHOULD carry it during their first release cycle (tdd SS4.10).",
           "type": "string"
         },
+        "finalSummary": {
+          "description": "`workflow`: the human terminal summary projected from the reconciled\nLaunch envelope, bounded at the 64 KiB surface budget; terminal-only\n(tdd SS4.5.8, #45449).",
+          "type": "string"
+        },
         "generationId": {
           "description": "`reminderChild`: the reminder generation.",
           "type": "integer"
+        },
+        "hookKey": {
+          "description": "`hookRun`: the durable `hook_key` (tdd SS4.5.11).",
+          "type": "string"
         },
         "itemId": {
           "description": "Bare UUIDv7; the item's identity across its whole lifecycle. Identity\nrule (tdd SS4.4.1): the task id for task-backed kinds\n(`toolCall`, `subagent`), the pre-minted commit `message_id` for\ndelta-streamed kinds (`agentMessage`, `reasoning`), and the opening\ndurable record's event id for everything else. Opaque to clients.",
@@ -1747,6 +2092,10 @@
         "kind": {
           "$ref": "#/$defs/ItemKind",
           "description": "The item kind (open enum): clients MUST render unknown kinds\ngenerically — kind name plus `status` plus `fallbackText` (tdd\nSS4.10)."
+        },
+        "label": {
+          "description": "`hookRun`: capped display label (tdd SS4.5.11).",
+          "type": "string"
         },
         "message": {
           "description": "`workflow`: the reconciled terminal message, set on completion.",
@@ -1779,12 +2128,16 @@
           "$ref": "#/$defs/PatchSummary",
           "description": "`toolCall`: server-authored edit-family diff summary (#33025)\n— always beside `patchRef`; absent = no diff available (tdd SS4.5.5)."
         },
+        "paused": {
+          "description": "`workflow`: `true` only while a durable pause fact is in force for\nthe run's generation; absent otherwise, never `false` (tdd SS4.5.8,\nADR 45437 D2; the fold sets it on pause commit and clears it on\nresume-commit supersession or the generation's terminal).",
+          "type": "boolean"
+        },
         "providerItemId": {
           "description": "`reasoning`: provider reasoning item id (e.g. `rs_...`), for\nprovider-side correlation.",
           "type": "string"
         },
         "reason": {
-          "description": "`compaction`: noop/failure reason, verbatim (snake_case durable\nvocabulary, e.g. `\"no_compactable_history\"`).",
+          "description": "`compaction`: noop/failure reason, verbatim (snake_case durable\nvocabulary, e.g. `\"no_compactable_history\"`). `hookRun`: terminal-only\ncapped terminal reason (tdd SS4.5.11).",
           "type": "string"
         },
         "recordedAt": {
@@ -1815,16 +2168,56 @@
           "description": "`subagent`: role as spawned.",
           "type": "string"
         },
+        "runStatus": {
+          "$ref": "#/$defs/HookRunStatus",
+          "description": "`hookRun`: terminal-only durable outcome; stays `blocked` when the\nitem settles `rejected` (tdd SS4.5.11)."
+        },
         "scriptId": {
           "description": "`workflow`: launched script identity.",
+          "type": "string"
+        },
+        "sideSessionId": {
+          "description": "`sideChat`: the side's own session id, readable via\n`session/read`/`view/page` — drill-down without a second protocol\n(tdd SS4.5.13; ADR 45435 D3).",
           "type": "string"
         },
         "status": {
           "$ref": "#/$defs/ItemStatus",
           "description": "Open enum; terminal = anything other than `\"inProgress\"`. Unknown\nvalues MUST be treated as terminal-unknown and rendered generically\n(tdd SS4.4.1)."
         },
+        "statusAttempt": {
+          "$ref": "#/$defs/StatusAttempt",
+          "description": "`toolCall`: the latest external-attempt facet, field-for-field —\ncountdown inputs the client renders the tick from; absent when the\nlatest detail carries none (tdd SS4.5.5, #45448)."
+        },
+        "statusChildren": {
+          "$ref": "#/$defs/StatusChildren",
+          "description": "`toolCall`: the latest child-summary facet, field-for-field; absent\nwhen the latest detail carries none (tdd SS4.5.5, #45448)."
+        },
+        "statusHealth": {
+          "$ref": "#/$defs/StatusHealth",
+          "description": "`toolCall`: the latest health facet, field-for-field; absent when\nthe latest detail carries none (tdd SS4.5.5, #45448)."
+        },
+        "statusLine": {
+          "description": "`toolCall`: the task's visible latest-status line — the latest\n`Status` message through the shared detail normalization; absent\nwhen no status folded or nothing displayable remains (tdd SS4.5.5,\n#45448).",
+          "type": "string"
+        },
+        "statusPhase": {
+          "description": "`toolCall`: the latest detail's phase row, verbatim; absent when the\nlatest detail carries none (tdd SS4.5.5, #45448).",
+          "type": "string"
+        },
+        "statusProgress": {
+          "$ref": "#/$defs/StatusProgress",
+          "description": "`toolCall`: the latest progress facet, field-for-field; absent when\nthe latest detail carries none (tdd SS4.5.5, #45448)."
+        },
+        "statusStep": {
+          "$ref": "#/$defs/StatusStep",
+          "description": "`toolCall`: the latest active-step facet, field-for-field; absent\nwhen the latest detail carries none (tdd SS4.5.5, #45448)."
+        },
         "steered": {
           "description": "`userMessage`: `true` when injected mid-turn via `turn/steer` or\n`ifBusy: \"steer\"`; absent otherwise.",
+          "type": "boolean"
+        },
+        "stopAvailable": {
+          "description": "`workflow`: display-only stop affordance — `true` while the run is\nopen, `false` once settled; stopping rides `workflow/cancel`\n(tdd SS4.5.8, #45449). Authorizes nothing.",
           "type": "boolean"
         },
         "strategyId": {
@@ -1854,6 +2247,10 @@
           "description": "`userMessage`: the prompt text as submitted. `agentMessage`: the\naccumulated reply, streamed via `item/delta` field `\"text\"`.\n`reasoning`: raw committed reasoning text where the provider exposes\nit (never streamed in v1, tdd SS4.5.4).",
           "type": "string"
         },
+        "tokenBudget": {
+          "$ref": "#/$defs/WorkflowTokenBudget",
+          "description": "`workflow`: the run's launch token budget, set from the launch fact\n(tdd SS4.5.8, #45449); absent when the launch carried none."
+        },
         "tokensAfter": {
           "description": "`compaction`: token budget snapshot after, when measured.",
           "type": "integer"
@@ -1865,6 +2262,10 @@
         "tool": {
           "description": "`toolCall`: tool name.",
           "type": "string"
+        },
+        "toolReceipt": {
+          "$ref": "#/$defs/ToolReceipt",
+          "description": "`toolCall`: the shared semantic receipt — what the operation did, as\nmachine-readable fact (ADR 43399 D1, tdd SS4.5.5). Optional and\nadditive: absence is always valid and is never an error (D3). When\npresent, a server serves the **same** receipt on every item path —\n`item/completed`, `view/page`, seeded snapshots and resume (D3).\nObservation only; carries no control authority (D4), and no field in\nit enters model-visible content (D7)."
         },
         "trigger": {
           "$ref": "#/$defs/CompactionTrigger",
@@ -1967,7 +2368,7 @@
       "type": "object"
     },
     "ItemKind": {
-      "description": "The nine v1 item kinds (tdd SS4.5.2–4.5.10). Open: a new kind is additive\nevolution, and clients MUST render unknown kinds generically (tdd\nSS4.10).",
+      "description": "The eleven v1 item kinds (tdd SS4.5.2–4.5.13). Open: a new kind is additive\nevolution, and clients MUST render unknown kinds generically (tdd\nSS4.10).",
       "enum": [
         "userMessage",
         "agentMessage",
@@ -1977,7 +2378,9 @@
         "subagent",
         "workflow",
         "reminderChild",
-        "compaction"
+        "compaction",
+        "hookRun",
+        "sideChat"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2136,9 +2539,100 @@
       "type": "string",
       "x-msp-openness": "closed"
     },
+    "LastTurn": {
+      "description": "The last `turn/completed` the session-view fold applied, restated on\n`session/resume` and `session/read` so a reopened session can report a\nfailed last turn (tdd SS2.5.2, ADR 36635 D2/D3).",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/TurnError",
+          "description": "Copied when the `turn/completed` carried it: runtime `failed`\nterminals do, host-death `failed` terminals do not (ADR 36635 D2)."
+        },
+        "reason": {
+          "description": "Copied when the `turn/completed` carried it; a synthesized host-death\n`failed` terminal carries only this (`crash`, `crash_inferred`, or\n`incomplete`). Free display text: clients never branch on it.",
+          "type": "string"
+        },
+        "terminal": {
+          "$ref": "#/$defs/TurnTerminal",
+          "description": "The turn's terminal (tdd SS4.5.1; open enum)."
+        },
+        "turnId": {
+          "description": "The turn's id, as on its `turn/completed`; clients deduplicate a\nlive `turn/completed` against this member by it (ADR 36635 D2).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "MediaUploadParams": {
+      "description": "`media/upload` params (tdd SS3.33, ADR 45443 D5): one chunk of a\nclient-minted upload. All members required.",
+      "properties": {
+        "chunkBase64": {
+          "description": "This chunk's bytes; each call's frame stays in the SS1.1 budget.",
+          "type": "string"
+        },
+        "chunkCount": {
+          "description": "The upload's chunk total; positive.",
+          "type": "integer"
+        },
+        "chunkIndex": {
+          "description": "This chunk's 0-based position.",
+          "type": "integer"
+        },
+        "commandId": {
+          "description": "One per call; SS3.1.1 replay answers the recorded receipt.",
+          "type": "string"
+        },
+        "mediaType": {
+          "description": "`video/mp4` or `video/quicktime`, matching `VideoInput`.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The session owning the video store.",
+          "type": "string"
+        },
+        "totalBytes": {
+          "description": "The assembled byte count; must equal the bytes the chunks deliver.",
+          "type": "integer"
+        },
+        "uploadId": {
+          "description": "The client-minted upload id (UUIDv7), sent on every chunk.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunkBase64",
+        "chunkCount",
+        "chunkIndex",
+        "commandId",
+        "mediaType",
+        "sessionId",
+        "totalBytes",
+        "uploadId"
+      ],
+      "type": "object"
+    },
+    "MediaUploadResult": {
+      "description": "`media/upload` result (tdd SS3.33): echoes the client-minted id, on\nevery chunk and replay.",
+      "properties": {
+        "uploadId": {
+          "description": "The receipt the turn part references.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uploadId"
+      ],
+      "type": "object"
+    },
     "MessageAttachment": {
       "description": "`userMessage` image attachment metadata (tdd SS4.5.2): metadata only —\nthe durable bytes live in the log and are reachable on the raw altitude.",
       "properties": {
+        "attachmentId": {
+          "description": "This attachment's name, `<itemId>/<n>` — the item's id plus this\nentry's 1-based position in its `attachments` array (tdd SS4.5.2,\nD-071, ADR 42850; #42850). Name only: no link form and no byte read\nby id (#42648).\n\nSet by the server on every attachment entry it emits, and identical\non live, paging, snapshot and rebuild paths (tdd SS4.5.2). Optional\nin the schema so older servers stay valid; clients compare and store\nthe whole string and MUST NOT parse it (ADR 42850).",
+          "type": "string"
+        },
         "height": {
           "description": "Pixel height, when known.",
           "type": "integer"
@@ -2658,6 +3152,74 @@
       "type": "string",
       "x-msp-openness": "closed"
     },
+    "PluginCatalogEntry": {
+      "description": "One installed plugin record (tdd SS3.26.2).",
+      "properties": {
+        "enabled": {
+          "description": "The record's own install switch; non-enabled rows are included\nas `false`, never dropped.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The installed plugin's identifier.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/PluginSource",
+          "description": "The installed record's source provenance (ADR 33398 D7 item 3)."
+        },
+        "version": {
+          "description": "The installed version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "id",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "PluginListParams": {
+      "description": "`plugin/list` params (tdd SS3.26.2). Per-session params; rows are the\ninstalled plugin records.",
+      "properties": {
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "PluginListResult": {
+      "description": "`plugin/list` result (tdd SS3.26.2): one row per installed plugin\nrecord; the spec promises the set, not an order.",
+      "properties": {
+        "plugins": {
+          "description": "The installed plugin rows.",
+          "items": {
+            "$ref": "#/$defs/PluginCatalogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "plugins"
+      ],
+      "type": "object"
+    },
+    "PluginSource": {
+      "description": "A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3):\ncamelCase of `PluginSourceProvenance`. Open (server-produced result\nvocabulary, the #22785 enum-openness rule): a future provenance is\nadditive.",
+      "enum": [
+        "curated",
+        "marketplaceUserAdded",
+        "foreignImport",
+        "nativeLocal"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "ReasoningEffort": {
       "description": "The reasoning-effort tier sampled at submission (tdd SS3.2, SS3.3). The\n**same closed tier vocabulary** on both the fresh-turn and steer lanes,\nspelled identically; invalid tiers are invalid params. `none` is a tier of\nthe vocabulary (ask for no reasoning), not a way to say \"unset\".",
       "enum": [
@@ -2829,6 +3391,10 @@
           "description": "RFC3339. For a fork this is the fork session id's UUIDv7 mint instant\n(tdd SS2.4).",
           "type": "string"
         },
+        "createdByClient": {
+          "$ref": "#/$defs/ClientInfo",
+          "description": "The handshake `ClientInfo` recorded when the session was opened\n(FR-003), echoed verbatim — provenance, never an interpretation, and\nnever a visibility gate (INV-005). **Additive-optional**; absence has\nfour indistinguishable causes (INV-004): an in-process open; a\npre-#23124 record; a half stamp where only one of name/version was\nrecorded (FM-005) and `ClientInfo` requires both; and a session with\nno admitting handshake of its own — a fork child or a subagent —\nwhich never carries a stamp to begin with."
+        },
         "firstUserPrompt": {
           "description": "Derived first-user-prompt preview (tdd SS2.14.1, #27598).\n**Additive-optional**, omitted when underivable.",
           "type": "string"
@@ -2843,6 +3409,10 @@
             }
           ],
           "description": "`null` for root sessions; fork provenance otherwise (tdd SS2.4)."
+        },
+        "kind": {
+          "$ref": "#/$defs/SessionKind",
+          "description": "What kind of session this is (spec 42713 FR-001, ADR 42713 D1/D4).\n**Open enum**, v1 values `\"root\"` and `\"subagent\"`; a client treats an\nunknown value as an unknown-but-present kind and renders it, never\nrejecting the row. **Additive-optional**: absence asserts nothing —\nthe host could not determine the home shape (FM-001), or the value is\nnot yet available to serve (FM-003)."
         },
         "lastActivityAt": {
           "description": "Content-activity recency, RFC3339 (tdd SS2.4, ADR 31983 D5).\n**Additive-optional**: omitted when no content record exists. Never\nadvanced by lifecycle bookkeeping (the resume marker, re-stamps) or\na fork's copied seed-replay records, and never precedes `createdAt`.",
@@ -2859,6 +3429,10 @@
           "description": "The durable allocated session name (tdd SS2.4/SS2.14.1, #27598;\nADR 27598 D2/D4). **Additive-optional**: present when the serving path\nholds an allocated name, omitted otherwise — absent is never\nfabricated. Authoritative and renameable via `session/rename`.",
           "type": "string"
         },
+        "parentSessionId": {
+          "description": "The containing session's id when `kind` is `\"subagent\"` (FR-002,\nINV-002) — the id of the TOP-LEVEL session whose home holds this\nchild, which is **not necessarily the session that spawned it**:\nnative-child homes are physical siblings under the outer session's\n`subagent/` directory, so a subagent spawned by another subagent\nresolves to the outer session, not to its spawner. A client building\na tree from this field gets one level, not a chain.\nFlat rather than nested: there is exactly one fact to\ncarry, unlike `forkedFrom`'s four-field `ForkProvenance`.\n**Additive-optional**; a root carries none.",
+          "type": "string"
+        },
         "path": {
           "description": "Absolute path of the session's durable log; non-nullable. Under the\nephemeral session profile it is the **empty string**, meaning \"no\ndurable log exists\" (tdd SS2.13.2) — the one value a client must not\nhand to a filesystem call.",
           "type": "string"
@@ -2873,6 +3447,10 @@
         "sessionId": {
           "description": "The session identity.",
           "type": "string"
+        },
+        "sideFrom": {
+          "$ref": "#/$defs/SideProvenance",
+          "description": "`null` for root sessions and forks; side provenance otherwise (tdd\nSS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of\n`forkedFrom` and `sideFrom`."
         },
         "status": {
           "$ref": "#/$defs/SessionStatus",
@@ -3121,91 +3699,6 @@
       ],
       "type": "object"
     },
-    "SessionDeleteCompletedParams": {
-      "description": "The persisted deletion terminal, separate from admission (SS3.24).\nThe shared schema is one object. Actual failed producers send both optional\nfields; completed producers omit both. Clients enforce those obligations\nbefore interpreting a known outcome. Preserve unknown strings without\ntreating them as successful completion.",
-      "properties": {
-        "commandId": {
-          "description": "Idempotency key of the original deletion command.",
-          "type": "string"
-        },
-        "outcome": {
-          "$ref": "#/$defs/SessionDeleteOutcome",
-          "description": "Deletion result; an unknown value leaves the command pending."
-        },
-        "physicalChange": {
-          "$ref": "#/$defs/SessionDeletePhysicalChange",
-          "description": "Erasure evidence for a failed result; omitted for a completed result."
-        },
-        "reason": {
-          "$ref": "#/$defs/SessionDeleteFailureReason",
-          "description": "Required for a failed result and omitted for a completed result."
-        },
-        "sessionId": {
-          "description": "Session named by the original deletion command.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "commandId",
-        "outcome",
-        "sessionId"
-      ],
-      "type": "object"
-    },
-    "SessionDeleteFailureReason": {
-      "description": "Stable deletion-failure vocabulary known to this version (SS3.24).\nThe server emits only these values. Future reason strings remain an open\nresult vocabulary; consumers cannot infer completion from any reason.",
-      "enum": [
-        "ownershipUnavailable",
-        "sharedSource",
-        "writerBusy",
-        "unsafeSource",
-        "sourceChanged",
-        "quiescenceFailed",
-        "cancelled",
-        "storageFailure",
-        "cleanupIncomplete",
-        "unsupportedLayout"
-      ],
-      "type": "string",
-      "x-msp-openness": "open"
-    },
-    "SessionDeleteOutcome": {
-      "description": "Known terminal outcomes. A future outcome cannot authorize success or exit.",
-      "enum": [
-        "completed",
-        "failed"
-      ],
-      "type": "string",
-      "x-msp-openness": "open"
-    },
-    "SessionDeleteParams": {
-      "description": "`session/delete` params. The host validates a non-nil legacy-valid UUID\ntarget and a UUID-v7 command identity before admission. Unknown members\nare ignored and do not enter the normalized command identity (SS1.5.4).",
-      "properties": {
-        "commandId": {
-          "description": "UUID-v7 idempotency key for this deletion command.",
-          "type": "string"
-        },
-        "sessionId": {
-          "description": "Non-nil UUID of the session selected for deletion.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "commandId",
-        "sessionId"
-      ],
-      "type": "object"
-    },
-    "SessionDeletePhysicalChange": {
-      "description": "The failed attempt's immutable snapshot of persisted physical evidence.\n`possible` is recorded before a detach/unlink, `confirmed` after a proved\nowned effect. A failure never resets that evidence merely because the\nsession path is absent. Unknown strings remain representable; consumers\nmust treat them conservatively as `possible`.",
-      "enum": [
-        "none",
-        "possible",
-        "confirmed"
-      ],
-      "type": "string",
-      "x-msp-openness": "open"
-    },
     "SessionDurability": {
       "description": "Whether this host writes its sessions to disk (SS1.4.1, SS2.13). A\nproperty of the host process, fixed at construction and identical for\nevery session and every connection it serves — never requested, granted,\nor negotiated, which is why it is not a capability. Open: the\nunrepresented degraded state (#14401) has candidate resolutions that add a\nthird value here, so closed would make that a breaking change.",
       "enum": [
@@ -3342,6 +3835,15 @@
         "snapshot"
       ],
       "type": "object"
+    },
+    "SessionKind": {
+      "description": "What kind of session this is (spec 42713 FR-001/FR-005, ADR 42713 D1/D4).\n\n**Open**: a new kind is additive evolution, and a client MUST render an\nunknown value as an unknown-but-present kind rather than rejecting the\nrow. Both v1 values are terms the tree already uses — the child log\ndirectory is `subagent` and `ItemKind` already carries a `subagent`\nvariant — so no new vocabulary is minted.",
+      "enum": [
+        "root",
+        "subagent"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
     },
     "SessionListBranchFilter": {
       "description": "Exact branch selection (#42035 FR-42035-2).",
@@ -3729,6 +4231,10 @@
           "$ref": "#/$defs/SessionHistory",
           "description": "The served history."
         },
+        "lastTurn": {
+          "$ref": "#/$defs/LastTurn",
+          "description": "Same member as `session/resume` (tdd SS2.5.5, ADR 36635 D2)."
+        },
         "pendingRequests": {
           "description": "The same pointer shape as `session/resume`. Because `session/read`\nnever subscribes this is a point-in-time log read only: no requests\nare re-issued after it (tdd SS2.5.5).",
           "items": {
@@ -3874,6 +4380,10 @@
         "history": {
           "$ref": "#/$defs/SessionHistory",
           "description": "The served history."
+        },
+        "lastTurn": {
+          "$ref": "#/$defs/LastTurn",
+          "description": "How the last folded turn ended (tdd SS2.5.2, ADR 36635 D2).\n**Additive-optional**; absence is a non-assertion."
         },
         "pendingRequests": {
           "description": "The late-joiner pointer set; empty when nothing is pending.",
@@ -4032,6 +4542,55 @@
       ],
       "type": "object"
     },
+    "SessionSideChatParams": {
+      "description": "`session/sideChat` params (tdd SS2.5.7; ADR 45435 D2).",
+      "properties": {
+        "commandId": {
+          "description": "The SS2.5 idempotency handle (UUIDv7).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The source main session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionSideChatResult": {
+      "description": "`session/sideChat` result (tdd SS2.5.7; ADR 45435 D2): the\n`session/resume` envelope for the **new** side session, whose\n`session.sideFrom` carries the provenance. The side opens empty.",
+      "properties": {
+        "history": {
+          "$ref": "#/$defs/SessionHistory",
+          "description": "The served history (inline; SS2.5.7's empty-items half is #49416 —\ninherited turns surface until the boundary-aware fold lands)."
+        },
+        "pendingRequests": {
+          "description": "The late-joiner pointer set.",
+          "items": {
+            "$ref": "#/$defs/PendingRequestPointer"
+          },
+          "type": "array"
+        },
+        "session": {
+          "$ref": "#/$defs/Session",
+          "description": "The new side session, carrying `sideFrom` provenance."
+        },
+        "viewCursor": {
+          "description": "The new side session's view head.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "history",
+        "pendingRequests",
+        "session",
+        "viewCursor"
+      ],
+      "type": "object"
+    },
     "SessionStartParams": {
       "description": "`session/start` params (tdd SS2.5.1).",
       "properties": {
@@ -4105,7 +4664,7 @@
       "type": "object"
     },
     "SessionStartedParams": {
-      "description": "`session/started` params (tdd SS2.6.1; enrolled by #33065): a session\nbecame newly loaded on this host via `session/start` or `session/fork`\n(never `session/resume` — Appendix C, OQ-F), broadcast to every\ninitialized connection.\n\nThe one member is the same `$defs/Session` object the\n`session/start`/`session/fork` results carry, so the broadcast and the\nresult describe one fact through one type — the host builds the broadcast\npayload as a `$defs/Session` — the fresh-start arm reuses the result's\n`session` member, the start-replay arm builds the live attach snapshot —\nand the emission is\nparity-gated against this type at the producer\n(`session-server` prod-assembly capture) and over the committed\ntranscript corpus (conformance `session_lifecycle_enrollment`).",
+      "description": "`session/started` params (tdd SS2.6.1; enrolled by #33065): a session\nbecame newly loaded on this host via `session/start`, `session/fork`, or\n`session/sideChat` (never `session/resume` — Appendix C, OQ-F),\nbroadcast to every initialized connection.\n\nThe one member is the same `$defs/Session` object the\n`session/start`/`session/fork` results carry, so the broadcast and the\nresult describe one fact through one type — the host builds the broadcast\npayload as a `$defs/Session` — the fresh-start arm reuses the result's\n`session` member, the start-replay arm builds the live attach snapshot —\nand the emission is\nparity-gated against this type at the producer\n(`session-server` prod-assembly capture) and over the committed\ntranscript corpus (conformance `session_lifecycle_enrollment`).",
       "properties": {
         "session": {
           "$ref": "#/$defs/Session",
@@ -4332,6 +4891,50 @@
       ],
       "type": "object"
     },
+    "SideProvenance": {
+      "description": "Side provenance folded from the durable side provenance\n(`SideChatProvenance`, tdd SS2.4/SS2.5.7; ADR 45435 D2).",
+      "properties": {
+        "commandId": {
+          "description": "The `commandId` of the `session/sideChat` that created it.",
+          "type": "string"
+        },
+        "cutCursor": {
+          "description": "An **opaque provenance string** preserved verbatim from the durable\nside provenance (`source_cut_cursor`). Display-only — not one of the\ncursor families: clients MUST NOT parse it and no method accepts it\n(tdd SS2.4).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The source main session this side was opened from.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "cutCursor",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SkillActivationScope": {
+      "description": "`skill/setActivation` activation target (tdd SS3.30.1). **Closed**: a\nclient-selected write vocabulary (ADR 45433 D2) — a write must fail a\nscope the host does not implement rather than record activation against\nan unknown target. Contrast the open read-side [`SkillSource`].",
+      "enum": [
+        "user",
+        "project",
+        "bundled",
+        "plugin"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "SkillActivationState": {
+      "description": "The three-state skill activation (tdd SS3.30.1, ADR 10512 — no new\nstate). **Closed**: a client-selected write vocabulary (ADR 45433 D2).",
+      "enum": [
+        "on",
+        "userInvocableOnly",
+        "off"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
     "SkillCatalogEntry": {
       "description": "One typed-invocable shortcut spelling (tdd SS3.22.1). A plugin skill may\ncontribute two rows: its bare-name winner and its qualified\n`<pluginId>:<skillId>` form.",
       "properties": {
@@ -4382,7 +4985,7 @@
       "type": "object"
     },
     "SkillListParams": {
-      "description": "`skill/list` params (tdd SS3.22.1). Per-session because skill scope\nfollows the session's workspace and plugin state.",
+      "description": "`skill/list` params (tdd SS3.22.1, SS3.30.3). Per-session because skill\nscope follows the session's workspace and plugin state.",
       "properties": {
         "sessionId": {
           "description": "The target session.",
@@ -4407,6 +5010,77 @@
       },
       "required": [
         "skills"
+      ],
+      "type": "object"
+    },
+    "SkillSetActivationParams": {
+      "description": "`skill/setActivation` params (tdd SS3.30.1, #45433): turn one skill on\nor off in any scope through the single\n`SkillsService::set_activation` seam.",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/SkillActivationState",
+          "description": "The activation to apply."
+        },
+        "commandId": {
+          "description": "The SS3.1.1 idempotency handle (UUIDv7).",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/SkillActivationScope",
+          "description": "The activation target."
+        },
+        "selector": {
+          "description": "Names one skill: a bare or plugin-qualified token from the session's\nfull catalog (tdd SS3.30.3), the SS3.22.1 row vocabulary.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activation",
+        "commandId",
+        "scope",
+        "selector",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SkillSetActivationResult": {
+      "description": "`skill/setActivation` result (tdd SS3.30.1, #45433): the ack envelope\nplus the applied state.",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/SkillActivationState",
+          "description": "The applied activation."
+        },
+        "commandId": {
+          "description": "Echoes the client's id.",
+          "type": "string"
+        },
+        "previous": {
+          "$ref": "#/$defs/SkillActivationState",
+          "description": "The activation value in force for that `(selector, scope)`\nimmediately before the write: the same value a full-catalog\n`skill/list` row would have carried in `activation` for it."
+        },
+        "scope": {
+          "$ref": "#/$defs/SkillActivationScope",
+          "description": "Echoes the applied write's scope."
+        },
+        "selector": {
+          "description": "Echoes the applied write's selector.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Admission status."
+        }
+      },
+      "required": [
+        "activation",
+        "commandId",
+        "previous",
+        "scope",
+        "selector",
+        "status"
       ],
       "type": "object"
     },
@@ -4586,6 +5260,153 @@
         "first",
         "last",
         "stream"
+      ],
+      "type": "object"
+    },
+    "StatusAttempt": {
+      "description": "`toolCall.statusAttempt` (tdd SS4.5.5, #45448): the latest\n`TaskExternalAttemptDetail`, field-for-field — countdown inputs the\nclient renders the tick from, so no event spam.",
+      "properties": {
+        "attempt": {
+          "description": "The attempt number.",
+          "type": "integer"
+        },
+        "errorKind": {
+          "description": "The error kind (durable vocabulary, verbatim), when recorded.",
+          "type": "string"
+        },
+        "httpStatus": {
+          "description": "The HTTP status, when recorded.",
+          "type": "integer"
+        },
+        "maxAttempts": {
+          "description": "The maximum attempts, when known.",
+          "type": "integer"
+        },
+        "nextAttempt": {
+          "description": "The scheduled next attempt, when known.",
+          "type": "integer"
+        },
+        "operation": {
+          "description": "The operation (durable vocabulary, verbatim).",
+          "type": "string"
+        },
+        "retryDelayMs": {
+          "description": "The retry delay in ms, when known.",
+          "type": "integer"
+        },
+        "system": {
+          "description": "The external system (durable vocabulary, verbatim).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "operation",
+        "system"
+      ],
+      "type": "object"
+    },
+    "StatusChildren": {
+      "description": "`toolCall.statusChildren` (tdd SS4.5.5, #45448): the latest\n`TaskChildSummaryDetail`, field-for-field.",
+      "properties": {
+        "active": {
+          "description": "Active children.",
+          "type": "integer"
+        },
+        "cancelled": {
+          "description": "Cancelled children.",
+          "type": "integer"
+        },
+        "completed": {
+          "description": "Completed children.",
+          "type": "integer"
+        },
+        "failed": {
+          "description": "Failed children.",
+          "type": "integer"
+        },
+        "total": {
+          "description": "Total children, when known.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "active",
+        "cancelled",
+        "completed",
+        "failed"
+      ],
+      "type": "object"
+    },
+    "StatusHealth": {
+      "description": "`toolCall.statusHealth` (tdd SS4.5.5, #45448): the latest\n`TaskHealthDetail`, field-for-field.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/StatusHealthLevel",
+          "description": "The health level (the durable `TaskHealthLevel` vocabulary verbatim)."
+        },
+        "reason": {
+          "description": "The reason, when recorded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "type": "object"
+    },
+    "StatusHealthLevel": {
+      "description": "`toolCall.statusHealth.level` (tdd SS4.5.5, #45448): the durable\n`TaskHealthLevel` vocabulary verbatim. Open — runtime vocabulary may\ngrow additively, and clients MUST render unknown levels generically.",
+      "enum": [
+        "ok",
+        "waiting",
+        "degraded",
+        "retrying",
+        "blocked",
+        "failed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "StatusProgress": {
+      "description": "`toolCall.statusProgress` (tdd SS4.5.5, #45448): the latest\n`TaskProgressDetail`, field-for-field.",
+      "properties": {
+        "current": {
+          "description": "Completed units.",
+          "type": "integer"
+        },
+        "total": {
+          "description": "Total units, when known.",
+          "type": "integer"
+        },
+        "unit": {
+          "description": "Unit label, when recorded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "current"
+      ],
+      "type": "object"
+    },
+    "StatusStep": {
+      "description": "`toolCall.statusStep` (tdd SS4.5.5, #45448): the latest\n`TaskActiveStepDetail`, field-for-field.",
+      "properties": {
+        "index": {
+          "description": "The step index, when known.",
+          "type": "integer"
+        },
+        "label": {
+          "description": "The active step's label.",
+          "type": "string"
+        },
+        "total": {
+          "description": "The step count, when known.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "label"
       ],
       "type": "object"
     },
@@ -4881,6 +5702,78 @@
       ],
       "type": "object"
     },
+    "TaskListEntry": {
+      "description": "One background-task inventory row (tdd SS3.31). The row is the stable\ncontract: `kind` and `status` stay open so a future state extends them\nwithout breaking clients.",
+      "properties": {
+        "backgroundInitiator": {
+          "$ref": "#/$defs/BackgroundInitiator",
+          "description": "Who backgrounded the task, mirroring the item field.\n**Additive-optional**: absent on pre-split records and\nregistry-only rows, never inferred."
+        },
+        "kind": {
+          "description": "What the workload is: `\"tool\"` or `\"tool.*\"` for item rows (the\nrecorded kind when the registry records one, else `\"tool\"`); the\nrecorded registry kind string verbatim for registry-only rows.\nOpen vocabulary — clients MUST ignore unknown kinds. A `String`,\nnot an enum: registry kind strings are unbounded.",
+          "type": "string"
+        },
+        "startedAt": {
+          "description": "The host-known task start, RFC3339. **Additive-optional**: omitted,\nnever guessed, when the host does not know it.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskListStatus",
+          "description": "`\"inProgress\"` — the only value at this increment, since every\nlisted row is non-terminal by construction."
+        },
+        "taskId": {
+          "description": "The `toolCall` item's `itemId` for item rows; the runtime registry\nid for registry-only rows.",
+          "type": "string"
+        },
+        "tool": {
+          "description": "The short tool name on item-visible tool rows only; never a label,\nnever arguments. **Additive-optional**: absent elsewhere.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "taskId"
+      ],
+      "type": "object"
+    },
+    "TaskListParams": {
+      "description": "`task/list` params (tdd SS3.31): the session whose background-task\ninventory to read. A read-only query in the `skill/list` mold: no\n`commandId`, no durable record, no view event.",
+      "properties": {
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "TaskListResult": {
+      "description": "`task/list` result (tdd SS3.31): one row per running background\nworkload in `task/stopAll` reach, oldest first; empty when nothing is\nrunning.",
+      "properties": {
+        "tasks": {
+          "description": "The session's live background-task rows.",
+          "items": {
+            "$ref": "#/$defs/TaskListEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tasks"
+      ],
+      "type": "object"
+    },
+    "TaskListStatus": {
+      "description": "A task row's status (tdd SS3.31). Open (server-produced result\nvocabulary, the #22785 enum-openness rule): a future state is\nadditive, and clients MUST ignore unknown statuses.",
+      "enum": [
+        "inProgress"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "TaskStopAllParams": {
       "description": "`task/stopAll` params (tdd §3.15): stop every stoppable background\nworkload live at admission.",
       "properties": {
@@ -5035,6 +5928,116 @@
       ],
       "type": "object"
     },
+    "ToolReceipt": {
+      "oneOf": [
+        {
+          "properties": {
+            "details": {
+              "$ref": "#/$defs/CronReceipt"
+            },
+            "family": {
+              "const": "cron",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/ToolReceiptOperation"
+            },
+            "outcome": {
+              "$ref": "#/$defs/ToolReceiptOutcome"
+            }
+          },
+          "required": [
+            "family",
+            "operation",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "details": {
+              "$ref": "#/$defs/CodeModeReceipt"
+            },
+            "family": {
+              "const": "codeMode",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/ToolReceiptOperation"
+            },
+            "outcome": {
+              "$ref": "#/$defs/ToolReceiptOutcome"
+            }
+          },
+          "required": [
+            "family",
+            "operation",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "details": {
+              "properties": {},
+              "type": "object"
+            },
+            "family": {
+              "not": {
+                "enum": [
+                  "cron",
+                  "codeMode"
+                ]
+              },
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "family",
+            "operation",
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ],
+      "x-msp-openness": "open"
+    },
+    "ToolReceiptOperation": {
+      "description": "Which operation within the family the receipt describes (ADR 43399\nD1/D2). Open — registered per family, never derived from the tool name.",
+      "enum": [
+        "create",
+        "delete",
+        "list",
+        "execute",
+        "wait"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ToolReceiptOutcome": {
+      "description": "What the operation did (ADR 43399 D1/D2). Open, and a **single shared\nvocabulary**: a value appearing in two families means the same thing in\nboth, which is why the permitted `status` values are bound to the value\nhere rather than per family.",
+      "enum": [
+        "created",
+        "duplicate",
+        "deleted",
+        "missing",
+        "listed",
+        "rejected",
+        "completed",
+        "pending",
+        "failed",
+        "timedOut",
+        "cancelled"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "TraceContext": {
       "description": "Optional W3C trace context, on requests in both directions only — never on\nresponses or notifications (SS1.8).",
       "properties": {
@@ -5103,7 +6106,7 @@
         },
         "error": {
           "$ref": "#/$defs/TurnError",
-          "description": "Present iff `terminal` is `\"failed\"` (tdd SS4.5.1): mid-turn failures\nreach the client here — never as a JSON-RPC error."
+          "description": "Present when `terminal` is `\"failed\"`, except on a synthesized\nhost-death terminal, which carries `reason` instead (tdd SS4.5.1,\nADR 36635 D2): mid-turn failures reach the client here — never as a\nJSON-RPC error."
         },
         "reason": {
           "description": "The runtime's free-text terminal reason, verbatim. Display and\ndiagnostics only; never branch on it.",
@@ -5186,6 +6189,42 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "TurnForegroundCompletedParams": {
+      "description": "`turn/foregroundCompleted` params (tdd SS4.5.12): the turn's foreground\nwork is done and named background reminder checks hold the turn open.\nExplicitly non-terminal: the turn ends only at `turn/completed` /\n`turn/unqueued`.",
+      "properties": {
+        "blockingAgents": {
+          "description": "`reminderAgentId`s of the firing's blocking set, never empty; agent\nids, never display names. Live-best-effort: reads, resume, and\nreplay may narrow it to the linked subset.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sessionId": {
+          "description": "The owning session.",
+          "type": "string"
+        },
+        "sourceRange": {
+          "$ref": "#/$defs/SourceRange",
+          "description": "The durable records this event folded from, anchored at the first\nblocking link of the firing window."
+        },
+        "turnId": {
+          "description": "The turn whose foreground completed.",
+          "type": "string"
+        },
+        "viewCursor": {
+          "description": "Opaque, strictly monotonic view cursor (tdd SS4.1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockingAgents",
+        "sessionId",
+        "sourceRange",
+        "turnId",
+        "viewCursor"
+      ],
+      "type": "object"
+    },
     "TurnInputPart": {
       "dependentRequired": {
         "height": [
@@ -5225,6 +6264,10 @@
           "$ref": "#/$defs/TurnInputPartType",
           "description": "The part type."
         },
+        "uploadId": {
+          "description": "The upload receipt, required on a `video` part (tdd SS3.2, SS3.33;\nADR 45443 D5): the client-minted id `media/upload` echoed.",
+          "type": "string"
+        },
         "width": {
           "description": "Pixel width; must be provided together with `height` or not at all\n(tdd SS3.2). Published as a `dependentRequired` pair under #22785 E6c.",
           "type": "integer"
@@ -5240,7 +6283,8 @@
       "enum": [
         "text",
         "image",
-        "skill"
+        "skill",
+        "video"
       ],
       "type": "string",
       "x-msp-openness": "closed"
@@ -5300,6 +6344,14 @@
         "commandId": {
           "description": "The `commandId` of the submit that minted it.",
           "type": "string"
+        },
+        "displayText": {
+          "description": "`queuedTurns[]` only (#45455; ADR 45443 D7): the queued submit's\npresentation text, so a late joiner can render it without waiting for\nlaunch. A current host sets it on every entry it admits; absent means\nan older host (or a pre-feature restored entry). Never set on\n`activeTurn`: the running turn's text is its `userMessage` item.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "`queuedTurns[]` only: set when `displayText` was cut to the\ncommitted-surface budget, mirroring `userMessage.truncated`\n(tdd SS4.5.2). Absent unless `true`.",
+          "type": "boolean"
         },
         "turnId": {
           "description": "The turn's id, pre-minted per tdd SS3.1.4.",
@@ -5921,6 +6973,77 @@
       ],
       "type": "object"
     },
+    "UserInputEngagedParams": {
+      "description": "`userInput/engaged` params (tdd SS5.10.4, ADR 45450 D2): a fire-and-forget\nengagement note — the user started interacting with a timed prompt, so\nthe host disarms that prompt's auto-resolution countdown. No result, no\nerrors, no `commandId`, no ledger row.",
+      "properties": {
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "userInputId": {
+          "description": "The prompt being engaged.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "userInputId"
+      ],
+      "type": "object"
+    },
+    "UserInputInterruptParams": {
+      "description": "`userInput/interrupt` params (tdd SS5.10.2, ADR 45450 D1): interrupt the\nnamed prompt carrying confirmed partial answers, then stop the turn.\n\n`answers` is optional and, when present, follows exactly the\n`userInput/answer` shape and limits (same `questionId` + one-of + `note`\nrules, same -32057 `userInputAnswerInvalid` on mismatch); absent or\nempty means interrupt with no confirmed answers.",
+      "properties": {
+        "answers": {
+          "description": "Confirmed partial answers the named settlement carries.",
+          "items": {
+            "$ref": "#/$defs/UserInputAnswer"
+          },
+          "type": "array"
+        },
+        "commandId": {
+          "description": "The SS3.1.1 idempotency handle (UUIDv7).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "userInputId": {
+          "description": "The prompt being interrupted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId",
+        "userInputId"
+      ],
+      "type": "object"
+    },
+    "UserInputInterruptResult": {
+      "description": "`userInput/interrupt` result (tdd SS5.10.2).",
+      "properties": {
+        "commandId": {
+          "description": "Echoes the client's id.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Admission status."
+        },
+        "userInputId": {
+          "description": "The prompt this interruption settled.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "status",
+        "userInputId"
+      ],
+      "type": "object"
+    },
     "UserInputOption": {
       "properties": {
         "description": {
@@ -6088,6 +7211,13 @@
             }
           ]
         },
+        "decidedAt": {
+          "description": "The decision time as RFC3339, projected from the durable settlement\nrecord's own stamp (ADR 45450 D3, ruling 2026-10-01): always present\non the wire (schema-required, `null`-able); decoders still tolerate\nits absence (`default`, never skipped — SS5.10.3 keeps every member\npresent), and current hosts always populate it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "decidedByCommandId": {
           "type": [
             "string",
@@ -6119,6 +7249,7 @@
       "required": [
         "answers",
         "clarification",
+        "decidedAt",
         "decidedByCommandId",
         "outcome",
         "reason",
@@ -6380,6 +7511,14 @@
           "description": "The child's observed duration, when recorded.",
           "type": "integer"
         },
+        "failureKind": {
+          "description": "The attempt's machine failure class, verbatim when recorded (open,\nsnake_case durable runtime vocabulary — the SS1.6 casing exemption).\nThe attempt's outcome (`terminal`, else `status`) stays authoritative,\nexcept that `\"completed\"` with `failureKind` present means it failed\n(#17769).",
+          "type": "string"
+        },
+        "failureReason": {
+          "description": "The attempt's failure reason text, verbatim when recorded except cut\nto at most 2,048 UTF-8 bytes ending in U+2026 when longer.",
+          "type": "string"
+        },
         "label": {
           "description": "The child's display label, when recorded.",
           "type": "string"
@@ -6461,7 +7600,7 @@
       "type": "object"
     },
     "WorkflowControlResult": {
-      "description": "The shared SS3.19/SS3.20 admission-only ack: deliberately bare\n`{commandId, status}` — settlement arrives as the workflow item's view\nevents, never through the ack.",
+      "description": "The shared SS3.19/SS3.20/SS3.32 admission-only ack: deliberately bare\n`{commandId, status}` — settlement arrives as the workflow item's view\nevents, never through the ack.",
       "properties": {
         "commandId": {
           "description": "Echoes the client's id.",
@@ -6475,6 +7614,42 @@
       "required": [
         "commandId",
         "status"
+      ],
+      "type": "object"
+    },
+    "WorkflowPauseParams": {
+      "description": "`workflow/pause` params (tdd SS3.32, ADR 45437 D2): pause a live\nworkflow run, shaped exactly like `workflow/cancel`.",
+      "properties": {
+        "commandId": {
+          "description": "The SS3.1.1 idempotency handle (UUIDv7).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "workflowRunId": {
+          "description": "The run to pause, exactly as the `workflow` item names it (SS4.5.8);\nrequired, non-empty.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId",
+        "workflowRunId"
+      ],
+      "type": "object"
+    },
+    "WorkflowTokenBudget": {
+      "description": "`workflow`: the run's launch token budget (tdd SS4.5.8, #45449).",
+      "properties": {
+        "total": {
+          "description": "The effective launch budget in tokens, verbatim from the launch fact.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total"
       ],
       "type": "object"
     }
@@ -6609,6 +7784,16 @@
       "retryable": false
     },
     {
+      "code": -32033,
+      "kind": "computerUseUnavailable",
+      "retryable": false
+    },
+    {
+      "code": -32038,
+      "kind": "uploadNotFound",
+      "retryable": false
+    },
+    {
       "code": -32040,
       "kind": "viewTruncated",
       "retryable": false
@@ -6687,6 +7872,24 @@
         "$ref": "#/$defs/ApprovalListPendingResult"
       }
     },
+    "computerUseSettings/read": {
+      "description": "Reads the computer-use Settings: each capability's Always allow switch and the user's blocked apps from the approval policy store, plus the built-in blocks as locked rows when asked; computerUseUnavailable while the CUA gate is off (ADR 630 D18.17).",
+      "params": {
+        "$ref": "#/$defs/ComputerUseSettingsReadParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ComputerUseSettings"
+      }
+    },
+    "computerUseSettings/update": {
+      "description": "Applies one Settings patch (capability dropdowns, blocked apps to add or remove) all-or-nothing and answers the user's Settings after it; a built-in block is refused in either list; computerUseUnavailable while the CUA gate is off (ADR 630 D18.17).",
+      "params": {
+        "$ref": "#/$defs/ComputerUseSettingsUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ComputerUseSettings"
+      }
+    },
     "feedback/submit": {
       "description": "Submits a first-party feedback report through the host, reusing the TUI submitter seam (consent, bundle-first persistence, redaction), and answers the upload receipt (ADR 42691 D2).",
       "params": {
@@ -6741,6 +7944,15 @@
         "$ref": "#/$defs/GoalCommandResult"
       }
     },
+    "hook/list": {
+      "description": "Reads the session's installed hook rows — one per installed handler per event, config-file handlers plus plugin-contributed hooks; a query, not a command (SS3.26.1).",
+      "params": {
+        "$ref": "#/$defs/HookListParams"
+      },
+      "result": {
+        "$ref": "#/$defs/HookListResult"
+      }
+    },
     "initialize": {
       "description": "Opens the connection: client identification, capability requests, and the experimental opt-in; the reply carries the envelope schema version and the stable-surface fingerprint (SS1.4.1).",
       "params": {
@@ -6759,6 +7971,15 @@
         "$ref": "#/$defs/ItemReadOutputResult"
       }
     },
+    "media/upload": {
+      "description": "Moves one video chunk into the session's video store; answers the \\\n              `uploadId` receipt on every chunk (tdd SS3.33, ADR 45443 D5).",
+      "params": {
+        "$ref": "#/$defs/MediaUploadParams"
+      },
+      "result": {
+        "$ref": "#/$defs/MediaUploadResult"
+      }
+    },
     "model/list": {
       "description": "Reads the catalog of models the host will accept in `session/setModel`; a query, not a command (SS3.10).",
       "params": {
@@ -6768,6 +7989,15 @@
         "$ref": "#/$defs/ModelListResult"
       }
     },
+    "plugin/list": {
+      "description": "Reads the installed plugin records — one row per installed plugin; a query, not a command (SS3.26.2).",
+      "params": {
+        "$ref": "#/$defs/PluginListParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginListResult"
+      }
+    },
     "session/compact": {
       "description": "Compacts the session's conversation context; runs asynchronously, so the ack is admission only (SS3.7).",
       "params": {
@@ -6775,15 +8005,6 @@
       },
       "result": {
         "$ref": "#/$defs/SessionCompactResult"
-      }
-    },
-    "session/delete": {
-      "description": "Admits durable session deletion; completion arrives separately (SS3.24).",
-      "params": {
-        "$ref": "#/$defs/SessionDeleteParams"
-      },
-      "result": {
-        "$ref": "#/$defs/CommandAcceptedResult"
       }
     },
     "session/fork": {
@@ -6858,6 +8079,15 @@
         "$ref": "#/$defs/SessionSetReasoningEffortResult"
       }
     },
+    "session/sideChat": {
+      "description": "Opens a side chat from a loaded main session, with durable provenance (SS2.5.7; ADR 45435 D2).",
+      "params": {
+        "$ref": "#/$defs/SessionSideChatParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSideChatResult"
+      }
+    },
     "session/start": {
       "description": "Creates a brand-new session, loads it on this host, durably records the start, and auto-subscribes this connection (SS2.5.1).",
       "params": {
@@ -6883,6 +8113,15 @@
       },
       "result": {
         "$ref": "#/$defs/SkillListResult"
+      }
+    },
+    "skill/setActivation": {
+      "description": "Writes one skill's activation in any scope through the single \\\n              `SkillsService::set_activation` seam; answers the applied \\\n              state plus `previous`. `commandId`-idempotent; each \\\n              successful write is an SS3.22.2 detection point (tdd SS3.30.1, \\\n              ADR 45433 D2/D4/D5, #45433).",
+      "params": {
+        "$ref": "#/$defs/SkillSetActivationParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillSetActivationResult"
       }
     },
     "subagent/close": {
@@ -7062,6 +8301,15 @@
         "$ref": "#/$defs/UserInputClarifyResult"
       }
     },
+    "userInput/interrupt": {
+      "description": "Interrupts an open user-input prompt carrying confirmed partial answers, then stops the turn (SS5.10.2, ADR 45450 D1).",
+      "params": {
+        "$ref": "#/$defs/UserInputInterruptParams"
+      },
+      "result": {
+        "$ref": "#/$defs/UserInputInterruptResult"
+      }
+    },
     "view/page": {
       "description": "Cursor-paged reads of the session view, forward or backward; each result element is an unframed view notification, the nested {method, params} pair of SS4.2.1 (SS4.7.3).",
       "params": {
@@ -7102,6 +8350,15 @@
       "description": "Skips or retries one workflow child keyed by the item's (childId, attempt) pair; admission-only bare ack (tdd SS3.20, spec 14410; enrolled by the #33065 sweep).",
       "params": {
         "$ref": "#/$defs/WorkflowChildControlParams"
+      },
+      "result": {
+        "$ref": "#/$defs/WorkflowControlResult"
+      }
+    },
+    "workflow/pause": {
+      "description": "Pauses a live workflow run; admission-only bare ack, the pause folds as the workflow item's `paused` member (tdd SS3.32, ADR 45437 D2).",
+      "params": {
+        "$ref": "#/$defs/WorkflowPauseParams"
       },
       "result": {
         "$ref": "#/$defs/WorkflowControlResult"
@@ -7176,12 +8433,6 @@
       "description": "A provider-reported context-occupancy fact folded to a changed (windowTokens, usedTokens, pressure) triple (SS4.6.6).",
       "params": {
         "$ref": "#/$defs/SessionContextUsageParams"
-      }
-    },
-    "session/deleteCompleted": {
-      "description": "The persisted terminal result of an admitted session deletion (SS3.24).",
-      "params": {
-        "$ref": "#/$defs/SessionDeleteCompletedParams"
       }
     },
     "session/goalChanged": {
@@ -7262,6 +8513,12 @@
         "$ref": "#/$defs/TurnCompletedParams"
       }
     },
+    "turn/foregroundCompleted": {
+      "description": "The turn's foreground work is done while named background reminder checks hold the turn open; explicitly non-terminal (SS4.5.12).",
+      "params": {
+        "$ref": "#/$defs/TurnForegroundCompletedParams"
+      }
+    },
     "turn/retracted": {
       "description": "An interrupt-paired retract was durably accepted (SS4.5.1).",
       "params": {
@@ -7290,6 +8547,12 @@
       "description": "The host's last-observed subscription usage DATA changed (window, weekly, or tier — not a stamp-only refresh), with the same payload shape as usage/read's usage member; the absent-to-present first observation emits (ADR 32563 D3).",
       "params": {
         "$ref": "#/$defs/SubscriptionUsage"
+      }
+    },
+    "userInput/engaged": {
+      "description": "Client-to-server engagement note: the user started interacting with a timed prompt, so the host disarms its countdown; no result, no errors, no ledger row (SS5.10.4, ADR 45450 D2).",
+      "params": {
+        "$ref": "#/$defs/UserInputEngagedParams"
       }
     },
     "userInput/requested": {

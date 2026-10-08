@@ -40,6 +40,7 @@ import type {
   SourceRange,
   TurnCompletedParams,
   TurnError,
+  TurnForegroundCompletedParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -157,6 +158,7 @@ function userInputSettled(userInputId: string, outcome: string, viewCursor: stri
   const params: UserInputSettledParams = {
     answers: [],
     clarification: null,
+    decidedAt: "2025-08-07T18:23:20.100Z",
     decidedByCommandId: null,
     outcome,
     reason: null,
@@ -492,6 +494,83 @@ test("a replayed page never re-plants the retry hint on a turn that left running
   });
 });
 
+test("turn/completed clears the foreground hint (tdd SS4.5.12)", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnForegroundCompletedParams = {
+    blockingAgents: ["goal-reminder"],
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/foregroundCompleted", params });
+  assert.ok(fold.turn("turn-1")?.foregroundCompleted, "the hint is set while the turn runs");
+
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:3"));
+
+  // A finished turn is not background-waiting; a renderer keyed on the hint
+  // would otherwise show background-wait on a turn that is already done.
+  assert.equal(fold.turn("turn-1")?.foregroundCompleted, undefined);
+});
+
+test("turn/foregroundCompleted is non-terminal: the turn keeps running", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnForegroundCompletedParams = {
+    blockingAgents: ["goal-reminder", "verify-reminder"],
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/foregroundCompleted", params });
+
+  assert.equal(fold.activeTurnId, "turn-1", "a foreground notice never settles a turn");
+  assert.equal(fold.turn("turn-1")?.state, "running");
+  assert.deepEqual(fold.turn("turn-1")?.foregroundCompleted?.blockingAgents, [
+    "goal-reminder",
+    "verify-reminder",
+  ]);
+});
+
+test("a replayed page never re-plants the foreground hint on a turn that left running", () => {
+  const fold = new SessionFold();
+  const notice: ViewEvent = {
+    method: "turn/foregroundCompleted",
+    params: {
+      blockingAgents: ["goal-reminder"],
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      turnId: "turn-1",
+      viewCursor: "v:s:2",
+    },
+  };
+  const page: readonly ViewEvent[] = [
+    turnStarted("turn-1", "cmd-1", "v:s:1"),
+    notice,
+    turnCompleted("turn-1", "cancelled", "v:s:3"),
+    turnRetracted("turn-1", "cmd-1", "v:s:4"),
+  ];
+  for (const event of page) fold.apply(event);
+  assert.equal(fold.turn("turn-1")?.foregroundCompleted, undefined, "in-order delivery is clean");
+
+  // `turn/foregroundCompleted` is a turn frame too, so it takes the same
+  // redelivery guard as the retry hint. Without it, a reconnect replay
+  // re-plants the hint on the retracted turn — and `#turnCompleted`'s clear
+  // can no longer undo that, because the replayed completion is itself
+  // dropped. The turn would show background-wait forever.
+  for (const event of page) fold.apply(event);
+
+  assert.equal(fold.turn("turn-1")?.state, "retracted");
+  assert.equal(fold.turn("turn-1")?.foregroundCompleted, undefined, "the replayed hint is dropped");
+  assert.deepEqual(fold.apply(notice), {
+    kind: "ignoredStaleFrame",
+    method: "turn/foregroundCompleted",
+    id: "turn-1",
+  });
+});
+
 test("turns are listed in first-observed order", () => {
   const fold = new SessionFold();
   fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
@@ -751,6 +830,10 @@ test("userInput/requested adds a pending prompt and settled retires it", () => {
   assert.deepEqual(
     fold.settledUserInputs().map((s) => [s.userInputId, s.outcome]),
     [["u-1", "answered"]],
+  );
+  assert.equal(
+    fold.settledUserInputs()[0]?.decidedAt,
+    "2025-08-07T18:23:20.100Z",
   );
 });
 
@@ -1333,6 +1416,13 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     turnId: "turn-t3",
     viewCursor: "v:t:8",
   };
+  const foreground: TurnForegroundCompletedParams = {
+    blockingAgents: ["goal-reminder"],
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-t5",
+    viewCursor: "v:t:23",
+  };
   const approvalUpdated: ApprovalUpdatedParams = {
     approvalId: "a-t",
     availableChoices: [],
@@ -1426,6 +1516,7 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     "turn/completed": turnCompleted("turn-t", "completed", "v:t:6"),
     "turn/retracted": turnRetracted("turn-t2", "cmd-t2", "v:t:7"),
     "turn/retryScheduled": { method: "turn/retryScheduled", params: retrySched },
+    "turn/foregroundCompleted": { method: "turn/foregroundCompleted", params: foreground },
     "turn/unqueued": turnUnqueued("turn-t4", "cmd-t4", "v:t:9"),
     "approval/requested": approvalRequested("a-t", "v:t:10"),
     "approval/updated": { method: "approval/updated", params: approvalUpdated },

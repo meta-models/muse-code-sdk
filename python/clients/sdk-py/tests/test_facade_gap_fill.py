@@ -329,6 +329,108 @@ async def test_a_second_gap_mid_fill_coalesces_on_the_first_after_and_extends_th
 
 
 @pytest.mark.asyncio
+async def test_an_end_of_view_page_before_an_extended_target_resumes_from_the_last_served_cursor() -> None:
+    # A second `view/gap` extends the target while the first page is in
+    # flight; that page ends the view before the OLD target, so the walk must
+    # page on toward the new one — from the last cursor it was served, not
+    # from where it started. Re-asking from the start re-serves the page's
+    # events, and the walk's twin set holds only cursors at or after a reached
+    # target, so they fold twice: here a `turn/started` for another turn,
+    # which is queue movement and authors one `turn/start` replay per fold.
+    transport, session = wired()
+    await submitted_queued(transport, session)
+
+    started = turn_started_at("v:2")
+    tail = item_event("item/started", "v:7", item("i-2", 1))
+
+    def page_from(cursor: Any) -> List[Params]:
+        # The host's durable view as a function of the cursor asked from: a
+        # stale re-page really does re-serve `v:2`.
+        if cursor == "v:1":
+            return [started, tail]
+        if cursor == "v:2":
+            return [tail]
+        return []
+
+    gap = session.apply(gap_frame("v:1", "v:3"))
+    await wait_for_writes(transport, 2)
+    assert sent_params(transport, 1)["cursor"] == "v:1"
+    # The second hole opens while page 1 is in flight; the target extends.
+    session.apply(gap_frame("v:4", "v:7"))
+    assert session.fold.pending_gap == {"after": "v:1", "next": "v:7", "sessionId": SESSION}
+
+    # Page 1 serves `v:2` and ends the view short of the OLD target `v:3`.
+    answer(transport, 1, {"events": [started], "nextCursor": None})
+    await wait_for_writes(transport, 3)
+    assert sent_frame(transport, 2)["method"] == "view/page"
+    assert sent_params(transport, 2)["cursor"] == "v:2", (
+        "the walk pages on from the last cursor it was served, never from where it started"
+    )
+    await answer_page(transport, 2, page_from(sent_params(transport, 2)["cursor"]), None)
+    await pump()
+
+    # Write 0 is the submit itself (also a `turn/start`); replays come after.
+    replays = [
+        index
+        for index in range(1, len(transport.writes))
+        if sent_frame(transport, index)["method"] == "turn/start"
+    ]
+    assert len(replays) == 1, "one fold of `v:2`, so ONE replay of the queued command"
+    answer(transport, replays[0], QUEUED_ACK)
+    await settled_io(gap.io)
+    assert session.fold.current is True
+
+
+@pytest.mark.asyncio
+async def test_an_end_of_view_page_ending_on_an_already_served_twin_moves_the_resume_cursor_to_it() -> None:
+    # The "already-applied events included" clause. An end-of-view page can
+    # end on an event an EARLIER fill already served and applied; the walk
+    # skips it, but it was still served, so a walk toward a target a mid-walk
+    # `view/gap` extended must resume from it. Recording the cursor only for
+    # freshly applied events resumes one event short and asks the host for a
+    # range it has already delivered.
+    transport, session = wired()
+
+    # Fill 1 serves its target `v:3` and then `v:9`, which lands in the
+    # served-twin set (served at or after a reached target).
+    first = session.apply(gap_frame("v:1", "v:3"))
+    await answer_page(
+        transport,
+        0,
+        [item_event("item/started", "v:3", item("i-1", 1)), item_event("item/started", "v:9", item("i-9", 1))],
+        "v:9",
+    )
+    await settled_io(first.io)
+    assert session.fold.current is True, "fill 1 completed"
+
+    # Fill 2: a hole below `v:9`, extended while its first page is in flight.
+    second = session.apply(gap_frame("v:4", "v:6"))
+    await wait_for_writes(transport, 2)
+    assert sent_params(transport, 1)["cursor"] == "v:4"
+    session.apply(gap_frame("v:6", "v:12"))
+    # Page 1 ends the view on the already-served twin `v:9`.
+    answer(
+        transport,
+        1,
+        {
+            "events": [
+                item_event("item/started", "v:5", item("i-5", 1)),
+                item_event("item/started", "v:9", item("i-9", 1)),
+            ],
+            "nextCursor": None,
+        },
+    )
+    await wait_for_writes(transport, 3)
+    assert sent_params(transport, 2)["cursor"] == "v:9", (
+        "the resume cursor is the last event SERVED, an already-applied twin included"
+    )
+    await answer_page(transport, 2, [item_event("item/started", "v:12", item("i-12", 1))], None)
+    await settled_io(second.io)
+    assert session.fold.current is True
+    assert len(transport.writes) == 3, "three pages, no extra round trip"
+
+
+@pytest.mark.asyncio
 async def test_a_gap_arriving_after_a_completed_fill_starts_its_own_walk() -> None:
     # The TS twin guards a "clear window" here: its drain lowers the filling
     # flag a microtask after the walk cleared the hole, so a `view/gap`

@@ -11,7 +11,9 @@ one source of truth:
   of the manifest's own name and version);
 * host version: the generated ``muse_code_msp.REQUIRED_HOST_VERSION``
   (itself rendered from the host crate by ``scripts/gen-msp-py.sh``);
-* schema fingerprint: ``schema/msp/stable/manifest.json``.
+* schema fingerprint: ``schema/msp/stable/manifest.json`` — under the repo
+  root, or under its verbatim sibling when the root is the publication
+  mirror's ``python/`` tree (which carries no schema of its own).
 
 ``scripts/publish-sdk-pypi.sh`` runs this as a gate — with ``--dist`` it
 also proves the wheels the build actually produced are exactly the wheels
@@ -72,10 +74,30 @@ def _generated_constant(repo_root: Path, name: str) -> str:
     return matched.group(1)
 
 
+def _stable_manifest(repo_root: Path) -> dict[str, Any]:
+    # The stable bundle lives at the verbatim layout in the publication
+    # mirror — the closure manifest scopes no schema path under python/ —
+    # while the python publish resolves repo_root to the mirror's python/
+    # tree. Probe the verbatim sibling when the rooted layout is absent;
+    # the rooted layout wins wherever it exists.
+    candidates = (
+        repo_root / "schema" / "msp" / "stable" / "manifest.json",
+        repo_root.parent / "schema" / "msp" / "stable" / "manifest.json",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return json.loads(candidate.read_text())
+    raise RowError(
+        f"the stable-bundle manifest is missing under {repo_root} "
+        "(looked under the repo root and its verbatim sibling); "
+        "a wheel must not ship without its schema fingerprint"
+    )
+
+
 def wheel_rows(repo_root: Path) -> dict[str, Any]:
     host_version = _generated_constant(repo_root, "REQUIRED_HOST_VERSION")
     fingerprint = _generated_constant(repo_root, "SCHEMA_FINGERPRINT")
-    manifest = json.loads((repo_root / "schema" / "msp" / "stable" / "manifest.json").read_text())
+    manifest = _stable_manifest(repo_root)
     if fingerprint != manifest["fingerprint"]:
         raise RowError(
             "generated muse_code_msp is stale against the stable bundle "

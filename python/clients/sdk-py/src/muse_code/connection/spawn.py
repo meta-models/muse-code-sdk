@@ -897,6 +897,11 @@ class MspHandshake:
         self._transport = child._transport
         self._connection = connection
         self._started = False
+        # Did ``initialize`` get an answer before the handshake failed? Read
+        # by the facade, never a public member: it lets ``MuseClient.spawn``
+        # say truthfully that a host died AFTER answering, while the
+        # ``initialized`` notification was being sent.
+        self._answered = False
         self._transport._adopt_flush_source(connection._submission_tail)
 
     @property
@@ -957,6 +962,7 @@ class MspHandshake:
         # stays a no-op.
         try:
             raw: Any = await self._connection.request("initialize", dict(params))
+            self._answered = True
             # The contract frame seam: the members this
             # handshake reads validate through a pydantic model, so a
             # malformed frame is the typed MuseValidationError — the seam

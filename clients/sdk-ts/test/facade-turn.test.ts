@@ -32,6 +32,7 @@ import type {
   SourceRange,
   TurnCompletedParams,
   TurnError,
+  TurnForegroundCompletedParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -117,6 +118,17 @@ function turnRetryScheduled(turnId: string, viewCursor: string): ViewEvent {
     viewCursor,
   };
   return { method: "turn/retryScheduled", params };
+}
+
+function turnForegroundCompleted(turnId: string, viewCursor: string): ViewEvent {
+  const params: TurnForegroundCompletedParams = {
+    blockingAgents: ["goal-reminder"],
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId,
+    viewCursor,
+  };
+  return { method: "turn/foregroundCompleted", params };
 }
 
 function item(itemId: string, revision: number, extra: Partial<Item> = {}): Item {
@@ -251,6 +263,23 @@ test("TEST-012: turn/retryScheduled is non-terminal and never settles the wait (
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(settled, false, "a scheduled retry is a fact about a RUNNING turn, not an exit");
+
+  s.apply(turnCompleted("t-1", "completed", "v:3"));
+  assert.equal((await turn.completed).kind, "completed");
+});
+
+test("TEST-012: turn/foregroundCompleted is non-terminal and never settles the wait (SS4.5.12)", { timeout: 5_000 }, async () => {
+  const s = session();
+  const turn = s.turn("t-1");
+  s.apply(turnStarted("t-1", "v:1"));
+  s.apply(turnForegroundCompleted("t-1", "v:2"));
+
+  let settled = false;
+  void turn.completed.then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "foreground done while background checks hold the turn is a RUNNING turn, not an exit");
 
   s.apply(turnCompleted("t-1", "completed", "v:3"));
   assert.equal((await turn.completed).kind, "completed");

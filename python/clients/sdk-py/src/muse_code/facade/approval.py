@@ -17,11 +17,16 @@ request upstream, never a local interface.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal, Union
 
-from muse_code_msp import ApprovalDecideParams, ApprovalRequestParams
+from muse_code_msp import (
+    ApprovalDecideParams,
+    ApprovalRequestParams,
+    ApprovalUpdatedParams,
+)
 
 from ..connection.connection import Connection
 
@@ -36,6 +41,40 @@ _DECIDE_FORWARDED = frozenset(
 assert _DECIDE_FORWARDED | {"commandId"} == (
     ApprovalDecideParams.__required_keys__ | ApprovalDecideParams.__optional_keys__
 ), "approval/decide grew a member — forward it through ApprovalRouter"
+
+# The refreshed-request merge in ``ApprovalRouter.updated``, listed by SOURCE:
+# stage-scoped members come from the ``approval/updated`` frame, identity
+# members from the retained request (stable across the stages of one
+# approval). A regenerated member, required or optional, fails this import
+# until it is given a side; otherwise it would silently vanish from every
+# later stage's request.
+_REFRESH_FROM_UPDATE = frozenset(
+    {
+        "availableChoices",
+        "currentRequirementId",
+        "sessionId",
+        "sourceRange",
+        "subagentOrigin",
+        "subject",
+        "viewCursor",
+    }
+)
+_REFRESH_FROM_REQUEST = frozenset(
+    {
+        "approvalId",
+        "itemId",
+        "judgeEscalated",
+        "protectedWrite",
+        "rawArgs",
+        "taskId",
+        "toolCallId",
+        "toolName",
+        "turnId",
+    }
+)
+assert _REFRESH_FROM_UPDATE | _REFRESH_FROM_REQUEST == (
+    ApprovalRequestParams.__required_keys__ | ApprovalRequestParams.__optional_keys__
+), "approval/requested grew a member — give it a side in ApprovalRouter.updated"
 
 
 @dataclass(frozen=True)
@@ -107,7 +146,8 @@ ApprovalFailureHandler = Callable[[ApprovalFailure], None]
 
 
 class ApprovalRouter:
-    """Routes folded ``approval/requested`` frames to the consumer's handler
+    """Routes folded ``approval/requested`` frames, and ``approval/updated``
+    frames that advance a pending approval's stage, to the consumer's handler
     and authors the ``approval/decide`` command."""
 
     def __init__(self, session_id: str, connection: Connection | None) -> None:
@@ -131,6 +171,14 @@ class ApprovalRouter:
         # ``requirementId`` and therefore a new key, so "ask the consumer once
         # per stage" holds absolutely.
         self._decided_stages: set[str] = set()
+        # Approvals whose own decide ack said ``terminal: true``: the host
+        # closed the whole approval, so a trailing stage update names nobody's
+        # question.
+        self._terminal_approvals: set[str] = set()
+        # The decide each approval has on the wire, set when its ack lands.
+        # An update read in the same chunk as a ``terminal: true`` ack is
+        # folded before that decide resumes, so the update must wait for it.
+        self._in_flight: dict[str, asyncio.Event] = {}
 
     def on_approval(self, handler: ApprovalHandler) -> None:
         """Register the decision callback.
@@ -188,6 +236,63 @@ class ApprovalRouter:
             )
             return None
         return self._decide(connection, params, handler)
+
+    def updated(
+        self,
+        requested: ApprovalRequestParams,
+        params: ApprovalUpdatedParams,
+    ) -> Awaitable[None] | None:
+        """An ``approval/updated`` folded onto a STILL-PENDING approval.
+
+        A multi-stage approval advances ``currentRequirementId`` through this
+        frame alone on the notification plane, so waiting for a re-issued
+        ``approval/requested`` would leave the new stage undecided and the turn
+        pending. The update carries none of the request's identity members,
+        but the fold retains the original request and those members are stable
+        across the stages of one approval, so the merged request is honest.
+        Routing it through :meth:`requested` reuses the per-stage latch: an
+        update naming an already-decided stage authors nothing.
+        """
+        # ``alreadyTerminal``: the host holds a durable terminal whose resolve
+        # frame has not landed yet; a decision against it can only bounce.
+        if params["change"]["kind"] == "alreadyTerminal":
+            return None
+        if requested["approvalId"] in self._terminal_approvals:
+            return None
+        refreshed: ApprovalRequestParams = {
+            "approvalId": requested["approvalId"],
+            "availableChoices": params["availableChoices"],
+            "currentRequirementId": params["currentRequirementId"],
+            "itemId": requested["itemId"],
+            "judgeEscalated": requested["judgeEscalated"],
+            "protectedWrite": requested["protectedWrite"],
+            "rawArgs": requested["rawArgs"],
+            "sessionId": params["sessionId"],
+            "sourceRange": params["sourceRange"],
+            "subject": params["subject"],
+            "taskId": requested["taskId"],
+            "toolCallId": requested["toolCallId"],
+            "toolName": requested["toolName"],
+            "turnId": requested["turnId"],
+            "viewCursor": params["viewCursor"],
+        }
+        # Omitted rather than nulled when absent, like ``feedback`` below.
+        if "subagentOrigin" in params:
+            refreshed["subagentOrigin"] = params["subagentOrigin"]
+        acked = self._in_flight.get(requested["approvalId"])
+        if acked is not None:
+            return self._after_ack(acked, refreshed)
+        return self.requested(refreshed)
+
+    async def _after_ack(
+        self, acked: asyncio.Event, refreshed: ApprovalRequestParams
+    ) -> None:
+        await acked.wait()
+        if refreshed["approvalId"] in self._terminal_approvals:
+            return
+        decided = self.requested(refreshed)
+        if decided is not None:
+            await decided
 
     @staticmethod
     def _stage_key(params: ApprovalRequestParams) -> str:
@@ -252,14 +357,26 @@ class ApprovalRouter:
         if feedback is not None:
             decide_params["feedback"] = feedback
 
+        # The wait covers only this round trip: an update for this approval
+        # read before the ack lands waits for it, while a handler still open
+        # or a decide that never started blocks nobody.
+        approval_id = params["approvalId"]
+        acked = asyncio.Event()
+        self._in_flight[approval_id] = acked
         try:
             # No explicit ``command_id``: unlike ``send_user_turn``, nothing
             # here needs the id before the ack, so ``Connection.command()``
             # mints and stamps it — and its own same-id retry then reuses that
             # id for free.
-            await connection.command("approval/decide", decide_params)
+            result = await connection.command("approval/decide", decide_params)
+            if result.get("terminal") is True:
+                self._terminal_approvals.add(approval_id)
         except Exception as error:  # noqa: BLE001 - reported, never escapes
-            self._report(SubmitFailed(approval_id=params["approvalId"], error=error))
+            self._report(SubmitFailed(approval_id=approval_id, error=error))
+        finally:
+            acked.set()
+            if self._in_flight.get(approval_id) is acked:
+                del self._in_flight[approval_id]
 
     def _report(self, failure: ApprovalFailure) -> None:
         handler = self._on_failure
