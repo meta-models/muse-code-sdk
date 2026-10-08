@@ -164,10 +164,13 @@ but its own start records is a different case. Once the host that started it
 is gone, the next host treats that empty session as litter and reclaims it
 during its startup housekeeping, so a resume of that id is refused as not
 found. Do not start a session, crash, and expect to find it again with nothing
-in it — give it something to keep first. Selecting a non-default approval mode
-at start is enough — the host records a mode only when your pick differs from
-its default, so the default (or omitting the field) leaves the session empty —
-and it is what the recipe does.</p>
+in it — give it something to keep first. Changing to a non-default approval
+mode after the session starts is enough — the host records a change only when
+the new mode differs from the current one — and it is what the recipe does.
+Note the timing: the approval mode named in the start call itself does not
+count. A session carrying only its start’s own selection is still reclaimed
+as empty once its host is gone; the keeping change is a separate call made
+after the start.</p>
 <p>The tested recipe behind this page proves that end to end: it starts a session
 carrying one durable fact, kills the live release-built host with SIGKILL
 mid-session, watches the classification come back as a crash with the signal
@@ -224,10 +227,10 @@ through a tiny shell wrapper that prints the host’s pid (an external death
 does not come through the SDK, so the journey needs a pid to deliver one); it
 spawns its hosts the way <code dir="auto">MuseClient.spawn</code> does inside — <code dir="auto">spawnMspConnection</code>,
 then <code dir="auto">MspHandshake.initialize</code>, then a <code dir="auto">MuseClient</code> around the connection — so
-it can also call <code dir="auto">session/list</code>, which the facade does not wrap, to prove the
-fresh host finished its startup housekeeping before the resume rather than
-merely racing it; and it spawns hosts with <code dir="auto">MUSE_EXPERIMENTAL_SDK_ENABLED</code> set
-explicitly. <code dir="auto">muse serve</code> now runs by default; the variable survives as an
+it can also call <code dir="auto">session/setApprovalMode</code> and <code dir="auto">session/list</code>, which the facade
+does not wrap — the list call proves the fresh host finished its startup
+housekeeping before the resume rather than merely racing it; and it spawns
+hosts with <code dir="auto">MUSE_EXPERIMENTAL_SDK_ENABLED</code> set explicitly. <code dir="auto">muse serve</code> now runs by default; the variable survives as an
 off-switch, and the harness pins the run open so an operator’s <code dir="auto">off</code> in the
 environment cannot silently change what this page proves.
 <strong>None of this is advice for your application</strong> — call <code dir="auto">MuseClient.spawn</code>,
