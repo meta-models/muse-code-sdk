@@ -153,10 +153,16 @@ event folds, carrying one of three
 <a href="../../../generated/msp/types/turnterminal/">terminals</a>:</p>
 <ul>
 <li><strong>completed</strong> — the run finished normally.</li>
-<li><strong>failed</strong> — the run ended in a run-fatal error; the event carries a
-<a href="../../../generated/msp/types/turnerror/"><code dir="auto">turnError</code></a> object with a
-<a href="../../../generated/msp/types/turnerrorkind/">kind</a>, a human message, and
-the server’s judgment on whether resubmitting the same input may succeed.</li>
+<li><strong>failed</strong> — the run ended in a run-fatal error. The event’s <code dir="auto">error</code> member
+carries a <a href="../../../generated/msp/types/turnerror/"><code dir="auto">TurnError</code></a> object with
+a <a href="../../../generated/msp/types/turnerrorkind/">kind</a>, a human <code dir="auto">message</code>, and
+<code dir="auto">retryable</code>, the server’s judgment on whether resubmitting the same input
+may succeed. A host-death failed terminal has no <code dir="auto">error</code>: when the host
+dies mid-turn, the terminal synthesized on the next resume or read of a
+durable session carries the free-text <code dir="auto">reason</code> instead (an ephemeral host
+synthesizes none; see <a href="../durability-profiles/">durability profiles</a>). So
+check that <code dir="auto">error</code> is present before reading <code dir="auto">error.kind</code>, and show
+<code dir="auto">reason</code> otherwise; <code dir="auto">reason</code> is for display only, never for branching.</li>
 <li><strong>cancelled</strong> — the terminal for both stop lanes
 (<a href="../../../generated/msp/methods/turn-interrupt/"><code dir="auto">turn/interrupt</code></a> and
 <a href="../../../generated/msp/methods/turn-cancel/"><code dir="auto">turn/cancel</code></a>) and for
