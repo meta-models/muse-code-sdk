@@ -91,11 +91,15 @@ The documentation is a **Developer Preview**, as the banner on every page says.
 
 ## Support
 
-**Issues are open, and reports and questions are welcome.**
-[Open an issue](https://github.com/meta-models/muse-code-sdk/issues/new/choose) —
+**Issues are open, and reports and questions are welcome.** Read the
+[issue triage guide](.github/TRIAGE.md), then
+[open an issue](https://github.com/meta-models/muse-code-sdk/issues/new/choose) —
 there is a short form for bugs and one for questions. Bugs in the SDK, in the
 protocol declarations and in the documentation all belong here, as do questions
 about how to use any of it.
+
+Suspected security vulnerabilities must not be filed publicly. Follow the
+[security policy](.github/SECURITY.md) to report them privately.
 
 Issues are triaged into the team's internal tracker, and fixes are made
 upstream and land here on the next publish. We may reply on the issue when a
