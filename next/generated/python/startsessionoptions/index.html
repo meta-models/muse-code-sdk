@@ -116,6 +116,11 @@ implements the required <code dir="auto">sessionMcp</code> grant check and forwa
 <td><code dir="auto">str | None</code></td>
 <td>The model to serve the session with; omitted = the provider’s default.</td>
 </tr>
+<tr>
+<td><code dir="auto">permission_profile</code></td>
+<td><code dir="auto">str | None</code></td>
+<td>The permission profile to start the session under (wire <code dir="auto">permissionProfile</code>): a profile id the host offers; omitted = the host’s configured default. An id the host does not offer refuses the start before the session exists.</td>
+</tr>
 </tbody>
 </table>
 <details>

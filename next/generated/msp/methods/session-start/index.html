@@ -116,6 +116,13 @@
 <td>Initial model; server default when omitted.</td>
 </tr>
 <tr>
+<td><code dir="auto">permissionProfile</code></td>
+<td><code dir="auto">string</code></td>
+<td></td>
+<td>optional</td>
+<td>The new session’s initial permission profile: a profile id the host catalog already admits — the rows <code dir="auto">permissionProfile/list</code> serves without <code dir="auto">sessionId</code>. Select, never create. Omitted means today’s behavior: the host’s configured default under native admission, unchanged. An id the catalog does not carry, or one it serves unavailable, refuses the start <code dir="auto">commandRejected</code> (-32030; <code dir="auto">permission_profile_unknown</code> / <code dir="auto">permission_profile_unavailable</code>) before any durable byte, and an ephemeral host refuses any id (<code dir="auto">permission_profile_ephemeral_fixed</code>). <code dir="auto">session/resume</code> and <code dir="auto">session/fork</code> do not admit the member. Explicit <code dir="auto">null</code> is invalid params: the set of members that tolerate <code dir="auto">null</code> is closed and excludes this one, exactly as it excludes <code dir="auto">workspaceRoots</code>.</td>
+</tr>
+<tr>
 <td><code dir="auto">providerId</code></td>
 <td><code dir="auto">string</code> | <code dir="auto">null</code></td>
 <td></td>
