@@ -43,8 +43,7 @@
   ],
   "artifact": "@muse-code/sdk source closure",
   "producer": {
-    "repository": "mslsrc/tbh",
-    "root": "projects/tbh"
+    "repository": "the internal source tree"
   },
   "mirror": {
     "repository": "meta-models/muse-code-sdk",
@@ -52,11 +51,11 @@
     "preserve_note": [
       "Prose, not a path list — the list itself deliberately lives on one side only.",
       "The mirror holds hand-authored repository-meta files that have no upstream",
-      "counterpart — its README, LICENSE, .github/, .nojekyll and publish-anchor.json.",
-      "The authoritative list is `repo_meta.hand_authored` in the mirror's own",
-      "publish-anchor.json, not a second copy here. A republish that replaces the",
-      "tree wholesale deletes them silently and still reports success; preserve",
-      "them (mslsrc/tbh#25904)."
+      "counterpart — its README, LICENSE, .github directory, .nojekyll and",
+      "publish-anchor.json. The authoritative list is `repo_meta.hand_authored`",
+      "in the mirror's own publish-anchor.json, not a second copy here. A",
+      "republish that replaces the tree wholesale deletes them silently and",
+      "still reports success; preserve them."
     ],
     "python_tree": [
       "The Python SDK closure lands under the mirror's `python/` tree, not at",

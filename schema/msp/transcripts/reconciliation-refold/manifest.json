@@ -8,7 +8,7 @@
     "rationale": "Regenerate the view frames from the unchanged records.jsonl through fold_session_view and ViewEvent::to_json_line. Source-less starts and deltas use fragment cursors without consuming durable ordinals. Only five viewCursor values change; event order, payloads, sourceRange citations, and the four durable / three ephemeral accounting stay unchanged. Provenance remains hand-authored: this is the T034b fold fixture, not Stage B host generation.",
     "trackingIssue": "https://github.com/mslsrc/tbh/issues/34281"
   },
-  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "fingerprint": "sha256:eae467ab60cb9a5d5af4de616830f065e59375c987fd59269c8cc33ed2a1137f",
   "viewSchemaVersion": 1,
   "serverConfig": {
     "frameLimitBytes": 10485760

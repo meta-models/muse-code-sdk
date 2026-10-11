@@ -43,7 +43,7 @@ import type {
   MuseServeChild,
   SpawnedMspConnection,
 } from "../connection/spawn.js";
-import { MuseSessionDiscardedError } from "../errors.js";
+import { MuseSessionDiscardedError, PermissionProfileNotApplied } from "../errors.js";
 import { DiscardedSessions } from "./discarded.js";
 import { isAbnormalHostDeath, readSessionDurability } from "./host-death.js";
 import type { SessionDurabilityProfile } from "./host-death.js";
@@ -85,6 +85,7 @@ const START_FORWARDED = [
   "workspaceRoot",
   "workspaceRoots",
   "modelId",
+  "permissionProfile",
 ] as const;
 type _StartIsExhaustive = AssertNever<
   Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config">
@@ -100,12 +101,39 @@ type _ResumeIsExhaustive = AssertNever<
 >;
 
 /**
+ * The committed profile id a session snapshot claims, or null when the
+ * snapshot is silent (the stable bundle strips the member; absent and null
+ * both mean unknown, never applied). Structural on purpose: the stable
+ * `Session` type carries no `permissionState`, and an unknown wire shape
+ * must read as unknown rather than throw.
+ */
+function committedProfileId(snapshot: unknown): string | null {
+  if (typeof snapshot !== "object" || snapshot === null) return null;
+  const state = (snapshot as { permissionState?: unknown }).permissionState;
+  if (typeof state !== "object" || state === null) return null;
+  const id = (state as { profileId?: unknown }).profileId;
+  return typeof id === "string" ? id : null;
+}
+
+/**
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
  * `config` is excluded as well as `commandId` until the facade implements the
  * required `sessionMcp` grant check and forwarding.
  */
-export type StartSessionOptions = Readonly<Omit<SessionStartParams, "commandId" | "config">>;
+export type StartSessionOptions = Readonly<
+  Omit<SessionStartParams, "commandId" | "config"> & {
+    /**
+     * Require the `permissionProfile` selection (TEST-42624-10): when set,
+     * the client proves the committed selection equals the requested id —
+     * from the start result's `session.permissionState`, else a
+     * `session/read` read-back — and throws `PermissionProfileNotApplied`
+     * instead of proceeding on the host default. Client-local: never sent
+     * on the wire. Setting it without `permissionProfile` is a usage error.
+     */
+    requirePermissionProfile?: boolean;
+  }
+>;
 
 /** Caller-facing options for `session/resume` (tdd SS2.5.2). */
 export type ResumeSessionOptions = Readonly<
@@ -340,13 +368,58 @@ export class MuseClient {
     if (options.workspaceRoot != null) params.workspaceRoot = options.workspaceRoot;
     if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     if (options.modelId != null) params.modelId = options.modelId;
+    // The initial permission-profile selection, forwarded verbatim like the
+    // other start members (undefined stays omitted).
+    if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
+    // TEST-42624-10: a caller that requires its selection proves it, never
+    // assuming the host default. The flag without the member is API misuse
+    // (plain Error, like the other misuse guards here), raised pre-wire.
+    const required = options.requirePermissionProfile === true;
+    if (required && options.permissionProfile == null) {
+      throw new Error(
+        "requirePermissionProfile needs permissionProfile: require the selection you pass",
+      );
+    }
     // Keyed by the id the SERVER named, never the one the caller asked for:
     // `sessionId` is a REQUEST on start, and a session keyed by a hopeful id
     // would reject every one of its own events as foreign.
-    return this.#open("session/start", params, (raw) => ({
+    const session = await this.#open("session/start", params, (raw) => ({
       result: raw as unknown as SessionStartResult,
       verb: "session/start",
     }));
+    if (!required) return session;
+    return this.#proveSelection(session, options.permissionProfile as string);
+  }
+
+  /**
+   * Prove a required start selection (TEST-42624-10): the start result's own
+   * `session.permissionState` first (absent = unknown, never applied); else a
+   * point-in-time `session/read`, which never subscribes. Only `profileId ==
+   * requested` proceeds; anything else throws `PermissionProfileNotApplied`
+   * BEFORE any turn is sent. The refused session is dropped from the client
+   * (no orphan keeps folding for an id the caller can never reach — the SDK
+   * has no set/close-by-id verb); the error's `sessionId` is the caller's
+   * handle to resume via `sessionId` or start again. A failed read-back
+   * propagates: the client still never proceeds on the default.
+   */
+  async #proveSelection(session: Session, requested: string): Promise<Session> {
+    const opening = session.opening;
+    const started =
+      opening !== undefined && opening.verb === "session/start"
+        ? committedProfileId(opening.result.session)
+        : null;
+    if (started !== null) {
+      if (started === requested) return session;
+      this.#sessions.delete(session);
+      throw new PermissionProfileNotApplied(requested, started, session.sessionId);
+    }
+    const read = await this.#connection.command("session/read", {
+      sessionId: session.sessionId,
+    });
+    const served = committedProfileId(read["session"]);
+    if (served === requested) return session;
+    this.#sessions.delete(session);
+    throw new PermissionProfileNotApplied(requested, served, session.sessionId);
   }
 
   /**

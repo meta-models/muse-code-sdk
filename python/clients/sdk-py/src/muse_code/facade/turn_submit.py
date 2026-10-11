@@ -20,6 +20,7 @@ from muse_code_msp import (
     TurnInputPart,
     TurnStartParams,
     TurnStartResult,
+    TurnUserShell,
 )
 
 from ..connection.connection import Connection, MspError, Params
@@ -54,6 +55,8 @@ class SendUserTurnOptions(Generic[_I]):
         workspace_roots: A sticky replacement of the session's runtime
             workspace-root set for this turn and subsequent turns (wire
             ``workspaceRoots``).
+        user_shell: The queued ``!`` shell action this turn carries (wire
+            ``userShell``).
         composer_input: What to hand back to the composer if this submit is
             ever retired — the protocol restores the INPUT, not the wire parts.
             Optional: a consumer rendering nothing optimistically has nothing
@@ -67,6 +70,8 @@ class SendUserTurnOptions(Generic[_I]):
     # No token_budget: the member is experimental-gated (v1 membership
     # unruled), and this SDK serves the stable surface only.
     workspace_roots: List[str] | None = None
+    # v1 stable member, forwarded like any other.
+    user_shell: TurnUserShell | None = None
     composer_input: _I | None = None
 
 
@@ -88,7 +93,7 @@ def _camel(field_name: str) -> str:
 # own field, never a wire member, so it is dropped
 # before the compare; `commandId`/`sessionId` are excluded because the
 # connection mints the first and the session owns the second.
-_TURN_WIRE_FIELDS = {"input", "display_text", "if_busy", "reasoning_effort", "workspace_roots"}
+_TURN_WIRE_FIELDS = {"input", "display_text", "if_busy", "reasoning_effort", "workspace_roots", "user_shell"}
 _TURN_EXCLUDED = {"commandId", "sessionId"}
 assert {
     _camel(f.name) for f in fields(SendUserTurnOptions) if f.name in _TURN_WIRE_FIELDS
@@ -292,4 +297,6 @@ class TurnSubmitter(Generic[_I]):
         # No tokenBudget forward: experimental-gated, stable SDK omits it.
         if options.workspace_roots is not None:
             params["workspaceRoots"] = options.workspace_roots
+        if options.user_shell is not None:
+            params["userShell"] = options.user_shell
         return params

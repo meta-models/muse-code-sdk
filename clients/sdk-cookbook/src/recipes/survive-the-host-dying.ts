@@ -28,10 +28,10 @@
  * Two arms, mirroring that fork:
  *
  *  - the DURABLE arm runs against the release-built `muse serve`: it reads the
- *    durable profile off the real handshake, starts a session that carries one
- *    durable fact (a selected approval mode), kills the host mid-session with
- *    SIGKILL, watches the SDK classify the exit as a crash, sees a live turn
- *    wait reject instead of hang, and then spawns a fresh host, finds the
+ *    durable profile off the real handshake, starts a session and gives it one
+ *    durable fact (a later approval-mode change), kills the host mid-session
+ *    with SIGKILL, watches the SDK classify the exit as a crash, sees a live
+ *    turn wait reject instead of hang, and then spawns a fresh host, finds the
  *    session in that host's listing once its startup housekeeping has run,
  *    resumes it, and reads the fact back to prove the state survived.
  *  - the EPHEMERAL arm is transport-less on purpose: the real host declares a
@@ -54,10 +54,11 @@
  *  - the journey spawns its hosts the way `MuseClient.spawn` does inside —
  *    `spawnMspConnection`, then `MspHandshake.initialize`, then a `MuseClient`
  *    composed around the connection — because it also has to speak
- *    `session/list`, which the facade does not wrap: that call is how the
- *    fresh-host segment PROVES the host's startup housekeeping ran before the
- *    resume instead of merely racing it. The two forms produce the same
- *    client; `MuseClient.spawn` is the one to use.
+ *    `session/list` and `session/setApprovalMode`, which the facade does not
+ *    wrap: the list call is how the fresh-host segment PROVES the host's
+ *    startup housekeeping ran before the resume instead of merely racing it.
+ *    The two forms produce the same client; `MuseClient.spawn` is the one to
+ *    use.
  */
 
 import { mkdtemp } from "node:fs/promises";
@@ -97,13 +98,15 @@ const PID_MARKER = "muse-cookbook-host-pid";
 
 /**
  * The one durable fact the killed session carries (see
- * `start-a-session-and-follow-a-turn`). It MUST stay a non-default mode: the
- * host records a mode only when the selection differs from its default, so a
- * default pick (or none) writes nothing, leaves the session empty, and hands
- * the fresh-host segment straight back to the litter reclaim it exists to
- * outlive. `denyUnmatched` because it is also the most conservative mode in
- * the vocabulary, so nothing here can be mistaken for advice about which mode
- * to run.
+ * `start-a-session-and-follow-a-turn`). It is a LATER approval-mode change,
+ * sent after the start: the start's own approval selection is startup
+ * scaffold the fresh host reclaims, so selecting the mode AT start would
+ * leave the session empty. It MUST stay a non-default mode: the host records
+ * a change only when the new mode differs from the current one, so re-selecting
+ * the default writes nothing and hands the fresh-host segment straight back to
+ * the litter reclaim it exists to outlive. `denyUnmatched` because it is also
+ * the most conservative mode in the vocabulary, so nothing here can be mistaken
+ * for advice about which mode to run.
  */
 const APPROVAL_MODE: ApprovalMode = "denyUnmatched";
 
@@ -129,6 +132,8 @@ interface Context {
   readonly home: string;
   readonly workspaceRoot: string;
   clientA?: MuseClient;
+  /** The first host's raw connection, kept for `session/setApprovalMode`, which the facade does not wrap. */
+  hostA?: SpawnedMspConnection;
   hostPid?: number;
   sessionA?: Session;
   sessionId?: string;
@@ -154,8 +159,9 @@ function must<T>(value: T | undefined, what: string): T {
  *
  * Spelled the way `MuseClient.spawn` is spelled inside — `spawnMspConnection`,
  * `MspHandshake.initialize`, then a `MuseClient` composed around the
- * connection — so the journey keeps the raw connection for the one method the
- * facade does not wrap, `session/list` (see `resume-on-a-fresh-host`). An
+ * connection — so the journey keeps the raw connection for the two methods the
+ * facade does not wrap, `session/setApprovalMode` and `session/list` (see
+ * `start-a-session-and-follow-a-turn` and `resume-on-a-fresh-host`). An
  * application calls `MuseClient.spawn`; it gets exactly this client.
  *
  * `killable` selects the wrapper described in the header: `$$` is the shell's
@@ -260,6 +266,7 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     async run(context) {
       const spawned = await spawnHost(context, true);
       context.clientA = spawned.client;
+      context.hostA = spawned.host;
       context.hostPid = await hostPid(spawned.stderr, SETTLE_BUDGET_MS);
       // Read the profile the moment you have the handshake — after the host
       // dies is too late to ask it. The release host's sessions are durable.
@@ -272,28 +279,40 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     title: "Start a session with one durable fact and register a turn wait the host will never answer",
     async run(context) {
       const client = must(context.clientA, "spawned client");
+      const host = must(context.hostA, "spawned host");
       // Give the session something to keep. The durable promise covers what
       // you put INTO a session — turns, choices, anything written through it.
       // A session holding nothing but its own start records is litter to the
       // next host once the host that started it is gone: that host reclaims
       // it during startup housekeeping, and a resume of its id is refused as
-      // not found. Selecting an approval mode is the cheapest durable fact a
-      // session can carry without a model or credentials; the fresh host reads
-      // it back after the crash.
+      // not found. That includes the start's OWN approval selection — it is
+      // startup scaffold, so the mode is selected AFTER the start instead:
+      // changing the approval mode is the cheapest durable fact a session can
+      // carry without a model or credentials, and the fresh host reads it back
+      // after the crash.
       context.sessionA = await within(
         "session/start",
         COMMAND_BUDGET_MS,
-        client.startSession({ workspaceRoot: context.workspaceRoot, approvalMode: APPROVAL_MODE }),
+        client.startSession({ workspaceRoot: context.workspaceRoot }),
       );
       context.sessionId = context.sessionA.sessionId;
       if (context.sessionA.opening?.verb !== "session/start") {
         throw new Error("the session did not open through session/start");
       }
-      equals(
-        context.sessionA.opening.result.session.approvalMode?.mode,
-        APPROVAL_MODE,
-        "the approval mode the session started with",
+      // The durable fact, under its own command id: a later change is kept
+      // content, while the start's own selection would be reclaimed with it.
+      // Sent over the raw connection, one of the two methods this recipe needs
+      // that the facade does not wrap; `Connection.command` stamps the command id.
+      const mode = await within(
+        "session/setApprovalMode",
+        COMMAND_BUDGET_MS,
+        host.connection.command(
+          "session/setApprovalMode",
+          { sessionId: context.sessionId, mode: APPROVAL_MODE },
+          { maxAttempts: 1 },
+        ),
       );
+      equals(mode["applyOutcome"], "completed", "the approval-mode change's outcome");
       // A consumer following a turn is a promise held across the death. This
       // turn id gets no answer — deliberately: what the durable arm proves is
       // that the death REJECTS the wait instead of leaving it hanging forever,

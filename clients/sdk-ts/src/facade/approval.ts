@@ -145,6 +145,15 @@ export class ApprovalRouter {
    * with a frontier the host already closed, right before `approval/resolved`.
    */
   readonly #terminalApprovals = new Set<string>();
+  /**
+   * The most recently sent decide each approval has on the wire, settled when
+   * its ack lands or the decide fails. A trailing `stageResolved` update read
+   * in the SAME chunk as a `terminal: true` ack is routed before
+   * {@link #decide} resumes from that ack, so {@link updated} waits for it
+   * instead of re-asking. Scoped to the round trip: an open handler or a
+   * decide that never started blocks nobody.
+   */
+  readonly #inFlight = new Map<string, Promise<void>>();
 
   constructor(sessionId: string, connection: Connection | undefined) {
     this.#sessionId = sessionId;
@@ -239,7 +248,16 @@ export class ApprovalRouter {
     // Omitted rather than nulled, like `feedback` above: absent on the
     // parent's own approvals by contract (#36182 `skip_serializing_if`).
     if (params.subagentOrigin !== undefined) refreshed.subagentOrigin = params.subagentOrigin;
+    const acked = this.#inFlight.get(requested.approvalId);
+    if (acked !== undefined) return this.#afterAck(acked, refreshed);
     return this.requested(refreshed);
+  }
+
+  /** {@link updated}'s same-chunk arm: decide only once our own ack is in. */
+  async #afterAck(acked: Promise<void>, refreshed: ApprovalRequestParams): Promise<void> {
+    await acked;
+    if (this.#terminalApprovals.has(refreshed.approvalId)) return;
+    await this.requested(refreshed);
   }
 
   static #stageKey(params: ApprovalRequestParams): string {
@@ -305,6 +323,14 @@ export class ApprovalRouter {
     // a plain-JS caller would be rejected by the host.
     if (decision.feedback != null) decideParams.feedback = decision.feedback;
 
+    // The wait covers only this round trip: an update for this approval read
+    // before the ack lands waits for it (see `#inFlight`).
+    const approvalId = params.approvalId;
+    let settle!: () => void;
+    const acked = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.#inFlight.set(approvalId, acked);
     try {
       // No explicit `commandId`: unlike `sendUserTurn`, nothing here needs the
       // id before the ack, so `Connection.command()` mints and stamps it — and
@@ -315,9 +341,12 @@ export class ApprovalRouter {
       );
       // A `terminal: true` ack closed the WHOLE approval; remember it so the
       // trailing stale-frontier update #37538 permits cannot re-prompt.
-      if (ack["terminal"] === true) this.#terminalApprovals.add(params.approvalId);
+      if (ack["terminal"] === true) this.#terminalApprovals.add(approvalId);
     } catch (error) {
-      this.#report({ approvalId: params.approvalId, error, kind: "submitFailed" });
+      this.#report({ approvalId, error, kind: "submitFailed" });
+    } finally {
+      settle();
+      if (this.#inFlight.get(approvalId) === acked) this.#inFlight.delete(approvalId);
     }
   }
 

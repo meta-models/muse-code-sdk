@@ -69,3 +69,32 @@ export class MuseGapFillError extends Error {
     this.next = next;
   }
 }
+
+/**
+ * A required session-start permission-profile selection the client could not
+ * prove applied (TEST-42624-10, amendment 42624 § Compatibility): the start
+ * result carried no `permissionState`, and the `session/read` read-back
+ * served a different profile — or none at all. Never a silent default: the
+ * session stays open and the caller decides (set/retry or close) via
+ * `sessionId`, with no auto-close and no auto-set.
+ */
+export class PermissionProfileNotApplied extends Error {
+  /** The profile id the caller required. */
+  readonly requested: string;
+  /** The committed profile id the read-back served, or null when unknown. */
+  readonly served: string | null;
+  /** The open session, so the caller can set, retry, or close it. */
+  readonly sessionId: string;
+
+  constructor(requested: string, served: string | null, sessionId: string) {
+    super(
+      `required permissionProfile ${JSON.stringify(requested)} was not applied:` +
+        ` the committed selection is ${served === null ? "unknown" : JSON.stringify(served)}` +
+        ` (session ${sessionId})`,
+    );
+    this.name = "PermissionProfileNotApplied";
+    this.requested = requested;
+    this.served = served;
+    this.sessionId = sessionId;
+  }
+}

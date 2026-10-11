@@ -732,7 +732,8 @@
         "userShell",
         "sessionMcp",
         "sessionListStream",
-        "feedback"
+        "feedback",
+        "computerUseSetup"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -951,6 +952,16 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ComputerUsePermission": {
+      "description": "One macOS permission as setup last saw it. **Open**, like the phase.",
+      "enum": [
+        "granted",
+        "missing",
+        "unknown"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "ComputerUseSettings": {
       "description": "`computerUseSettings/read` result, also answered by\n`computerUseSettings/update`.",
       "properties": {
@@ -1013,6 +1024,103 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "ComputerUseSetupChanged": {
+      "description": "`computerUseSetup/changed` params.",
+      "properties": {
+        "sessionId": {
+          "description": "The session whose setup state changed.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/ComputerUseSetupState",
+          "description": "Its new state."
+        }
+      },
+      "required": [
+        "sessionId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "ComputerUseSetupPhase": {
+      "description": "Where the session's setup stands: `cua_setup`'s state codes, camelCase.\n**Open**: a result vocabulary, so an older client tolerates a new state.",
+      "enum": [
+        "dormant",
+        "inProgress",
+        "restartRequired",
+        "readyForTarget",
+        "stopped"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ComputerUseSetupReadParams": {
+      "description": "`computerUseSetup/read` params.",
+      "properties": {
+        "sessionId": {
+          "description": "The session whose setup to read.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ComputerUseSetupStartParams": {
+      "description": "`computerUseSetup/start` params: a human command.",
+      "properties": {
+        "commandId": {
+          "description": "The client's id for this command.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The session whose setup to start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ComputerUseSetupState": {
+      "description": "The session's setup state: the result of both methods and the\n`computerUseSetup/changed` payload's `state`.",
+      "properties": {
+        "accessibility": {
+          "$ref": "#/$defs/ComputerUsePermission",
+          "description": "Accessibility."
+        },
+        "inputMonitoring": {
+          "$ref": "#/$defs/ComputerUsePermission",
+          "description": "Input Monitoring: computer use is ready without it; some actions need it."
+        },
+        "message": {
+          "description": "The sentence `cua_setup` gives the user for this answer.",
+          "type": "string"
+        },
+        "refused": {
+          "description": "The `cua_setup` refusal code when the call was refused, verbatim.",
+          "type": "string"
+        },
+        "screenRecording": {
+          "$ref": "#/$defs/ComputerUsePermission",
+          "description": "Screen Recording."
+        },
+        "setup": {
+          "$ref": "#/$defs/ComputerUseSetupPhase",
+          "description": "Where setup stands."
+        }
+      },
+      "required": [
+        "accessibility",
+        "inputMonitoring",
+        "screenRecording",
+        "setup"
+      ],
       "type": "object"
     },
     "ContextPressureLevel": {
@@ -1272,6 +1380,14 @@
           "description": "The exceeded byte limit, on `inputTooLarge` errors.",
           "type": "integer"
         },
+        "marketplace": {
+          "description": "The store on `pluginNotFound` (`-32035`, SS3.29.1).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The rejected marketplace name on `marketplaceNotFound` (`-32034`,\nSS3.29.7) and `marketplaceAlreadyExists` (`-32036`, SS3.29.2); the\nrejected plugin name on `pluginNotFound` (`-32035`, SS3.29.1).",
+          "type": "string"
+        },
         "outputRef": {
           "description": "The requested `outputRef.id`, on the same `item/readOutput` arms.",
           "type": "string"
@@ -1294,6 +1410,14 @@
         "retryable": {
           "description": "Whether retrying can succeed (e.g. `overloaded`). When present,\noverrides the error table row's `retryable` default for this code.",
           "type": "boolean"
+        },
+        "seedFallbackReason": {
+          "description": "Why the branch seed did not use a checkpoint, on the same arms:\none of `no_usable_checkpoint`, `unsupported_checkpoint_shape`,\n`checkpoint_has_model_visible_tail`, `checkpoint_missing_suffix`;\nabsent when the seed used a checkpoint or no fallback was recorded.",
+          "type": "string"
+        },
+        "seedPath": {
+          "description": "The branch-seed path the host read before rejecting, on\nbranch-validation rejections (`session/fork`, `session/sideChat`:\nthe `forkBoundaryInvalid`, `commandRejected` and `sessionNotFound`\narms; SS2.5.3, SS2.5.7; #51365): one of `runtime_checkpoint_tail`,\n`runtime_full_replay`, `legacy_session_data` — the durable\nbranch-seed vocabulary, so the client cites the real seed decision\ninstead of guessing at a stale binary.",
+          "type": "string"
         },
         "selector": {
           "description": "The rejected skill selector on `skillNotFound` (`-32032`, SS3.22.4).",
@@ -1354,6 +1478,10 @@
         "backpressured",
         "skillNotFound",
         "computerUseUnavailable",
+        "marketplaceNotFound",
+        "pluginNotFound",
+        "marketplaceAlreadyExists",
+        "pluginMutationsDisabled",
         "uploadNotFound",
         "viewTruncated",
         "outputUnavailable",
@@ -2368,7 +2496,7 @@
       "type": "object"
     },
     "ItemKind": {
-      "description": "The eleven v1 item kinds (tdd SS4.5.2–4.5.13). Open: a new kind is additive\nevolution, and clients MUST render unknown kinds generically (tdd\nSS4.10).",
+      "description": "The eleven v1 item kinds (tdd SS4.5.2–4.5.13) plus post-v1 kinds\n(tdd SS4.5.14+). Open: a new kind is additive evolution, and clients\nMUST render unknown kinds generically (tdd SS4.10).",
       "enum": [
         "userMessage",
         "agentMessage",
@@ -2380,7 +2508,8 @@
         "reminderChild",
         "compaction",
         "hookRun",
-        "sideChat"
+        "sideChat",
+        "webSearch"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2564,6 +2693,14 @@
         "turnId"
       ],
       "type": "object"
+    },
+    "LimitKind": {
+      "description": "Quota limit kinds (tdd SS4.5.1, ADR 50047 D2): open for evolution.",
+      "enum": [
+        "tierLimit"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
     },
     "MediaUploadParams": {
       "description": "`media/upload` params (tdd SS3.33, ADR 45443 D5): one chunk of a\nclient-minted upload. All members required.",
@@ -3180,6 +3317,163 @@
       ],
       "type": "object"
     },
+    "PluginChangedParams": {
+      "description": "`plugin/changed` params (tdd SS3.29.5): an install landed; clients\nre-issue `plugin/list` (plus `hook/list` and `skill/list`).",
+      "properties": {
+        "enabled": {
+          "description": "The installed record's own switch.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The installed record's identifier.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The acting session.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/PluginSource",
+          "description": "The installed-list provenance vocabulary (tdd SS3.26.2)."
+        },
+        "version": {
+          "description": "The installed record's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "id",
+        "sessionId",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "PluginInstallLocalPathTarget": {
+      "description": "The `plugin/install` local-path arm (tdd SS3.29.1).",
+      "properties": {
+        "path": {
+          "description": "The host folder to install from; absolute recommended, relative\nresolves against the host working directory.",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/PluginInstallScope",
+          "description": "The install lane; omitted means `default`."
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "PluginInstallMarketplaceTarget": {
+      "description": "The `plugin/install` marketplace arm (tdd SS3.29.1).",
+      "properties": {
+        "marketplace": {
+          "description": "The configured marketplace name.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The plugin name within the store.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "marketplace",
+        "name"
+      ],
+      "type": "object"
+    },
+    "PluginInstallParams": {
+      "description": "`plugin/install` params (tdd SS3.29.1). Per-session params plus a\nclient-generated `commandId` (UUIDv7) with the uniform SS3.1.1\nidempotency contract.",
+      "properties": {
+        "commandId": {
+          "description": "The client-generated idempotency key (UUIDv7).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session; its workspace resolves project scope.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/PluginInstallTarget",
+          "description": "Exactly one install target arm."
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId",
+        "target"
+      ],
+      "type": "object"
+    },
+    "PluginInstallResult": {
+      "description": "`plugin/install` result (tdd SS3.29.1): the SS3.1.2 ack envelope plus\nthe installed receipt.",
+      "properties": {
+        "commandId": {
+          "description": "The echoed idempotency key.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "The installed record's own switch.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The installed record's identifier.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/PluginSource",
+          "description": "The installed-list provenance vocabulary (tdd SS3.26.2)."
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "The ack status."
+        },
+        "version": {
+          "description": "The installed record's version.",
+          "type": "string"
+        },
+        "warning": {
+          "description": "The installer's advisory text when the install succeeded with a\ncaveat; absent otherwise.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "enabled",
+        "id",
+        "source",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "PluginInstallScope": {
+      "description": "The `plugin/install` local-path scope (tdd SS3.29.1). Closed: an\nunknown scope is `-32602 invalidParams`.",
+      "enum": [
+        "default",
+        "user",
+        "project"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "PluginInstallTarget": {
+      "description": "The one structured install target (tdd SS3.29.1): a flat object with\ntwo optional arms, exactly one present — the `TurnInputPart`\nconvention, since the v1 schema model names no object-variant union.\nBoth arms or neither is `-32602 invalidParams`.",
+      "properties": {
+        "localPath": {
+          "$ref": "#/$defs/PluginInstallLocalPathTarget",
+          "description": "The local-path arm: install from a host folder."
+        },
+        "marketplace": {
+          "$ref": "#/$defs/PluginInstallMarketplaceTarget",
+          "description": "The marketplace arm: install a named plugin from a store."
+        }
+      },
+      "type": "object"
+    },
     "PluginListParams": {
       "description": "`plugin/list` params (tdd SS3.26.2). Per-session params; rows are the\ninstalled plugin records.",
       "properties": {
@@ -3209,6 +3503,221 @@
       ],
       "type": "object"
     },
+    "PluginMarketplaceAddParams": {
+      "description": "`plugin/marketplaceAdd` params (tdd SS3.29.2). Per-session params plus\na client-generated `commandId` (UUIDv7).",
+      "properties": {
+        "commandId": {
+          "description": "The client-generated idempotency key (UUIDv7).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The marketplace name to configure.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "source": {
+          "description": "The app's source vocabulary: `owner/repo`, a git URL, a `file://`\nURL, or a local path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "name",
+        "sessionId",
+        "source"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceChange": {
+      "description": "What happened to a marketplace (tdd SS3.29.6). Closed: an unknown\nchange is a contract violation, never tolerated.",
+      "enum": [
+        "added",
+        "updated",
+        "removed"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "PluginMarketplaceChangedParams": {
+      "description": "`plugin/marketplaceChanged` params (tdd SS3.29.6): a marketplace was\nadded, updated, or removed.",
+      "properties": {
+        "change": {
+          "$ref": "#/$defs/PluginMarketplaceChange",
+          "description": "What happened."
+        },
+        "name": {
+          "description": "The marketplace name.",
+          "type": "string"
+        },
+        "pluginCount": {
+          "description": "The stored record's plugin count; omitted on `removed`, never\nfabricated.",
+          "type": "integer"
+        },
+        "sessionId": {
+          "description": "The acting session.",
+          "type": "string"
+        },
+        "skippedCount": {
+          "description": "The stored record's skipped count; omitted on `removed`, never\nfabricated.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "change",
+        "name",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceRecordResult": {
+      "description": "The stored marketplace record both add and update answer (tdd\nSS3.29.2, SS3.29.3): the SS3.1.2 ack envelope plus the record.",
+      "properties": {
+        "commandId": {
+          "description": "The echoed idempotency key.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The configured marketplace name.",
+          "type": "string"
+        },
+        "pluginCount": {
+          "description": "The plugins the store now offers.",
+          "type": "integer"
+        },
+        "skipped": {
+          "description": "Entries the store could not offer, with the reason each was\nskipped; empty when nothing was skipped.",
+          "items": {
+            "$ref": "#/$defs/PluginMarketplaceSkippedEntry"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/PluginMarketplaceSourceShape",
+          "description": "The normalized stored source."
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "The ack status."
+        }
+      },
+      "required": [
+        "commandId",
+        "name",
+        "pluginCount",
+        "skipped",
+        "source",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceRemoveParams": {
+      "description": "`plugin/marketplaceRemove` params (tdd SS3.29.4). Per-session params\nplus a client-generated `commandId` (UUIDv7).",
+      "properties": {
+        "commandId": {
+          "description": "The client-generated idempotency key (UUIDv7).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The marketplace name to remove.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "name",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceRemoveResult": {
+      "description": "`plugin/marketplaceRemove` result (tdd SS3.29.4): the SS3.1.2 ack\nenvelope plus the removed name.",
+      "properties": {
+        "commandId": {
+          "description": "The echoed idempotency key.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The removed marketplace name.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "The ack status."
+        }
+      },
+      "required": [
+        "commandId",
+        "name",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceSkippedEntry": {
+      "description": "One skipped marketplace entry (tdd SS3.29.2).",
+      "properties": {
+        "plugin": {
+          "description": "The skipped plugin.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it was skipped.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceSourceShape": {
+      "description": "The normalized stored marketplace source (tdd SS3.29.2).",
+      "properties": {
+        "kind": {
+          "description": "The stored source kind.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The stored source path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    "PluginMarketplaceUpdateParams": {
+      "description": "`plugin/marketplaceUpdate` params (tdd SS3.29.3). Per-session params\nplus a client-generated `commandId` (UUIDv7).",
+      "properties": {
+        "commandId": {
+          "description": "The client-generated idempotency key (UUIDv7).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The marketplace name to refresh.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "name",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "PluginSource": {
       "description": "A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3):\ncamelCase of `PluginSourceProvenance`. Open (server-produced result\nvocabulary, the #22785 enum-openness rule): a future provenance is\nadditive.",
       "enum": [
@@ -3219,6 +3728,24 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "QuotaDetail": {
+      "description": "Typed quota-exhaustion detail (tdd SS4.5.1, ADR 50047 D2): the limit\nkind plus the provider's reset instant.",
+      "properties": {
+        "limitKind": {
+          "$ref": "#/$defs/LimitKind",
+          "description": "Which quota was exhausted (open enum; unknown values fall back)."
+        },
+        "resetsAtMs": {
+          "description": "Epoch milliseconds at which the provider says usage resets.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limitKind",
+        "resetsAtMs"
+      ],
+      "type": "object"
     },
     "ReasoningEffort": {
       "description": "The reasoning-effort tier sampled at submission (tdd SS3.2, SS3.3). The\n**same closed tier vocabulary** on both the fresh-turn and steer lanes,\nspelled identically; invalid tiers are invalid params. `none` is a tier of\nthe vocabulary (ask for no reasoning), not a way to say \"unset\".",
@@ -3260,6 +3787,132 @@
       "required": [
         "reasoningEffort",
         "source"
+      ],
+      "type": "object"
+    },
+    "RecapCancelParams": {
+      "description": "`recap/cancel` params (tdd SS3.28.5): the session plus the cancel's\nown retry id. No target — one in-flight slot per session makes the\ntarget unambiguous.",
+      "properties": {
+        "commandId": {
+          "description": "The cancel's own retry id (required, SS3.1.1).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The session whose in-flight recap to cancel (required).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "RecapCancelResult": {
+      "description": "`recap/cancel` result (tdd SS3.28.5): admission only. In flight →\nthe recap settles `cancelled`; idle → accepted no-op.",
+      "properties": {
+        "commandId": {
+          "description": "The cancel's id, echoed.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Always `accepted` on this path."
+        }
+      },
+      "required": [
+        "commandId",
+        "status"
+      ],
+      "type": "object"
+    },
+    "RecapCompletedParams": {
+      "description": "`recap/completed` params (tdd SS3.28.2): the settlement, delivered\nto the requesting connection outside the view stream — no\n`viewCursor`, no `sourceRange`. `text` is required on `completed`\n(plus optional `title`, untrusted model output — clients MUST\nsanitize per spec 442 INV-015); `reason` is required on `failed`;\nneither rides `cancelled`/`timedOut`. The struct marks the\nconditional members optional; the SS prose pins the per-outcome\nrule, the `turn/completed` usage/error convention.",
+      "properties": {
+        "commandId": {
+          "description": "The request's id — the correlation key.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/RecapOutcome",
+          "description": "How the request settled."
+        },
+        "reason": {
+          "$ref": "#/$defs/RecapFailureReason",
+          "description": "Why the side-call failed (on `failed`)."
+        },
+        "sessionId": {
+          "description": "The recapped session.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The recap text verbatim (on `completed`).",
+          "type": "string"
+        },
+        "title": {
+          "description": "The model-produced short title (on `completed`, when produced).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "outcome",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "RecapFailureReason": {
+      "description": "`recap/completed` failure reason (tdd SS3.28.2/SS3.28.8): post-ack\nfailures fold to the single initial value. **Open**: later splits\nstay additive (#22785 E2).",
+      "enum": [
+        "providerFailed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RecapOutcome": {
+      "description": "`recap/completed` outcome (tdd SS3.28.2): the terminal vocabulary,\ncamelCase per SS1.6. **Open**: a server-produced result vocabulary\n(#22785 E2).",
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled",
+        "timedOut"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RecapRequestParams": {
+      "description": "`recap/request` params (tdd SS3.28.1): the session plus the\nclient-minted UUIDv7 retry id. No other param; unknown fields are\n`invalidParams`.",
+      "properties": {
+        "commandId": {
+          "description": "The client-minted retry id (required, SS3.1.1).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The session to recap (required).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "RecapRequestResult": {
+      "description": "`recap/request` result (tdd SS3.28.1): admission only — the ack is\nnever the recap.",
+      "properties": {
+        "commandId": {
+          "description": "The request's id, echoed.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Always `accepted` on this path."
+        }
+      },
+      "required": [
+        "commandId",
+        "status"
       ],
       "type": "object"
     },
@@ -3324,6 +3977,15 @@
       "description": "The SS5.3.3 presentation receipt — the client's response to a\nserver-initiated request (`approval/request`, `userInput/request`).\n\nThe response acknowledges presentation only (\"a surface showed or will\nshow this\"): it changes no state, the server uses it for diagnostics\nalone, and the decision/answer travels as a command (`approval/decide`,\n`userInput/answer`). An error response or a dropped connection means this\nconnection could not present the request; the approval or prompt stays\npending and the request is re-issued on the next subscribe (SS5.6).\nThere is no dismiss-without-deciding on the wire.",
       "properties": {},
       "type": "object"
+    },
+    "RetractOutcome": {
+      "description": "A `turn/retracted` settlement outcome (tdd SS4.5.1, ADR 50074 D1).\nOpen enum (D-033): decode is tolerant — a value outside the list reads\nas `Accepted` (the event's historical meaning — pre-feature hosts emit\nit only for accepted retracts), never fails. The bundle keeps\nenumerating the known values for codegen and docs.",
+      "enum": [
+        "accepted",
+        "declined"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
     },
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
@@ -3449,7 +4111,14 @@
           "type": "string"
         },
         "sideFrom": {
-          "$ref": "#/$defs/SideProvenance",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SideProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "description": "`null` for root sessions and forks; side provenance otherwise (tdd\nSS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of\n`forkedFrom` and `sideFrom`."
         },
         "status": {
@@ -3539,7 +4208,10 @@
       "properties": {
         "branch": {
           "description": "The observed branch; `null` on a detached-HEAD observation — a fact,\nnot \"unchanged\" (tdd SS4.6.4).",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sessionId": {
           "description": "The owning session.",
@@ -3563,6 +4235,7 @@
         }
       },
       "required": [
+        "branch",
         "sessionId",
         "sourceRange",
         "viewCursor",
@@ -3769,7 +4442,14 @@
       "description": "`session/goalChanged` params (tdd SS4.6.2): the projected goal block's\nvalue changed — identical adoptions emit nothing (the change gate), and\nan explicit `null` clears. Replace wholesale; `null` never means\nunchanged.",
       "properties": {
         "goal": {
-          "$ref": "#/$defs/Goal",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Goal"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "description": "The full current goal block, or `null` to clear."
         },
         "sessionId": {
@@ -3786,6 +4466,7 @@
         }
       },
       "required": [
+        "goal",
         "sessionId",
         "sourceRange",
         "viewCursor"
@@ -4109,7 +4790,10 @@
         },
         "providerId": {
           "description": "The selected provider; `null` when the selection names none.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sessionId": {
           "description": "The owning session.",
@@ -4130,6 +4814,7 @@
       },
       "required": [
         "modelId",
+        "providerId",
         "sessionId",
         "source",
         "sourceRange",
@@ -4154,7 +4839,10 @@
         },
         "providerId": {
           "description": "The standing model's provider; `null` when the selection names none.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sessionId": {
           "description": "The owning session.",
@@ -4173,6 +4861,7 @@
         "commandId",
         "installedProviderId",
         "modelId",
+        "providerId",
         "sessionId",
         "sourceRange",
         "viewCursor"
@@ -4617,6 +5306,10 @@
           "description": "Initial model; server default when omitted.",
           "type": "string"
         },
+        "permissionProfile": {
+          "description": "The new session's initial permission profile (amendment 42624\nFR-42624-1, ADR 42197 D2): a profile id the host catalog already\nadmits — the rows `permissionProfile/list` serves without\n`sessionId`. Select, never create. Omitted means today's behavior: the\nhost's configured default under native admission, unchanged. An id\nthe catalog does not carry, or one it serves unavailable, refuses the\nstart `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte, and an\nephemeral host refuses any id (`permission_profile_ephemeral_fixed`).\n`session/resume` and `session/fork` do not admit the member. Explicit\n`null` is invalid params: the set of members that tolerate `null` is\nclosed and excludes this one, exactly as it excludes `workspaceRoots`.",
+          "type": "string"
+        },
         "providerId": {
           "description": "Initial provider routing; server default when omitted or explicit\n`null` — both spellings select the default (#23468).",
           "type": [
@@ -4777,7 +5470,10 @@
         },
         "modelId": {
           "description": "The effective model that produced this usage; `null` on pre-schema\nrecords — never back-filled, an unpriced leg (tdd SS4.6.5).",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "promptTokens": {
           "description": "Prompt tokens counted exactly once under the provider's cache\nconvention (#8803). Server-derived; deterministic — the provider is\nin the log.",
@@ -4810,6 +5506,7 @@
       },
       "required": [
         "cumulative",
+        "modelId",
         "promptTokens",
         "sessionId",
         "sourceRange",
@@ -4983,6 +5680,181 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "SkillImportCounts": {
+      "description": "The four receipt-list lengths (tdd SS3.30.2): a client renders counts\nwithout walking lists.",
+      "properties": {
+        "failed": {
+          "description": "`failed.len()`.",
+          "type": "integer"
+        },
+        "installed": {
+          "description": "`installed.len()`.",
+          "type": "integer"
+        },
+        "quarantined": {
+          "description": "`quarantined.len()`.",
+          "type": "integer"
+        },
+        "skipped": {
+          "description": "`skipped.len()`.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "failed",
+        "installed",
+        "quarantined",
+        "skipped"
+      ],
+      "type": "object"
+    },
+    "SkillImportFailure": {
+      "description": "One import candidate that could neither install nor quarantine (tdd\nSS3.30.2): recorded so the run continues past it. `id` is null when\nthe candidate never yielded one — present-but-null, never omitted.",
+      "properties": {
+        "id": {
+          "description": "The candidate's id, or null when it never yielded one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "Why the candidate failed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SkillImportParams": {
+      "description": "`skill/import` params (tdd SS3.30.2, #45433): import foreign skills\nthrough the single `SkillsService::import_skills` seam.",
+      "properties": {
+        "commandId": {
+          "description": "The SS3.1.1 idempotency handle (UUIDv7) — required even for\n`dryRun` previews.",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "Preview for the consent UI; writes nothing. Additive-optional,\ndefault false.",
+          "type": "boolean"
+        },
+        "force": {
+          "description": "Re-import over already-imported ids (the CLI `--force` twin).\nAdditive-optional, default false.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SkillImportSource",
+          "description": "The foreign ecosystem to import from."
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId",
+        "source"
+      ],
+      "type": "object"
+    },
+    "SkillImportQuarantine": {
+      "description": "One quarantined import candidate (tdd SS3.30.2): kept, not loaded.",
+      "properties": {
+        "id": {
+          "description": "The candidate's id.",
+          "type": "string"
+        },
+        "reasons": {
+          "description": "The quarantine reasons.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "reasons"
+      ],
+      "type": "object"
+    },
+    "SkillImportResult": {
+      "description": "`skill/import` result (tdd SS3.30.2, #45433): the ack envelope plus\nthe service receipt projection.",
+      "properties": {
+        "commandId": {
+          "description": "Echoes the client's id.",
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/SkillImportCounts",
+          "description": "The four list lengths."
+        },
+        "dryRun": {
+          "description": "Echoes the call's preview flag.",
+          "type": "boolean"
+        },
+        "failed": {
+          "description": "Candidates that could neither install nor quarantine. Import never\naborts the whole run on one bad candidate.",
+          "items": {
+            "$ref": "#/$defs/SkillImportFailure"
+          },
+          "type": "array"
+        },
+        "installed": {
+          "description": "The ids the run installed, in pipeline order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "quarantined": {
+          "description": "Kept, not loaded, with reasons.",
+          "items": {
+            "$ref": "#/$defs/SkillImportQuarantine"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "description": "Ids the run did not install: already-imported ids and in-run\nduplicates, verbatim from the seam's `skipped` vec.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SkillImportSource",
+          "description": "Echoes the call's ecosystem."
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Admission status."
+        }
+      },
+      "required": [
+        "commandId",
+        "counts",
+        "dryRun",
+        "failed",
+        "installed",
+        "quarantined",
+        "skipped",
+        "source",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SkillImportSource": {
+      "description": "`skill/import` foreign ecosystem (tdd SS3.30.2). **Closed**: a\nclient-selected write vocabulary (ADR 45433 D2) — a write must fail an\necosystem the host does not implement rather than import from an\nunknown dir. The host resolves its own foreign dir (the\n`foreign_skills_sources` derivation); no client paths cross the wire.",
+      "enum": [
+        "claude",
+        "codex"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
     },
     "SkillListParams": {
       "description": "`skill/list` params (tdd SS3.22.1, SS3.30.3). Per-session because skill\nscope follows the session's workspace and plugin state.",
@@ -5177,7 +6049,10 @@
         },
         "name": {
           "description": "The settled canonical session name; `null` when the session was never\nnamed (#27598, tdd SS4.9.1 / SS2.14). Folds the same durable\n`session/nameChanged` record `Session.name` reports.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "pendingApprovals": {
           "description": "The pending-approval half of the pending set.",
@@ -6161,6 +7036,10 @@
           "description": "Human-readable failure text.",
           "type": "string"
         },
+        "quota": {
+          "$ref": "#/$defs/QuotaDetail",
+          "description": "Typed quota-exhaustion detail (ADR 50047 D2/D3): present iff the\nstopping failure was the quota class. Clients branch on presence,\nnever by parsing `message`."
+        },
         "retryable": {
           "description": "The server's judgment that resubmitting the same input may succeed.",
           "type": "boolean"
@@ -6184,7 +7063,8 @@
         "environmentError",
         "modelError",
         "launchError",
-        "authRequired"
+        "authRequired",
+        "mcpLinkError"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -6365,11 +7245,15 @@
       "type": "object"
     },
     "TurnRetractedParams": {
-      "description": "`turn/retracted` params (tdd SS4.5.1): an interrupt-paired retract was\ndurably accepted. The retracted user-message item is re-emitted via\n`item/updated` with `retracted: true`.",
+      "description": "`turn/retracted` params (tdd SS4.5.1): an interrupt-paired retract\ndurably settled, accepted or declined (ADR 50074 D1). On `\"accepted\"`\nthe retracted user-message item is re-emitted via `item/updated` with\n`retracted: true`; on `\"declined\"` the client folds the legacy declined\nrollback instead and no item is re-emitted.",
       "properties": {
         "commandId": {
           "description": "The retracted submission's command id.",
           "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/RetractOutcome",
+          "description": "The retract settlement outcome (tdd SS4.5.1, ADR 50074 D1).\nAdditive-optional: absent reads as `\"accepted\"` — pre-feature hosts\nemit the event only for accepted retracts — and so does an\nunrecognized value (open enum, D-033)."
         },
         "sessionId": {
           "description": "The owning session.",
@@ -6404,6 +7288,14 @@
           "description": "The attempt that failed (producer-normalized, >= 1).",
           "type": "integer"
         },
+        "errorKind": {
+          "description": "The failing model attempt's durable kind, verbatim (ADR 50047\nD2/D3) — a plain string: the durable vocabulary is open-ended.",
+          "type": "string"
+        },
+        "httpStatus": {
+          "description": "The failing model attempt's HTTP status (ADR 50047 D2/D3).",
+          "type": "integer"
+        },
         "maxAttempts": {
           "description": "The turn's model-retry chain bound.",
           "type": "integer"
@@ -6427,6 +7319,10 @@
         "sourceRange": {
           "$ref": "#/$defs/SourceRange",
           "description": "The durable record this event folded from (the session stream's\nmirror of the retry-scheduled task status; `first == last`)."
+        },
+        "system": {
+          "description": "The failing model attempt's provider system, verbatim\n(ADR 50047 D2/D3) — e.g. `\"meta\"`. Absent when no model-attempt\nfacet precedes the retry status on the task (old logs).",
+          "type": "string"
         },
         "turnId": {
           "description": "The running turn whose model attempt is being retried.",
@@ -6461,7 +7357,7 @@
       "x-msp-openness": "open"
     },
     "TurnStartParams": {
-      "description": "`turn/start.providerRequestOptions` is deliberately absent: **RULED\n(#22785 E3, owner, 2026-08-26) to stay off the published schema.** The\nschema is the contract, and a free-form-object node kind is revisited only\nif the experimental field graduates.\n`turn/start` params (tdd SS3.2).",
+      "description": "`turn/start` params (tdd SS3.2).\n\n`turn/start.providerRequestOptions` is deliberately absent: **RULED\n(#22785 E3, owner, 2026-08-26) to stay off the published schema.** The\nschema is the contract, and a free-form-object node kind is revisited only\nif the experimental field graduates.",
       "properties": {
         "commandId": {
           "description": "The SS3.1.1 idempotency handle (UUIDv7). The fresh turn's `turnId`\nderives from it (tdd SS3.1.4).",
@@ -6489,6 +7385,10 @@
         "sessionId": {
           "description": "The target session.",
           "type": "string"
+        },
+        "userShell": {
+          "$ref": "#/$defs/TurnUserShell",
+          "description": "A queued `!` shell action riding this turn (tdd SS3.2, ADR 50034):\nthe `!cmd` typed while a turn runs, executed at the next\nmodel-call boundary before any later steer. Exclusive with `text`\nand `skill` input; `input` may be empty only when this member is\npresent. Capability-gated on `userShell`: a carrying turn on a\nconnection without the grant fails `-32010 capabilityRequired`.\nExplicit `null` is invalid params (the null-tolerant set is\nclosed). A v1 stable member."
         },
         "workspaceRoots": {
           "description": "A sticky REPLACEMENT of the session's runtime workspace-root set,\nbinding at this turn's launch and persisting for subsequent turns\nuntil replaced again — unlike `reasoningEffort`, which is\nthis-turn-only. Same shape and validation as\n`session/start.workspaceRoots`; invalid params on an explicit\n`ifBusy: \"steer\"` submit and so is explicit `null` (the D-049\nnull-tolerant set is closed); omitted means \"unchanged\", never\n\"reset\" (tdd SS3.2, ADR 37313 D3, #37313).",
@@ -6715,6 +7615,19 @@
         "sourceRange",
         "turnId",
         "viewCursor"
+      ],
+      "type": "object"
+    },
+    "TurnUserShell": {
+      "description": "The queued `!` shell action a `turn/start` carries (tdd SS3.2,\nADR 50034): the `!cmd` typed while a turn runs. The shell's command id\nderives from the carrying turn's `commandId`, exactly as the app's own\nqueued submit does; the params' sibling `displayText` carries the `!…`\npresentation form.",
+      "properties": {
+        "commandText": {
+          "description": "The shell command text, without the leading `!`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandText"
       ],
       "type": "object"
     },
@@ -7640,6 +8553,52 @@
       ],
       "type": "object"
     },
+    "WorkflowResumeParams": {
+      "description": "`workflow/resume` params (tdd SS3.34, ADR 45437 D3): resume a paused\nworkflow run, host-driven.",
+      "properties": {
+        "commandId": {
+          "description": "The SS3.1.1 idempotency handle (UUIDv7).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session.",
+          "type": "string"
+        },
+        "workflowRunId": {
+          "description": "The paused run to resume, exactly as the `workflow` item names it\n(SS4.5.8); required, non-empty.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId",
+        "workflowRunId"
+      ],
+      "type": "object"
+    },
+    "WorkflowResumeResult": {
+      "description": "`workflow/resume` result (tdd SS3.34): admission-only plus the driven\nturn — always present, since resume always drives (idle fresh turn or\nbusy steer).",
+      "properties": {
+        "commandId": {
+          "description": "Echoes the client's id.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "Admission status."
+        },
+        "turnId": {
+          "description": "The turn the host drove: the fresh resume turn on an idle session,\nthe admission-time active turn on a busy session (a routing fact\nlike the SS3.18 wake-gate's, not settlement).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "status",
+        "turnId"
+      ],
+      "type": "object"
+    },
     "WorkflowTokenBudget": {
       "description": "`workflow`: the run's launch token budget (tdd SS4.5.8, #45449).",
       "properties": {
@@ -7660,7 +8619,8 @@
       "userShell",
       "sessionMcp",
       "sessionListStream",
-      "feedback"
+      "feedback",
+      "computerUseSetup"
     ],
     "reserved": [
       {
@@ -7789,6 +8749,26 @@
       "retryable": false
     },
     {
+      "code": -32034,
+      "kind": "marketplaceNotFound",
+      "retryable": false
+    },
+    {
+      "code": -32035,
+      "kind": "pluginNotFound",
+      "retryable": false
+    },
+    {
+      "code": -32036,
+      "kind": "marketplaceAlreadyExists",
+      "retryable": false
+    },
+    {
+      "code": -32037,
+      "kind": "pluginMutationsDisabled",
+      "retryable": false
+    },
+    {
       "code": -32038,
       "kind": "uploadNotFound",
       "retryable": false
@@ -7890,6 +8870,24 @@
         "$ref": "#/$defs/ComputerUseSettings"
       }
     },
+    "computerUseSetup/read": {
+      "description": "Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off (#52381).",
+      "params": {
+        "$ref": "#/$defs/ComputerUseSetupReadParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ComputerUseSetupState"
+      }
+    },
+    "computerUseSetup/start": {
+      "description": "A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off (#52381).",
+      "params": {
+        "$ref": "#/$defs/ComputerUseSetupStartParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ComputerUseSetupState"
+      }
+    },
     "feedback/submit": {
       "description": "Submits a first-party feedback report through the host, reusing the TUI submitter seam (consent, bundle-first persistence, redaction), and answers the upload receipt (ADR 42691 D2).",
       "params": {
@@ -7989,6 +8987,15 @@
         "$ref": "#/$defs/ModelListResult"
       }
     },
+    "plugin/install": {
+      "description": "Install one plugin from a marketplace pair or a host local path with scope (per-session, `commandId`-idempotent, hold-open; answers the installed receipt) (SS3.29.1).",
+      "params": {
+        "$ref": "#/$defs/PluginInstallParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginInstallResult"
+      }
+    },
     "plugin/list": {
       "description": "Reads the installed plugin records — one row per installed plugin; a query, not a command (SS3.26.2).",
       "params": {
@@ -7996,6 +9003,51 @@
       },
       "result": {
         "$ref": "#/$defs/PluginListResult"
+      }
+    },
+    "plugin/marketplaceAdd": {
+      "description": "Add a marketplace from `owner/repo`, git URL, `file://` URL, or local path (per-session, `commandId`-idempotent; answers the stored record) (SS3.29.2).",
+      "params": {
+        "$ref": "#/$defs/PluginMarketplaceAddParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginMarketplaceRecordResult"
+      }
+    },
+    "plugin/marketplaceRemove": {
+      "description": "Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name) (SS3.29.4).",
+      "params": {
+        "$ref": "#/$defs/PluginMarketplaceRemoveParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginMarketplaceRemoveResult"
+      }
+    },
+    "plugin/marketplaceUpdate": {
+      "description": "Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record) (SS3.29.3).",
+      "params": {
+        "$ref": "#/$defs/PluginMarketplaceUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginMarketplaceRecordResult"
+      }
+    },
+    "recap/cancel": {
+      "description": "Cancels the session's in-flight recap, which settles `cancelled`; \\\n              idle is an accepted no-op (ADR 45447 D5, tdd SS3.28.5).",
+      "params": {
+        "$ref": "#/$defs/RecapCancelParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RecapCancelResult"
+      }
+    },
+    "recap/request": {
+      "description": "Requests a \"while you were away\" recap for a loaded session; acks \\\n              `accepted` and settles exactly once on `recap/completed` — one \\\n              in flight per session, host-enforced 45s timeout (ADR 45447 \\\n              D1/D5, tdd SS3.28.1).",
+      "params": {
+        "$ref": "#/$defs/RecapRequestParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RecapRequestResult"
       }
     },
     "session/compact": {
@@ -8106,6 +9158,15 @@
         "$ref": "#/$defs/SessionUserShellResult"
       }
     },
+    "skill/import": {
+      "description": "Imports foreign skills from the host's own `claude | codex` dirs \\through the single `SkillsService::import_skills` seam; answers \\per-skill installed/quarantined/skipped/failed plus counts. \\`commandId`-idempotent (including `dryRun` previews); each \\successful write is an SS3.22.2 detection point (tdd SS3.30.2, \\ADR 45433 D2/D4/D5, #45433).",
+      "params": {
+        "$ref": "#/$defs/SkillImportParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillImportResult"
+      }
+    },
     "skill/list": {
       "description": "Reads the session's user-invocable skill rows — one per typed-invocable shortcut spelling, the INV-007 predicate and shared name resolution by call-through; a query, not a command (SS3.22.1).",
       "params": {
@@ -8203,6 +9264,15 @@
       },
       "result": {
         "$ref": "#/$defs/TaskCommandResult"
+      }
+    },
+    "task/list": {
+      "description": "Lists the loaded session's background-task inventory: one row per stoppable workload at admission, ordered oldest-start first (tdd §3.31, #45144; enrolled under the #33065 T1 ruling).",
+      "params": {
+        "$ref": "#/$defs/TaskListParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskListResult"
       }
     },
     "task/stop": {
@@ -8363,6 +9433,15 @@
       "result": {
         "$ref": "#/$defs/WorkflowControlResult"
       }
+    },
+    "workflow/resume": {
+      "description": "Resumes a paused workflow run, host-driven; the reply names the driven turn, the resumed launch folds as a new workflow item whose `resumeFromRunId` names the paused run (tdd SS3.34, ADR 45437 D3).",
+      "params": {
+        "$ref": "#/$defs/WorkflowResumeParams"
+      },
+      "result": {
+        "$ref": "#/$defs/WorkflowResumeResult"
+      }
     }
   },
   "notifications": {
@@ -8382,6 +9461,12 @@
       "description": "A non-terminal approval record changed the pending view (SS5.5.1).",
       "params": {
         "$ref": "#/$defs/ApprovalUpdatedParams"
+      }
+    },
+    "computerUseSetup/changed": {
+      "description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in (#52381).",
+      "params": {
+        "$ref": "#/$defs/ComputerUseSetupChanged"
       }
     },
     "initialized": {
@@ -8409,6 +9494,24 @@
       "description": "An open item changed non-terminally: full re-emission at a higher revision (SS4.4.2).",
       "params": {
         "$ref": "#/$defs/ItemUpdatedParams"
+      }
+    },
+    "plugin/changed": {
+      "description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list` (ADR 45434 D5).",
+      "params": {
+        "$ref": "#/$defs/PluginChangedParams"
+      }
+    },
+    "plugin/marketplaceChanged": {
+      "description": "A marketplace was added, updated, or removed; carries the change summary (ADR 45434 D5).",
+      "params": {
+        "$ref": "#/$defs/PluginMarketplaceChangedParams"
+      }
+    },
+    "recap/completed": {
+      "description": "A recap request settled exactly once — `completed` (with \\\n              `text` plus optional `title`), `failed` (`providerFailed`), \\\n              `cancelled`, or `timedOut` — delivered to the requesting \\\n              connection outside the view stream (ADR 45447 D2, tdd \\\n              SS3.28.2).",
+      "params": {
+        "$ref": "#/$defs/RecapCompletedParams"
       }
     },
     "session/approvalModeChanged": {
@@ -8520,7 +9623,7 @@
       }
     },
     "turn/retracted": {
-      "description": "An interrupt-paired retract was durably accepted (SS4.5.1).",
+      "description": "An accepted interrupt's paired retract durably settled, accepted or declined (SS4.5.1; ADR 50074 D1).",
       "params": {
         "$ref": "#/$defs/TurnRetractedParams"
       }
@@ -8598,6 +9701,10 @@
     {
       "identifier": "-32060..-32069",
       "reference": "#13929 — SS6 raw log & projections error block, deferred whole; a v1 host never emits it"
+    },
+    {
+      "identifier": "-32070..-32079",
+      "reference": "#13929 — peer messaging & admission (#45445) error block, deferred whole; a v1 host never emits it"
     },
     {
       "identifier": "-32012",

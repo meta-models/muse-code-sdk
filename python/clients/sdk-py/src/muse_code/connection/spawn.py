@@ -39,6 +39,13 @@ from .validation import parse_initialize_result, parse_spawn_options
 if TYPE_CHECKING:
     from muse_code_msp import InitializeParams, InitializeResult, RequestId
 
+_CREATE_NO_WINDOW = 0x0800_0000
+"""Win32 ``CREATE_NO_WINDOW`` process-creation flag (``subprocess`` defines it
+only on Windows builds). A spawned ``muse serve`` is never meant to be seen,
+so on Windows the SDK starts it without a console window: a windowless host
+(a GUI app, a service) would otherwise get a stray console on every spawn."""
+
+
 DEFAULT_STDERR_MAX_BYTES = 8 * 1024
 DEFAULT_STDERR_MAX_LINES = 100
 DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000
@@ -817,6 +824,9 @@ class MuseServeChild:
             env=env,
             shutdown_timeout_ms=shutdown_timeout_ms,
         )
+        # POSIX: the child leads its own process group so the close ladder can
+        # signal the group. Windows: no process group, and no console window
+        # (CPython accepts ``creationflags=0`` on POSIX).
         owns_process_group = sys.platform != "win32"
         child = await asyncio.create_subprocess_exec(
             options.command,
@@ -827,6 +837,7 @@ class MuseServeChild:
             cwd=options.cwd,
             env=options.env,
             start_new_session=owns_process_group,
+            creationflags=0 if owns_process_group else _CREATE_NO_WINDOW,
         )
         return MuseServeChild(
             child,

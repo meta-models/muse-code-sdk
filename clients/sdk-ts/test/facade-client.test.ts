@@ -129,7 +129,13 @@ test("T030/TEST-012: startSession OMITS unset optional members and never sends n
   // wire — an explicit `null` now validates — but nullable is a tolerance
   // for foreign callers, not a reason for this SDK to start spelling nulls;
   // omission stays the canonical spelling (tdd SS1.2 examples).
-  for (const member of ["approvalMode", "providerId", "modelId", "sessionId"]) {
+  for (const member of [
+    "approvalMode",
+    "providerId",
+    "modelId",
+    "sessionId",
+    "permissionProfile",
+  ]) {
     assert.ok(!(member in params), `${member} must be omitted, never sent as null`);
   }
   assert.equal(params["workspaceRoot"], "/w");
@@ -142,12 +148,15 @@ test("T030/TEST-012: startSession forwards every caller-supplied member to the w
   // `approvalMode` is a CLOSED enum (D-006, select-never-create) — this is a
   // real member, so regenerating the enum would break this arm rather than
   // silently keeping a value no caller can send.
+  // `permissionProfile` (amendment 42624 FR-42624-1, #44975) rides the same
+  // forward: a dropped line fails the deep-equal below (PR #45294 review).
   const pending = client.startSession({
     workspaceRoot: "/w",
     sessionId: "caller-picked",
     approvalMode: "onRequest",
     providerId: "anthropic",
     modelId: "m-1",
+    permissionProfile: ":read-only",
   });
   const sent = await exchange(transport, startResult("caller-picked"));
   await pending;
@@ -162,6 +171,7 @@ test("T030/TEST-012: startSession forwards every caller-supplied member to the w
     approvalMode: "onRequest",
     providerId: "anthropic",
     modelId: "m-1",
+    permissionProfile: ":read-only",
   });
 });
 

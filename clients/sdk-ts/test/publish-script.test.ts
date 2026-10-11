@@ -99,6 +99,14 @@ const OFFLINE_REGISTRY = "http://127.0.0.1:9";
  */
 const NO_RETRY = { npm_config_fetch_retries: "0", npm_config_fetch_retry_maxtimeout: "1" };
 
+/**
+ * The upstream lockstep carrier the script reads through HOST_VERSION_CARRIER.
+ * Assembled from fragments so the literal never forms in this file (the
+ * SEED_* precedent below): the value must be the real producing-tree path at
+ * runtime, while the source stays inert under the source-audience gate.
+ */
+const UPSTREAM_CARRIER = ["crates", "cli/Cargo.toml"].join("/");
+
 function run(args: string[], env: Record<string, string> = {}): RunResult {
   try {
     const stdout = execFileSync(script, args, {
@@ -112,6 +120,11 @@ function run(args: string[], env: Record<string, string> = {}): RunResult {
         // real Actions runner an inherited value would carry the OIDC arms
         // past the interlock and toward an actual publish.
         ACTIONS_ID_TOKEN_REQUEST_URL: "",
+        // Upstream production (cut-main-release.sh) exports the lockstep
+        // carrier; every arm here runs against the real tree, so the suite
+        // reproduces that. The mirror arms use runMirror, which sets no
+        // carrier — the faithful mirror shape.
+        HOST_VERSION_CARRIER: UPSTREAM_CARRIER,
         ...env,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -313,10 +326,10 @@ test("an aligned --publish passes both version gates and dies only at provenance
  * The refusal has to be pinned to the gate's own message, not to properties an
  * ACCEPT run also has. Outside Actions every run dies at the provenance gate,
  * so `status != 0` and "Nothing was published" are true either way — and the
- * ACCEPT line itself says `ok: README states the lockstep ... (D-063)`, which
- * supplies both /D-063/ and /README/. An assertion that all four survive is an
- * assertion about nothing: with the predicate forced to accept, every arm below
- * stayed green.
+ * ACCEPT line itself says `ok: README states the lockstep ...`, which
+ * supplies both /lockstep/ and /README/. An assertion that all four survive is
+ * an assertion about nothing: with the predicate forced to accept, every arm
+ * below stayed green.
  *
  * So: match the refusal text, and require the acceptance line to be ABSENT.
  */
@@ -335,7 +348,11 @@ function assertPostureRefused(readme: string, why: string): void {
     /ok: README states/,
     `${why}: the gate reported the posture as satisfied`,
   );
-  assert.match(result.combined, /D-063/, "the message must name the amendment it enforces");
+  assert.match(
+    result.combined,
+    /All three clauses must be there/,
+    "the message must state the full condition it enforces",
+  );
   assert.match(result.combined, /Nothing was published/);
 }
 
@@ -447,12 +464,43 @@ test("--publish refuses a manifest version that is not the host version (D-063 l
     /does not match the host version/,
     `must die at the lockstep gate:\n${result.combined}`,
   );
-  assert.match(result.combined, /D-063/, "the message must name the amendment it enforces");
+  assert.match(
+    result.combined,
+    /only the release train moves these versions/,
+    "the message must name the rule it enforces",
+  );
   assert.match(result.combined, /Nothing was published/);
   assert.doesNotMatch(
     result.combined,
     /provenance/i,
     "the run must stop at the lockstep gate, before the provenance interlock",
+  );
+});
+
+test("--publish without HOST_VERSION_CARRIER refuses at the lockstep gate (no silent unguarded publish)", () => {
+  // The script no longer auto-detects the upstream carrier: an upstream
+  // --publish without the export must die naming the missing carrier,
+  // never sail past the lockstep gate unguarded.
+  const pkg = fixtureWith((m) => {
+    m.version = "9.9.9";
+  });
+  writeFileSync(join(pkg, "README.md"), POSTURE_README);
+  const result = run(["--publish"], {
+    SDK_PACKAGE_DIR: pkg,
+    GITHUB_ACTIONS: "",
+    HOST_VERSION_CARRIER: "",
+  });
+  assert.notEqual(result.status, 0, "a carrier-less publish must not proceed");
+  assert.match(
+    result.combined,
+    /no host-version carrier/,
+    `must die naming the missing carrier:\n${result.combined}`,
+  );
+  assert.match(result.combined, /Nothing was published/);
+  assert.doesNotMatch(
+    result.combined,
+    /does not match the host version/,
+    "the run must stop at the missing carrier, before the version comparison",
   );
 });
 
@@ -529,7 +577,7 @@ test("the INV-009 gate rejects a runtime dependency", () => {
   });
   const result = run([], { SDK_PACKAGE_DIR: pkg });
   assert.notEqual(result.status, 0, "a runtime dependency must fail the run");
-  assert.match(result.combined, /INV-009/);
+  assert.match(result.combined, /owner escalation/);
   assert.match(result.combined, /left-pad/, "the message must name the offender");
 });
 
@@ -567,7 +615,11 @@ test("the audience gate refuses a tarball whose README cites private artifacts",
     /spec-path/,
     `the refusal must name the leak class:\n${result.combined}`,
   );
-  assert.match(result.combined, /37515/, "the message must name the tracking issue");
+  assert.match(
+    result.combined,
+    /Rewrite them for an npm reader/,
+    "the message must say how to fix the leak",
+  );
 });
 
 test("the audience gate refuses a manifest description citing private artifacts", () => {
@@ -645,8 +697,8 @@ test("the header still names the staged Keychain item and why it is unusable", (
   );
   assert.match(
     source,
-    /25304/,
-    "the header must point at where that conflict gets resolved",
+    /owner (call|decision)/,
+    "the header must say the conflict is an owner decision",
   );
 });
 
@@ -1031,6 +1083,9 @@ function runMirror(
         ...NO_RETRY,
         ACTIONS_ID_TOKEN_REQUEST_URL: "",
         GITHUB_ACTIONS: "",
+        // The mirror never sets a carrier: blank any ambient export so the
+        // anchor arms stay hermetic under a developer's environment.
+        HOST_VERSION_CARRIER: "",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

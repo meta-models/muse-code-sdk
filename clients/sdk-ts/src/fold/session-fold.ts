@@ -191,7 +191,16 @@ type LiveHostStateProjection =
   | "skill/changed"
   | "usage/changed"
   | "session/statusChanged"
-  | "session/listChanged";
+  | "session/listChanged"
+  // ADR 45434 D5 (tdd SS3.29): the plugin change hints are live
+  // host-state projections like `skill/changed` — re-issue hints, never
+  // folded items (in-v1/312+314 classify them the same way).
+  | "plugin/changed"
+  | "plugin/marketplaceChanged"
+  // A session's computer-use setup state moved: a host-state push carrying
+  // `sessionId` and the state, no `viewCursor`, no `sourceRange`; a Settings
+  // consumer reads it through the notification hook.
+  | "computerUseSetup/changed";
 // The SS2.6 lifecycle pair (#33065) is server-owned HOST-scope lifecycle
 // broadcast, not host-state projection: a session loaded/unloaded. Excluded
 // from the fold for the structural reason above; #33102 owns the conscious
@@ -202,6 +211,10 @@ type NonFoldNotification =
   // Client-to-server, like `initialized` — the fold never sees it.
   | "userInput/engaged"
   | "session/viewHealthChanged"
+  // `recap/completed` (tdd SS3.28.2, ADR 45447 D2) is a command-plane
+  // settlement to the requesting connection only — no `viewCursor`, no
+  // `sourceRange`, nothing durable to fold.
+  | "recap/completed"
   | SessionLifecycleBroadcast
   | LiveHostStateProjection;
 type UnfoldedViewNotification = Exclude<
@@ -796,8 +809,11 @@ export class SessionFold {
     const turn = this.#turnFor(params.turnId);
     turn.commandId = params.commandId;
     // A retract is NOT a `TurnTerminal`; leaving `terminal` unset is the whole
-    // point (INV-006). The retracted user message re-arrives via `item/updated`
-    // with `retracted: true`, which the item half folds.
+    // point (INV-006). On accepted, the retracted user message re-arrives via
+    // `item/updated` with `retracted: true`, which the item half folds
+    // (a declined outcome also lands here for now: the entry reads retracted
+    // and the later turn/completed arrives as a stale frame, so its terminal
+    // is dropped too - a known gap in this fold, behavior unchanged).
     turn.state = "retracted";
     this.#clearActive(params.turnId);
     return { kind: "turn", turnId: params.turnId, state: turn.state };

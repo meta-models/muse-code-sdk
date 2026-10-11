@@ -947,6 +947,7 @@ test("session-state events fold into the store keyed by their method name", () =
   const fold = new SessionFold();
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
@@ -955,6 +956,7 @@ test("session-state events fold into the store keyed by their method name", () =
   fold.apply({ method: "session/modelChanged", params: model });
 
   const goal: SessionGoalChangedParams = {
+    goal: null,
     sessionId: SESSION,
     sourceRange: SOURCE,
     viewCursor: "v:s:2",
@@ -980,6 +982,7 @@ test("the fold passes viewCursor through, so a redelivered state frame is refuse
   const fold = new SessionFold();
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
@@ -1163,6 +1166,7 @@ test("a wrong-family read is a compile error, not a silent wrong shape", () => {
   const fold = new SessionFold();
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
@@ -1281,6 +1285,7 @@ test("apply()'s sessionState outcome is deep-readonly (#23556 item 2)", () => {
   const fold = new SessionFold();
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
@@ -1373,6 +1378,7 @@ test("the session-state surface names its family keys, so a typo is a compile er
   // narrowing just relocates the bare-string cast it exists to forbid.
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
@@ -1435,12 +1441,14 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
   };
   const model: SessionModelChangedParams = {
     modelId: "muse-large",
+    providerId: null,
     sessionId: SESSION,
     source: "user",
     sourceRange: SOURCE,
     viewCursor: "v:t:14",
   };
   const goal: SessionGoalChangedParams = {
+    goal: null,
     sessionId: SESSION,
     sourceRange: SOURCE,
     viewCursor: "v:t:15",
@@ -1462,6 +1470,7 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
   };
   const tokens: SessionTokenUsageParams = {
     cumulative: { outputTokens: 1, promptTokens: 1, totalTokens: 2 },
+    modelId: null,
     promptTokens: 1,
     sessionId: SESSION,
     sourceRange: SOURCE,

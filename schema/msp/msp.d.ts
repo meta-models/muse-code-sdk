@@ -238,7 +238,7 @@ export interface BranchState {
 }
 
 /** A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when SS6 un-defers (#13929, Scenario 5 AS-3) — closed would make that a retype. */
-export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | (string & {});
+export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | "computerUseSetup" | (string & {});
 
 /** The client's requested capability posture (SS1.4.1). Every member defaults; an absent `capabilities` object means all defaults. */
 export interface ClientCapabilities {
@@ -326,6 +326,9 @@ export interface ComputerUseBlockedApp {
 /** A capability dropdown's value (ADR 630 D18.4). **Open**: the read result carries it, so an older client tolerates a value it does not know. */
 export type ComputerUseChoice = "ask" | "alwaysAllow" | (string & {});
 
+/** One macOS permission as setup last saw it. **Open**, like the phase. */
+export type ComputerUsePermission = "granted" | "missing" | "unknown" | (string & {});
+
 /** `computerUseSettings/read` result, also answered by `computerUseSettings/update`. */
 export interface ComputerUseSettings {
   /** The user's blocks in the order they were added, then the built-in blocks when `showBuiltIns` asked for them. */
@@ -352,6 +355,47 @@ export interface ComputerUseSettingsUpdateParams {
   screenshots?: ComputerUseChoice;
   /** Bundle IDs to remove from the user's blocked apps. Only the user's own entries can be removed; a built-in block stays. */
   unblockApps?: string[];
+}
+
+/** `computerUseSetup/changed` params. */
+export interface ComputerUseSetupChanged {
+  /** The session whose setup state changed. */
+  sessionId: string;
+  /** Its new state. */
+  state: ComputerUseSetupState;
+}
+
+/** Where the session's setup stands: `cua_setup`'s state codes, camelCase. **Open**: a result vocabulary, so an older client tolerates a new state. */
+export type ComputerUseSetupPhase = "dormant" | "inProgress" | "restartRequired" | "readyForTarget" | "stopped" | (string & {});
+
+/** `computerUseSetup/read` params. */
+export interface ComputerUseSetupReadParams {
+  /** The session whose setup to read. */
+  sessionId: string;
+}
+
+/** `computerUseSetup/start` params: a human command. */
+export interface ComputerUseSetupStartParams {
+  /** The client's id for this command. */
+  commandId: string;
+  /** The session whose setup to start. */
+  sessionId: string;
+}
+
+/** The session's setup state: the result of both methods and the `computerUseSetup/changed` payload's `state`. */
+export interface ComputerUseSetupState {
+  /** Accessibility. */
+  accessibility: ComputerUsePermission;
+  /** Input Monitoring: computer use is ready without it; some actions need it. */
+  inputMonitoring: ComputerUsePermission;
+  /** The sentence `cua_setup` gives the user for this answer. */
+  message?: string;
+  /** The `cua_setup` refusal code when the call was refused, verbatim. */
+  refused?: string;
+  /** Screen Recording. */
+  screenRecording: ComputerUsePermission;
+  /** Where setup stands. */
+  setup: ComputerUseSetupPhase;
 }
 
 /** Context pressure level (tdd SS4.6.6): hard threshold first, both inclusive `>=`. Open. */
@@ -465,6 +509,10 @@ export interface ErrorData {
   latestBoundaryCursor?: string | null;
   /** The exceeded byte limit, on `inputTooLarge` errors. */
   limitBytes?: number;
+  /** The store on `pluginNotFound` (`-32035`, SS3.29.1). */
+  marketplace?: string;
+  /** The rejected marketplace name on `marketplaceNotFound` (`-32034`, SS3.29.7) and `marketplaceAlreadyExists` (`-32036`, SS3.29.2); the rejected plugin name on `pluginNotFound` (`-32035`, SS3.29.1). */
+  name?: string;
   /** The requested `outputRef.id`, on the same `item/readOutput` arms. */
   outputRef?: string;
   /** Candidate retained paths on `sessionAmbiguous`. */
@@ -475,6 +523,10 @@ export interface ErrorData {
   resolution?: ApprovalResolutionSummary;
   /** Whether retrying can succeed (e.g. `overloaded`). When present, overrides the error table row's `retryable` default for this code. */
   retryable?: boolean;
+  /** Why the branch seed did not use a checkpoint, on the same arms: one of `no_usable_checkpoint`, `unsupported_checkpoint_shape`, `checkpoint_has_model_visible_tail`, `checkpoint_missing_suffix`; absent when the seed used a checkpoint or no fallback was recorded. */
+  seedFallbackReason?: string;
+  /** The branch-seed path the host read before rejecting, on branch-validation rejections (`session/fork`, `session/sideChat`: the `forkBoundaryInvalid`, `commandRejected` and `sessionNotFound` arms; SS2.5.3, SS2.5.7; #51365): one of `runtime_checkpoint_tail`, `runtime_full_replay`, `legacy_session_data` — the durable branch-seed vocabulary, so the client cites the real seed decision instead of guessing at a stale binary. */
+  seedPath?: string;
   /** The rejected skill selector on `skillNotFound` (`-32032`, SS3.22.4). */
   selector?: string;
   /** Session identity on errors whose lookup is session-scoped. */
@@ -490,7 +542,7 @@ export interface ErrorData {
 }
 
 /** A stable `error.data.kind` category (SS1.6): camelCase, the value clients branch on. Open: SS2–SS5 lanes add kinds additively as their methods land (Appendix B already registers them), and the spec's edge-case rule makes a new `kind` additive only because this domain is declared open. */
-export type ErrorKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "invalidParams" | "experimentalRequired" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | (string & {});
+export type ErrorKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "invalidParams" | "experimentalRequired" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | (string & {});
 
 /** The `error` member of an error response (SS1.2 §2.4). */
 export interface ErrorObject {
@@ -909,8 +961,8 @@ export interface ItemDeltaParams {
   viewCursor: string;
 }
 
-/** The eleven v1 item kinds (tdd SS4.5.2–4.5.13). Open: a new kind is additive evolution, and clients MUST render unknown kinds generically (tdd SS4.10). */
-export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | (string & {});
+/** The eleven v1 item kinds (tdd SS4.5.2–4.5.13) plus post-v1 kinds (tdd SS4.5.14+). Open: a new kind is additive evolution, and clients MUST render unknown kinds generically (tdd SS4.10). */
+export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | (string & {});
 
 /** The `item/readOutput` content encoding (tdd SS4.7.4). Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract. */
 export type ItemReadOutputEncoding = "utf8" | "base64";
@@ -986,6 +1038,9 @@ export interface LastTurn {
   /** The turn's id, as on its `turn/completed`; clients deduplicate a live `turn/completed` against this member by it (ADR 36635 D2). */
   turnId: string;
 }
+
+/** Quota limit kinds (tdd SS4.5.1, ADR 50047 D2): open for evolution. */
+export type LimitKind = "tierLimit" | (string & {});
 
 /** `media/upload` params (tdd SS3.33, ADR 45443 D5): one chunk of a client-minted upload. All members required. */
 export interface MediaUploadParams {
@@ -1232,6 +1287,75 @@ export interface PluginCatalogEntry {
   version: string;
 }
 
+/** `plugin/changed` params (tdd SS3.29.5): an install landed; clients re-issue `plugin/list` (plus `hook/list` and `skill/list`). */
+export interface PluginChangedParams {
+  /** The installed record's own switch. */
+  enabled: boolean;
+  /** The installed record's identifier. */
+  id: string;
+  /** The acting session. */
+  sessionId: string;
+  /** The installed-list provenance vocabulary (tdd SS3.26.2). */
+  source: PluginSource;
+  /** The installed record's version. */
+  version: string;
+}
+
+/** The `plugin/install` local-path arm (tdd SS3.29.1). */
+export interface PluginInstallLocalPathTarget {
+  /** The host folder to install from; absolute recommended, relative resolves against the host working directory. */
+  path: string;
+  /** The install lane; omitted means `default`. */
+  scope?: PluginInstallScope;
+}
+
+/** The `plugin/install` marketplace arm (tdd SS3.29.1). */
+export interface PluginInstallMarketplaceTarget {
+  /** The configured marketplace name. */
+  marketplace: string;
+  /** The plugin name within the store. */
+  name: string;
+}
+
+/** `plugin/install` params (tdd SS3.29.1). Per-session params plus a client-generated `commandId` (UUIDv7) with the uniform SS3.1.1 idempotency contract. */
+export interface PluginInstallParams {
+  /** The client-generated idempotency key (UUIDv7). */
+  commandId: string;
+  /** The target session; its workspace resolves project scope. */
+  sessionId: string;
+  /** Exactly one install target arm. */
+  target: PluginInstallTarget;
+}
+
+/** `plugin/install` result (tdd SS3.29.1): the SS3.1.2 ack envelope plus the installed receipt. */
+export interface PluginInstallResult {
+  /** The echoed idempotency key. */
+  commandId: string;
+  /** The installed record's own switch. */
+  enabled: boolean;
+  /** The installed record's identifier. */
+  id: string;
+  /** The installed-list provenance vocabulary (tdd SS3.26.2). */
+  source: PluginSource;
+  /** The ack status. */
+  status: CommandStatus;
+  /** The installed record's version. */
+  version: string;
+  /** The installer's advisory text when the install succeeded with a caveat; absent otherwise. */
+  warning?: string;
+}
+
+/** The `plugin/install` local-path scope (tdd SS3.29.1). Closed: an unknown scope is `-32602 invalidParams`. */
+export type PluginInstallScope = "default" | "user" | "project";
+
+/** The one structured install target (tdd SS3.29.1): a flat object with two optional arms, exactly one present — the `TurnInputPart` convention, since the v1 schema model names no object-variant union. Both arms or neither is `-32602 invalidParams`. */
+export interface PluginInstallTarget {
+  /** The local-path arm: install from a host folder. */
+  localPath?: PluginInstallLocalPathTarget;
+  /** The marketplace arm: install a named plugin from a store. */
+  marketplace?: PluginInstallMarketplaceTarget;
+}
+
 /** `plugin/list` params (tdd SS3.26.2). Per-session params; rows are the installed plugin records. */
 export interface PluginListParams {
   /** The target session. */
@@ -1244,8 +1368,107 @@ export interface PluginListResult {
   plugins: PluginCatalogEntry[];
 }
 
+/** `plugin/marketplaceAdd` params (tdd SS3.29.2). Per-session params plus a client-generated `commandId` (UUIDv7). */
+export interface PluginMarketplaceAddParams {
+  /** The client-generated idempotency key (UUIDv7). */
+  commandId: string;
+  /** The marketplace name to configure. */
+  name: string;
+  /** The target session. */
+  sessionId: string;
+  /** The app's source vocabulary: `owner/repo`, a git URL, a `file://` URL, or a local path. */
+  source: string;
+}
+
+/** What happened to a marketplace (tdd SS3.29.6). Closed: an unknown change is a contract violation, never tolerated. */
+export type PluginMarketplaceChange = "added" | "updated" | "removed";
+
+/** `plugin/marketplaceChanged` params (tdd SS3.29.6): a marketplace was added, updated, or removed. */
+export interface PluginMarketplaceChangedParams {
+  /** What happened. */
+  change: PluginMarketplaceChange;
+  /** The marketplace name. */
+  name: string;
+  /** The stored record's plugin count; omitted on `removed`, never fabricated. */
+  pluginCount?: number;
+  /** The acting session. */
+  sessionId: string;
+  /** The stored record's skipped count; omitted on `removed`, never fabricated. */
+  skippedCount?: number;
+}
+
+/** The stored marketplace record both add and update answer (tdd SS3.29.2, SS3.29.3): the SS3.1.2 ack envelope plus the record. */
+export interface PluginMarketplaceRecordResult {
+  /** The echoed idempotency key. */
+  commandId: string;
+  /** The configured marketplace name. */
+  name: string;
+  /** The plugins the store now offers. */
+  pluginCount: number;
+  /** Entries the store could not offer, with the reason each was skipped; empty when nothing was skipped. */
+  skipped: PluginMarketplaceSkippedEntry[];
+  /** The normalized stored source. */
+  source: PluginMarketplaceSourceShape;
+  /** The ack status. */
+  status: CommandStatus;
+}
+
+/** `plugin/marketplaceRemove` params (tdd SS3.29.4). Per-session params plus a client-generated `commandId` (UUIDv7). */
+export interface PluginMarketplaceRemoveParams {
+  /** The client-generated idempotency key (UUIDv7). */
+  commandId: string;
+  /** The marketplace name to remove. */
+  name: string;
+  /** The target session. */
+  sessionId: string;
+}
+
+/** `plugin/marketplaceRemove` result (tdd SS3.29.4): the SS3.1.2 ack envelope plus the removed name. */
+export interface PluginMarketplaceRemoveResult {
+  /** The echoed idempotency key. */
+  commandId: string;
+  /** The removed marketplace name. */
+  name: string;
+  /** The ack status. */
+  status: CommandStatus;
+}
+
+/** One skipped marketplace entry (tdd SS3.29.2). */
+export interface PluginMarketplaceSkippedEntry {
+  /** The skipped plugin. */
+  plugin: string;
+  /** Why it was skipped. */
+  reason: string;
+}
+
+/** The normalized stored marketplace source (tdd SS3.29.2). */
+export interface PluginMarketplaceSourceShape {
+  /** The stored source kind. */
+  kind: string;
+  /** The stored source path. */
+  path: string;
+}
+
+/** `plugin/marketplaceUpdate` params (tdd SS3.29.3). Per-session params plus a client-generated `commandId` (UUIDv7). */
+export interface PluginMarketplaceUpdateParams {
+  /** The client-generated idempotency key (UUIDv7). */
+  commandId: string;
+  /** The marketplace name to refresh. */
+  name: string;
+  /** The target session. */
+  sessionId: string;
+}
+
 /** A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3): camelCase of `PluginSourceProvenance`. Open (server-produced result vocabulary, the #22785 enum-openness rule): a future provenance is additive. */
 export type PluginSource = "curated" | "marketplaceUserAdded" | "foreignImport" | "nativeLocal" | (string & {});
+
+/** Typed quota-exhaustion detail (tdd SS4.5.1, ADR 50047 D2): the limit kind plus the provider's reset instant. */
+export interface QuotaDetail {
+  /** Which quota was exhausted (open enum; unknown values fall back). */
+  limitKind: LimitKind;
+  /** Epoch milliseconds at which the provider says usage resets. */
+  resetsAtMs: number;
+}
 
 /** The reasoning-effort tier sampled at submission (tdd SS3.2, SS3.3). The **same closed tier vocabulary** on both the fresh-turn and steer lanes, spelled identically; invalid tiers are invalid params. `none` is a tier of the vocabulary (ask for no reasoning), not a way to say "unset". */
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
@@ -1259,6 +1482,60 @@ export interface ReasoningEffortState {
   reasoningEffort: ReasoningEffort;
   /** Which actor class set the default. */
   source: ReasoningEffortChangeSource;
+}
+
+/** `recap/cancel` params (tdd SS3.28.5): the session plus the cancel's own retry id. No target — one in-flight slot per session makes the target unambiguous. */
+export interface RecapCancelParams {
+  /** The cancel's own retry id (required, SS3.1.1). */
+  commandId: string;
+  /** The session whose in-flight recap to cancel (required). */
+  sessionId: string;
+}
+
+/** `recap/cancel` result (tdd SS3.28.5): admission only. In flight → the recap settles `cancelled`; idle → accepted no-op. */
+export interface RecapCancelResult {
+  /** The cancel's id, echoed. */
+  commandId: string;
+  /** Always `accepted` on this path. */
+  status: CommandStatus;
+}
+
+/** `recap/completed` params (tdd SS3.28.2): the settlement, delivered to the requesting connection outside the view stream — no `viewCursor`, no `sourceRange`. `text` is required on `completed` (plus optional `title`, untrusted model output — clients MUST sanitize per spec 442 INV-015); `reason` is required on `failed`; neither rides `cancelled`/`timedOut`. The struct marks the conditional members optional; the SS prose pins the per-outcome rule, the `turn/completed` usage/error convention. */
+export interface RecapCompletedParams {
+  /** The request's id — the correlation key. */
+  commandId: string;
+  /** How the request settled. */
+  outcome: RecapOutcome;
+  /** Why the side-call failed (on `failed`). */
+  reason?: RecapFailureReason;
+  /** The recapped session. */
+  sessionId: string;
+  /** The recap text verbatim (on `completed`). */
+  text?: string;
+  /** The model-produced short title (on `completed`, when produced). */
+  title?: string;
+}
+
+/** `recap/completed` failure reason (tdd SS3.28.2/SS3.28.8): post-ack failures fold to the single initial value. **Open**: later splits stay additive (#22785 E2). */
+export type RecapFailureReason = "providerFailed" | (string & {});
+
+/** `recap/completed` outcome (tdd SS3.28.2): the terminal vocabulary, camelCase per SS1.6. **Open**: a server-produced result vocabulary (#22785 E2). */
+export type RecapOutcome = "completed" | "failed" | "cancelled" | "timedOut" | (string & {});
+
+/** `recap/request` params (tdd SS3.28.1): the session plus the client-minted UUIDv7 retry id. No other param; unknown fields are `invalidParams`. */
+export interface RecapRequestParams {
+  /** The client-minted retry id (required, SS3.1.1). */
+  commandId: string;
+  /** The session to recap (required). */
+  sessionId: string;
+}
+
+/** `recap/request` result (tdd SS3.28.1): admission only — the ack is never the recap. */
+export interface RecapRequestResult {
+  /** The request's id, echoed. */
+  commandId: string;
+  /** Always `accepted` on this path. */
+  status: CommandStatus;
 }
 
 /** One end of a [`SourceRange`]: a record's event id and its sequence number within the stream (tdd SS4.2). */
@@ -1289,6 +1566,9 @@ export type RequestId = number | string;
 /** The SS5.3.3 presentation receipt — the client's response to a server-initiated request (`approval/request`, `userInput/request`).  The response acknowledges presentation only ("a surface showed or will show this"): it changes no state, the server uses it for diagnostics alone, and the decision/answer travels as a command (`approval/decide`, `userInput/answer`). An error response or a dropped connection means this connection could not present the request; the approval or prompt stays pending and the request is re-issued on the next subscribe (SS5.6). There is no dismiss-without-deciding on the wire. */
 export interface RequestReceipt {
 }
+
+/** A `turn/retracted` settlement outcome (tdd SS4.5.1, ADR 50074 D1). Open enum (D-033): decode is tolerant — a value outside the list reads as `Accepted` (the event's historical meaning — pre-feature hosts emit it only for accepted retracts), never fails. The bundle keeps enumerating the known values for codegen and docs. */
+export type RetractOutcome = "accepted" | "declined" | (string & {});
 
 /** The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all (INV-006a). */
 export interface SchemaInfo {
@@ -1341,7 +1621,7 @@ export interface Session {
   /** The session identity. */
   sessionId: string;
   /** `null` for root sessions and forks; side provenance otherwise (tdd SS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of `forkedFrom` and `sideFrom`. */
-  sideFrom?: SideProvenance;
+  sideFrom?: SideProvenance | null;
   /** Load state as this host knows it; `session/list` reports `notLoaded` for sessions loaded by *other* hosts (tdd SS2.4). */
   status: SessionStatus;
   /** Derived display title (tdd SS2.14.1, #27598): a heuristic that may evolve — its carriage, not its derivation, is the contract. **Additive-optional**, omitted when underivable. */
@@ -1375,7 +1655,7 @@ export interface SessionApprovalModeChangedParams {
 /** `session/branchChanged` params (tdd SS4.6.4): a durable workspace-branch observation landed. */
 export interface SessionBranchChangedParams {
   /** The observed branch; `null` on a detached-HEAD observation — a fact, not "unchanged" (tdd SS4.6.4). */
-  branch?: string;
+  branch: string | null;
   /** The owning session. */
   sessionId: string;
   /** The durable records this event folded from. */
@@ -1473,7 +1753,7 @@ export interface SessionForkResult {
 /** `session/goalChanged` params (tdd SS4.6.2): the projected goal block's value changed — identical adoptions emit nothing (the change gate), and an explicit `null` clears. Replace wholesale; `null` never means unchanged. */
 export interface SessionGoalChangedParams {
   /** The full current goal block, or `null` to clear. */
-  goal?: Goal;
+  goal: Goal | null;
   /** The owning session. */
   sessionId: string;
   /** The durable records this event folded from. */
@@ -1576,7 +1856,7 @@ export interface SessionModelChangedParams {
   /** The selected model. */
   modelId: string;
   /** The selected provider; `null` when the selection names none. */
-  providerId?: string;
+  providerId: string | null;
   /** The owning session. */
   sessionId: string;
   /** What drove the selection. */
@@ -1596,7 +1876,7 @@ export interface SessionModelRouteUnservedParams {
   /** The standing (still bound, now unroutable) model. */
   modelId: string;
   /** The standing model's provider; `null` when the selection names none. */
-  providerId?: string;
+  providerId: string | null;
   /** The owning session. */
   sessionId: string;
   /** The durable records this event folded from. */
@@ -1791,6 +2071,8 @@ export interface SessionStartParams {
   config?: SessionConfig;
   /** Initial model; server default when omitted. */
   modelId?: string;
+  /** The new session's initial permission profile (amendment 42624 FR-42624-1, ADR 42197 D2): a profile id the host catalog already admits — the rows `permissionProfile/list` serves without `sessionId`. Select, never create. Omitted means today's behavior: the host's configured default under native admission, unchanged. An id the catalog does not carry, or one it serves unavailable, refuses the start `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte, and an ephemeral host refuses any id (`permission_profile_ephemeral_fixed`). `session/resume` and `session/fork` do not admit the member. Explicit `null` is invalid params: the set of members that tolerate `null` is closed and excludes this one, exactly as it excludes `workspaceRoots`. */
+  permissionProfile?: string;
   /** Initial provider routing; server default when omitted or explicit `null` — both spellings select the default (#23468). */
   providerId?: string | null;
   /** Exact identity for this new root session. When omitted the server mints a UUIDv7. This field never selects an existing session: a retained or reserved id is rejected `commandRejected` with reason `session_id_conflict` (tdd SS2.5.1). */
@@ -1855,7 +2137,7 @@ export interface SessionTokenUsageParams {
   /** Provider finish reason when reported (open vocabulary, verbatim). */
   finishReason?: string;
   /** The effective model that produced this usage; `null` on pre-schema records — never back-filled, an unpriced leg (tdd SS4.6.5). */
-  modelId?: string;
+  modelId: string | null;
   /** Prompt tokens counted exactly once under the provider's cache convention (#8803). Server-derived; deterministic — the provider is in the log. */
   promptTokens: number;
   /** The owning session. */
@@ -1941,6 +2223,73 @@ export interface SkillChangedParams {
   sessionId: string;
 }
 
+/** The four receipt-list lengths (tdd SS3.30.2): a client renders counts without walking lists. */
+export interface SkillImportCounts {
+  /** `failed.len()`. */
+  failed: number;
+  /** `installed.len()`. */
+  installed: number;
+  /** `quarantined.len()`. */
+  quarantined: number;
+  /** `skipped.len()`. */
+  skipped: number;
+}
+
+/** One import candidate that could neither install nor quarantine (tdd SS3.30.2): recorded so the run continues past it. `id` is null when the candidate never yielded one — present-but-null, never omitted. */
+export interface SkillImportFailure {
+  /** The candidate's id, or null when it never yielded one. */
+  id: string | null;
+  /** Why the candidate failed. */
+  reason: string;
+}
+
+/** `skill/import` params (tdd SS3.30.2, #45433): import foreign skills through the single `SkillsService::import_skills` seam. */
+export interface SkillImportParams {
+  /** The SS3.1.1 idempotency handle (UUIDv7) — required even for `dryRun` previews. */
+  commandId: string;
+  /** Preview for the consent UI; writes nothing. Additive-optional, default false. */
+  dryRun?: boolean;
+  /** Re-import over already-imported ids (the CLI `--force` twin). Additive-optional, default false. */
+  force?: boolean;
+  /** The target session. */
+  sessionId: string;
+  /** The foreign ecosystem to import from. */
+  source: SkillImportSource;
+}
+
+/** One quarantined import candidate (tdd SS3.30.2): kept, not loaded. */
+export interface SkillImportQuarantine {
+  /** The candidate's id. */
+  id: string;
+  /** The quarantine reasons. */
+  reasons: string[];
+}
+
+/** `skill/import` result (tdd SS3.30.2, #45433): the ack envelope plus the service receipt projection. */
+export interface SkillImportResult {
+  /** Echoes the client's id. */
+  commandId: string;
+  /** The four list lengths. */
+  counts: SkillImportCounts;
+  /** Echoes the call's preview flag. */
+  dryRun: boolean;
+  /** Candidates that could neither install nor quarantine. Import never aborts the whole run on one bad candidate. */
+  failed: SkillImportFailure[];
+  /** The ids the run installed, in pipeline order. */
+  installed: string[];
+  /** Kept, not loaded, with reasons. */
+  quarantined: SkillImportQuarantine[];
+  /** Ids the run did not install: already-imported ids and in-run duplicates, verbatim from the seam's `skipped` vec. */
+  skipped: string[];
+  /** Echoes the call's ecosystem. */
+  source: SkillImportSource;
+  /** Admission status. */
+  status: CommandStatus;
+}
+
+/** `skill/import` foreign ecosystem (tdd SS3.30.2). **Closed**: a client-selected write vocabulary (ADR 45433 D2) — a write must fail an ecosystem the host does not implement rather than import from an unknown dir. The host resolves its own foreign dir (the `foreign_skills_sources` derivation); no client paths cross the wire. */
+export type SkillImportSource = "claude" | "codex";
+
 /** `skill/list` params (tdd SS3.22.1, SS3.30.3). Per-session because skill scope follows the session's workspace and plugin state. */
 export interface SkillListParams {
   /** The target session. */
@@ -2011,7 +2360,7 @@ export interface SnapshotState {
   /** Every item, in first-opened order, each at its latest revision at the snapshot cursor. One schema per kind, shared with the notification item object — which is what makes snapshot+suffix a pure splice (tdd SS4.9.1). */
   items: Item[];
   /** The settled canonical session name; `null` when the session was never named (#27598, tdd SS4.9.1 / SS2.14). Folds the same durable `session/nameChanged` record `Session.name` reports. */
-  name?: string;
+  name?: string | null;
   /** The pending-approval half of the pending set. */
   pendingApprovals: PendingApprovalPointer[];
   /** The pending-user-input half of the pending set. */
@@ -2386,12 +2735,14 @@ export interface TurnError {
   kind: TurnErrorKind;
   /** Human-readable failure text. */
   message: string;
+  /** Typed quota-exhaustion detail (ADR 50047 D2/D3): present iff the stopping failure was the quota class. Clients branch on presence, never by parsing `message`. */
+  quota?: QuotaDetail;
   /** The server's judgment that resubmitting the same input may succeed. */
   retryable: boolean;
 }
 
 /** Turn failure classes (tdd SS4.5.1, `TerminalErrorKind` plus the model-task failure class). Open. */
-export type TurnErrorKind = "stepLimit" | "configError" | "projectionError" | "logError" | "workflowLaunchError" | "environmentError" | "modelError" | "launchError" | "authRequired" | (string & {});
+export type TurnErrorKind = "stepLimit" | "configError" | "projectionError" | "logError" | "workflowLaunchError" | "environmentError" | "modelError" | "launchError" | "authRequired" | "mcpLinkError" | (string & {});
 
 /** `turn/foregroundCompleted` params (tdd SS4.5.12): the turn's foreground work is done and named background reminder checks hold the turn open. Explicitly non-terminal: the turn ends only at `turn/completed` / `turn/unqueued`. */
 export interface TurnForegroundCompletedParams {
@@ -2466,10 +2817,12 @@ export interface TurnRef {
   turnId: string;
 }
 
-/** `turn/retracted` params (tdd SS4.5.1): an interrupt-paired retract was durably accepted. The retracted user-message item is re-emitted via `item/updated` with `retracted: true`. */
+/** `turn/retracted` params (tdd SS4.5.1): an interrupt-paired retract durably settled, accepted or declined (ADR 50074 D1). On `"accepted"` the retracted user-message item is re-emitted via `item/updated` with `retracted: true`; on `"declined"` the client folds the legacy declined rollback instead and no item is re-emitted. */
 export interface TurnRetractedParams {
   /** The retracted submission's command id. */
   commandId: string;
+  /** The retract settlement outcome (tdd SS4.5.1, ADR 50074 D1). Additive-optional: absent reads as `"accepted"` — pre-feature hosts emit the event only for accepted retracts — and so does an unrecognized value (open enum, D-033). */
+  outcome?: RetractOutcome;
   /** The owning session. */
   sessionId: string;
   /** The durable records this event folded from. */
@@ -2484,6 +2837,10 @@ export interface TurnRetractedParams {
 export interface TurnRetryScheduledParams {
   /** The attempt that failed (producer-normalized, >= 1). */
   attempt: number;
+  /** The failing model attempt's durable kind, verbatim (ADR 50047 D2/D3) — a plain string: the durable vocabulary is open-ended. */
+  errorKind?: string;
+  /** The failing model attempt's HTTP status (ADR 50047 D2/D3). */
+  httpStatus?: number;
   /** The turn's model-retry chain bound. */
   maxAttempts: number;
   /** The attempt about to run (producer contract: attempt < nextAttempt <= maxAttempts; not a schema constraint). */
@@ -2496,6 +2853,8 @@ export interface TurnRetryScheduledParams {
   sessionId: string;
   /** The durable record this event folded from (the session stream's mirror of the retry-scheduled task status; `first == last`). */
   sourceRange: SourceRange;
+  /** The failing model attempt's provider system, verbatim (ADR 50047 D2/D3) — e.g. `"meta"`. Absent when no model-attempt facet precedes the retry status on the task (old logs). */
+  system?: string;
   /** The running turn whose model attempt is being retried. */
   turnId: string;
   /** Opaque, strictly monotonic view cursor (tdd SS4.1). */
@@ -2505,7 +2864,7 @@ export interface TurnRetryScheduledParams {
 /** What `turn/start` did with the input (tdd SS3.2). Resolves OQ-H in v1: since `queue` is the default `ifBusy`, clients need to distinguish these without folding history. */
 export type TurnStartDisposition = "started" | "queued" | "steered" | (string & {});
 
-/** `turn/start.providerRequestOptions` is deliberately absent: **RULED (#22785 E3, owner, 2026-08-26) to stay off the published schema.** The schema is the contract, and a free-form-object node kind is revisited only if the experimental field graduates. `turn/start` params (tdd SS3.2). */
+/** `turn/start` params (tdd SS3.2).  `turn/start.providerRequestOptions` is deliberately absent: **RULED (#22785 E3, owner, 2026-08-26) to stay off the published schema.** The schema is the contract, and a free-form-object node kind is revisited only if the experimental field graduates. */
 export interface TurnStartParams {
   /** The SS3.1.1 idempotency handle (UUIDv7). The fresh turn's `turnId` derives from it (tdd SS3.1.4). */
   commandId: string;
@@ -2519,6 +2878,8 @@ export interface TurnStartParams {
   reasoningEffort?: ReasoningEffort;
   /** The target session. */
   sessionId: string;
+  /** A queued `!` shell action riding this turn (tdd SS3.2, ADR 50034): the `!cmd` typed while a turn runs, executed at the next model-call boundary before any later steer. Exclusive with `text` and `skill` input; `input` may be empty only when this member is present. Capability-gated on `userShell`: a carrying turn on a connection without the grant fails `-32010 capabilityRequired`. Explicit `null` is invalid params (the null-tolerant set is closed). A v1 stable member. */
+  userShell?: TurnUserShell;
   /** A sticky REPLACEMENT of the session's runtime workspace-root set, binding at this turn's launch and persisting for subsequent turns until replaced again — unlike `reasoningEffort`, which is this-turn-only. Same shape and validation as `session/start.workspaceRoots`; invalid params on an explicit `ifBusy: "steer"` submit and so is explicit `null` (the D-049 null-tolerant set is closed); omitted means "unchanged", never "reset" (tdd SS3.2, ADR 37313 D3, #37313). */
   workspaceRoots?: string[];
 }
@@ -2610,6 +2971,12 @@ export interface TurnUnqueuedParams {
   turnId: string;
   /** Opaque, strictly monotonic view cursor (tdd SS4.1). */
   viewCursor: string;
+}
+
+/** The queued `!` shell action a `turn/start` carries (tdd SS3.2, ADR 50034): the `!cmd` typed while a turn runs. The shell's command id derives from the carrying turn's `commandId`, exactly as the app's own queued submit does; the params' sibling `displayText` carries the `!…` presentation form. */
+export interface TurnUserShell {
+  /** The shell command text, without the leading `!`. */
+  commandText: string;
 }
 
 /** One element of a `view/page` result's `events` array: an **unframed view notification** exactly as tdd SS4.2.1 defines it — the nested pair `{"method", "params"}`, which is the live notification minus `jsonrpc` and `emittedAtMs`, with nothing lifted out of `params` and nothing spliced into it. SS4.2.1 is the single normative definition; SS4.7.3 and SS7.4 both cite it, so the two surfaces cannot drift. */
@@ -2970,6 +3337,26 @@ export interface WorkflowPauseParams {
   workflowRunId: string;
 }
 
+/** `workflow/resume` params (tdd SS3.34, ADR 45437 D3): resume a paused workflow run, host-driven. */
+export interface WorkflowResumeParams {
+  /** The SS3.1.1 idempotency handle (UUIDv7). */
+  commandId: string;
+  /** The target session. */
+  sessionId: string;
+  /** The paused run to resume, exactly as the `workflow` item names it (SS4.5.8); required, non-empty. */
+  workflowRunId: string;
+}
+
+/** `workflow/resume` result (tdd SS3.34): admission-only plus the driven turn — always present, since resume always drives (idle fresh turn or busy steer). */
+export interface WorkflowResumeResult {
+  /** Echoes the client's id. */
+  commandId: string;
+  /** Admission status. */
+  status: CommandStatus;
+  /** The turn the host drove: the fresh resume turn on an idle session, the admission-time active turn on a busy session (a routing fact like the SS3.18 wake-gate's, not settlement). */
+  turnId: string;
+}
+
 /** `workflow`: the run's launch token budget (tdd SS4.5.8, #45449). */
 export interface WorkflowTokenBudget {
   /** The effective launch budget in tokens, verbatim from the launch fact. */
@@ -2977,10 +3364,10 @@ export interface WorkflowTokenBudget {
 }
 
 /** Every wire method in this schema (SS1.9 index). */
-export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "hook/list" | "plugin/list" | "task/background" | "task/stop" | "task/stopAll" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "computerUseSettings/read" | "computerUseSettings/update";
+export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start";
 /** Every wire notification in this schema (SS1.9 index). */
-export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed";
+export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */
-export type MspErrorDataKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "experimentalRequired" | "invalidParams" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid";
+export type MspErrorDataKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "experimentalRequired" | "invalidParams" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid";

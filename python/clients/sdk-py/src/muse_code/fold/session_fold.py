@@ -102,6 +102,17 @@ LIVE_HOST_STATE_PROJECTIONS: frozenset[str] = frozenset(
         # connection) — no ``viewCursor``, no ``sourceRange``; a row-table
         # consumer applies it out of band and it folds no transcript state.
         "session/listChanged",
+        # The plugin change hints are live host-state projections like
+        # ``skill/changed`` — re-issue hints, never folded items: an
+        # install landing (``plugin/changed``) or a marketplace add,
+        # update, or remove (``plugin/marketplaceChanged``) tells the
+        # client to re-issue ``plugin/list``, and neither carries
+        # foldable view state.
+        "plugin/changed",
+        "plugin/marketplaceChanged",
+        # A session's computer-use setup state moved: a host-state push
+        # with no view cursor, for a Settings consumer.
+        "computerUseSetup/changed",
     )
 )
 """Notifications that are live host-state projections, not view events:
@@ -675,8 +686,12 @@ class SessionFold:
         turn = self._turn_for(turn_id)
         turn.command_id = params.get("commandId")
         # A retract is NOT a TurnTerminal; leaving `terminal` unset is the
-        # whole point. The retracted user message re-arrives via
-        # `item/updated` with `retracted: true`, which the item half folds.
+        # whole point. On accepted, the retracted user message re-arrives via
+        # `item/updated` with `retracted: true`, which the item half folds
+        # (a declined outcome also lands here for now: the entry reads
+        # retracted and the later turn/completed arrives as a stale frame,
+        # so its terminal is dropped too - a known gap in this fold,
+        # behavior unchanged).
         turn.state = "retracted"
         self._clear_active(turn_id)
         return TurnFold(turn_id, turn.state)

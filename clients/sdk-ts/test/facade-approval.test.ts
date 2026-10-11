@@ -555,6 +555,232 @@ test(
 );
 
 test(
+  "T031/TEST-013 #50244: a stageResolved update read in the SAME chunk as a terminal decide ack asks nothing and writes nothing",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The #37538 producer race again, but the `terminal: true` ack and the
+    // trailing `stageResolved` update arrive in one read: the update is
+    // routed before the decide resumes from its ack, so the router must wait
+    // for that ack instead of asking the consumer about a closed stage.
+    const { session, transport } = wired();
+    let calls = 0;
+    session.onApproval(() => {
+      calls += 1;
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    // Same chunk, as the router sees it: the update is applied before the
+    // decide resumes from its ack (here, before the Connection even reads it).
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: true });
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await first.io;
+    // Settle and assert BEFORE awaiting the update's `io`: a regression
+    // authors a decide nobody answers, and that `io` would pend forever.
+    await settleMicrotasks();
+    assert.equal(calls, 1, "a stage the host closed in the same read must not re-ask the handler");
+    assert.equal(transport.writes.length, 1, "no decide may chase a terminal ack read in the same chunk");
+    await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013 #50244: a stageResolved update read in the SAME chunk as a NON-terminal decide ack still asks for the next stage",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The same-chunk wait must only defer the update until our ack is in,
+    // never swallow it: a non-terminal ack leaves stage 1 open, so the
+    // consumer is asked for it once the ack lands.
+    const { session, transport } = wired();
+    const asked: number[] = [];
+    session.onApproval((request) => {
+      asked.push(request.currentRequirementId.sourceIndex);
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: false });
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await first.io;
+    await waitForWrites(transport, 2);
+    assert.deepEqual(asked, [0, 1], "the next stage is asked once the non-terminal ack lands");
+    answer(transport, 1, { approvalId: "a-1", commandId: "mint-1", status: "accepted", terminal: true });
+    await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013 #50244: a stage update waiting on a decide that FAILS is still asked once the failure lands",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The wait must end on a failed decide too: the stage-0 decide bounces,
+    // so no terminal ack was ever recorded and the waiting stage-1 update is
+    // the consumer's question.
+    const { session, transport } = wired();
+    const failures: ApprovalFailure[] = [];
+    session.onApprovalError((failure) => failures.push(failure));
+    const asked: number[] = [];
+    session.onApproval((request) => {
+      asked.push(request.currentRequirementId.sourceIndex);
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await settleMicrotasks();
+    assert.deepEqual(asked, [0], "the update waits while the stage-0 decide is on the wire");
+    answerError(transport, 0, {
+      code: -32053,
+      message: "stale requirementId",
+      data: { kind: "invalidParams" },
+    });
+    await first.io;
+    await waitForWrites(transport, 2);
+    assert.deepEqual(asked, [0, 1], "a failed decide releases the waiting stage");
+    assert.equal(failures[0]?.kind, "submitFailed");
+    answer(transport, 1, { approvalId: "a-1", commandId: "mint-1", status: "accepted", terminal: true });
+    await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013 #50244: a stage-0 handler that is still OPEN does not hold back the next stage's update",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The wait starts only when a decide is sent, after its handler returned:
+    // a stage-0 handler still deciding (never released here) must not stall
+    // the stage-1 update behind it.
+    const { session, transport } = wired();
+    const asked: number[] = [];
+    session.onApproval(async (request) => {
+      asked.push(request.currentRequirementId.sourceIndex);
+      if (request.currentRequirementId.sourceIndex === 0) await new Promise<never>(() => {});
+      return { choiceId: "allow_once" };
+    });
+    session.apply(approvalRequested());
+    await settleMicrotasks();
+    assert.deepEqual(asked, [0], "stage 0 is being decided and has sent nothing");
+
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 0 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 1 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:3",
+    } as unknown as ApprovalUpdatedParams;
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await waitForWrites(transport, 1);
+    assert.deepEqual(asked, [0, 1], "the open stage-0 handler must not hold back stage 1");
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: true });
+    await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013 #50244: with two decides in flight, the earlier ack does not release the later decide's wait",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // Two decides for one approval on the wire at once: the stage-0 ack must
+    // clear only its own wait, so a stage update read in the same chunk as
+    // the stage-1 terminal ack still waits for it and asks nothing.
+    const { session, transport } = wired();
+    const asked: number[] = [];
+    session.onApproval((request) => {
+      asked.push(request.currentRequirementId.sourceIndex);
+      return { choiceId: "allow_once" };
+    });
+    const first = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    const second = session.apply(
+      approvalRequested({ currentRequirementId: { approvalId: "a-1", sourceIndex: 1 }, viewCursor: "v:2" }),
+    );
+    await waitForWrites(transport, 2);
+    assert.deepEqual(asked, [0, 1]);
+
+    answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: false });
+    await first.io;
+    const update: ApprovalUpdatedParams = {
+      approvalId: "a-1",
+      availableChoices: CHOICES,
+      change: {
+        choiceId: "allow_once",
+        decision: "approved",
+        kind: "stageResolved",
+        requirementId: { approvalId: "a-1", sourceIndex: 1 },
+      },
+      currentRequirementId: { approvalId: "a-1", sourceIndex: 2 },
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      subject: { kind: "shell", command: "ls" },
+      viewCursor: "v:4",
+    } as unknown as ApprovalUpdatedParams;
+    answer(transport, 1, { approvalId: "a-1", commandId: "mint-1", status: "accepted", terminal: true });
+    const outcome = session.apply({ method: "approval/updated", params: update });
+    await second.io;
+    await settleMicrotasks();
+    assert.deepEqual(asked, [0, 1], "the stage-1 terminal ack must close the approval before stage 2 is asked");
+    assert.equal(transport.writes.length, 2, "no decide may chase the stage-1 terminal ack");
+    await outcome.io;
+  },
+);
+
+test(
   "T031/TEST-013 #36949: a stageResolved update AFTER a terminal decide ack asks nothing and writes nothing",
   { timeout: ARM_TIMEOUT },
   async () => {

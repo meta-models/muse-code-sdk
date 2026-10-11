@@ -11,23 +11,17 @@ you read here is the code that runs, so it cannot go stale.
 ## What you need
 
 - Node 20 or newer.
-- A release-built `tbh` binary. Build one from this repository:
-
-  ```sh
-  cargo build --release -p tbh-cli --bin tbh
-  ```
-
-  The binary is at `target/release/tbh`. Its MSP surface is what your program
-  talks to.
+- An installed `muse` binary (any recent release). Its MSP surface is what
+  your program talks to.
 
 ## Run it
 
-From `projects/tbh`:
+From a `muse-code-sdk` checkout:
 
 ```sh
 npm ci
 npm run build --workspace @muse-code/sdk
-MUSE_BIN=$PWD/target/release/tbh npm run journey --workspace @muse-code/sdk-quickstart
+MUSE_BIN=$(command -v muse) npm run journey --workspace @muse-code/sdk-quickstart
 ```
 
 You get one line per step, then a verdict:
@@ -51,7 +45,7 @@ real and nothing leaves the machine. See
 
 ### 1. Spawn the host
 
-`spawnMspConnection` starts your own `tbh serve` child and returns a handshake
+`spawnMspConnection` starts your own `muse serve` child and returns a handshake
 you have not sent anything on yet. You cannot send traffic before the
 handshake completes — that is enforced by the type, not by convention.
 
@@ -130,7 +124,9 @@ notifications:
 
 Accumulate `item/delta` for live output, and treat the `item/completed` text
 as authoritative. `turn/completed.terminal` is `"completed"`, `"cancelled"` or
-`"failed"`; on `"failed"` the notification carries `reason` and `error`.
+`"failed"`; on `"failed"` the notification carries `error` (`kind`,
+`message`, `retryable`) and usually a display-only `reason`, except a turn the
+host died during, which carries `reason` and no `error`.
 
 ### 5. Answer a permission request
 
@@ -206,7 +202,7 @@ Same `close()`. Same clean exit.
 The default run configures a provider for you. The other mode configures none:
 
 ```sh
-MUSE_BIN=$PWD/target/release/tbh \
+MUSE_BIN=$(command -v muse) \
   npm run journey --workspace @muse-code/sdk-quickstart -- --no-provider
 ```
 
@@ -217,8 +213,8 @@ non-zero. That is the honest answer, not a defect in your setup: this mode
 exists to isolate the steps that need no model at all (spawn, handshake,
 session lifecycle, resume, clean shutdown) when you are debugging one of them.
 
-**It is not the acceptance run.** The acceptance artifact for issue #21932 is
-the default provider-configured run, with all twelve steps passing.
+**It is not the acceptance run.** The acceptance artifact is the default
+provider-configured run, with all twelve steps passing.
 
 ## Testing your own client
 
@@ -227,7 +223,7 @@ the default provider-configured run, with all twelve steps passing.
 npm test --workspace @muse-code/sdk-quickstart
 
 # The acceptance run: the whole journey against a real binary.
-MUSE_BIN=$PWD/target/release/tbh npm run journey:test --workspace @muse-code/sdk-quickstart
+MUSE_BIN=$(command -v muse) npm run journey:test --workspace @muse-code/sdk-quickstart
 ```
 
 `journey:test` never skips itself. If `MUSE_BIN` is missing it fails and tells
@@ -264,22 +260,21 @@ arrive quietly.
 
 ## One note about the SDK gate
 
-Since the GA flip (#24410) `tbh serve` runs by default. The journey still sets
+Since the GA flip, `muse serve` runs by default. The journey still sets
 `MUSE_EXPERIMENTAL_SDK_ENABLED` on the child it spawns, because the variable
 survives as the off-switch and pinning the run open keeps an operator's `off`
 in the environment from silently changing what the journey proves. **That is
 not advice for your application.** It is how this test harness launches a host
-today; the gate now stays as that off-switch by owner directive (spec 14404,
-"Amendment: GA"), so #21033 tracks its eventual retirement rather than a
-pending default flip. Build your client against `muse serve` as a supported
-command.
+today; the gate now stays as that off-switch, with its eventual retirement
+tracked as future cleanup rather than a pending default flip. Build your
+client against `muse serve` as a supported command.
 
 ## Where things live
 
 | file                | what it is                                             |
 | ------------------- | ------------------------------------------------------ |
 | `src/journey.ts`    | the twelve segments, with every assertion, plus the two run modes |
-| `src/provider.ts`   | the loopback fake first-party endpoint and the `HOME` that points the host at it — the TypeScript twin of `FakeMetaEndpoint` in `crates/cli/tests/msp_serve_assembly.rs` |
+| `src/provider.ts`   | the loopback fake first-party endpoint and the `HOME` that points the host at it — the TypeScript twin of the host's `FakeMetaEndpoint` test helper |
 | `src/host.ts`       | spawning, the notification recorder, bounded waits — re-exported from the shared kit in `clients/sdk-cookbook/src/kit/` |
 | `src/segments.ts`   | the expect-block contract — re-exported from the same shared kit |
 | `src/main.ts`       | the command-line runner                                 |

@@ -60,6 +60,8 @@ const TURN_START_FORWARDED = [
   // No "tokenBudget" (#45454): experimental-gated, and this SDK serves the
   // stable surface only.
   "workspaceRoots",
+  // v1 stable member, forwarded like any other.
+  "userShell",
 ] as const;
 type _TurnStartIsExhaustive = AssertNever<
   Exclude<
@@ -228,6 +230,7 @@ export class TurnSubmitter<I> {
     if (options.reasoningEffort != null) params.reasoningEffort = options.reasoningEffort;
     // No tokenBudget forward (#45454): experimental-gated, stable SDK omits it.
     if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
+    if (options.userShell != null) params.userShell = options.userShell;
     return params;
   }
 }

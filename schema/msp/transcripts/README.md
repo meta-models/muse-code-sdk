@@ -2,8 +2,8 @@
 
 Hand-authored, schema-validated wire sessions for the Muse Session Protocol
 (MSP) v1 — the canned corpus a client team develops against before a live
-host exists. Owning spec: `specs/210-msp-conformance-testkit/` (#210); the
-scenario registry is `specs/210-msp-conformance-testkit/contracts/fixture-registry.md`.
+host exists. Owning area: the MSP conformance test kit; the scenario
+registry is its fixture-registry contract.
 
 ## Layout
 
@@ -19,7 +19,7 @@ Scenario ids are unique keys; the directory name equals the manifest's
 ## Transcript format (the contract)
 
 A transcript is **pure NDJSON**: every line one standalone JSON object, in
-wire order (INV-004). No consumer needs the Rust harness to read one.
+wire order. No consumer needs the Rust harness to read one.
 
 ```
 {"dir":"client","raw":"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",...}"}
@@ -27,12 +27,12 @@ wire order (INV-004). No consumer needs the Rust harness to read one.
 ```
 
 - `dir` — `"client"` (written to the host's stdin) or `"server"` (read from
-  its stdout). The tdd SS7.5 `->`/`<-` arrows are direction notation; the
+  its stdout). The spec's `->`/`<-` arrows are direction notation; the
   file syntax is this JSON field so any language's JSON reader consumes a
-  transcript (spec 210 clarification, O-1 ratified).
+  transcript.
 - `raw` — the **exact wire bytes** of one frame, UTF-8, without the trailing
   `\n`. Recover the wire by writing `raw` + `\n` per line. Client lines may
-  end with `\r` (tolerated on input, SS1.1); server lines never carry one.
+  end with `\r` (tolerated on input); server lines never carry one.
 
 ## Manifest
 
@@ -48,53 +48,51 @@ wire order (INV-004). No consumer needs the Rust harness to read one.
   "transports": ["stdio", "in-process"],
   "normalize": ["id"],
   "seeds": { "idSeed": 7, "clockStartMs": 1754590931000 },
-  "source": [ { "lines": "1", "cite": "tdd SS1.4.1 …" } ]
+  "source": [ { "lines": "1", "cite": "handshake wire example" } ]
 }
 ```
 
 - `provenance` — exactly one of `hand-authored | host-generated |
-  sdk-tolerance` (INV-002). A `hand-authored` transcript is a standing RED
-  against the future host: once #207/#14652/#14653 land, Stage B regenerates
-  it under the recorded seeds and byte-diffs; `sdk-tolerance` fixtures are
-  permanently hand-authored and exempt (they carry shapes a real server
-  cannot emit, tdd SS7.5).
+  sdk-tolerance`. A `hand-authored` transcript is a standing RED
+  against the future host: once the host's generation stages land, Stage B
+  regenerates it under the recorded seeds and byte-diffs; `sdk-tolerance`
+  fixtures are permanently hand-authored and exempt (they carry shapes a
+  real server cannot emit).
 - `fingerprint` — the stable-bundle fingerprint the transcript was authored
-  under (INV-003). CI fails when it diverges from
-  `schema/msp/stable/manifest.json` without regeneration or a D-019-form
+  under. CI fails when it diverges from
+  `schema/msp/stable/manifest.json` without regeneration or a recorded
   acknowledgment in `schema/msp/changelog/acknowledgments.json` naming this
-  transcript's manifest path (`scripts/check-msp-transcript-staleness.sh`).
+  transcript's manifest path.
 - `serverConfig` — recorded server configuration; replay always starts the
   host with it (the short-serve fixture family depends on the frame limit).
 - `normalize` — the declared nondeterministic paths, drawn ONLY from the
   "Declared normalization set" table in the fixture registry. The harness
-  refuses undeclared normalization (FM-003).
+  refuses undeclared normalization.
 - `seeds` — id/clock seeds for deterministic regeneration.
 - `regenerationJustification` — optional durable evidence for accepting a
   semantic host-vs-fixture change. When present, this object requires non-empty
   string fields `cite`, `rationale`, and `trackingIssue`; additive members are
   tolerated. Byte-identical regeneration needs no object.
-- `source` — per-line-range citations into the normative TDD
-  (`specs/13929-msp-activation/tdd.md`); every frame traces to normative
-  text.
+- `source` — per-line-range citations into the normative protocol
+  specification; every frame traces to normative text.
 
 The permanent `sdk-tolerance` class has three fixtures: unknown item kind,
-unknown session-state method, and OQ-I's unknown dotted
+unknown session-state method, and an unknown dotted
 `sourceRange.stream.kind`. They are client/SDK inputs only; the host cannot
 produce a vocabulary unknown to itself, so server replay, regeneration, and
-reconciliation deliberately exclude this class (tdd SS7.5).
+reconciliation deliberately exclude this class.
 
 ## `records.jsonl` is harness-internal, not contract
 
 A reconciliation-bearing fixture carries the durable records its view
 events were folded from. That file is input to the harness's reconciliation
-check (FR-011) only: its internal record shapes carry **no cross-language
-stability promise**, and clients must not parse it (FR-001).
+check only: its internal record shapes carry **no cross-language
+stability promise**, and clients must not parse it.
 
 `reconciliation-refold` is the fixture that ships one. `replay` re-folds its
 records, compares every durable-sourced view event byte for byte, and prints
 the refold count with both counted exemptions; a fixture without a
-`records.jsonl` is reported as not-bearing rather than silently skipped
-(INV-006).
+`records.jsonl` is reported as not-bearing rather than silently skipped.
 
 ## Consuming without Rust
 
@@ -107,39 +105,44 @@ on ids).
 
 ## Consuming with the harness
 
+Where the conformance harness is built:
+
 ```
-cargo run -p tbh-conformance --bin muse-conformance -- validate
-cargo run -p tbh-conformance --bin muse-conformance -- staleness
-cargo run -p tbh-conformance --bin muse-conformance -- repin
+muse-conformance validate
+muse-conformance staleness
+muse-conformance repin
 ```
 
 Run from the repo root (or pass `--root`). Exit codes: 0 conformant,
-1 conformance failure, 2 usage, 3 infrastructure (FR-009). `validate`
+1 conformance failure, 2 usage, 3 infrastructure. `validate`
 schema-validates every frame against the bundle the manifest pins, enforces
-the envelope/ordering rules of tdd SS1.1–SS1.4, and prints the INV-007
-pending-dependency registrations (what is registered but blocked, and on
-which issue). `replay` is the live server-side oracle described below.
-`live-smoke` (FR-022) is opt-in and refuses by default: it runs
+the envelope/ordering rules, and prints the pending-dependency
+registrations (what is registered but blocked, and on which issue). `replay`
+is the live server-side oracle described below.
+`live-smoke` is opt-in and refuses by default: it runs
 only with `TBH_CONFORMANCE_LIVE_SMOKE=1` set, and even then it only reports
 its pending-dependency registration (exit 3) — the live content remains a
-later #210 slice, default tests and CI never set the gate, and no invocation
-today touches network or credentials. The future live path is
-bound to `docs/agent-testing-secrets.md` preflight discipline. The staleness gate classifies a stale pin's drift with the
-#206 classifier and directs the matching D-019 resolution: additive → run
-`scripts/regen-msp-pins.sh` (one command: regenerate the bundle, re-pin every
-derived copy, revalidate); non-additive → regenerate the transcript
-(`muse-conformance regen`) or acknowledge in
-`schema/msp/changelog/acknowledgments.json`. `repin` is that command's
-rewrite half (#20521): it re-pins additive-stale manifests plus the SDK
+later conformance slice, default tests and CI never set the gate, and no
+invocation today touches network or credentials. The future live path
+requires secrets preflight first. The staleness gate classifies a stale
+pin's drift and directs the matching resolution: additive drift is fixed by
+regenerating the pins (regenerate the bundle, re-pin every derived copy,
+revalidate); non-additive drift needs a regenerated transcript
+(`muse-conformance regen`) or an acknowledgment in
+`schema/msp/changelog/acknowledgments.json` (a `host-generated` transcript
+regenerates only: the replay-host parity sweep asserts byte-identity, so an
+acknowledgment cannot take it green in CI). `repin` is that command's
+rewrite half: it re-pins additive-stale manifests plus the SDK
 constant, skips acknowledged pins, and leaves non-additive drift reported for
 a human decision; it never edits the ledger, the release baseline, or a
 `transcript.ndjson`.
 
 ## Replaying a transcript against the seeded host
 
+Where the conformance harness is built with the replay host:
+
 ```
-cargo build -p tbh-conformance --features replay-host --bins
-target/debug/muse-conformance replay \
+muse-conformance replay \
   --transcript schema/msp/transcripts/handshake-usershell-granted
 ```
 
@@ -157,9 +160,10 @@ opt-in so canned-host SDK/ACP builds do not compile the full Agent graph.
 
 ## Regenerating an already-byte-identical transcript
 
+Where the conformance harness is built with the replay host:
+
 ```
-cargo build -p tbh-conformance --features replay-host --bins
-target/debug/muse-conformance regen \
+muse-conformance regen \
   --transcript schema/msp/transcripts/handshake-usershell-granted
 ```
 
@@ -178,15 +182,17 @@ binary, matching `replay`.
 
 ## Testing your client against the canned host (`serve-fixture`)
 
+Where the conformance harness is built:
+
 ```
-cargo run -p tbh-conformance --bin muse-conformance -- \
+muse-conformance \
   serve-fixture --transcript schema/msp/transcripts/handshake-usershell-granted
 ```
 
 Spawn that command from your client exactly as you will spawn `muse serve`:
 write your frames to its stdin (one JSON object per `\n`-terminated line;
-a trailing `\r` is tolerated, SS1.1), read server frames from its stdout.
-The harness plays the transcript's server side (FR-007):
+a trailing `\r` is tolerated), read server frames from its stdout.
+The harness plays the transcript's server side:
 
 - **Matching is structural.** Your frame is compared against the
   transcript's next `client` line as parsed JSON — key order and whitespace
@@ -204,29 +210,29 @@ The harness plays the transcript's server side (FR-007):
   `conformance`, but `params.clientInfo.name` and
   `params.clientInfo.version` on your `initialize` are unified exactly like
   your ids, and the optional `title` display member may be present or
-  absent regardless of the recording (#23963) — send your client's real
+  absent regardless of the recording — send your client's real
   identity; it is never matched against the recording client's.
 - **The corpus scripts exact dialogues; it is not a template** for the
   frames your client sends in production. In particular, some recorded
-  client frames carry a `futureOptionalField` member: that is the D-042
+  client frames carry a `futureOptionalField` member: that is the
   ignore-unknown fixture — a conforming server ignores unknown members on
   stable-surface requests — so a scripted `serve-fixture` run reproduces
   it, but it is not a member real clients send, and recorded client frames
   are never required request shapes.
-- **Values you learned from the wire are matched exactly** (SS1.3). The
+- **Values you learned from the wire are matched exactly**. The
   `id` you echo on a response to a server-initiated request,
   `params.turnId`, `params.itemId` — the harness delivered each of these
   byte-exactly, so your echo has no freedom. Answering the wrong request,
   or cancelling the wrong turn, is a correlation bug and fails the run
   rather than being unified away.
-- **Responses answer YOUR request ids** (#25143). A response to one of
+- **Responses answer YOUR request ids**. A response to one of
   your requests is written under the id you sent — the other half of the
   unification pairing above — so your normal correlation logic just works;
   you never have to reproduce the recorded ids. Every other server byte is
   the recording: server-initiated requests, notifications, and every
   server-minted id and UUID inside any frame stay exactly as recorded.
 - **Off-transcript frames are never answered.** A harness that improvises
-  replies is a second server implementation (tdd SS7.5); an unexpected
+  replies is a second server implementation; an unexpected
   frame while the script is live stops the run with a typed failure
   instead. Frames sent after the final recorded exchange are not judged:
   the run is already complete (`serveFixtureComplete`, exit 0), so close
@@ -270,13 +276,13 @@ answer.
 
 They are separate because `serve-fixture` is an exact linear oracle. One
 recorded client position cannot lawfully accept two different commands. The
-original `snapshot-suffix-pending-userinput` remains the SS4.9.2 checkpoint
+original `snapshot-suffix-pending-userinput` remains the snapshot-checkpoint
 fixture; these three companions exercise the modern metadata-only load path
 without changing that snapshot evidence.
 
 ### Testing stderr capture and process-exit handling
 
-FR-014 also supplies a synthetic process-death variant for client spawn-path
+The harness also supplies a synthetic process-death variant for client spawn-path
 tests; it does not load or play a transcript:
 
 ```text
@@ -286,29 +292,29 @@ muse-conformance serve-fixture --exit-code 3 --stderr-lines 128
 The process writes exactly the requested number of non-empty diagnostic lines
 to stderr, writes nothing to stdout, and exits with the requested code from 0
 through 255. The diagnostic text is deliberately opaque and may change: a
-client MUST capture and surface it but MUST NOT parse it (tdd SS2.11). Use
-codes 0–5 plus an unrecognized code such as 77 for the seven TEST-009 arms.
+client MUST capture and surface it but MUST NOT parse it. Use
+codes 0–5 plus an unrecognized code such as 77 for the seven process-death arms.
 `--transcript` and the process-death flags are mutually exclusive; both
 `--exit-code` and `--stderr-lines` are required for this variant.
 
 ## What today's bundle can and cannot validate
 
-The pinned stable bundle currently defines the SS1 surface (`initialize`,
-`initialized`, envelopes, the SS1 error registry). Frames whose methods land
-with later protocol lanes (`session/*`, `turn/*`, `item/*`, `approval/*`)
-are envelope-validated and counted as such in `validate` output; full
-method-schema validation tightens automatically as #206 enrolls those
-surfaces and transcripts re-pin the moved fingerprint. Do not read the
-envelope-only count as a defect: it is the SS1.5.4 additive-evolution
+The pinned stable bundle currently defines the envelope surface
+(`initialize`, `initialized`, envelopes, the error registry). Frames whose
+methods land with later protocol lanes (`session/*`, `turn/*`, `item/*`,
+`approval/*`) are envelope-validated and counted as such in `validate`
+output; full method-schema validation tightens automatically as the protocol
+enrolls those surfaces and transcripts re-pin the moved fingerprint. Do not
+read the envelope-only count as a defect: it is the additive-evolution
 posture made visible.
 
 ## Open-enum tolerance is a harness semantic
 
 In every transcript, whatever its `provenance`, an unknown string value on an
 enum the bundle marks `"x-msp-openness": "open"` validates as conformant, with
-a named warning — SS1.5.4 makes a new variant of an open enum additive, and
-D-034 (`specs/13929-msp-activation/decision.md`) rules that no property of the
-artifact under validation narrows that tolerance. The warning names the def,
+a named warning — a new variant of an open enum is additive, and no property
+of the artifact under validation narrows that tolerance. The warning names
+the def,
 the value, and the transcript, so an author typo in a hand-authored fixture
 still surfaces loudly in CI output without being a conformance failure. This
 tolerance is layered over standard JSON Schema by the harness: an

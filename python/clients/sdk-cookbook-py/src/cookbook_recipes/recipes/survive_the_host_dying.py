@@ -21,7 +21,8 @@ kill, so the killable host is launched through a three-line shell wrapper
 that prints its pid on stderr and ``exec``s the real binary; and the journey
 spawns hosts the way ``MuseClient.spawn`` does inside (``spawn_msp_connection``
 + ``initialize`` + a composed ``MuseClient``) because it also has to speak
-``session/list``, which the facade does not wrap.
+``session/list`` and ``session/setApprovalMode``, which the facade does not
+wrap.
 """
 
 from __future__ import annotations
@@ -75,9 +76,12 @@ PID_MARKER = "muse-cookbook-host-pid"
 docstring."""
 
 APPROVAL_MODE = "denyUnmatched"
-"""The one durable fact the killed session carries. It MUST stay a
-non-default mode: the host records a mode only when the selection differs
-from its default, so a default pick writes nothing, leaves the session
+"""The one durable fact the killed session carries. It is a LATER
+approval-mode change, sent after the start: the start's own approval
+selection is startup scaffold the fresh host reclaims, so selecting the
+mode AT start would leave the session empty. It MUST stay a non-default
+mode: the host records a change only when the new mode differs from the
+current one, so re-selecting the default writes nothing, leaves the session
 empty, and hands the fresh-host segment straight back to the litter reclaim
 it exists to outlive. ``denyUnmatched`` because it is also the most
 conservative mode, so nothing here reads as advice about which mode to run."""
@@ -105,6 +109,9 @@ class Context:
     home: str
     workspace_root: str
     client_a: "MuseClient[Any] | None" = None
+    # The first host's raw connection, kept for ``session/setApprovalMode``,
+    # which the facade does not wrap.
+    host_a: SpawnedMspConnection | None = None
     host_pid: int | None = None
     session_a: "Session[Any] | None" = None
     session_id: str | None = None
@@ -129,8 +136,9 @@ async def _spawn_host(
     """Spawn a host and hand back the facade this page teaches, ``MuseClient``.
 
     Spelled the way ``MuseClient.spawn`` is spelled inside, so the journey
-    keeps the raw connection for the one method the facade does not wrap,
-    ``session/list``. ``killable`` selects the pid-marker wrapper: ``$$`` is
+    keeps the raw connection for the two methods the facade does not wrap,
+    ``session/setApprovalMode`` and ``session/list``. ``killable`` selects
+    the pid-marker wrapper: ``$$`` is
     the shell's own pid and ``exec`` REPLACES the shell with the host binary,
     so the printed pid IS the host's pid.
     """
@@ -218,8 +226,9 @@ def _item_started(item: Mapping[str, Any], view_cursor: str) -> Mapping[str, Any
 
 
 async def _spawn_and_read_durability(context: Context) -> None:
-    client, _host, stderr = await _spawn_host(context, killable=True)
+    client, host, stderr = await _spawn_host(context, killable=True)
     context.client_a = client
+    context.host_a = host
     context.host_pid = await _host_pid(stderr, SETTLE_BUDGET_MS)
     # Read the profile the moment you have the handshake — after the host
     # dies is too late to ask it. The release host's sessions are durable.
@@ -229,28 +238,35 @@ async def _spawn_and_read_durability(context: Context) -> None:
 
 async def _start_and_follow(context: Context) -> None:
     client = _must(context.client_a, "spawned client")
+    host = _must(context.host_a, "spawned host")
     # Give the session something to keep: a session holding nothing but its
     # own start records is litter to the next host once the host that started
-    # it is gone. Selecting an approval mode is the cheapest durable fact a
-    # session can carry without a model or credentials.
+    # it is gone. That includes the start's OWN approval selection — it is
+    # startup scaffold, so the mode is selected AFTER the start instead:
+    # changing the approval mode is the cheapest durable fact a session can
+    # carry without a model or credentials.
     session = await within(
         "session/start",
         COMMAND_BUDGET_MS,
-        client.start_session(
-            StartSessionOptions(workspace_root=context.workspace_root, approval_mode=APPROVAL_MODE)
-        ),
+        client.start_session(StartSessionOptions(workspace_root=context.workspace_root)),
     )
     context.session_a = session
     context.session_id = session.session_id
     opening = session.opening
     if opening is None or opening.verb != "session/start":
         raise AssertionError("the session did not open through session/start")
-    started = opening.result["session"]
-    equals(
-        (started.get("approvalMode") or {}).get("mode"),
-        APPROVAL_MODE,
-        "the approval mode the session started with",
+    # The durable fact, under its own command id: a later change is kept
+    # content, while the start's own selection would be reclaimed with it.
+    mode = await within(
+        "session/setApprovalMode",
+        COMMAND_BUDGET_MS,
+        host.connection.command(
+            "session/setApprovalMode",
+            {"sessionId": context.session_id, "mode": APPROVAL_MODE},
+            max_attempts=1,
+        ),
     )
+    equals(mode.get("applyOutcome"), "completed", "the approval-mode change's outcome")
     # A consumer following a turn is a promise held across the death. This
     # turn id gets no answer — deliberately: the durable arm proves the death
     # REJECTS the wait instead of leaving it hanging forever.

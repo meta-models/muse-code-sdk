@@ -30,7 +30,7 @@ const PUBLISH_SCRIPT = "scripts/publish-sdk-npm.sh";
 
 interface ClosureManifest {
   artifact: string;
-  producer: { repository: string; root: string };
+  producer: { repository: string };
   mirror: { repository: string; python_tree?: string[] };
   closure_paths: string[];
   path_notes: Record<string, string>;
@@ -141,7 +141,16 @@ test("the closure list is sorted, deduplicated, and non-overlapping", () => {
 });
 
 test("the manifest names the public venue as the mirror, never this repository", () => {
-  assert.equal(manifest.producer.repository, "mslsrc/tbh");
+  // The producer side carries no internal name: the public-mirror scrub
+  // removed the private repository and monorepo path from this mirrored
+  // file. The pin stays —
+  // now on the public-safe wording — so a republish still cannot silently
+  // point at this private repository (a loop, not a publication).
+  assert.deepEqual(
+    manifest.producer,
+    { repository: "the internal source tree" },
+    "the producer block carries exactly the public-safe wording and nothing else",
+  );
   assert.equal(
     manifest.mirror.repository,
     "meta-models/muse-code-sdk",

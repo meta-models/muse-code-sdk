@@ -8,7 +8,7 @@
     "rationale": "T041 moves catalog discovery to session acquisition: the adapter sends one model/list inside the session/new window (after session/start's result, sessionful) or, on session/load, a SESSIONLESS model/list BEFORE session/resume (SS3.10 allows listing before a session exists; the durable selection comes from the lifecycle result's own modelId). The host's SS2.5.2 re-issue order is untouched: pending asks still land right after the resume result, and the CLIENT (bridge) awaits their receipts before its first view/page. The inserted catalog is hand-authored COHERENT with the recorded session (provider muse, modelId muse-large-2; isActive only on sessionful lists, per SS3.10) rather than a copy of another host's capture. Beyond the inserted exchange, no frame, order, or value changes.",
     "trackingIssue": "https://github.com/mslsrc/tbh/issues/18954"
   },
-  "fingerprint": "sha256:1d03f10c2e42543d1a8871b770aa6c3617b0e27829752ceb2d84ccf5f33066ac",
+  "fingerprint": "sha256:eae467ab60cb9a5d5af4de616830f065e59375c987fd59269c8cc33ed2a1137f",
   "viewSchemaVersion": 1,
   "serverConfig": {
     "frameLimitBytes": 10485760

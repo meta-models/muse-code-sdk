@@ -1013,10 +1013,14 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # like the handshake's `initialized`; the client handles it out of band.
     # `userInput/engaged` is client-to-server, like the handshake's
     # `initialized` — the fold never sees it.
+    # `recap/completed` is a command-plane settlement to the requesting
+    # connection only — no `viewCursor`, no `sourceRange`, nothing durable
+    # to fold.
     non_fold_notifications = {
         "initialized",
         "session/viewHealthChanged",
         "userInput/engaged",
+        "recap/completed",
     }
     # Session lifecycle broadcasts (a session was loaded or unloaded on the
     # host) are control-plane notifications, not view events — they carry no

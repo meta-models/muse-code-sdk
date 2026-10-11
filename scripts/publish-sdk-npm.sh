@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 #
 # publish-sdk-npm.sh — the ONLY sanctioned path to `npm publish` for
-# `@muse-code/sdk` (owner launch ruling 4 + the 04:05Z seat extension, hub
-# #24410; tracked on #25304).
+# `@muse-code/sdk`.
 #
 # Default behaviour is `--pack-only`: it runs every gate, builds the tarball,
 # prints exactly what would ship, and exits without touching the registry.
 # Publishing requires the explicit `--publish` flag. There is no way to publish
 # by forgetting an argument.
 #
-# Version posture: the package versions in LOCKSTEP with the host — D-063
-# (2026-09-13, ADR 25304) amended D-013/D-053. The release train sets
-# clients/sdk-ts to the crates/cli version in the same commit, `--publish`
-# gates on that equality (upstream via crates/cli/Cargo.toml, in the mirror via
-# publish-anchor.json's host_version), and the published README must state the
-# lockstep / product-stability posture, which `--publish` also gates on below.
+# Version posture: the package versions in LOCKSTEP with the host. The release
+# train sets clients/sdk-ts to the host version in the same commit, `--publish`
+# gates on that equality (via the host manifest upstream, via
+# publish-anchor.json's host_version in the mirror), and the published README
+# must state the lockstep / product-stability posture, which `--publish` also
+# gates on below.
 #
 # ---------------------------------------------------------------------------
 # OWNER ONE-TIMERS — none of these can be done by an agent, and nothing
@@ -37,8 +36,8 @@
 #
 #          NOTE: `--provenance` requires the source repository to be PUBLIC.
 #          npm will not attest a private repo, so a trusted-publishing run must
-#          come AFTER the visibility flip tracked on #25304. This script does not
-#          silently drop the flag to work around that — it fails.
+#          come AFTER the source repository's visibility flip to public. This
+#          script does not silently drop the flag to work around that — it fails.
 #
 #      (b) GRANULAR AUTOMATION TOKEN — staged, but currently NOT a usable path,
 #          and the script refuses it rather than pretending otherwise.
@@ -52,8 +51,8 @@
 #          publish is therefore necessarily a publish WITHOUT provenance —
 #          which owner launch ruling 4 does NOT permit.
 #
-#          Those two directives conflict, and resolving it is an owner call on
-#          #25304: either the first publish may go unprovenanced, or the
+#          Those two directives conflict, and resolving it is an owner call:
+#          either the first publish may go unprovenanced, or the
 #          interim-token plan is dropped in favour of (a). Until that is ruled,
 #          `--publish` outside Actions fails loudly with that explanation.
 #
@@ -72,12 +71,20 @@
 # Environment:
 #   SDK_PACKAGE_DIR   test seam: package directory to gate and pack
 #
-#   TBH_SDK_KEEP_DIR  the release-cut keep dir (ADR 40626 D11, #45542): when
-#                   set, pack-only mode keeps the audited tarball here for
-#                   the release run's artifact upload. Unset, nothing is
-#                   kept. Not a test seam — tag-release sets it for real;
-#                   the contract suite drives it through a fake on the
-#                   helper's script seam instead.
+#   HOST_VERSION_CARRIER
+#                   repo-relative path to the host manifest the lockstep gate
+#                   reads the host version from. Upstream callers export this
+#                   (the release cut does); the publishing tree's own default
+#                   is the mirror anchor, publish-anchor.json. The script
+#                   never names the upstream path itself, so the mirrored
+#                   copy carries no producing-side reference.
+#
+#   TBH_SDK_KEEP_DIR  the release-cut keep dir: when set, pack-only mode
+#                   keeps the audited tarball here for the release run's
+#                   artifact upload. Unset, nothing is kept. Not a test
+#                   seam — tag-release sets it for real; the contract suite
+#                   drives it through a fake on the helper's script seam
+#                   instead.
 #
 set -euo pipefail
 
@@ -129,11 +136,11 @@ Flags:
   --pack-only   Run every gate and build the tarball. Publishes nothing. DEFAULT.
   --publish     Run every gate, then publish. Only works inside GitHub Actions:
                 npm cannot generate provenance anywhere else, and provenance is
-                required. The version must be the host version (D-063 lockstep,
-                ADR 25304: crates/cli/Cargo.toml upstream, publish-anchor.json
-                host_version in the mirror) and the published README must state
-                the lockstep / product-stability posture; --publish checks both
-                and refuses without them.
+                required. The version must be the host version (lockstep: the
+                host manifest upstream, publish-anchor.json host_version in
+                the mirror) and the published README must state the lockstep /
+                product-stability posture; --publish checks both and refuses
+                without them.
   --help        This text.
 EOF
 }
@@ -199,7 +206,7 @@ step "gate: manifest identity"
 
 NAME="$(field name)"
 [[ "$NAME" == "$EXPECTED_NAME" ]] ||
-  die "package name is '$NAME', expected '$EXPECTED_NAME' (owner ruling, hub #24410 04:15Z)"
+  die "package name is '$NAME', expected '$EXPECTED_NAME' (the scope is fixed by the owner's launch ruling)"
 ok "name $NAME"
 
 if [[ -n "$(field private)" ]]; then
@@ -209,7 +216,7 @@ ok "not private"
 
 LICENSE="$(field license)"
 [[ "$LICENSE" == "$EXPECTED_LICENSE" ]] ||
-  die "license is '$LICENSE', expected '$EXPECTED_LICENSE' (owner ruling 3, provisional)"
+  die "license is '$LICENSE', expected '$EXPECTED_LICENSE' (provisional: fixed until reviewed)"
 ok "license $LICENSE"
 
 VERSION="$(field version)"
@@ -217,28 +224,28 @@ VERSION="$(field version)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]] || die "version '$VERSION' is not semver"
 ok "version $VERSION"
 
-# The lockstep version condition (D-063; ADR 25304 D1). The version is set by
-# the release train in the same commit that bumps crates/cli, so the manifest
-# must equal the host version of the tree it ships from. Upstream that carrier
-# is crates/cli/Cargo.toml itself; in the public mirror — whose tree is exactly
-# the source closure and carries no crates/* path — the re-sync writes the
-# carried commit's host version into the mirror's own publish-anchor.json
-# (`host_version`), and the gate reads it from there.
+# The lockstep version condition. The version is set by the release train in
+# the same commit that bumps the host, so the manifest must equal the host
+# version of the tree it ships from. Upstream that carrier is the host
+# manifest itself, named by the caller through HOST_VERSION_CARRIER; in the
+# public mirror — whose tree is exactly the source closure — the re-sync
+# writes the carried release's host version into the mirror's own
+# publish-anchor.json (`host_version`), and the gate reads it from there.
 #
 # Publish-only on purpose, like the posture gate below: pack-only runs in CI on
 # every sdk-lane PR, and the same-tree equality already lives in
 # clients/sdk-ts/test/npm-publication.test.ts, which reds a diverging PR in
-# the path-filtered tbh-muse-sdk-ts lane (the upstream carrier file is on
+# the path-filtered SDK lane (the upstream carrier file is on
 # that lane's path list precisely so a carrier-only edit still runs it).
 host_version_carrier=""
 HOST_VERSION=""
-if [[ -f "$REPO_ROOT/crates/cli/Cargo.toml" ]]; then
-  host_version_carrier="crates/cli/Cargo.toml"
+if [[ -n "${HOST_VERSION_CARRIER:-}" && -f "$REPO_ROOT/$HOST_VERSION_CARRIER" ]]; then
+  host_version_carrier="$HOST_VERSION_CARRIER"
   HOST_VERSION="$(awk '
     /^\[package\]$/ { in_p=1; next }
     /^\[/ && in_p { exit }
     in_p && $1 == "version" && $2 == "=" { gsub(/"/, "", $3); print $3; exit }
-  ' "$REPO_ROOT/crates/cli/Cargo.toml")"
+  ' "$REPO_ROOT/$HOST_VERSION_CARRIER")"
 elif [[ -f "$REPO_ROOT/publish-anchor.json" ]]; then
   host_version_carrier="publish-anchor.json"
   # Tolerant parse: a malformed anchor must not crash pack-only with a raw
@@ -253,27 +260,27 @@ fi
 
 if [[ -n "$HOST_VERSION" && "$VERSION" == "$HOST_VERSION" ]]; then
   if [[ "$host_version_carrier" == "publish-anchor.json" ]]; then
-    ok "version $VERSION matches the mirror publish anchor host_version (D-063 lockstep)"
+    ok "version $VERSION matches the mirror publish anchor host_version (lockstep)"
   else
-    ok "version $VERSION matches the host (crates/cli) version (D-063 lockstep)"
+    ok "version $VERSION matches the host ($host_version_carrier) version (lockstep)"
   fi
 elif [[ "$MODE" == "publish" ]]; then
   if [[ -z "$host_version_carrier" ]]; then
-    die "no host-version carrier: neither crates/cli/Cargo.toml nor a publish-anchor.json with host_version exists in this tree, so the D-063 lockstep condition cannot be checked. In the mirror, the re-sync writes host_version into publish-anchor.json; a publish from a tree that names no host version is a publish of an unverifiable version."
+    die "no host-version carrier: neither HOST_VERSION_CARRIER nor a publish-anchor.json with host_version names a version in this tree, so the lockstep condition cannot be checked. Upstream callers export HOST_VERSION_CARRIER; in the mirror, the re-sync writes host_version into publish-anchor.json. A publish from a tree that names no host version is a publish of an unverifiable version."
   elif [[ -z "$HOST_VERSION" ]]; then
-    die "the host-version carrier $host_version_carrier names no version; the D-063 lockstep condition cannot be checked"
+    die "the host-version carrier $host_version_carrier names no version; the lockstep condition cannot be checked"
   else
-    die "manifest version $VERSION does not match the host version $HOST_VERSION (from $host_version_carrier). D-063 lockstep (ADR 25304 D1): only the release train moves these versions, in one commit; a hand bump is a gate failure, not a release."
+    die "manifest version $VERSION does not match the host version $HOST_VERSION (from $host_version_carrier). Lockstep: only the release train moves these versions, in one commit; a hand bump is a gate failure, not a release."
   fi
 else
   if [[ -z "$HOST_VERSION" ]]; then
-    echo "    note: no host-version carrier found, so --publish would refuse (D-063). Pack-only does not."
+    echo "    note: no host-version carrier found, so --publish would refuse. Pack-only does not."
   else
-    echo "    note: manifest version $VERSION does not match the host version $HOST_VERSION, so --publish would refuse (D-063). Pack-only does not; the always-on equality lives in npm-publication.test.ts."
+    echo "    note: manifest version $VERSION does not match the host version $HOST_VERSION, so --publish would refuse. Pack-only does not; the always-on equality lives in npm-publication.test.ts."
   fi
 fi
 
-# The mirror anchor verification (ADR 46483 D1/D3). The lockstep above proves
+# The mirror anchor verification. The lockstep above proves
 # the anchor's host_version matches; this proves the anchor itself is the
 # verifiable-version shape (host_version plus a content digest, no
 # producing-side references) and that the digest recomputes over this tree,
@@ -322,8 +329,8 @@ if [[ "$host_version_carrier" == "publish-anchor.json" ]]; then
   fi
 fi
 
-# The published posture condition (D-063; ADR 25304 D3). D-053's 0.x
-# experimental / no-stability posture was superseded when the lockstep landed:
+# The published posture condition. The earlier 0.x experimental /
+# no-stability posture was superseded when the lockstep landed:
 # the published README now states the product posture instead — the version
 # tracks the Muse Code release (lockstep), the stable MSP surface follows the
 # product's compatibility posture, and experimental (x-msp-openness) surfaces
@@ -338,7 +345,7 @@ fi
 readme_states_product_posture() {
   local readme="$PACKAGE_DIR/README.md"
   [[ -f "$readme" ]] || return 1
-  # One marker per clause tdd SS7.1 makes normative, not one pinned sentence:
+  # One marker per normative posture clause, not one pinned sentence:
   # the requirement is that the posture is STATED, and pinning exact wording
   # here would make every README edit a publish outage.
   #
@@ -352,18 +359,18 @@ readme_states_product_posture() {
   # Loose markers are substring matches, so a README asserting the OPPOSITE
   # posture could otherwise satisfy clause 1 — "no longer in lockstep" contains
   # the word. Reject that inversion explicitly: a gate that a negation passes
-  # is not a gate. ONE guard, deliberately (the D-053-era gate's lesson: a
+  # is not a gate. ONE guard, deliberately (the earlier gate's lesson: a
   # second guard killed correct natural wording); other inversions are caught
-  # by review, which is what tdd SS7.1's "markers are a floor" sentence says.
+  # by review, which is what the spec's "markers are a floor" sentence says.
   ! grep -qiE '(no longer|not)[[:space:]]+(in[[:space:]]+)?lockstep' "$readme" || return 1
 }
 
 if readme_states_product_posture; then
-  ok "README states the lockstep / product-stability posture (D-063)"
+  ok "README states the lockstep / product-stability posture"
 elif [[ "$MODE" == "publish" ]]; then
-  die "publishing requires the README to state the lockstep / product-stability posture explicitly, and $PACKAGE_DIR/README.md does not. D-013 as amended by D-053 and D-063 (specs/13929-msp-activation/tdd.md SS7.1; ADR 25304 D3) permits this publish BECAUSE the artifact carries the posture; without it the publish quietly drops the principle the amendments kept. All three clauses must be there, and none of them negated: the version is the Muse Code release it ships with; the stable surface follows the product's compatibility posture; experimental-marked surfaces may change or be removed."
+  die "publishing requires the README to state the lockstep / product-stability posture explicitly, and $PACKAGE_DIR/README.md does not. This publish is permitted BECAUSE the artifact carries the posture; without it the publish quietly drops the principle the posture keeps. All three clauses must be there, and none of them negated: the version is the Muse Code release it ships with; the stable surface follows the product's compatibility posture; experimental-marked surfaces may change or be removed."
 else
-  echo "    note: the README does not state the lockstep / product-stability posture yet, so --publish would refuse (D-063). Pack-only does not."
+  echo "    note: the README does not state the lockstep / product-stability posture yet, so --publish would refuse. Pack-only does not."
 fi
 
 ACCESS="$(field publishConfig.access)"
@@ -373,9 +380,9 @@ ok "publishConfig.access public"
 
 RUNTIME_DEPS="$(node -e 'process.stdout.write(Object.keys(require(process.argv[1]).dependencies||{}).join(","))' "$MANIFEST")"
 if [[ -n "$RUNTIME_DEPS" ]]; then
-  die "runtime dependencies declared ($RUNTIME_DEPS) — spec 14990 INV-009 makes that an owner escalation under the O-3 precedent, not a packaging decision"
+  die "runtime dependencies declared ($RUNTIME_DEPS) — that is an owner escalation, not a packaging decision"
 fi
-ok "zero runtime dependencies (INV-009)"
+ok "zero runtime dependencies"
 
 # ---------------------------------------------------------------------------
 # Gate 3 — build. `prepack` builds too, but doing it here means a compile error
@@ -460,8 +467,8 @@ ok "main, types, LICENSE and README present in the tarball"
 # ---------------------------------------------------------------------------
 # Gate 6 — external audience. The README is the package's npm long description
 # and the manifest description is its listing summary; 0.1.1 shipped both
-# citing artifacts only the producing repository resolves (#37515, the npm
-# instance of the PyPI #36888 leak class). The checker audits the PACKED
+# citing artifacts only the producing repository resolves (the npm instance
+# of the leak class first seen on PyPI). The checker audits the PACKED
 # tarball, so what is gated is what the upload step would actually ship. It
 # runs in pack-only too, on purpose: pack-only rides CI on every sdk-lane PR,
 # which is what reds a new leak before merge instead of at publish time.
@@ -480,11 +487,11 @@ for candidate in \
   [[ -f "$candidate" ]] && AUDIENCE_CHECKER="$candidate" && break
 done
 [[ -n "$AUDIENCE_CHECKER" ]] ||
-  die "check-sdk-py-external-audience.py is missing from this tree (looked under scripts/ and python/scripts/). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the audience audit would risk re-shipping the 0.1.1 leak class (#37515)."
+  die "check-sdk-py-external-audience.py is missing from this tree (looked under scripts/ and python/scripts/). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the audience audit would risk re-shipping the 0.1.1 leak class."
 command -v python3 >/dev/null 2>&1 ||
   die "python3 is required for the external-audience gate (it runs check-sdk-py-external-audience.py over the packed tarball)"
 python3 "$AUDIENCE_CHECKER" --npm-tarball "$TARBALL" ||
-  die "the packed tarball's README/description reference private repository artifacts (#37515). Rewrite them for an npm reader; the findings above name each leak class."
+  die "the packed tarball's README/description reference private repository artifacts. Rewrite them for an npm reader; the findings above name each leak class."
 ok "no private repository references in the packed README/description"
 
 echo ""
@@ -496,9 +503,9 @@ echo ""
 # Publish, or stop.
 # ---------------------------------------------------------------------------
 if [[ "$MODE" != "publish" ]]; then
-  # The release-cut keep seam (ADR 40626 D11, #45542): every gate passed,
-  # so the audited tarball may leave the scratch dir. Publish mode never
-  # reaches here — it publishes the tarball itself below.
+  # The release-cut keep seam: every gate passed, so the audited tarball
+  # may leave the scratch dir. Publish mode never reaches here — it
+  # publishes the tarball itself below.
   if [[ -n "${TBH_SDK_KEEP_DIR:-}" ]]; then
     mkdir -p "$TBH_SDK_KEEP_DIR"
     cp "$TARBALL" "$TBH_SDK_KEEP_DIR/"
@@ -537,12 +544,12 @@ else
   # This leaves ONE open decision, and it is not mine: the coordinator staged a
   # granular automation token (Keychain `npm-muse-code-publish`, account `npm`)
   # for an interim first publish, and an interim token publish is by definition
-  # a publish WITHOUT provenance — which owner launch ruling 4 does NOT permit.
+  # a publish WITHOUT provenance — which the launch ruling does NOT permit.
   # Those two directives conflict. Resolving it means either dropping the provenance
   # requirement for the first publish or dropping the interim-token plan; both
-  # are owner calls, tracked on #25304. Until then the Actions path is the only
-  # publish path, and it is the one that produces a verifiable artifact anyway.
-  die "manual publish cannot produce provenance — npm only generates it inside GitHub Actions or GitLab CI, so --provenance fails before the registry is contacted. Run the publish-npm.yml workflow in meta-models/muse-code-sdk instead. (The staged Keychain token '$KEYCHAIN_ITEM' would give an unprovenanced publish, which owner launch ruling 4 does not permit; that conflict is an owner decision on #25304.)"
+  # are owner calls. Until then the Actions path is the only publish path, and
+  # it is the one that produces a verifiable artifact anyway.
+  die "manual publish cannot produce provenance — npm only generates it inside GitHub Actions or GitLab CI, so --provenance fails before the registry is contacted. Run the publish-npm.yml workflow in meta-models/muse-code-sdk instead. (The staged Keychain token '$KEYCHAIN_ITEM' would give an unprovenanced publish, which the launch ruling does not permit; that conflict is an owner decision.)"
 fi
 
 step "publish"
@@ -550,7 +557,7 @@ step "publish"
 # refuse to attest, and this fails loudly rather than publishing something
 # weaker than what was asked for.
 (cd "$PACKAGE_DIR" && npm publish --provenance --access public) ||
-  die "npm publish failed. If the error mentions provenance, the source repository is still private — that flip is an owner step on #25304, and dropping the flag is not the fix."
+  die "npm publish failed. If the error mentions provenance, the source repository is still private — that flip is an owner step, and dropping the flag is not the fix."
 
 echo ""
 echo "published $NAME@$VERSION with provenance."

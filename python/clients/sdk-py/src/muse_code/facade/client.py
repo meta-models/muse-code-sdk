@@ -53,7 +53,7 @@ from ..connection.spawn import (
     SpawnedMspConnection,
     spawn_msp_connection,
 )
-from ..errors import MuseSessionDiscardedError
+from ..errors import MuseSessionDiscardedError, PermissionProfileNotApplied
 from .discarded import DiscardedSessions
 from .host_start import MuseHostStartError, keeps_its_own_error
 from .host_death import (
@@ -93,6 +93,18 @@ class StartSessionOptions:
             ``workspace_root`` is also given the two must agree.
         model_id: The model to serve the session with; omitted = the
             provider's default.
+        permission_profile: The permission profile to start the session
+            under (wire ``permissionProfile``): a profile id the host offers;
+            omitted = the host's configured default. An id the host does not
+            offer refuses the start before the session exists.
+        require_permission_profile: Require the ``permission_profile``
+            selection: when true, the client proves the
+            committed selection equals the requested id — from the start
+            result's ``session.permissionState``, else a ``session/read``
+            read-back — and raises ``PermissionProfileNotApplied`` instead
+            of proceeding on the host default. Client-local: never sent on
+            the wire. Setting it without ``permission_profile`` is a usage
+            error.
     """
 
     approval_mode: str | None = None
@@ -101,6 +113,8 @@ class StartSessionOptions:
     workspace_root: str | None = None
     workspace_roots: List[str] | None = None
     model_id: str | None = None
+    permission_profile: str | None = None
+    require_permission_profile: bool = False
 
 
 @dataclass
@@ -127,12 +141,18 @@ class ResumeSessionOptions:
 # Drift pins — the Python twin of the TS `AssertNever` on START_FORWARDED /
 # RESUME_FORWARDED (client.ts). A schema regen that adds a member to the
 # generated params but not to the options dataclass reds THIS import (and thus
-# every test), so a regenerated member cannot silently fail to reach the wire
-#. The excluded members are the ones the facade owns rather than
-# forwards: `commandId` (the connection is the single minter) and `config`
-# (temporarily withheld until capability-checked forwarding lands).
+# every test), so a regenerated member cannot silently fail to reach the wire.
+# The excluded members are the ones the facade owns rather than forwards:
+# `commandId` (the connection is the single minter) and `config`
+# (temporarily withheld until capability-checked forwarding lands). The owned
+# members are options-only posture the wire never carries (client-local
+# `requirePermissionProfile`, the required-selection check): subtracted from
+# the options side, so a regen that adds a same-named wire member reds here.
 _START_EXCLUDED = {"commandId", "config"}
-assert {_camel(f.name) for f in fields(StartSessionOptions)} | _START_EXCLUDED == set(
+_START_OWNED = {"requirePermissionProfile"}
+assert (
+    {_camel(f.name) for f in fields(StartSessionOptions)} - _START_OWNED
+) | _START_EXCLUDED == set(
     SessionStartParams.__annotations__
 ), "StartSessionOptions drifted from SessionStartParams — forward the new member"
 
@@ -140,6 +160,21 @@ _RESUME_EXCLUDED = {"commandId", "config"}
 assert {_camel(f.name) for f in fields(ResumeSessionOptions)} | _RESUME_EXCLUDED == set(
     SessionResumeParams.__annotations__
 ), "ResumeSessionOptions drifted from SessionResumeParams — forward the new member"
+
+
+def _committed_profile_id(snapshot: Any) -> str | None:
+    """The committed profile id a session snapshot claims, or None when the
+    snapshot is silent (the stable bundle strips the member; absent and null
+    both mean unknown, never applied). Structural on purpose: an unknown wire
+    shape reads as unknown rather than raising.
+    """
+    if not isinstance(snapshot, Mapping):
+        return None
+    state = snapshot.get("permissionState")
+    if not isinstance(state, Mapping):
+        return None
+    profile_id = state.get("profileId")
+    return profile_id if isinstance(profile_id, str) else None
 
 
 @dataclass
@@ -377,10 +412,61 @@ class MuseClient(Generic[_I]):
             params["workspaceRoots"] = options.workspace_roots
         if options.model_id is not None:
             params["modelId"] = options.model_id
+        # The initial permission-profile selection, forwarded verbatim like the
+        # other start members (None stays omitted).
+        if options.permission_profile is not None:
+            params["permissionProfile"] = options.permission_profile
+        # Required selection: a caller that requires its selection proves it,
+        # never assuming the host default. The flag without the member is a
+        # usage error, raised pre-wire.
+        required = options.require_permission_profile is True
+        if required and options.permission_profile is None:
+            raise ValueError(
+                "require_permission_profile needs permission_profile:"
+                " require the selection you pass"
+            )
         # Keyed by the id the SERVER named, never the one the caller asked for:
         # ``sessionId`` is a REQUEST on start, and a session keyed by a hopeful
         # id would reject every one of its own events as foreign.
-        return await self._open("session/start", params, _StartOpening)
+        session = await self._open("session/start", params, _StartOpening)
+        if not required:
+            return session
+        assert options.permission_profile is not None  # the usage guard above
+        return await self._prove_selection(session, options.permission_profile)
+
+    async def _prove_selection(
+        self, session: Session[_I], requested: str
+    ) -> Session[_I]:
+        """Prove a required start selection: the start result's own
+        ``session.permissionState`` first (absent = unknown,
+        never applied); else a point-in-time ``session/read``, which never
+        subscribes. Only ``profileId == requested`` proceeds; anything else
+        raises ``PermissionProfileNotApplied`` BEFORE any turn is sent. The
+        refused session is dropped from the client (no orphan keeps folding
+        for an id the caller can never reach — the SDK has no set/close-by-id
+        verb); the error's ``session_id`` is the caller's handle to resume via
+        ``session_id`` or start again. A failed read-back propagates: the
+        client still never proceeds on the default.
+        """
+        opening = session.opening
+        started = (
+            _committed_profile_id(opening.result["session"])
+            if isinstance(opening, _StartOpening)
+            else None
+        )
+        if started is not None:
+            if started == requested:
+                return session
+            self._sessions.discard(session)
+            raise PermissionProfileNotApplied(requested, started, session.session_id)
+        read = await self._connection.command(
+            "session/read", {"sessionId": session.session_id}
+        )
+        served = _committed_profile_id(read.get("session"))
+        if served == requested:
+            return session
+        self._sessions.discard(session)
+        raise PermissionProfileNotApplied(requested, served, session.session_id)
 
     async def resume_session(self, options: ResumeSessionOptions) -> Session[_I]:
         """Load an existing session and subscribe this connection to its view.

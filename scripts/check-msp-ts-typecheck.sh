@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# MSP TypeScript typecheck (issue #14099, specs/206-msp-wire-schema TEST-019).
+# MSP TypeScript typecheck.
 #
 # Proves the committed MSP declarations (`schema/msp/msp.d.ts`) compile under
-# `tsc --strict --noEmit` with no hand edits (spec Scenario 7.4). The required
+# `tsc --strict --noEmit` with no hand edits. The required
 # test `generate_ts_reproduces_the_committed_declarations` byte-pins that file
 # to the generator's stable render, so typechecking the committed file is
 # typechecking the emitted stable render.
 #
-# This runs in the non-required, path-filtered
-# `.github/workflows/tbh-muse-sdk-ts.yml` (it absorbed the former
-# tbh-msp-ts-typecheck lane) — NOT in the required `tbh-rs`
-# run: no required job ships a TypeScript compiler (research.md §R2, spike U4),
-# and the Rust build never invokes `tsc`. It is also runnable locally anywhere
-# Node/npm are installed.
+# This runs in the non-required, path-filtered SDK TypeScript lane — NOT in a
+# required run: no required job ships a TypeScript compiler, and the Rust
+# build never invokes `tsc`. It is also runnable locally anywhere Node/npm
+# are installed.
 #
-# Supply-chain rule (research.md §R2): NEVER bare `npx tsc` — that resolves to
+# Supply-chain rule: NEVER bare `npx tsc` — that resolves to
 # the unrelated, deprecated npm package literally named `tsc`, not Microsoft's
 # `typescript`. The compiler here is the `typescript` package pinned to an
 # exact version, and the resolved version is asserted before it is trusted.
@@ -40,7 +38,7 @@ EXPERIMENTAL_DECLS="schema/msp/experimental/msp.d.ts"
 # The stable declarations are always required. The experimental twin ships
 # only where its bundle ships: the published SDK mirror
 # (scripts/sdk-source-closure.json) carries the stable surface only, and this
-# script must keep working there (#28711 review).
+# script must keep working there.
 FILES=("$DECLS")
 if [ -d "schema/msp/experimental" ]; then
   FILES+=("$EXPERIMENTAL_DECLS")
@@ -74,8 +72,8 @@ for file in "${FILES[@]}"; do
   else
     echo "FAIL: ${file} does not typecheck under tsc ${TYPESCRIPT_VERSION} --strict --noEmit:"
     echo "$output"
-    echo "The file is generated (crates/protocol, spec 206) — fix the renderer and"
-    echo "regenerate; never hand-edit the declarations."
+    echo "The file is generated — fix the renderer and regenerate;"
+    echo "never hand-edit the declarations."
     exit 1
   fi
 done

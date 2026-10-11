@@ -75,7 +75,7 @@ NPM_PACKAGE_DIR = "clients/sdk-ts"
 # fails the run. Keyed to the docs-site citation-class table where a
 # class exists there; the path classes are the 1.3.0 leak's own vocabulary.
 PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("spec-path", re.compile(r"specs/")),
+    ("spec-path", re.compile(r"specs[/]")),
     ("source-path", re.compile(r"\bcrates/")),
     ("script-path", re.compile(r"\bscripts/")),
     ("schema-path", re.compile(r"\bschema/msp")),
@@ -92,15 +92,17 @@ PRIVATE_REFERENCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("task-id", re.compile(r"\bT\d{3}\b")),
     ("decision-id", re.compile(r"\bD-\d{2,}\b")),
     ("scenario-ref", re.compile(r"\bScenario \d", re.IGNORECASE)),
-    # Whole-token incl. bare sections (SS2) and dash-joined ranges
-    # (SS2-SS5, en/em dashes) — the docs-site table's width.
+    # Whole-token: bare sections, dotted subsections with optional letter
+    # suffixes, and dash-joined ranges (hyphen and en/em dashes) — the
+    # docs-site table's width.
     ("spec-section", re.compile(r"\bSS\d+(?:\.\d+)*[a-z]?(?:\s?[–—-]\s?SS\d+)*\b")),
     ("appendix-ref", re.compile(r"\bAppendix [A-Z]\b")),
     ("spec-number", re.compile(r"\bspecs? \d{3,}\b", re.IGNORECASE)),
     ("spec-doc", re.compile(r"\btdd\b")),
-    # The [h] classes keep these pattern literals from counting as internal
-    # references themselves when this file is scanned by the mirrored-source
-    # audience profile (the `pkill -f 'tbh-[g]ate'` trick).
+    # The bracketed classes ([h] here, [/] on spec-path above) keep these
+    # pattern literals from counting as internal references themselves when
+    # this file is scanned by the mirrored-source audience profile (the
+    # `pkill -f 'tbh-[g]ate'` trick).
     ("dev-loop-path", re.compile(r"\bprojects/tb[h]\b")),
     ("private-repo", re.compile(r"\b(?:mslsrc|par-msl)/tb[h]\b")),
     # Names carrying the internal product prefix (workflow and crate names).

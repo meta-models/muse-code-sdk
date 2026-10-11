@@ -82,6 +82,39 @@ class MuseGapFillError(Exception):
             self.__cause__ = cause
 
 
+class PermissionProfileNotApplied(Exception):
+    """A required session-start permission-profile selection the client could
+    not prove applied: the start result carried no ``permissionState``, and
+    the ``session/read`` read-back served a different profile — or none at
+    all. Never a silent default: the session stays open and the caller
+    decides (set/retry or close) via ``session_id``, with no auto-close and
+    no auto-set.
+
+    Attributes:
+        requested: The profile id the caller required.
+        served: The committed profile id the read-back served, or None when
+            unknown.
+        session_id: The open session, so the caller can set, retry, or close it.
+    """
+
+    def __init__(self, requested: str, served: str | None, session_id: str) -> None:
+        """Builds the refusal.
+
+        Args:
+            requested: The profile id the caller required.
+            served: The committed profile id served, or None when unknown.
+            session_id: The open session's id.
+        """
+        served_text = "unknown" if served is None else repr(served)
+        super().__init__(
+            f"required permissionProfile {requested!r} was not applied:"
+            f" the committed selection is {served_text} (session {session_id})"
+        )
+        self.requested: str = requested
+        self.served: str | None = served
+        self.session_id: str = session_id
+
+
 ValidationSeam = Literal["initializeResult", "spawnOptions"]
 """Which validating pydantic seam refused its input.
 

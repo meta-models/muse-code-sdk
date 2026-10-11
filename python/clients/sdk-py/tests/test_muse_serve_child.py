@@ -1118,3 +1118,43 @@ async def test_a_bare_incoming_attribute_probe_does_not_arm_the_close_penalty() 
         )
     finally:
         reap(pid)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "start_new_session", "creationflags"),
+    [
+        pytest.param("win32", False, 0x0800_0000, id="windows-no-console"),
+        pytest.param("linux", True, 0, id="linux-process-group"),
+        pytest.param("darwin", True, 0, id="darwin-process-group"),
+    ],
+)
+async def test_spawn_passes_the_platform_spawn_keywords(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    start_new_session: bool,
+    creationflags: int,
+) -> None:
+    # A spawned ``muse serve`` is never meant to be seen: on Windows it starts
+    # with CREATE_NO_WINDOW and no process group; on POSIX it leads its own
+    # process group and sets no Windows-only flag bit (creationflags=0).
+    # Wiring pin: the stub
+    # records the exact keywords the call site passes and stops before any
+    # process exists.
+    from muse_code.connection import spawn as spawn_module
+
+    class _Stop(Exception):
+        pass
+
+    seen: dict[str, object] = {}
+
+    async def _record(*args: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(spawn_module.asyncio, "create_subprocess_exec", _record)
+    monkeypatch.setattr(spawn_module.sys, "platform", platform)
+    with pytest.raises(_Stop):
+        await MuseServeChild.spawn(muse_bin=sys.executable, args=["-c", "pass"])
+    assert seen["start_new_session"] is start_new_session
+    assert seen["creationflags"] == creationflags

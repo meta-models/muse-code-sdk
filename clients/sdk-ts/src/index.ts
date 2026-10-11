@@ -131,6 +131,7 @@ export {
   MuseForeignSessionError,
   MuseGapFillError,
   MuseSessionDiscardedError,
+  PermissionProfileNotApplied,
 } from "./errors.js";
 export type { GapFillFailureReason } from "./errors.js";
 

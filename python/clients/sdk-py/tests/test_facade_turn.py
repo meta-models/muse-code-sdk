@@ -874,7 +874,39 @@ async def test_start_session_sends_the_verb_and_keys_by_the_servers_id() -> None
     sent = await _read_last_frame(transport, 1)
     assert sent["method"] == "session/start"
     assert sent["params"]["workspaceRoot"] == "/repo"
+    # The initial permission-profile selection is OMITTED when the option is
+    # left None — never sent as null, like every other optional start member.
+    assert "permissionProfile" not in sent["params"]
     # session/start result may omit the redundant commandId echo.
+    transport.chunks.push(
+        frame(
+            {
+                "jsonrpc": "2.0",
+                "id": sent["id"],
+                "result": {"session": {"sessionId": SESSION}, "viewCursor": "v:0"},
+            }
+        )
+    )
+    session_obj = await pending
+    assert session_obj.session_id == SESSION
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_start_session_forwards_the_permission_profile_member() -> None:
+    """``permission_profile`` rides the wire as ``permissionProfile`` verbatim,
+    like the other start members (the TypeScript SDK pins the same forward)."""
+    import asyncio
+
+    client, transport = _client()
+    pending = asyncio.ensure_future(
+        client.start_session(
+            StartSessionOptions(workspace_root="/repo", permission_profile=":read-only")
+        )
+    )
+    sent = await _read_last_frame(transport, 1)
+    assert sent["method"] == "session/start"
+    assert sent["params"]["permissionProfile"] == ":read-only"
     transport.chunks.push(
         frame(
             {
