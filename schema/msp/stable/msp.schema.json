@@ -733,7 +733,8 @@
         "sessionMcp",
         "sessionListStream",
         "feedback",
-        "computerUseSetup"
+        "computerUseSetup",
+        "computerUseHostSetup"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -1030,7 +1031,7 @@
       "description": "`computerUseSetup/changed` params.",
       "properties": {
         "sessionId": {
-          "description": "The session whose setup state changed.",
+          "description": "The session whose setup state changed; absent for the host's own\nsetup, which only `computerUseHostSetup` holders receive.",
           "type": "string"
         },
         "state": {
@@ -1039,7 +1040,6 @@
         }
       },
       "required": [
-        "sessionId",
         "state"
       ],
       "type": "object"
@@ -1060,13 +1060,10 @@
       "description": "`computerUseSetup/read` params.",
       "properties": {
         "sessionId": {
-          "description": "The session whose setup to read.",
+          "description": "The session whose setup to read. Omitted reads the host's own setup,\nwhich needs the `computerUseHostSetup` grant.",
           "type": "string"
         }
       },
-      "required": [
-        "sessionId"
-      ],
       "type": "object"
     },
     "ComputerUseSetupStartParams": {
@@ -1077,13 +1074,12 @@
           "type": "string"
         },
         "sessionId": {
-          "description": "The session whose setup to start.",
+          "description": "The session whose setup to start. Omitted starts the host's own\nsetup, which needs the `computerUseHostSetup` grant.",
           "type": "string"
         }
       },
       "required": [
-        "commandId",
-        "sessionId"
+        "commandId"
       ],
       "type": "object"
     },
@@ -2056,6 +2052,14 @@
           "$ref": "#/$defs/PlatformOs",
           "description": "Server operating system."
         },
+        "sandboxAvailability": {
+          "$ref": "#/$defs/SandboxAvailability",
+          "description": "Whether this host can enforce the sandbox (ADR\n50064-startup-report-sandbox-availability D2/D4). Optional so the\naddition is additive under SS1.5.4; a v1 host always sends it, and a\nclient reads absent as unknown — the host predates the field, so the\nclient falls back to its own probe rather than inventing an answer."
+        },
+        "sandboxUnavailableReason": {
+          "$ref": "#/$defs/SandboxUnavailableReason",
+          "description": "Why enforcement is impossible. Sent only when `sandbox_availability`\nis `unavailable`; a client MUST NOT infer a reason when none is\nsent."
+        },
         "schema": {
           "$ref": "#/$defs/SchemaInfo",
           "description": "Envelope schema version and stable-surface fingerprint."
@@ -2156,6 +2160,10 @@
         "controlStatus": {
           "$ref": "#/$defs/SubagentControlStatus",
           "description": "`subagent`: camelCased `SubagentControlStatus` (open enum); `status`\nstays the generic item vocabulary."
+        },
+        "cutOff": {
+          "description": "`agentMessage`: `true` when the provider stream died mid-reply and\nthe run failed with this partial text committed (ADR 50063 D2) —\nthe wire mark for the gate-off \"incomplete response\" rule\n(#13328). Absent otherwise; never cleared once set.",
+          "type": "boolean"
         },
         "declaredPhase": {
           "description": "`workflow`: the run-level declared-phase label — the last `Phase`\ndetail-row label of the reconciled projection; terminal-only, absent\nwhile live (tdd SS4.5.8, #45449).",
@@ -3987,6 +3995,24 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "SandboxAvailability": {
+      "description": "Whether this host can enforce the sandbox (ADR\n50064-startup-report-sandbox-availability D2/D4). A property of the host\nprocess, probed once at construction and identical for every session and\nevery connection it serves — never requested, granted, or negotiated,\nwhich is why it is not a capability. Open: a future enforcement posture\narrives as a new value, read by older clients as unknown.",
+      "enum": [
+        "available",
+        "unavailable"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "SandboxUnavailableReason": {
+      "description": "Why sandbox enforcement is impossible on this host. Sent only when\n[`SandboxAvailability`] is `unavailable`; a client MUST NOT infer a\nreason when none is sent. Open: a future reason arrives as a new\nvalue, read by older clients as unknown.",
+      "enum": [
+        "userNamespacesDenied",
+        "bubblewrapUnavailable"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
       "properties": {
@@ -4090,6 +4116,10 @@
         "name": {
           "description": "The durable allocated session name (tdd SS2.4/SS2.14.1, #27598;\nADR 27598 D2/D4). **Additive-optional**: present when the serving path\nholds an allocated name, omitted otherwise — absent is never\nfabricated. Authoritative and renameable via `session/rename`.",
           "type": "string"
+        },
+        "nameOrigin": {
+          "$ref": "#/$defs/SessionNameOrigin",
+          "description": "How the served `name` was set (tdd SS2.4/SS2.14.1, #50048; ADR 50048\nD1/D2). **Additive-optional**, **fold-only**: the snapshot fold\n(`session/read`, the resume/start/fork-ack snapshot) derives and\ncarries it from the log; `session/list` rows never carry it. Absent —\nand any value the client does not recognize — reads as unknown,\nnever fabricated."
         },
         "parentSessionId": {
           "description": "The containing session's id when `kind` is `\"subagent\"` (FR-002,\nINV-002) — the id of the TOP-LEVEL session whose home holds this\nchild, which is **not necessarily the session that spawned it**:\nnative-child homes are physical siblings under the outer session's\n`subagent/` directory, so a subagent spawned by another subagent\nresolves to the outer session, not to its spawner. A client building\na tree from this field gets one level, not a chain.\nFlat rather than nested: there is exactly one fact to\ncarry, unlike `forkedFrom`'s four-field `ForkProvenance`.\n**Additive-optional**; a root carries none.",
@@ -4875,6 +4905,10 @@
           "description": "The new canonical name now in effect.",
           "type": "string"
         },
+        "nameOrigin": {
+          "$ref": "#/$defs/SessionNameOrigin",
+          "description": "How the new name was set (tdd SS2.4/SS4.6.7, #50048; ADR 50048\nD1/D2). **Additive-optional**: omitted when the emitting fold cannot\nprove an origin — absent reads as unknown, never fabricated."
+        },
         "sessionId": {
           "description": "The owning session.",
           "type": "string"
@@ -4895,6 +4929,15 @@
         "viewCursor"
       ],
       "type": "object"
+    },
+    "SessionNameOrigin": {
+      "description": "How the served session name was set (tdd SS2.4/SS4.6.7, #50048; ADR\n50048 D1). **Open enum** (`x-msp-openness: open`): v1 serves\n`automatic` and `custom`; a client MUST read absent — and any value it\ndoes not recognize — as unknown, never fabricated. Open: a future source\nsuch as conversation-generated names (#35260) adds a value here, so\nclosed would make that a breaking change.",
+      "enum": [
+        "automatic",
+        "custom"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
     },
     "SessionReadParams": {
       "description": "`session/read` params (tdd SS2.5.5): read one stored session **without\nattaching** — no writer lease, no load, no subscription, no\n`SessionResumed` record.",
@@ -8620,7 +8663,8 @@
       "sessionMcp",
       "sessionListStream",
       "feedback",
-      "computerUseSetup"
+      "computerUseSetup",
+      "computerUseHostSetup"
     ],
     "reserved": [
       {
@@ -8870,8 +8914,14 @@
         "$ref": "#/$defs/ComputerUseSettings"
       }
     },
+    "computerUseSetup/check": {
+      "description": "Reads the host's three macOS grants with no prompt: starts the computer-use helper only long enough to check them, reports each as granted or missing, and ends it; never requests a grant or opens System Settings. Needs computerUseHostSetup; commandRejected runtime_busy while a setup attempt holds the host.",
+      "result": {
+        "$ref": "#/$defs/ComputerUseSetupState"
+      }
+    },
     "computerUseSetup/read": {
-      "description": "Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off (#52381).",
+      "description": "Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off (#52381). Without sessionId it reads the host's own setup, with computerUseHostSetup.",
       "params": {
         "$ref": "#/$defs/ComputerUseSetupReadParams"
       },
@@ -8880,7 +8930,7 @@
       }
     },
     "computerUseSetup/start": {
-      "description": "A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off (#52381).",
+      "description": "A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off (#52381). Without sessionId it starts the host's own setup under one host owner, with computerUseHostSetup.",
       "params": {
         "$ref": "#/$defs/ComputerUseSetupStartParams"
       },
@@ -9464,7 +9514,7 @@
       }
     },
     "computerUseSetup/changed": {
-      "description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in (#52381).",
+      "description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in (#52381). Without sessionId it carries the host's own setup state, delivered only with computerUseHostSetup.",
       "params": {
         "$ref": "#/$defs/ComputerUseSetupChanged"
       }

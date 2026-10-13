@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:9c425a9b1b30ff1810012585626a7e7baca1495963a198104fa5544fd02d43c2"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:0d803007acbd02ad07a6cec4d5a63b834f4db743886bbaf865b8738116dc212f"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.6"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.7"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -70,7 +70,7 @@ BACKGROUND_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("backgrounded",)
 
 # A grantable capability name. Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when the protocol spec un-defers — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "peerMessaging", "rawLog",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "peerMessaging", "rawLog",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -264,6 +264,14 @@ RETRACT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("accepted", "declined",)
 ReviewerAuthority = str  # open enum: unknown values stay representable
 REVIEWER_AUTHORITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("autoReview", "human", "none",)
 
+# Whether this host can enforce the sandbox. A property of the host process, probed once at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: a future enforcement posture arrives as a new value, read by older clients as unknown.
+SandboxAvailability = str  # open enum: unknown values stay representable
+SANDBOX_AVAILABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("available", "unavailable",)
+
+# Why sandbox enforcement is impossible on this host. Sent only when [`SandboxAvailability`] is `unavailable`; a client MUST NOT infer a reason when none is sent. Open: a future reason arrives as a new value, read by older clients as unknown.
+SandboxUnavailableReason = str  # open enum: unknown values stay representable
+SANDBOX_UNAVAILABLE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("userNamespacesDenied", "bubblewrapUnavailable",)
+
 # The closed-reason vocabulary. Server-produced and published OPEN by owner ruling — the menu-B pick, which settles that this notification reason enum publishes open rather than resting on E2's result-vocabulary rule by analogy. A crash is deliberately not a reason, because a crash emits no notification at all.
 SessionClosedReason = str  # open enum: unknown values stay representable
 SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown",)
@@ -284,6 +292,10 @@ SessionMcpServerMode = Literal["required", "optional"]
 
 # Stdio framing choices exposed by session MCP configuration.
 SessionMcpStdioFraming = Literal["auto", "contentLength", "lineDelimitedJson"]
+
+# How the served session name was set. **Open enum** (`x-msp-openness: open`): v1 serves `automatic` and `custom`; a client MUST read absent — and any value it does not recognize — as unknown, never fabricated. Open: a future source such as conversation-generated names adds a value here, so closed would make that a breaking change.
+SessionNameOrigin = str  # open enum: unknown values stay representable
+SESSION_NAME_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("automatic", "custom",)
 
 # A session's load state.
 SessionStatus = str  # open enum: unknown values stay representable
@@ -832,23 +844,29 @@ class ComputerUseSettingsUpdateParams(TypedDict, total=False):
     unblockApps: list[str]
 
 
-class ComputerUseSetupChanged(TypedDict):
-    """`computerUseSetup/changed` params."""
-
-    sessionId: str
+class _ComputerUseSetupChangedBase(TypedDict):
     state: ComputerUseSetupState
 
 
-class ComputerUseSetupReadParams(TypedDict):
+class ComputerUseSetupChanged(_ComputerUseSetupChangedBase, total=False):
+    """`computerUseSetup/changed` params."""
+
+    sessionId: str
+
+
+class ComputerUseSetupReadParams(TypedDict, total=False):
     """`computerUseSetup/read` params."""
 
     sessionId: str
 
 
-class ComputerUseSetupStartParams(TypedDict):
+class _ComputerUseSetupStartParamsBase(TypedDict):
+    commandId: str
+
+
+class ComputerUseSetupStartParams(_ComputerUseSetupStartParamsBase, total=False):
     """`computerUseSetup/start` params: a human command."""
 
-    commandId: str
     sessionId: str
 
 
@@ -1160,6 +1178,8 @@ class _InitializeResultBase(TypedDict):
 class InitializeResult(_InitializeResultBase, total=False):
     """The `initialize` result."""
 
+    sandboxAvailability: SandboxAvailability
+    sandboxUnavailableReason: SandboxUnavailableReason
     sessionDurability: SessionDurability
 
 
@@ -1190,6 +1210,7 @@ class Item(_ItemBase, total=False):
     commandId: str
     commandText: str
     controlStatus: SubagentControlStatus
+    cutOff: bool
     declaredPhase: str
     depth: int
     displayText: str
@@ -2060,6 +2081,7 @@ class Session(_SessionBase, total=False):
     kind: SessionKind
     lastActivityAt: str
     name: str
+    nameOrigin: SessionNameOrigin
     parentSessionId: str
     permissionState: EffectivePermissionState
     sideFrom: SideProvenance | None
@@ -2266,13 +2288,17 @@ class SessionModelRouteUnservedParams(TypedDict):
     viewCursor: str
 
 
-class SessionNameChangedParams(TypedDict):
-    """`session/nameChanged` params: the fold of ANY durable session-name record — the FIRST-NAMING automatic allocate as well as an accepted `session/rename` (or the same in-process runtime command). Replace-wholesale like every sibling."""
-
+class _SessionNameChangedParamsBase(TypedDict):
     name: str
     sessionId: str
     sourceRange: SourceRange
     viewCursor: str
+
+
+class SessionNameChangedParams(_SessionNameChangedParamsBase, total=False):
+    """`session/nameChanged` params: the fold of ANY durable session-name record — the FIRST-NAMING automatic allocate as well as an accepted `session/rename` (or the same in-process runtime command). Replace-wholesale like every sibling."""
+
+    nameOrigin: SessionNameOrigin
 
 
 class SessionPermissionProfileChangedParams(TypedDict):
@@ -2285,6 +2311,26 @@ class SessionPermissionProfileChangedParams(TypedDict):
     source: PermissionProfileSource
     sourceRange: SourceRange
     viewCursor: str
+
+
+class SessionPromptHintCandidate(TypedDict):
+    """One `session/promptHint` candidate: the table row's stable `id` plus its model-facing \"relevant when …\" description. Display copy stays client-side; the wire never carries it. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 346)."""
+
+    description: str
+    id: str
+
+
+class SessionPromptHintParams(TypedDict):
+    """`session/promptHint` params: the session plus the client-filtered candidate table. A read-only query in the `model/list` mold: no `commandId`, no durable record, no view event — the display-only side call over the wire. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 346)."""
+
+    candidates: list[SessionPromptHintCandidate]
+    sessionId: str
+
+
+class SessionPromptHintResult(TypedDict, total=False):
+    """`session/promptHint` result: the picked table id, or `None` when the model declines (the NONE arm) — never a copy string, so the pinned table stays the single source of truth. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 346)."""
+
+    hintId: str
 
 
 class _SessionReadParamsBase(TypedDict):
@@ -3711,8 +3757,9 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "approval/listPending": {"description": "Reads the full pending approval and user-input payloads for a session; a lease-free fold read.", "params": "ApprovalListPendingParams", "result": "ApprovalListPendingResult"},
     "computerUseSettings/read": {"description": "Reads the computer-use Settings: each capability's Always allow switch and the user's blocked apps from the approval policy store, plus the built-in blocks as locked rows when asked; computerUseUnavailable while the CUA gate is off.", "params": "ComputerUseSettingsReadParams", "result": "ComputerUseSettings"},
     "computerUseSettings/update": {"description": "Applies one Settings patch (capability dropdowns, blocked apps to add or remove) all-or-nothing and answers the user's Settings after it; a built-in block is refused in either list; computerUseUnavailable while the CUA gate is off.", "params": "ComputerUseSettingsUpdateParams", "result": "ComputerUseSettings"},
-    "computerUseSetup/read": {"description": "Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off.", "params": "ComputerUseSetupReadParams", "result": "ComputerUseSetupState"},
-    "computerUseSetup/start": {"description": "A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off.", "params": "ComputerUseSetupStartParams", "result": "ComputerUseSetupState"},
+    "computerUseSetup/check": {"description": "Reads the host's three macOS grants with no prompt: starts the computer-use helper only long enough to check them, reports each as granted or missing, and ends it; never requests a grant or opens System Settings. Needs computerUseHostSetup; commandRejected runtime_busy while a setup attempt holds the host.", "params": None, "result": "ComputerUseSetupState"},
+    "computerUseSetup/read": {"description": "Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off. Without sessionId it reads the host's own setup, with computerUseHostSetup.", "params": "ComputerUseSetupReadParams", "result": "ComputerUseSetupState"},
+    "computerUseSetup/start": {"description": "A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off. Without sessionId it starts the host's own setup under one host owner, with computerUseHostSetup.", "params": "ComputerUseSetupStartParams", "result": "ComputerUseSetupState"},
     "feedback/submit": {"description": "Submits a first-party feedback report through the host, reusing the TUI submitter seam (consent, bundle-first persistence, redaction), and answers the upload receipt.", "params": "FeedbackSubmitParams", "result": "FeedbackSubmitResult"},
     "goal/clear": {"description": "Clears the session goal; never wakes and its ack never names a turn.", "params": "GoalClearParams", "result": "GoalCommandResult"},
     "goal/edit": {"description": "Replaces the current goal's objective under the same wake gate as goal/set.", "params": "GoalEditParams", "result": "GoalCommandResult"},
@@ -3746,6 +3793,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/compact": {"description": "Compacts the session's conversation context; runs asynchronously, so the ack is admission only.", "params": "SessionCompactParams", "result": "SessionCompactResult"},
     "session/fork": {"description": "Branches a session into a new id whose log copies the source through a cut point, with durable provenance.", "params": "SessionForkParams", "result": "SessionForkResult"},
     "session/list": {"description": "Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases.", "params": "SessionListParams", "result": "SessionListResult"},
+    "session/promptHint": {"description": "Picks one feature-tip table id over the client-supplied candidates; display-only, nothing is logged.", "params": "SessionPromptHintParams", "result": "SessionPromptHintResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
     "session/rename": {"description": "Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile.", "params": "SessionRenameParams", "result": "SessionRenameResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},
@@ -3803,7 +3851,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "approval/requested": {"description": "An approval opened: the fold of its durable Requested record.", "params": "ApprovalRequestParams"},
     "approval/resolved": {"description": "The first durable approval terminal landed; protected delivery.", "params": "ApprovalResolvedParams"},
     "approval/updated": {"description": "A non-terminal approval record changed the pending view.", "params": "ApprovalUpdatedParams"},
-    "computerUseSetup/changed": {"description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in.", "params": "ComputerUseSetupChanged"},
+    "computerUseSetup/changed": {"description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in. Without sessionId it carries the host's own setup state, delivered only with computerUseHostSetup.", "params": "ComputerUseSetupChanged"},
     "initialized": {"description": "Client-to-server notification closing the handshake; no params.", "params": None},
     "item/completed": {"description": "An item reached its terminal state: the authoritative final object.", "params": "ItemCompletedParams"},
     "item/delta": {"description": "Streaming append to an open item's field path (ephemeral-sourced, no sourceRange; opt-out-able).", "params": "ItemDeltaParams"},
@@ -3894,4 +3942,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32072, "kind": "admissionChoiceInvalid", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "rawLog", "peerMessaging",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "rawLog", "peerMessaging",)

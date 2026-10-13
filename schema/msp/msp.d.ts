@@ -238,7 +238,7 @@ export interface BranchState {
 }
 
 /** A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when SS6 un-defers (#13929, Scenario 5 AS-3) — closed would make that a retype. */
-export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | "computerUseSetup" | (string & {});
+export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | "computerUseSetup" | "computerUseHostSetup" | (string & {});
 
 /** The client's requested capability posture (SS1.4.1). Every member defaults; an absent `capabilities` object means all defaults. */
 export interface ClientCapabilities {
@@ -359,8 +359,8 @@ export interface ComputerUseSettingsUpdateParams {
 
 /** `computerUseSetup/changed` params. */
 export interface ComputerUseSetupChanged {
-  /** The session whose setup state changed. */
-  sessionId: string;
+  /** The session whose setup state changed; absent for the host's own setup, which only `computerUseHostSetup` holders receive. */
+  sessionId?: string;
   /** Its new state. */
   state: ComputerUseSetupState;
 }
@@ -370,16 +370,16 @@ export type ComputerUseSetupPhase = "dormant" | "inProgress" | "restartRequired"
 
 /** `computerUseSetup/read` params. */
 export interface ComputerUseSetupReadParams {
-  /** The session whose setup to read. */
-  sessionId: string;
+  /** The session whose setup to read. Omitted reads the host's own setup, which needs the `computerUseHostSetup` grant. */
+  sessionId?: string;
 }
 
 /** `computerUseSetup/start` params: a human command. */
 export interface ComputerUseSetupStartParams {
   /** The client's id for this command. */
   commandId: string;
-  /** The session whose setup to start. */
-  sessionId: string;
+  /** The session whose setup to start. Omitted starts the host's own setup, which needs the `computerUseHostSetup` grant. */
+  sessionId?: string;
 }
 
 /** The session's setup state: the result of both methods and the `computerUseSetup/changed` payload's `state`. */
@@ -761,6 +761,10 @@ export interface InitializeResult {
   platformFamily: PlatformFamily;
   /** Server operating system. */
   platformOs: PlatformOs;
+  /** Whether this host can enforce the sandbox (ADR 50064-startup-report-sandbox-availability D2/D4). Optional so the addition is additive under SS1.5.4; a v1 host always sends it, and a client reads absent as unknown — the host predates the field, so the client falls back to its own probe rather than inventing an answer. */
+  sandboxAvailability?: SandboxAvailability;
+  /** Why enforcement is impossible. Sent only when `sandbox_availability` is `unavailable`; a client MUST NOT infer a reason when none is sent. */
+  sandboxUnavailableReason?: SandboxUnavailableReason;
   /** Envelope schema version and stable-surface fingerprint. */
   schema: SchemaInfo;
   /** Server identification. */
@@ -803,6 +807,8 @@ export interface Item {
   commandText?: string;
   /** `subagent`: camelCased `SubagentControlStatus` (open enum); `status` stays the generic item vocabulary. */
   controlStatus?: SubagentControlStatus;
+  /** `agentMessage`: `true` when the provider stream died mid-reply and the run failed with this partial text committed (ADR 50063 D2) — the wire mark for the gate-off "incomplete response" rule (#13328). Absent otherwise; never cleared once set. */
+  cutOff?: boolean;
   /** `workflow`: the run-level declared-phase label — the last `Phase` detail-row label of the reconciled projection; terminal-only, absent while live (tdd SS4.5.8, #45449). */
   declaredPhase?: string;
   /** `subagent`: nesting depth. */
@@ -1570,6 +1576,12 @@ export interface RequestReceipt {
 /** A `turn/retracted` settlement outcome (tdd SS4.5.1, ADR 50074 D1). Open enum (D-033): decode is tolerant — a value outside the list reads as `Accepted` (the event's historical meaning — pre-feature hosts emit it only for accepted retracts), never fails. The bundle keeps enumerating the known values for codegen and docs. */
 export type RetractOutcome = "accepted" | "declined" | (string & {});
 
+/** Whether this host can enforce the sandbox (ADR 50064-startup-report-sandbox-availability D2/D4). A property of the host process, probed once at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: a future enforcement posture arrives as a new value, read by older clients as unknown. */
+export type SandboxAvailability = "available" | "unavailable" | (string & {});
+
+/** Why sandbox enforcement is impossible on this host. Sent only when [`SandboxAvailability`] is `unavailable`; a client MUST NOT infer a reason when none is sent. Open: a future reason arrives as a new value, read by older clients as unknown. */
+export type SandboxUnavailableReason = "userNamespacesDenied" | "bubblewrapUnavailable" | (string & {});
+
 /** The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all (INV-006a). */
 export interface SchemaInfo {
   /** `sha256:<64 lower hex>` content hash of this server binary's stable-surface bundle (INV-003). A mismatch is a warning condition, not an error (SS1.4.1). */
@@ -1612,6 +1624,8 @@ export interface Session {
   modelId: string | null;
   /** The durable allocated session name (tdd SS2.4/SS2.14.1, #27598; ADR 27598 D2/D4). **Additive-optional**: present when the serving path holds an allocated name, omitted otherwise — absent is never fabricated. Authoritative and renameable via `session/rename`. */
   name?: string;
+  /** How the served `name` was set (tdd SS2.4/SS2.14.1, #50048; ADR 50048 D1/D2). **Additive-optional**, **fold-only**: the snapshot fold (`session/read`, the resume/start/fork-ack snapshot) derives and carries it from the log; `session/list` rows never carry it. Absent — and any value the client does not recognize — reads as unknown, never fabricated. */
+  nameOrigin?: SessionNameOrigin;
   /** The containing session's id when `kind` is `"subagent"` (FR-002, INV-002) — the id of the TOP-LEVEL session whose home holds this child, which is **not necessarily the session that spawned it**: native-child homes are physical siblings under the outer session's `subagent/` directory, so a subagent spawned by another subagent resolves to the outer session, not to its spawner. A client building a tree from this field gets one level, not a chain. Flat rather than nested: there is exactly one fact to carry, unlike `forkedFrom`'s four-field `ForkProvenance`. **Additive-optional**; a root carries none. */
   parentSessionId?: string;
   /** Absolute path of the session's durable log; non-nullable. Under the ephemeral session profile it is the **empty string**, meaning "no durable log exists" (tdd SS2.13.2) — the one value a client must not hand to a filesystem call. */
@@ -1889,6 +1903,8 @@ export interface SessionModelRouteUnservedParams {
 export interface SessionNameChangedParams {
   /** The new canonical name now in effect. */
   name: string;
+  /** How the new name was set (tdd SS2.4/SS4.6.7, #50048; ADR 50048 D1/D2). **Additive-optional**: omitted when the emitting fold cannot prove an origin — absent reads as unknown, never fabricated. */
+  nameOrigin?: SessionNameOrigin;
   /** The owning session. */
   sessionId: string;
   /** The durable records this event folded from. */
@@ -1896,6 +1912,9 @@ export interface SessionNameChangedParams {
   /** Opaque, strictly monotonic view cursor (tdd SS4.1). */
   viewCursor: string;
 }
+
+/** How the served session name was set (tdd SS2.4/SS4.6.7, #50048; ADR 50048 D1). **Open enum** (`x-msp-openness: open`): v1 serves `automatic` and `custom`; a client MUST read absent — and any value it does not recognize — as unknown, never fabricated. Open: a future source such as conversation-generated names (#35260) adds a value here, so closed would make that a breaking change. */
+export type SessionNameOrigin = "automatic" | "custom" | (string & {});
 
 /** `session/read` params (tdd SS2.5.5): read one stored session **without attaching** — no writer lease, no load, no subscription, no `SessionResumed` record. */
 export interface SessionReadParams {
@@ -3364,7 +3383,7 @@ export interface WorkflowTokenBudget {
 }
 
 /** Every wire method in this schema (SS1.9 index). */
-export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start";
+export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start" | "computerUseSetup/check";
 /** Every wire notification in this schema (SS1.9 index). */
 export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */

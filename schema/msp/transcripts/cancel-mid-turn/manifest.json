@@ -8,7 +8,7 @@
     "rationale": "This transcript is a hand-authored fixture and it disagreed with the binary: both production writers emit \"activeTurnId\": null on an idle Session (session/start/commit_load.rs and session/snapshot.rs) but the fixture omitted it, so the optional-absent schema it was pinned against rejected live host output for every idle Session frame - the #19923 defect class. The owner ruled required-nullable and granted this regeneration. Only the previously-omitted null member is inserted: no served event, no order, and no other field value changes.",
     "trackingIssue": "https://github.com/mslsrc/tbh/issues/22785"
   },
-  "fingerprint": "sha256:eae467ab60cb9a5d5af4de616830f065e59375c987fd59269c8cc33ed2a1137f",
+  "fingerprint": "sha256:9eefc75deb5ed86deca245e0dc776640d283bac57844a2c424e577f7ca44869a",
   "viewSchemaVersion": 1,
   "serverConfig": {
     "frameLimitBytes": 10485760
