@@ -123,6 +123,13 @@
 <td>History mode preference, default <code dir="auto">auto</code>. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and <code dir="auto">history.mode</code> reports what was actually served. Ignored when <code dir="auto">cursor</code> or <code dir="auto">excludeItems</code> makes it moot.</td>
 </tr>
 <tr>
+<td><code dir="auto">permissionProfile</code></td>
+<td><code dir="auto">string</code></td>
+<td></td>
+<td>optional</td>
+<td>The launch permission-profile pick: a profile id the host catalog already admits. Select, never create. Omitted means today’s behavior: restore retained authority only, no override. The host restores first, then applies the pick in the same pre-marker step; a pick that fails admission refuses the resume <code dir="auto">commandRejected</code> (-32030; <code dir="auto">permission_profile_unknown</code> / <code dir="auto">permission_profile_unavailable</code>) before any durable byte. Explicit <code dir="auto">null</code> is invalid params (the same closed null-tolerant set as at start).</td>
+</tr>
+<tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
