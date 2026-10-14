@@ -123,7 +123,8 @@ to the installed copy of that file. For any other file, read
 <p><strong>In a cleared environment.</strong> The child inherits none of your environment.
 It receives a short allowlist (<code dir="auto">HOME</code>, <code dir="auto">PATH</code>, <code dir="auto">USER</code>, <code dir="auto">LOGNAME</code>, <code dir="auto">TMPDIR</code>,
 <code dir="auto">TEMP</code>, <code dir="auto">TMP</code>, <code dir="auto">SHELL</code>, <code dir="auto">LANG</code>, <code dir="auto">LC_ALL</code> and <code dir="auto">TERM</code> when they are set, plus
-four more on Windows) and the plugin variables <code dir="auto">MUSE_PLUGIN_ID</code>,
+four more on Windows, and <code dir="auto">PROVENANCE_PROVIDER_SCOPE</code> when the process that
+launched Muse Code set it) and the plugin variables <code dir="auto">MUSE_PLUGIN_ID</code>,
 <code dir="auto">MUSE_PLUGIN_ROOT</code> (the installed, read-only copy of the plugin) and
 <code dir="auto">MUSE_PLUGIN_DATA_DIR</code> (a per-plugin directory for files the hook writes),
 with <code dir="auto">PLUGIN_ROOT</code> and <code dir="auto">CLAUDE_PLUGIN_ROOT</code> as aliases of the root and
