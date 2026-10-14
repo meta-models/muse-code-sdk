@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:6de32db08bbbe0deb478d2bfcaba001e9fb490986bc80db3aceb4d996abf7df9"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:4e3200c3c9dc0cd7919d11022630d43f9bc1c5cdda375381e90b0183b5665069"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = False
-REQUIRED_HOST_VERSION: Final[str] = "1.4.7"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.8"
 
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
 APPROVAL_AMENDMENT_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("session", "localPersistent",)
@@ -51,7 +51,7 @@ BACKGROUND_INITIATOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "timeout",)
 
 # A grantable capability name. Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when the protocol spec un-defers — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -79,6 +79,14 @@ COMPACTION_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("compacted", "noop", 
 # What initiated a compaction. Open.
 CompactionTrigger = str  # open enum: unknown values stay representable
 COMPACTION_TRIGGER_KNOWN_VALUES: Final[tuple[str, ...]] = ("manual", "auto",)
+
+# A per-app choice. **Open**, like `ComputerUseChoice`.
+ComputerUseAppChoice = str  # open enum: unknown values stay representable
+COMPUTER_USE_APP_CHOICE_KNOWN_VALUES: Final[tuple[str, ...]] = ("ask", "alwaysAllow", "blocked",)
+
+# Why Settings can't change a row. **Open**.
+ComputerUseAppLock = str  # open enum: unknown values stay representable
+COMPUTER_USE_APP_LOCK_KNOWN_VALUES: Final[tuple[str, ...]] = ("builtIn", "file",)
 
 # A capability dropdown's value. **Open**: the read result carries it, so an older client tolerates a value it does not know.
 ComputerUseChoice = str  # open enum: unknown values stay representable
@@ -135,7 +143,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -150,6 +158,10 @@ JsonRpcVersion = Literal["2.0"]
 # Quota limit kinds: open for evolution.
 LimitKind = str  # open enum: unknown values stay representable
 LIMIT_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("tierLimit",)
+
+# `agentMessage.messagePhase`: the phase the model declared on the commit, never inferred from position. Set on the completed item only; absent on `item/started`, which opens before the phase is recorded. Open: a client reads an absent or unknown value on a completed item as `"finalAnswer"` and still decodes the item. Not a turn-done signal; `turn/completed` is.
+MessagePhase = str  # open enum: unknown values stay representable
+MESSAGE_PHASE_KNOWN_VALUES: Final[tuple[str, ...]] = ("commentary", "finalAnswer",)
 
 # Where a model catalog came from. **Open**: an unrecognized value is an unknown source, not an error.
 ModelCatalogSource = str  # open enum: unknown values stay representable
@@ -595,6 +607,27 @@ class CommandAcceptedResult(TypedDict):
     status: CommandAckStatus
 
 
+class _ComputerUseAppBase(TypedDict):
+    bundleId: str
+    choice: ComputerUseAppChoice
+
+
+class ComputerUseApp(_ComputerUseAppBase, total=False):
+    """One row of the Settings apps list."""
+
+    lastAskedAt: str
+    locked: bool
+    lockedBy: ComputerUseAppLock
+    name: str
+
+
+class ComputerUseAppPatch(TypedDict):
+    """One per-app choice to set in `computerUseSettings/update`."""
+
+    bundleId: str
+    choice: ComputerUseAppChoice
+
+
 class _ComputerUseBlockedAppBase(TypedDict):
     bundleId: str
     locked: bool
@@ -606,23 +639,37 @@ class ComputerUseBlockedApp(_ComputerUseBlockedAppBase, total=False):
     prefix: bool
 
 
-class ComputerUseSettings(TypedDict):
-    """`computerUseSettings/read` result, also answered by `computerUseSettings/update`."""
+class ComputerUseInstalledApp(TypedDict):
+    """One installed or running app, for Settings' app picker."""
 
+    bundleId: str
+    name: str
+
+
+class _ComputerUseSettingsBase(TypedDict):
     blockedApps: list[ComputerUseBlockedApp]
     computerControl: ComputerUseChoice
     screenshots: ComputerUseChoice
 
 
+class ComputerUseSettings(_ComputerUseSettingsBase, total=False):
+    """`computerUseSettings/read` result, also answered by `computerUseSettings/update`."""
+
+    apps: list[ComputerUseApp]
+    installedApps: list[ComputerUseInstalledApp]
+
+
 class ComputerUseSettingsReadParams(TypedDict, total=False):
     """`computerUseSettings/read` params."""
 
+    installed: bool
     showBuiltIns: bool
 
 
 class ComputerUseSettingsUpdateParams(TypedDict, total=False):
     """`computerUseSettings/update` params: a patch. Omitted members are left alone; the whole patch applies or none of it does."""
 
+    apps: list[ComputerUseAppPatch]
     blockApps: list[str]
     computerControl: ComputerUseChoice
     screenshots: ComputerUseChoice
@@ -991,7 +1038,10 @@ class Item(_ItemBase, total=False):
     hookKey: str
     label: str
     message: str
+    messagePhase: MessagePhase
     modelVisibleContent: list[ModelVisibleContent]
+    monitorDescription: str
+    monitorId: str
     objective: str
     outcome: CompactionOutcome
     outputRef: OutputRef
@@ -1568,6 +1618,7 @@ class Session(_SessionBase, total=False):
     branch: str
     createdByClient: ClientInfo
     firstUserPrompt: str
+    generatedName: str
     kind: SessionKind
     lastActivityAt: str
     name: str
@@ -1786,6 +1837,7 @@ class _SessionNameChangedParamsBase(TypedDict):
 class SessionNameChangedParams(_SessionNameChangedParamsBase, total=False):
     """`session/nameChanged` params: the fold of ANY durable session-name record — the FIRST-NAMING automatic allocate as well as an accepted `session/rename` (or the same in-process runtime command). Replace-wholesale like every sibling."""
 
+    generatedName: str
     nameOrigin: SessionNameOrigin
 
 
@@ -1853,6 +1905,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     cursor: str | None
     excludeItems: bool
     history: HistoryPreference
+    permissionProfile: str
 
 
 class _SessionResumeResultBase(TypedDict):
@@ -2049,6 +2102,7 @@ class SkillCatalogEntry(_SkillCatalogEntryBase, total=False):
 
     argumentHint: str
     pluginId: str
+    title: str
 
 
 class SkillChangedParams(TypedDict):
@@ -2519,6 +2573,25 @@ class TurnInterruptResult(TypedDict):
     commandId: str
     status: CommandStatus
     turnId: str
+
+
+class _TurnModelRetryScheduledParamsBase(TypedDict):
+    attempt: int
+    maxAttempts: int
+    nextAttempt: int
+    retryDelayMs: int
+    sessionId: str
+    sourceRange: SourceRange
+    turnId: str
+    viewCursor: str
+
+
+class TurnModelRetryScheduledParams(_TurnModelRetryScheduledParamsBase, total=False):
+    """`turn/modelRetryScheduled` params: a durable model-stream retry-scheduled fact folded — the provider backoff behind one model attempt is observable BEFORE the turn terminates, so a streaming client can render \"system words · retrying in Ss · attempt N/M\" instead of dead air. Non-terminal: it never resolves a turn-wait. The sibling `turn/retryScheduled` shape at the model layer: same member names and semantics (attempt/nextAttempt/maxAttempts/ retryDelayMs/system/errorKind/httpStatus), minus `reason` — the row's words derive from `errorKind` through the shared gate-off mapping, and the recorded machine message is not user text. The delay is the recorded scheduled backoff, never an absolute fire time — clients derive any countdown locally. `sourceRange` cites the session stream's mirror of the task-lifecycle record."""
+
+    errorKind: str
+    httpStatus: int
+    system: str
 
 
 class _TurnRefBase(TypedDict):
@@ -3176,6 +3249,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "skill/changed": {"description": "The session's user-invocable skill set changed; clients re-issue skill/list. A live host-state projection, not a view event.", "params": "SkillChangedParams"},
     "turn/completed": {"description": "Turn terminal: completed | failed | cancelled, with usage and the settled error object.", "params": "TurnCompletedParams"},
     "turn/foregroundCompleted": {"description": "The turn's foreground work is done while named background reminder checks hold the turn open; explicitly non-terminal.", "params": "TurnForegroundCompletedParams"},
+    "turn/modelRetryScheduled": {"description": "A provider backoff behind one model attempt is scheduled and waiting out its delay; observable mid-turn, non-terminal.", "params": "TurnModelRetryScheduledParams"},
     "turn/retracted": {"description": "An accepted interrupt's paired retract durably settled, accepted or declined.", "params": "TurnRetractedParams"},
     "turn/retryScheduled": {"description": "A failing model attempt's retry is scheduled and waiting out its backoff; observable mid-turn, non-terminal.", "params": "TurnRetryScheduledParams"},
     "turn/started": {"description": "A foreground turn began running.", "params": "TurnStartedParams"},
@@ -3227,4 +3301,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32057, "kind": "userInputAnswerInvalid", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename",)

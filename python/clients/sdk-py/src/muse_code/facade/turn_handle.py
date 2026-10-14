@@ -97,9 +97,10 @@ class _TerminalUnknown:
 
 TurnOutcome = Union[_Completed, _Unqueued, _TerminalUnknown]
 """How a turn ended, from a waiter's point of view. ``turn/retracted``,
-``turn/retryScheduled``, and ``turn/foregroundCompleted`` are deliberately
-absent: a retracted turn still reaches its own terminal, and a scheduled
-retry or a foreground notice is explicitly non-terminal."""
+``turn/retryScheduled``, ``turn/modelRetryScheduled``, and
+``turn/foregroundCompleted`` are deliberately absent: a retracted turn still
+reaches its own terminal, and a scheduled retry, a scheduled backoff, or a
+foreground notice is explicitly non-terminal."""
 
 
 def is_launch_failure(outcome: TurnOutcome) -> bool:

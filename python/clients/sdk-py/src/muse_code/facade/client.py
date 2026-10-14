@@ -130,12 +130,17 @@ class ResumeSessionOptions:
         exclude_items: Ask the host to omit item bodies from the history.
         history: The history preference forwarded as the wire's ``history``
             member.
+        permission_profile: The permission profile pick forwarded as the
+            wire's ``permissionProfile`` member: the host restores the
+            retained authority first, then applies the pick. Omitted means
+            no override.
     """
 
     session_id: str
     cursor: str | None = None
     exclude_items: bool | None = None
     history: Mapping[str, Any] | None = None
+    permission_profile: str | None = None
 
 
 # Drift pins — the Python twin of the TS `AssertNever` on START_FORWARDED /
@@ -483,6 +488,8 @@ class MuseClient(Generic[_I]):
             params["excludeItems"] = options.exclude_items
         if options.history is not None:
             params["history"] = options.history
+        if options.permission_profile is not None:
+            params["permissionProfile"] = options.permission_profile
         return await self._open("session/resume", params, _ResumeOpening)
 
     async def close(self) -> None:

@@ -110,6 +110,25 @@ def retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     }
 
 
+def model_retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
+    return {
+        "method": "turn/modelRetryScheduled",
+        "params": {
+            "attempt": 2,
+            "errorKind": "overloaded",
+            "httpStatus": 529,
+            "maxAttempts": 5,
+            "nextAttempt": 3,
+            "retryDelayMs": 4_000,
+            "sessionId": SESSION,
+            "sourceRange": SOURCE,
+            "system": "meta",
+            "turnId": turn_id,
+            "viewCursor": view_cursor,
+        },
+    }
+
+
 def foreground_completed(turn_id: str, view_cursor: str) -> dict[str, Any]:
     return {
         "method": "turn/foregroundCompleted",
@@ -491,6 +510,58 @@ def test_a_replayed_page_never_re_plants_the_retry_hint_on_a_turn_that_left_runn
     assert held.state == "retracted"
     assert held.retry_scheduled is None, "the replayed hint is dropped"
     assert fold.apply(retry) == IgnoredStaleFrame("turn/retryScheduled", "turn-1")
+
+
+def test_turn_model_retry_scheduled_is_non_terminal_the_turn_keeps_running() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(model_retry_scheduled("turn-1", "v:s:2"))
+
+    assert fold.active_turn_id == "turn-1", "a scheduled backoff never settles a turn"
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "running"
+    assert held.model_retry_scheduled is not None
+    assert held.model_retry_scheduled["nextAttempt"] == 3
+
+
+def test_turn_completed_clears_the_provider_backoff_hint() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(model_retry_scheduled("turn-1", "v:s:2"))
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_retry_scheduled is not None, (
+        "the hint is set while the turn runs"
+    )
+
+    fold.apply(turn_completed("turn-1", "completed", "v:s:3"))
+
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_retry_scheduled is None
+
+
+def test_a_replayed_page_never_re_plants_the_backoff_hint_on_a_turn_that_left_running() -> None:
+    fold = SessionFold()
+    backoff = model_retry_scheduled("turn-1", "v:s:2")
+    page = [
+        turn_started("turn-1", "cmd-1", "v:s:1"),
+        backoff,
+        turn_completed("turn-1", "cancelled", "v:s:3"),
+        turn_retracted("turn-1", "cmd-1", "v:s:4"),
+    ]
+    for event in page:
+        fold.apply(event)
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_retry_scheduled is None, "in-order delivery is clean"
+
+    for event in page:
+        fold.apply(event)
+
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "retracted"
+    assert held.model_retry_scheduled is None, "the replayed hint is dropped"
+    assert fold.apply(backoff) == IgnoredStaleFrame("turn/modelRetryScheduled", "turn-1")
 
 
 def test_turn_completed_clears_the_foreground_hint() -> None:
@@ -1081,6 +1152,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "turn/completed": turn_completed("turn-t", "completed", "v:t:6"),
         "turn/retracted": turn_retracted("turn-t2", "cmd-t2", "v:t:7"),
         "turn/retryScheduled": retry_scheduled("turn-t3", "v:t:8"),
+        "turn/modelRetryScheduled": model_retry_scheduled("turn-t3", "v:t:8b"),
         "turn/foregroundCompleted": foreground_completed("turn-t5", "v:t:23"),
         "turn/unqueued": turn_unqueued("turn-t4", "cmd-t4", "v:t:9"),
         "approval/requested": approval_requested("a-t", "v:t:10"),

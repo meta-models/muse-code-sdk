@@ -10,7 +10,8 @@ are neither an item nor a state family:
 
 - the TURN LIFECYCLE — ``turn/started``, ``turn/completed``,
   ``turn/retracted``, ``turn/unqueued``, and the non-terminal
-  ``turn/retryScheduled`` and ``turn/foregroundCompleted``;
+  ``turn/retryScheduled``, ``turn/modelRetryScheduled``, and
+  ``turn/foregroundCompleted``;
 - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending sets
   and their first durable terminal. The decision flow (choosing and sending a
   resolution) is the facade's, not the fold's;
@@ -71,6 +72,7 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         "turn/foregroundCompleted",
         "turn/retracted",
         "turn/retryScheduled",
+        "turn/modelRetryScheduled",
         "turn/unqueued",
         "approval/requested",
         "approval/updated",
@@ -139,6 +141,9 @@ class TurnEntry:
             ``turn/completed`` folded.
         error: Present iff the terminal was ``"failed"``.
         retry_scheduled: The latest scheduled model retry; non-terminal.
+        model_retry_scheduled: The latest scheduled provider-backoff retry;
+            non-terminal. The model-attempt twin of ``retry_scheduled``;
+            clears on the turn's terminal.
         foreground_completed: The latest foreground-completed notice;
             non-terminal. Tells a renderer the answer is done while
             ``blockingAgents`` hold the turn; clears on the turn's terminal.
@@ -150,6 +155,7 @@ class TurnEntry:
     terminal: str | None = None
     error: Params | None = None
     retry_scheduled: Params | None = None
+    model_retry_scheduled: Params | None = None
     foreground_completed: Params | None = None
 
 
@@ -422,6 +428,7 @@ class _InternalTurn:
     terminal: str | None = None
     error: Params | None = None
     retry_scheduled: Params | None = None
+    model_retry_scheduled: Params | None = None
     foreground_completed: Params | None = None
 
 
@@ -572,6 +579,8 @@ class SessionFold:
             return self._turn_unqueued(params)
         if method == "turn/retryScheduled":
             return self._turn_retry_scheduled(params)
+        if method == "turn/modelRetryScheduled":
+            return self._turn_model_retry_scheduled(params)
         if method == "turn/foregroundCompleted":
             return self._turn_foreground_completed(params)
         if method == "approval/requested":
@@ -675,6 +684,9 @@ class SessionFold:
         # The retry hint is a "retrying in Ns" countdown, and it clears on the
         # turn's next event — which a completion is.
         turn.retry_scheduled = None
+        # Same for the provider-backoff hint: a finished turn is not
+        # waiting out a backoff.
+        turn.model_retry_scheduled = None
         # Same for the foreground hint: a finished turn is not
         # background-waiting.
         turn.foreground_completed = None
@@ -720,6 +732,18 @@ class SessionFold:
         turn.retry_scheduled = params
         return TurnFold(turn_id, turn.state)
 
+    def _turn_model_retry_scheduled(self, params: Params) -> FoldOutcome:
+        # Non-terminal by contract: it never resolves a turn-wait.
+        turn_id = str(params["turnId"])
+        turn = self._turn_for(turn_id)
+        # ...but it is still a turn frame, so it takes the same redelivery
+        # guard as the retry hint: a replayed page must not re-plant the
+        # provider-backoff hint on a turn that already left `running`.
+        if turn.state != "running":
+            return IgnoredStaleFrame("turn/modelRetryScheduled", turn_id)
+        turn.model_retry_scheduled = params
+        return TurnFold(turn_id, turn.state)
+
     def _turn_foreground_completed(self, params: Params) -> FoldOutcome:
         # Non-terminal by contract: it never resolves a turn-wait.
         turn_id = str(params["turnId"])
@@ -753,6 +777,7 @@ class SessionFold:
             terminal=turn.terminal,
             error=turn.error,
             retry_scheduled=turn.retry_scheduled,
+            model_retry_scheduled=turn.model_retry_scheduled,
             foreground_completed=turn.foreground_completed,
         )
 

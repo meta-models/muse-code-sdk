@@ -41,6 +41,7 @@ import type {
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
+  TurnModelRetryScheduledParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -490,6 +491,92 @@ test("a replayed page never re-plants the retry hint on a turn that left running
   assert.deepEqual(fold.apply(retry), {
     kind: "ignoredStaleFrame",
     method: "turn/retryScheduled",
+    id: "turn-1",
+  });
+});
+
+test("turn/modelRetryScheduled is non-terminal: the turn keeps running", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnModelRetryScheduledParams = {
+    attempt: 2,
+    errorKind: "overloaded",
+    httpStatus: 529,
+    maxAttempts: 5,
+    nextAttempt: 3,
+    retryDelayMs: 4000,
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    system: "meta",
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/modelRetryScheduled", params });
+
+  assert.equal(fold.activeTurnId, "turn-1", "a scheduled backoff never settles a turn");
+  assert.equal(fold.turn("turn-1")?.state, "running");
+  assert.equal(fold.turn("turn-1")?.modelRetryScheduled?.nextAttempt, 3);
+});
+
+test("turn/completed clears the provider-backoff hint (tdd SS4.5.1)", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnModelRetryScheduledParams = {
+    attempt: 2,
+    maxAttempts: 5,
+    nextAttempt: 3,
+    retryDelayMs: 4000,
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/modelRetryScheduled", params });
+  assert.ok(fold.turn("turn-1")?.modelRetryScheduled, "the hint is set while the turn runs");
+
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:3"));
+
+  // The hint is a backoff countdown and clears on the turn's terminal; a
+  // renderer keyed on it would otherwise show a countdown on a turn that
+  // is already done.
+  assert.equal(fold.turn("turn-1")?.modelRetryScheduled, undefined);
+});
+
+test("a replayed page never re-plants the backoff hint on a turn that left running", () => {
+  const fold = new SessionFold();
+  const backoff: ViewEvent = {
+    method: "turn/modelRetryScheduled",
+    params: {
+      attempt: 2,
+      maxAttempts: 5,
+      nextAttempt: 3,
+      retryDelayMs: 4000,
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      turnId: "turn-1",
+      viewCursor: "v:s:2",
+    },
+  };
+  const page: readonly ViewEvent[] = [
+    turnStarted("turn-1", "cmd-1", "v:s:1"),
+    backoff,
+    turnCompleted("turn-1", "cancelled", "v:s:3"),
+    turnRetracted("turn-1", "cmd-1", "v:s:4"),
+  ];
+  for (const event of page) fold.apply(event);
+  assert.equal(fold.turn("turn-1")?.modelRetryScheduled, undefined, "in-order delivery is clean");
+
+  // Same redelivery guard as the retry hint: without it, a reconnect replay
+  // re-plants the hint on the retracted turn, and `#turnCompleted`'s clear
+  // can no longer undo that, because the replayed completion is itself
+  // dropped.
+  for (const event of page) fold.apply(event);
+
+  assert.equal(fold.turn("turn-1")?.state, "retracted");
+  assert.equal(fold.turn("turn-1")?.modelRetryScheduled, undefined, "the replayed hint is dropped");
+  assert.deepEqual(fold.apply(backoff), {
+    kind: "ignoredStaleFrame",
+    method: "turn/modelRetryScheduled",
     id: "turn-1",
   });
 });
@@ -1422,6 +1509,19 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     turnId: "turn-t3",
     viewCursor: "v:t:8",
   };
+  const modelRetrySched: TurnModelRetryScheduledParams = {
+    attempt: 2,
+    errorKind: "overloaded",
+    httpStatus: 529,
+    maxAttempts: 5,
+    nextAttempt: 3,
+    retryDelayMs: 4000,
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    system: "meta",
+    turnId: "turn-t3",
+    viewCursor: "v:t:8",
+  };
   const foreground: TurnForegroundCompletedParams = {
     blockingAgents: ["goal-reminder"],
     sessionId: SESSION,
@@ -1525,6 +1625,7 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     "turn/completed": turnCompleted("turn-t", "completed", "v:t:6"),
     "turn/retracted": turnRetracted("turn-t2", "cmd-t2", "v:t:7"),
     "turn/retryScheduled": { method: "turn/retryScheduled", params: retrySched },
+    "turn/modelRetryScheduled": { method: "turn/modelRetryScheduled", params: modelRetrySched },
     "turn/foregroundCompleted": { method: "turn/foregroundCompleted", params: foreground },
     "turn/unqueued": turnUnqueued("turn-t4", "cmd-t4", "v:t:9"),
     "approval/requested": approvalRequested("a-t", "v:t:10"),

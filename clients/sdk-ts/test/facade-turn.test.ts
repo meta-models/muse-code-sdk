@@ -33,6 +33,7 @@ import type {
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
+  TurnModelRetryScheduledParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -118,6 +119,23 @@ function turnRetryScheduled(turnId: string, viewCursor: string): ViewEvent {
     viewCursor,
   };
   return { method: "turn/retryScheduled", params };
+}
+
+function turnModelRetryScheduled(turnId: string, viewCursor: string): ViewEvent {
+  const params: TurnModelRetryScheduledParams = {
+    attempt: 2,
+    errorKind: "overloaded",
+    httpStatus: 529,
+    maxAttempts: 5,
+    nextAttempt: 3,
+    retryDelayMs: 4_000,
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    system: "meta",
+    turnId,
+    viewCursor,
+  };
+  return { method: "turn/modelRetryScheduled", params };
 }
 
 function turnForegroundCompleted(turnId: string, viewCursor: string): ViewEvent {
@@ -263,6 +281,23 @@ test("TEST-012: turn/retryScheduled is non-terminal and never settles the wait (
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(settled, false, "a scheduled retry is a fact about a RUNNING turn, not an exit");
+
+  s.apply(turnCompleted("t-1", "completed", "v:3"));
+  assert.equal((await turn.completed).kind, "completed");
+});
+
+test("TEST-012: turn/modelRetryScheduled is non-terminal and never settles the wait (SS4.5.1)", { timeout: 5_000 }, async () => {
+  const s = session();
+  const turn = s.turn("t-1");
+  s.apply(turnStarted("t-1", "v:1"));
+  s.apply(turnModelRetryScheduled("t-1", "v:2"));
+
+  let settled = false;
+  void turn.completed.then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "a scheduled backoff is a fact about a RUNNING turn, not an exit");
 
   s.apply(turnCompleted("t-1", "completed", "v:3"));
   assert.equal((await turn.completed).kind, "completed");

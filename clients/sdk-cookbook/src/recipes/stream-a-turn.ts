@@ -15,6 +15,10 @@
  *    invariant a UI is relying on when it does the cheap thing.
  *  - the turn is over on `turn/completed`, not on the last delta. That frame
  *    carries the terminal and the usage a UI shows when the answer settles.
+ *  - once the turn is over, show EVERY completed `agentMessage` with its
+ *    `messagePhase` (`"commentary"` narration, `"finalAnswer"`); the last
+ *    one is not "the answer": the phase labels a message, its position
+ *    does not.
  *
  * Fixture mechanics, so the code below reads honestly: serve-fixture matches
  * our frames structurally against the transcript's client lines and then
@@ -225,6 +229,51 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       if (typeof usage["inputTokens"] !== "number" || typeof usage["outputTokens"] !== "number") {
         throw new Error(`turn/completed usage lacks numeric token counts: ${JSON.stringify(usage)}`);
       }
+    },
+  },
+  {
+    id: "every-message",
+    title: "Show every completed agent message with its phase, now the turn is over",
+    async run(context) {
+      const host = requireHost(context);
+      const turnId = context.turnId;
+      if (turnId === undefined) throw new Error("`turn-start` did not finish");
+      // Only after turn/completed is the set of agent messages whole. A turn
+      // may narrate before and between tool calls (`messagePhase:
+      // "commentary"`) and then answer (`"finalAnswer"`); a UI shows each
+      // one as it arrived, labelled by its phase, and never treats the LAST
+      // agentMessage as "the answer": the phase labels a message, its
+      // position does not. This transcript was recorded before the member
+      // existed, so its phase is absent, which reads as a final answer.
+      const completed = host
+        .notifications()
+        .filter((notification) => notification.method === "item/completed")
+        .map((notification) => notification.params["item"] as Record<string, unknown> | undefined)
+        .filter(
+          (item): item is Record<string, unknown> =>
+            item !== undefined && item["kind"] === "agentMessage" && item["status"] === "completed",
+        );
+      // The recorded answer predates the member, so it carries no
+      // `messagePhase` at all: the absent member is what this recipe proves
+      // reads as a final answer. Check that once, on the recording, before
+      // the mapping below (a current host labels every finished message, so
+      // copied code keeps the mapping and drops this recording check).
+      if (completed.some((item) => "messagePhase" in item)) {
+        throw new Error("the recorded transcript's answer must not carry messagePhase: it is the old-host example");
+      }
+      const messages = completed.map((item) => ({
+        itemId: stringAt(item, "itemId", "item/completed item"),
+        text: stringAt(item, "text", "item/completed item"),
+        messagePhase: item["messagePhase"] === "commentary" ? "commentary" : "finalAnswer",
+      }));
+      if (messages.length === 0) throw new Error("the turn served no completed agentMessage");
+      if (!messages.some((message) => message.itemId === context.itemId)) {
+        throw new Error("the streamed message is missing from the turn's completed messages");
+      }
+      // `messagePhase` is an open enum: a phase this client does not know
+      // still decodes, and a UI labels it as it would a final answer.
+      const phases = messages.map((message) => message.messagePhase);
+      equals(phases.join(","), "finalAnswer", "the recorded transcript's single (absent) phase");
     },
   },
   {

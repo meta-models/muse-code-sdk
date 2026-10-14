@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:0d803007acbd02ad07a6cec4d5a63b834f4db743886bbaf865b8738116dc212f"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:c533a6c39dca76ab4da20084e0b730712e0cae8db4644721290e13676aec90a3"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.7"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.8"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -70,7 +70,7 @@ BACKGROUND_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("backgrounded",)
 
 # A grantable capability name. Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when the protocol spec un-defers — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "peerMessaging", "rawLog",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -98,6 +98,14 @@ COMPACTION_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("compacted", "noop", 
 # What initiated a compaction. Open.
 CompactionTrigger = str  # open enum: unknown values stay representable
 COMPACTION_TRIGGER_KNOWN_VALUES: Final[tuple[str, ...]] = ("manual", "auto",)
+
+# A per-app choice. **Open**, like `ComputerUseChoice`.
+ComputerUseAppChoice = str  # open enum: unknown values stay representable
+COMPUTER_USE_APP_CHOICE_KNOWN_VALUES: Final[tuple[str, ...]] = ("ask", "alwaysAllow", "blocked",)
+
+# Why Settings can't change a row. **Open**.
+ComputerUseAppLock = str  # open enum: unknown values stay representable
+COMPUTER_USE_APP_LOCK_KNOWN_VALUES: Final[tuple[str, ...]] = ("builtIn", "file",)
 
 # A capability dropdown's value. **Open**: the read result carries it, so an older client tolerates a value it does not know.
 ComputerUseChoice = str  # open enum: unknown values stay representable
@@ -154,7 +162,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "skillRead",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "skillRead",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -169,6 +177,10 @@ JsonRpcVersion = Literal["2.0"]
 # Quota limit kinds: open for evolution.
 LimitKind = str  # open enum: unknown values stay representable
 LIMIT_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("tierLimit",)
+
+# `log/gap` `reason`: only a `replayAnchorLost` gap is refillable through `log/page`; an `overFrame` gap is a known hole on that connection, its hole `(after, next]` less `next` when it is delivered. **Open**: a server-produced vocabulary.
+LogGapReason = str  # open enum: unknown values stay representable
+LOG_GAP_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("replayAnchorLost", "overFrame",)
 
 # The login flow's terminal vocabulary. Open.
 McpOAuthLoginOutcome = str  # open enum: unknown values stay representable
@@ -190,6 +202,10 @@ MCP_SERVER_LIST_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("settings", "plug
 McpServerListTransport = str  # open enum: unknown values stay representable
 MCP_SERVER_LIST_TRANSPORT_KNOWN_VALUES: Final[tuple[str, ...]] = ("stdio", "streamableHttp", "unknown",)
 
+# `agentMessage.messagePhase`: the phase the model declared on the commit, never inferred from position. Set on the completed item only; absent on `item/started`, which opens before the phase is recorded. Open: a client reads an absent or unknown value on a completed item as `"finalAnswer"` and still decodes the item. Not a turn-done signal; `turn/completed` is.
+MessagePhase = str  # open enum: unknown values stay representable
+MESSAGE_PHASE_KNOWN_VALUES: Final[tuple[str, ...]] = ("commentary", "finalAnswer",)
+
 # Where a model catalog came from. **Open**: an unrecognized value is an unknown source, not an error.
 ModelCatalogSource = str  # open enum: unknown values stay representable
 MODEL_CATALOG_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("providerCatalog", "fakeCatalog", "unresolvedCatalog", "bundledCatalog", "configCatalog",)
@@ -209,6 +225,18 @@ PEER_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "active", "busy", "c
 # The `pendingRequests` discriminator. Open enum, v1 values `approval` and `userInput`.
 PendingRequestKind = str  # open enum: unknown values stay representable
 PENDING_REQUEST_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("approval", "userInput",)
+
+# A profile's effective approval axis. **Open**: the vocabulary can widen.
+PermissionApprovalAxis = str  # open enum: unknown values stay representable
+PERMISSION_APPROVAL_AXIS_KNOWN_VALUES: Final[tuple[str, ...]] = ("onRequest", "promptUnmatched", "allowAll",)
+
+# A profile's effective filesystem axis. **Open**: the vocabulary can widen.
+PermissionFilesystemAxis = str  # open enum: unknown values stay representable
+PERMISSION_FILESYSTEM_AXIS_KNOWN_VALUES: Final[tuple[str, ...]] = ("sandboxed", "unrestricted",)
+
+# A profile's effective local-command network axis. **Open**: the vocabulary can widen.
+PermissionNetworkAxis = str  # open enum: unknown values stay representable
+PERMISSION_NETWORK_AXIS_KNOWN_VALUES: Final[tuple[str, ...]] = ("restricted", "off", "enabled",)
 
 # Whether a profile change did anything. The accepted arm spells `completed` exactly as `session/setApprovalMode` so the shared member never forks spellings. Apply failures are `commandRejected`.
 PermissionProfileApplyOutcome = str  # open enum: unknown values stay representable
@@ -296,6 +324,12 @@ SessionMcpStdioFraming = Literal["auto", "contentLength", "lineDelimitedJson"]
 # How the served session name was set. **Open enum** (`x-msp-openness: open`): v1 serves `automatic` and `custom`; a client MUST read absent — and any value it does not recognize — as unknown, never fabricated. Open: a future source such as conversation-generated names adds a value here, so closed would make that a breaking change.
 SessionNameOrigin = str  # open enum: unknown values stay representable
 SESSION_NAME_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("automatic", "custom",)
+
+# `session/reportStartupPhases` span phase: the `StartupPhasesRecord` phase vocabulary in camelCase. The host maps each value onto the record's snake_case spelling at append. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 348).
+SessionReportStartupPhase = Literal["terminalProbe", "sessionOpen", "runtimeInit", "firstFrame", "inputReady"]
+
+# `session/reportStartupPhases` terminal color provenance: the durable `TerminalColorProvenance` vocabulary in camelCase. The host maps each value onto the record spelling at append. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 348).
+SessionReportTerminalColorProvenance = Literal["probed", "defaulted", "overridden"]
 
 # A session's load state.
 SessionStatus = str  # open enum: unknown values stay representable
@@ -810,6 +844,27 @@ class CommandAcceptedResult(TypedDict):
     status: CommandAckStatus
 
 
+class _ComputerUseAppBase(TypedDict):
+    bundleId: str
+    choice: ComputerUseAppChoice
+
+
+class ComputerUseApp(_ComputerUseAppBase, total=False):
+    """One row of the Settings apps list."""
+
+    lastAskedAt: str
+    locked: bool
+    lockedBy: ComputerUseAppLock
+    name: str
+
+
+class ComputerUseAppPatch(TypedDict):
+    """One per-app choice to set in `computerUseSettings/update`."""
+
+    bundleId: str
+    choice: ComputerUseAppChoice
+
+
 class _ComputerUseBlockedAppBase(TypedDict):
     bundleId: str
     locked: bool
@@ -821,23 +876,37 @@ class ComputerUseBlockedApp(_ComputerUseBlockedAppBase, total=False):
     prefix: bool
 
 
-class ComputerUseSettings(TypedDict):
-    """`computerUseSettings/read` result, also answered by `computerUseSettings/update`."""
+class ComputerUseInstalledApp(TypedDict):
+    """One installed or running app, for Settings' app picker."""
 
+    bundleId: str
+    name: str
+
+
+class _ComputerUseSettingsBase(TypedDict):
     blockedApps: list[ComputerUseBlockedApp]
     computerControl: ComputerUseChoice
     screenshots: ComputerUseChoice
 
 
+class ComputerUseSettings(_ComputerUseSettingsBase, total=False):
+    """`computerUseSettings/read` result, also answered by `computerUseSettings/update`."""
+
+    apps: list[ComputerUseApp]
+    installedApps: list[ComputerUseInstalledApp]
+
+
 class ComputerUseSettingsReadParams(TypedDict, total=False):
     """`computerUseSettings/read` params."""
 
+    installed: bool
     showBuiltIns: bool
 
 
 class ComputerUseSettingsUpdateParams(TypedDict, total=False):
     """`computerUseSettings/update` params: a patch. Omitted members are left alone; the whole patch applies or none of it does."""
 
+    apps: list[ComputerUseAppPatch]
     blockApps: list[str]
     computerControl: ComputerUseChoice
     screenshots: ComputerUseChoice
@@ -947,12 +1016,16 @@ class EffectiveModel(TypedDict):
     source: ModelChangeSource
 
 
-class EffectivePermissionState(TypedDict):
-    """The effective permission-state projection: the committed native permission snapshot (profile identity, reviewer authority) plus the live per-session runtime's attachment evidence. The same object `session/setPermissionProfile` returns and the `Session` object carries as `permissionState`. Served values must be coherent: a read never combines an old profile with a newer runtime's attachment claim."""
-
+class _EffectivePermissionStateBase(TypedDict):
     profileId: str | None
     reviewerAttached: bool
     reviewerAuthority: ReviewerAuthority
+
+
+class EffectivePermissionState(_EffectivePermissionStateBase, total=False):
+    """The effective permission-state projection: the committed native permission snapshot (profile identity, reviewer authority) plus the live per-session runtime's attachment evidence. The same object `session/setPermissionProfile` returns and the `Session` object carries as `permissionState`. Served values must be coherent: a read never combines an old profile with a newer runtime's attachment claim."""
+
+    axes: PermissionAxes
 
 
 class _ErrorDataBase(TypedDict):
@@ -1227,7 +1300,10 @@ class Item(_ItemBase, total=False):
     hookKey: str
     label: str
     message: str
+    messagePhase: MessagePhase
     modelVisibleContent: list[ModelVisibleContent]
+    monitorDescription: str
+    monitorId: str
     objective: str
     outcome: CompactionOutcome
     outputRef: OutputRef
@@ -1361,13 +1437,17 @@ class LastTurn(_LastTurnBase, total=False):
     reason: str
 
 
-class LogGapParams(TypedDict):
-    """`log/gap` notification params: the raw-altitude shape of the shared gap contract, per subscription. The client MUST fill `(after, next)` with `log/page` before treating its fold as current."""
-
+class _LogGapParamsBase(TypedDict):
     after: RecordPosition
     next: RecordPosition
     stream: StreamRef
     subscriptionId: int
+
+
+class LogGapParams(_LogGapParamsBase, total=False):
+    """`log/gap` notification params: the raw-altitude shape of the shared gap contract, per subscription. The client MUST fill `(after, next)` with `log/page` before treating its fold as current, except for an `overFrame` gap (see [`LogGapReason`])."""
+
+    reason: LogGapReason
 
 
 # `log/page` params.
@@ -1719,6 +1799,15 @@ class PendingUserInputPointer(_PendingUserInputPointerBase, total=False):
     """A pending user-input prompt in the snapshot."""
 
     itemId: str
+
+
+class PermissionAxes(TypedDict):
+    """A committed profile's effective four axis values: the resolved filesystem, network, approval, and reviewer the YOLO predicate reads. The reviewer member reuses `ReviewerAuthority`, so its spelling never drifts from the served `reviewerAuthority`."""
+
+    approval: PermissionApprovalAxis
+    filesystem: PermissionFilesystemAxis
+    network: PermissionNetworkAxis
+    reviewer: ReviewerAuthority
 
 
 class PermissionProfileListParams(TypedDict, total=False):
@@ -2078,6 +2167,7 @@ class Session(_SessionBase, total=False):
     branch: str
     createdByClient: ClientInfo
     firstUserPrompt: str
+    generatedName: str
     kind: SessionKind
     lastActivityAt: str
     name: str
@@ -2298,6 +2388,7 @@ class _SessionNameChangedParamsBase(TypedDict):
 class SessionNameChangedParams(_SessionNameChangedParamsBase, total=False):
     """`session/nameChanged` params: the fold of ANY durable session-name record — the FIRST-NAMING automatic allocate as well as an accepted `session/rename` (or the same in-process runtime command). Replace-wholesale like every sibling."""
 
+    generatedName: str
     nameOrigin: SessionNameOrigin
 
 
@@ -2385,6 +2476,32 @@ class SessionRenameResult(_SessionRenameResultBase, total=False):
     name: str
 
 
+class _SessionReportStartupPhaseSpanBase(TypedDict):
+    durationMs: int
+    phase: SessionReportStartupPhase
+    startMs: int
+
+
+class SessionReportStartupPhaseSpan(_SessionReportStartupPhaseSpanBase, total=False):
+    """`session/reportStartupPhases` span: one `StartupPhasesRecord` phase row in camelCase. The host ignores unknown members and fails closed (`invalidParams`) on an unknown phase or provenance value; a `colorProvenance` on any other phase is stripped. The host maps each row onto the record's snake_case spelling at append. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 348)."""
+
+    colorProvenance: SessionReportTerminalColorProvenance
+
+
+class SessionReportStartupPhasesParams(TypedDict):
+    """`session/reportStartupPhases` params: the served session, the client-minted launch nonce (one UUID per process launch, any textual UUID form), and the finished spans. No `commandId`: the nonce is the idempotency key and the call is best-effort. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 348)."""
+
+    launchNonce: str
+    phases: list[SessionReportStartupPhaseSpan]
+    sessionId: str
+
+
+class SessionReportStartupPhasesResult(TypedDict):
+    """`session/reportStartupPhases` result: whether this report appended. A duplicate nonce succeeds with `recorded: false` and appends nothing. Experimental: the stable bundle strips this until the surface stabilizes (in-v1 row 348)."""
+
+    recorded: bool
+
+
 class _SessionResumeParamsBase(TypedDict):
     commandId: str
     sessionId: str
@@ -2397,6 +2514,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     cursor: str | None
     excludeItems: bool
     history: HistoryPreference
+    permissionProfile: str
 
 
 class _SessionResumeResultBase(TypedDict):
@@ -2673,6 +2791,7 @@ class SkillCatalogEntry(_SkillCatalogEntryBase, total=False):
 
     argumentHint: str
     pluginId: str
+    title: str
 
 
 class SkillChangedParams(TypedDict):
@@ -3143,6 +3262,25 @@ class TurnInterruptResult(TypedDict):
     commandId: str
     status: CommandStatus
     turnId: str
+
+
+class _TurnModelRetryScheduledParamsBase(TypedDict):
+    attempt: int
+    maxAttempts: int
+    nextAttempt: int
+    retryDelayMs: int
+    sessionId: str
+    sourceRange: SourceRange
+    turnId: str
+    viewCursor: str
+
+
+class TurnModelRetryScheduledParams(_TurnModelRetryScheduledParamsBase, total=False):
+    """`turn/modelRetryScheduled` params: a durable model-stream retry-scheduled fact folded — the provider backoff behind one model attempt is observable BEFORE the turn terminates, so a streaming client can render \"system words · retrying in Ss · attempt N/M\" instead of dead air. Non-terminal: it never resolves a turn-wait. The sibling `turn/retryScheduled` shape at the model layer: same member names and semantics (attempt/nextAttempt/maxAttempts/ retryDelayMs/system/errorKind/httpStatus), minus `reason` — the row's words derive from `errorKind` through the shared gate-off mapping, and the recorded machine message is not user text. The delay is the recorded scheduled backoff, never an absolute fire time — clients derive any countdown locally. `sourceRange` cites the session stream's mirror of the task-lifecycle record."""
+
+    errorKind: str
+    httpStatus: int
+    system: str
 
 
 class _TurnRefBase(TypedDict):
@@ -3796,6 +3934,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/promptHint": {"description": "Picks one feature-tip table id over the client-supplied candidates; display-only, nothing is logged.", "params": "SessionPromptHintParams", "result": "SessionPromptHintResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
     "session/rename": {"description": "Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile.", "params": "SessionRenameParams", "result": "SessionRenameResult"},
+    "session/reportStartupPhases": {"description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer.", "params": "SessionReportStartupPhasesParams", "result": "SessionReportStartupPhasesResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},
     "session/setApprovalMode": {"description": "Selects a preconfigured approval enforcement mode mid-session; select, never create.", "params": "SessionSetApprovalModeParams", "result": "SessionSetApprovalModeResult"},
     "session/setModel": {"description": "Reconfigures the session's model; the selection is durable and applies to subsequent model calls.", "params": "SessionSetModelParams", "result": "SessionSetModelResult"},
@@ -3882,6 +4021,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "skill/changed": {"description": "The session's user-invocable skill set changed; clients re-issue skill/list. A live host-state projection, not a view event.", "params": "SkillChangedParams"},
     "turn/completed": {"description": "Turn terminal: completed | failed | cancelled, with usage and the settled error object.", "params": "TurnCompletedParams"},
     "turn/foregroundCompleted": {"description": "The turn's foreground work is done while named background reminder checks hold the turn open; explicitly non-terminal.", "params": "TurnForegroundCompletedParams"},
+    "turn/modelRetryScheduled": {"description": "A provider backoff behind one model attempt is scheduled and waiting out its delay; observable mid-turn, non-terminal.", "params": "TurnModelRetryScheduledParams"},
     "turn/retracted": {"description": "An accepted interrupt's paired retract durably settled, accepted or declined.", "params": "TurnRetractedParams"},
     "turn/retryScheduled": {"description": "A failing model attempt's retry is scheduled and waiting out its backoff; observable mid-turn, non-terminal.", "params": "TurnRetryScheduledParams"},
     "turn/started": {"description": "A foreground turn began running.", "params": "TurnStartedParams"},
@@ -3942,4 +4082,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32072, "kind": "admissionChoiceInvalid", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "rawLog", "peerMessaging",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging",)

@@ -95,7 +95,7 @@ type _StartIsExhaustive = AssertNever<
  * Every `ResumeParams` member `resumeSession` forwards. `config` has the same
  * temporary capability-check boundary as the start facade above.
  */
-const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history"] as const;
+const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "permissionProfile"] as const;
 type _ResumeIsExhaustive = AssertNever<
   Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number] | "config">
 >;
@@ -437,6 +437,7 @@ export class MuseClient {
     if (options.cursor != null) params.cursor = options.cursor;
     if (options.excludeItems != null) params.excludeItems = options.excludeItems;
     if (options.history != null) params.history = options.history;
+    if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
     return this.#open("session/resume", params, (raw) => ({
       result: raw as unknown as SessionResumeResult,
       verb: "session/resume",

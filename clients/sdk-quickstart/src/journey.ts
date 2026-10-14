@@ -106,12 +106,42 @@ interface Context {
   resumed?: Record<string, unknown>;
 }
 
-function agentText(notification: RecordedNotification): string | undefined {
-  const item = notification.params["item"];
-  if (item === null || typeof item !== "object") return undefined;
-  const record = item as Record<string, unknown>;
-  if (record["kind"] !== "agentMessage") return undefined;
-  return typeof record["text"] === "string" ? record["text"] : undefined;
+/** One completed `agentMessage` item: its text and the phase the model
+ * declared on the commit (`"commentary"` or `"finalAnswer"`). An absent
+ * `messagePhase` is an older host, which served final answers only
+ * (the host declares it; an absent or unknown phase reads as a final
+ * answer). */
+interface CompletedAgentMessage {
+  readonly text: string;
+  readonly messagePhase: string;
+}
+
+/**
+ * Every completed `agentMessage` a turn served, in arrival order. A turn
+ * holds several — commentary before and between tool calls, then the final
+ * answer — and no position is special: the LAST one is not "the answer"
+ * (the phase labels a message, its position does not). Show them all,
+ * each with its phase, once
+ * `turn/completed` has arrived.
+ */
+function completedAgentMessages(
+  notifications: readonly RecordedNotification[],
+): CompletedAgentMessage[] {
+  const messages: CompletedAgentMessage[] = [];
+  for (const notification of notifications) {
+    if (notification.method !== "item/completed") continue;
+    const item = notification.params["item"];
+    if (item === null || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (record["kind"] !== "agentMessage" || record["status"] !== "completed") continue;
+    const text = typeof record["text"] === "string" ? record["text"] : "";
+    const phase = record["messagePhase"];
+    messages.push({
+      text,
+      messagePhase: phase === "commentary" ? "commentary" : "finalAnswer",
+    });
+  }
+  return messages;
 }
 
 function requireHost(context: Context): Host {
@@ -313,10 +343,20 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       if (deltas.length === 0) {
         throw new Error("the turn completed without streaming a single item/delta");
       }
-      const answers = host.notifications().map(agentText).filter((text) => text !== undefined);
-      const answer = answers.at(-1);
-      if (answer === undefined || answer.length === 0) {
-        throw new Error("the turn completed without a non-empty agentMessage item");
+      // Only now, after turn/completed, is the set of agent messages whole.
+      // Show every one with its phase; the turn may narrate ("commentary")
+      // before and between tool calls and then answer ("finalAnswer"), and
+      // the last item is not "the answer": the phase labels a message, its
+      // position does not.
+      // A UI renders each one as it arrived, labelled by its phase; an open
+      // enum, so a phase this client does not know still decodes and reads as
+      // a final answer.
+      const messages = completedAgentMessages(host.notifications());
+      const shown = messages.map((message) => `[${message.messagePhase}] ${message.text}`);
+      if (!messages.some((message) => message.text.length > 0)) {
+        throw new Error(
+          `the turn completed without a non-empty agentMessage item; saw ${JSON.stringify(shown)}`,
+        );
       }
     },
   },
@@ -519,9 +559,9 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       const host = context.resumeHost;
       if (host === undefined) throw new Error("`resume` did not finish");
       const sessionId = requireSessionId(context);
-      // A cursor for a different session at an impossible sequence. No host
-      // can ever have minted it.
-      const impossible = `v:${sessionId}:999999`;
+      // A cursor for this session at an impossible sequence. No host can
+      // ever have minted it.
+      const impossible = `v3:${sessionId}:999999`;
       let result: Record<string, unknown> | undefined;
       try {
         result = await host.msp.connection.command(

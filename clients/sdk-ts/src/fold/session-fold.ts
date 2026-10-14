@@ -13,8 +13,8 @@
  * are neither an item nor a state family:
  *
  *  - the TURN LIFECYCLE — `turn/started`, `turn/completed`, `turn/retracted`,
- *    `turn/unqueued`, and the non-terminal `turn/retryScheduled` and
- *    `turn/foregroundCompleted`;
+ *    `turn/unqueued`, and the non-terminal `turn/retryScheduled`,
+ *    `turn/modelRetryScheduled`, and `turn/foregroundCompleted`;
  *  - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending
  *    sets and their first durable terminal. The decision flow (choosing and
  *    sending a resolution) is the facade's, not the fold's;
@@ -51,6 +51,7 @@ import type {
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
+  TurnModelRetryScheduledParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
   TurnStartedParams,
@@ -93,6 +94,7 @@ export type ViewEvent =
   | { readonly method: "turn/foregroundCompleted"; readonly params: TurnForegroundCompletedParams }
   | { readonly method: "turn/retracted"; readonly params: TurnRetractedParams }
   | { readonly method: "turn/retryScheduled"; readonly params: TurnRetryScheduledParams }
+  | { readonly method: "turn/modelRetryScheduled"; readonly params: TurnModelRetryScheduledParams }
   | { readonly method: "turn/unqueued"; readonly params: TurnUnqueuedParams }
   | { readonly method: "approval/requested"; readonly params: ApprovalRequestParams }
   | { readonly method: "approval/updated"; readonly params: ApprovalUpdatedParams }
@@ -279,6 +281,7 @@ export type StaleDroppableMethod =
   | "turn/completed"
   | "turn/foregroundCompleted"
   | "turn/retryScheduled"
+  | "turn/modelRetryScheduled"
   | "approval/requested"
   | "approval/updated"
   | "userInput/requested";
@@ -307,6 +310,13 @@ export interface TurnEntry {
   readonly error?: TurnError;
   /** The latest scheduled model retry; non-terminal (tdd SS4.5.1, D-026). */
   readonly retryScheduled?: TurnRetryScheduledParams;
+  /**
+   * The latest scheduled provider-backoff retry; non-terminal
+   * (tdd SS4.5.1, ADR 50047 D1/D2). The model-attempt twin of
+   * `retryScheduled`: a failing model attempt's backoff is waiting out
+   * its delay. Clears on the turn's terminal.
+   */
+  readonly modelRetryScheduled?: TurnModelRetryScheduledParams;
   /**
    * The latest foreground-completed notice; non-terminal (tdd SS4.5.12).
    * Tells a renderer the answer is done while `blockingAgents` hold the
@@ -436,6 +446,7 @@ interface InternalTurn {
   terminal?: TurnTerminal;
   error?: TurnError;
   retryScheduled?: TurnRetryScheduledParams;
+  modelRetryScheduled?: TurnModelRetryScheduledParams;
   foregroundCompleted?: TurnForegroundCompletedParams;
 }
 
@@ -675,6 +686,8 @@ export class SessionFold {
         return this.#turnUnqueued(typed.params);
       case "turn/retryScheduled":
         return this.#turnRetryScheduled(typed.params);
+      case "turn/modelRetryScheduled":
+        return this.#turnModelRetryScheduled(typed.params);
       case "turn/foregroundCompleted":
         return this.#turnForegroundCompleted(typed.params);
 
@@ -798,6 +811,9 @@ export class SessionFold {
     // turn's next event — which a completion is (tdd SS4.5.1). Leaving it set
     // makes a renderer show the countdown on a finished turn.
     turn.retryScheduled = undefined;
+    // Same for the provider-backoff hint: a finished turn is not waiting
+    // out a backoff (tdd SS4.5.1).
+    turn.modelRetryScheduled = undefined;
     // Same for the foreground hint: a finished turn is not background-waiting
     // (tdd SS4.5.12).
     turn.foregroundCompleted = undefined;
@@ -847,6 +863,19 @@ export class SessionFold {
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
+  #turnModelRetryScheduled(params: TurnModelRetryScheduledParams): FoldOutcome {
+    // Non-terminal by contract: it never resolves a turn-wait (tdd SS4.5.1).
+    const turn = this.#turnFor(params.turnId);
+    // …but it is still a turn frame, so it takes the same redelivery guard
+    // as the retry hint: a replayed page must not re-plant the
+    // provider-backoff hint on a turn that already left `running`.
+    if (turn.state !== "running") {
+      return { kind: "ignoredStaleFrame", method: "turn/modelRetryScheduled", id: params.turnId };
+    }
+    turn.modelRetryScheduled = params;
+    return { kind: "turn", turnId: params.turnId, state: turn.state };
+  }
+
   #turnForegroundCompleted(params: TurnForegroundCompletedParams): FoldOutcome {
     // Non-terminal by contract: it never resolves a turn-wait (tdd SS4.5.12).
     const turn = this.#turnFor(params.turnId);
@@ -880,6 +909,9 @@ export class SessionFold {
       ...(turn.terminal !== undefined ? { terminal: turn.terminal } : {}),
       ...(turn.error !== undefined ? { error: turn.error } : {}),
       ...(turn.retryScheduled !== undefined ? { retryScheduled: turn.retryScheduled } : {}),
+      ...(turn.modelRetryScheduled !== undefined
+        ? { modelRetryScheduled: turn.modelRetryScheduled }
+        : {}),
       ...(turn.foregroundCompleted !== undefined
         ? { foregroundCompleted: turn.foregroundCompleted }
         : {}),

@@ -139,6 +139,25 @@ def turn_retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     }
 
 
+def turn_model_retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
+    return {
+        "method": "turn/modelRetryScheduled",
+        "params": {
+            "attempt": 2,
+            "errorKind": "overloaded",
+            "httpStatus": 529,
+            "maxAttempts": 5,
+            "nextAttempt": 3,
+            "retryDelayMs": 4_000,
+            "sessionId": SESSION,
+            "sourceRange": SOURCE,
+            "system": "meta",
+            "turnId": turn_id,
+            "viewCursor": view_cursor,
+        },
+    }
+
+
 def turn_foreground_completed(turn_id: str, view_cursor: str) -> dict[str, Any]:
     return {
         "method": "turn/foregroundCompleted",
@@ -325,6 +344,32 @@ async def test_turn_retry_scheduled_never_settles_the_wait() -> None:
     for _ in range(5):
         await asyncio.sleep(0)
     assert settled is False, "a scheduled retry is a fact about a RUNNING turn"
+
+    s.apply(turn_completed("t-1", "completed", "v:3"))
+    assert (await turn.completed).kind == "completed"
+    await watcher
+
+
+@pytest.mark.asyncio
+async def test_turn_model_retry_scheduled_never_settles_the_wait() -> None:
+    s = session()
+    turn = s.turn("t-1")
+    s.apply(turn_started("t-1", "v:1"))
+    s.apply(turn_model_retry_scheduled("t-1", "v:2"))
+
+    settled = False
+
+    async def watch() -> None:
+        nonlocal settled
+        await turn.completed
+        settled = True
+
+    import asyncio
+
+    watcher = asyncio.ensure_future(watch())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert settled is False, "a scheduled backoff is a fact about a RUNNING turn"
 
     s.apply(turn_completed("t-1", "completed", "v:3"))
     assert (await turn.completed).kind == "completed"

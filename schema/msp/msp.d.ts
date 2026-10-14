@@ -238,7 +238,7 @@ export interface BranchState {
 }
 
 /** A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when SS6 un-defers (#13929, Scenario 5 AS-3) — closed would make that a retype. */
-export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | "computerUseSetup" | "computerUseHostSetup" | (string & {});
+export type CapabilityName = "userShell" | "sessionMcp" | "sessionListStream" | "feedback" | "computerUseSetup" | "computerUseHostSetup" | "sessionRename" | (string & {});
 
 /** The client's requested capability posture (SS1.4.1). Every member defaults; an absent `capabilities` object means all defaults. */
 export interface ClientCapabilities {
@@ -313,6 +313,36 @@ export type CompactionOutcome = "compacted" | "noop" | "failed" | "cancelled" | 
 /** What initiated a compaction (tdd SS4.5.10). Open. */
 export type CompactionTrigger = "manual" | "auto" | (string & {});
 
+/** One row of the Settings apps list. */
+export interface ComputerUseApp {
+  /** The app's bundle ID: the stored key. */
+  bundleId: string;
+  /** The choice as it applies: a block wins over a grant. */
+  choice: ComputerUseAppChoice;
+  /** When Computer Use last showed an approval card for the app, RFC3339 UTC; absent when it never has. */
+  lastAskedAt?: string;
+  /** Settings can't change this row; its choice is `blocked`. Omitted means false. */
+  locked?: boolean;
+  /** Why the row is locked, when it is. */
+  lockedBy?: ComputerUseAppLock;
+  /** The name the approval card shows for it, else the name stored with its grant or its last card; absent when there is none. */
+  name?: string;
+}
+
+/** A per-app choice. **Open**, like `ComputerUseChoice`. */
+export type ComputerUseAppChoice = "ask" | "alwaysAllow" | "blocked" | (string & {});
+
+/** Why Settings can't change a row. **Open**. */
+export type ComputerUseAppLock = "builtIn" | "file" | (string & {});
+
+/** One per-app choice to set in `computerUseSettings/update`. */
+export interface ComputerUseAppPatch {
+  /** The app's bundle ID. */
+  bundleId: string;
+  /** `ask` removes the app's grant and the user's block; `alwaysAllow` saves a grant and removes the user's block; `blocked` adds the user's block and removes the grant. */
+  choice: ComputerUseAppChoice;
+}
+
 /** One row of the Settings blocked-apps list. */
 export interface ComputerUseBlockedApp {
   /** The app's bundle ID, or the family prefix when `prefix` is true. */
@@ -326,27 +356,43 @@ export interface ComputerUseBlockedApp {
 /** A capability dropdown's value (ADR 630 D18.4). **Open**: the read result carries it, so an older client tolerates a value it does not know. */
 export type ComputerUseChoice = "ask" | "alwaysAllow" | (string & {});
 
+/** One installed or running app, for Settings' app picker. */
+export interface ComputerUseInstalledApp {
+  /** The app's bundle ID. */
+  bundleId: string;
+  /** The name the approval card shows for it. */
+  name: string;
+}
+
 /** One macOS permission as setup last saw it. **Open**, like the phase. */
 export type ComputerUsePermission = "granted" | "missing" | "unknown" | (string & {});
 
 /** `computerUseSettings/read` result, also answered by `computerUseSettings/update`. */
 export interface ComputerUseSettings {
+  /** The apps list: apps Computer Use has asked about, most recent first; then the other saved grants, then the user's other blocks; then the locked rows. Each app once. A host that serves the list always answers it, so its absence means an older host. */
+  apps?: ComputerUseApp[];
   /** The user's blocks in the order they were added, then the built-in blocks when `showBuiltIns` asked for them. */
   blockedApps: ComputerUseBlockedApp[];
   /** The computer-control dropdown, as it applies: `ask` while the stored blocked-apps list can't be read (ADR 630 D18.4). */
   computerControl: ComputerUseChoice;
+  /** The installed and running apps, sorted by name, when the read asked for `installed`. */
+  installedApps?: ComputerUseInstalledApp[];
   /** The screenshots dropdown, under the same rule. */
   screenshots: ComputerUseChoice;
 }
 
 /** `computerUseSettings/read` params. */
 export interface ComputerUseSettingsReadParams {
+  /** Also answer `installedApps`, for an app picker. Omitted means false. */
+  installed?: boolean;
   /** Also list the built-in blocks as locked rows (the D18.8 toggle). Omitted means false. */
   showBuiltIns?: boolean;
 }
 
 /** `computerUseSettings/update` params: a patch. Omitted members are left alone; the whole patch applies or none of it does. */
 export interface ComputerUseSettingsUpdateParams {
+  /** Per-app choices to set. A locked app is refused; so is a bundle ID named twice, or also in `blockApps` or `unblockApps`. */
+  apps?: ComputerUseAppPatch[];
   /** Bundle IDs to add to the user's blocked apps. A built-in block is refused: it is already blocked. */
   blockApps?: string[];
   /** The new computer-control dropdown value. */
@@ -845,8 +891,14 @@ export interface Item {
   label?: string;
   /** `workflow`: the reconciled terminal message, set on completion. */
   message?: string;
+  /** `agentMessage`: the phase the model declared on the commit; see [`MessagePhase`]. */
+  messagePhase?: MessagePhase;
   /** `toolCall`: rich content the model saw beyond text; base64 is not inlined on the view (tdd SS4.5.5). */
   modelVisibleContent?: ModelVisibleContent[];
+  /** `monitorFeed`: the monitor's arm-time description with the durable `"Monitor event: "` summary prefix stripped; model- controlled tool input under the 64 KiB per-surface budget — sanitize before render (ADR 50058-monitor-feed-wire D1/D3). */
+  monitorDescription?: string;
+  /** `monitorFeed`: the monitor task id — the same value as that monitor's `toolCall` `itemId` (ADR 50058-monitor-feed-wire D1). */
+  monitorId?: string;
   /** `subagent`: objective as spawned, bounded on the wire at the 64 KiB retained-text budget (tdd SS4.5.4, ADR 35691 D9); a cut sets `truncated`. The durable record stays verbatim. */
   objective?: string;
   /** `compaction`: terminal only — folds installed/fallback status. */
@@ -929,9 +981,9 @@ export interface Item {
   trigger?: CompactionTrigger;
   /** `workflow`: camelCased `WorkflowLaunchTriggerSource`, verbatim (durable runtime vocabulary, e.g. `"modelProposal"`). */
   triggerSource?: string;
-  /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`), or cut a `subagent` surface (`objective`, `fallbackText`, `result.summary`, `result.text`). On a `subagent` item the flag is item-level and never cleared: once any of those four is cut, every later update keeps it, even when `result.text` arrives whole (ADR 35691 D9). The durable full text remains in the log (tdd SS4.5.4). */
+  /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`), cut a `subagent` surface (`objective`, `fallbackText`, `result.summary`, `result.text`), or cut a `monitorFeed` surface (`text`, `fallbackText`, `monitorDescription`) (ADR 50058-monitor-feed-wire D3). On a `subagent` item the flag is item-level and never cleared: once any of those four is cut, every later update keeps it, even when `result.text` arrives whole (ADR 35691 D9). The durable full text remains in the log (tdd SS4.5.4). */
   truncated?: boolean;
-  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` only for `userShell` — the one kind outside a turn (tdd SS4.5.6). */
+  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` for the kinds outside a turn: `userShell` always (tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed` always (ADR 50058-monitor-feed-wire D1). */
   turnId?: string | null;
   /** `subagent`: **transitive** observed usage — the child and its own descendants; updated in place, absent until first observation; never folded into `session/tokenUsage.cumulative` (tdd SS4.6.5). */
   usage?: TokenUsage;
@@ -968,7 +1020,7 @@ export interface ItemDeltaParams {
 }
 
 /** The eleven v1 item kinds (tdd SS4.5.2–4.5.13) plus post-v1 kinds (tdd SS4.5.14+). Open: a new kind is additive evolution, and clients MUST render unknown kinds generically (tdd SS4.10). */
-export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | (string & {});
+export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | "monitorFeed" | (string & {});
 
 /** The `item/readOutput` content encoding (tdd SS4.7.4). Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract. */
 export type ItemReadOutputEncoding = "utf8" | "base64";
@@ -1087,6 +1139,9 @@ export interface MessageAttachment {
   /** Pixel width, when known. */
   width?: number;
 }
+
+/** `agentMessage.messagePhase` (tdd SS4.5.3, #50254): the phase the model declared on the commit, never inferred from position. Set on the completed item only; absent on `item/started`, which opens before the phase is recorded. Open: a client reads an absent or unknown value on a completed item as `"finalAnswer"` and still decodes the item. Not a turn-done signal; `turn/completed` is. */
+export type MessagePhase = "commentary" | "finalAnswer" | (string & {});
 
 /** One visible catalog row (tdd SS3.10). Catalog rows marked hidden never reach the wire, so a client cannot select one. */
 export interface ModelCatalogEntry {
@@ -1616,6 +1671,8 @@ export interface Session {
   firstUserPrompt?: string;
   /** `null` for root sessions; fork provenance otherwise (tdd SS2.4). */
   forkedFrom: ForkProvenance | null;
+  /** The served generated short title (tdd SS2.4/SS2.14.1, #50048; ADR 50048-generated-name D1). **Additive-optional**, **fold-only**: the snapshot fold derives the latest retained generated pair's short title from the log; `session/list` rows never carry it. Omitted when no pair was ever published — absent reads as unpublished, never fabricated, never inferred from the name text. `name` stays the canonical name it always was. */
+  generatedName?: string;
   /** What kind of session this is (spec 42713 FR-001, ADR 42713 D1/D4). **Open enum**, v1 values `"root"` and `"subagent"`; a client treats an unknown value as an unknown-but-present kind and renders it, never rejecting the row. **Additive-optional**: absence asserts nothing — the host could not determine the home shape (FM-001), or the value is not yet available to serve (FM-003). */
   kind?: SessionKind;
   /** Content-activity recency, RFC3339 (tdd SS2.4, ADR 31983 D5). **Additive-optional**: omitted when no content record exists. Never advanced by lifecycle bookkeeping (the resume marker, re-stamps) or a fork's copied seed-replay records, and never precedes `createdAt`. */
@@ -1901,6 +1958,8 @@ export interface SessionModelRouteUnservedParams {
 
 /** `session/nameChanged` params (tdd SS4.6.7, #27598): the fold of ANY durable session-name record — the FIRST-NAMING automatic allocate as well as an accepted `session/rename` (or the same in-process runtime command). Replace-wholesale like every SS4.6 sibling. */
 export interface SessionNameChangedParams {
+  /** The latest retained generated short title (tdd SS2.4/SS4.6.7, #50048; ADR 50048-generated-name D1). **Additive-optional**: carried at generated-pair publication and at settlement when a pair is already published; omitted when no pair was ever published — absent reads as unpublished, never fabricated. `name` stays canonical. */
+  generatedName?: string;
   /** The new canonical name now in effect. */
   name: string;
   /** How the new name was set (tdd SS2.4/SS4.6.7, #50048; ADR 50048 D1/D2). **Additive-optional**: omitted when the emitting fold cannot prove an origin — absent reads as unknown, never fabricated. */
@@ -1984,6 +2043,8 @@ export interface SessionResumeParams {
   excludeItems?: boolean;
   /** History mode preference, default `auto`. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and `history.mode` reports what was actually served (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it moot. */
   history?: HistoryPreference;
+  /** The launch permission-profile pick (amendment 42624 FR-42624-1, #50054): a profile id the host catalog already admits. Select, never create. Omitted means today's behavior: restore retained authority only, no override. The host restores first, then applies the pick in the same pre-marker step; a pick that fails admission refuses the resume `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte. Explicit `null` is invalid params (the same closed null-tolerant set as at start). */
+  permissionProfile?: string;
   /** The session to load. */
   sessionId: string;
 }
@@ -2090,7 +2151,7 @@ export interface SessionStartParams {
   config?: SessionConfig;
   /** Initial model; server default when omitted. */
   modelId?: string;
-  /** The new session's initial permission profile (amendment 42624 FR-42624-1, ADR 42197 D2): a profile id the host catalog already admits — the rows `permissionProfile/list` serves without `sessionId`. Select, never create. Omitted means today's behavior: the host's configured default under native admission, unchanged. An id the catalog does not carry, or one it serves unavailable, refuses the start `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte, and an ephemeral host refuses any id (`permission_profile_ephemeral_fixed`). `session/resume` and `session/fork` do not admit the member. Explicit `null` is invalid params: the set of members that tolerate `null` is closed and excludes this one, exactly as it excludes `workspaceRoots`. */
+  /** The new session's initial permission profile (amendment 42624 FR-42624-1, ADR 42197 D2): a profile id the host catalog already admits — the rows `permissionProfile/list` serves without `sessionId`. Select, never create. Omitted means today's behavior: the host's configured default under native admission, unchanged. An id the catalog does not carry, or one it serves unavailable, refuses the start `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte, and an ephemeral host refuses any id (`permission_profile_ephemeral_fixed`). `session/fork` does not admit the member; `session/resume` admits it as the launch pick (FR-42624-1, #50054). Explicit `null` is invalid params: the set of members that tolerate `null` is closed and excludes this one, exactly as it excludes `workspaceRoots`. */
   permissionProfile?: string;
   /** Initial provider routing; server default when omitted or explicit `null` — both spellings select the default (#23468). */
   providerId?: string | null;
@@ -2234,6 +2295,8 @@ export interface SkillCatalogEntry {
   selector: string;
   /** Where the skill comes from. */
   source: SkillSource;
+  /** The skill's declared human-readable name (`SKILL.md` `metadata.display-name`), for clients to show where people read the skill's name; absent when the skill declares none (ADR 56597 D2). The palette keeps showing `displayName`. */
+  title?: string;
 }
 
 /** `skill/changed` params (tdd SS3.22.2): the session's user-invocable set changed; clients re-issue `skill/list`. Advisory — the host may coalesce bursts and guarantees no ordering relative to view events (ADR 32471 D3). */
@@ -2824,6 +2887,32 @@ export interface TurnInterruptResult {
   turnId: string;
 }
 
+/** `turn/modelRetryScheduled` params (tdd SS4.5.1; ADR `50047-model-retry-scheduled-members` D1): a durable model-stream retry-scheduled fact folded — the provider backoff behind one model attempt is observable BEFORE the turn terminates, so a streaming client can render "system words · retrying in Ss · attempt N/M" instead of dead air. Non-terminal: it never resolves a turn-wait. The sibling `turn/retryScheduled` shape at the model layer: same member names and semantics (attempt/nextAttempt/maxAttempts/ retryDelayMs/system/errorKind/httpStatus), minus `reason` — the row's words derive from `errorKind` through the shared gate-off mapping, and the recorded machine message is not user text. The delay is the recorded scheduled backoff, never an absolute fire time — clients derive any countdown locally. `sourceRange` cites the session stream's mirror of the task-lifecycle record (tdd SS4.2). */
+export interface TurnModelRetryScheduledParams {
+  /** The failed model attempt (producer-normalized, >= 1). */
+  attempt: number;
+  /** The failing model attempt's durable kind, verbatim (ADR 50047 D2) — a plain string: the durable vocabulary is open-ended. */
+  errorKind?: string;
+  /** The failing model attempt's HTTP status (ADR 50047 D2). */
+  httpStatus?: number;
+  /** The model-retry chain bound. */
+  maxAttempts: number;
+  /** The scheduled model attempt (producer contract: attempt < nextAttempt <= maxAttempts; not a schema constraint). */
+  nextAttempt: number;
+  /** The scheduled backoff delay in milliseconds, verbatim from the durable fact. */
+  retryDelayMs: number;
+  /** The owning session. */
+  sessionId: string;
+  /** The durable record this event folded from (the session stream's mirror of the scheduled model task status; `first == last`). */
+  sourceRange: SourceRange;
+  /** The failing model attempt's provider system, verbatim (ADR 50047 D2) — e.g. `"meta"`. Always present from this producer (the durable `system` is a required `String`); optional on the wire so a future omission folds absent instead of failing the frame. */
+  system?: string;
+  /** The running turn whose model attempt is being retried. */
+  turnId: string;
+  /** Opaque, strictly monotonic view cursor (tdd SS4.1). */
+  viewCursor: string;
+}
+
 /** A turn named by the snapshot's active/queued lists (tdd SS4.9.1). */
 export interface TurnRef {
   /** The `commandId` of the submit that minted it. */
@@ -3385,7 +3474,7 @@ export interface WorkflowTokenBudget {
 /** Every wire method in this schema (SS1.9 index). */
 export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start" | "computerUseSetup/check";
 /** Every wire notification in this schema (SS1.9 index). */
-export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
+export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/modelRetryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */

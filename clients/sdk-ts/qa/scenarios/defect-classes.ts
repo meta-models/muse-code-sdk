@@ -66,7 +66,7 @@ const D19649: QaScenario = {
           });
           await host.command("resumeBogus", "session/resume", {
             sessionId,
-            cursor: "v:00000000-0000-7000-8000-000000000000:999",
+            cursor: "v3:00000000-0000-7000-8000-000000000000:999",
           });
         },
       observe: (run) => {

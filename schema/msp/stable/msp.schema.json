@@ -734,7 +734,8 @@
         "sessionListStream",
         "feedback",
         "computerUseSetup",
-        "computerUseHostSetup"
+        "computerUseHostSetup",
+        "sessionRename"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -922,6 +923,77 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ComputerUseApp": {
+      "description": "One row of the Settings apps list.",
+      "properties": {
+        "bundleId": {
+          "description": "The app's bundle ID: the stored key.",
+          "type": "string"
+        },
+        "choice": {
+          "$ref": "#/$defs/ComputerUseAppChoice",
+          "description": "The choice as it applies: a block wins over a grant."
+        },
+        "lastAskedAt": {
+          "description": "When Computer Use last showed an approval card for the app, RFC3339\nUTC; absent when it never has.",
+          "type": "string"
+        },
+        "locked": {
+          "description": "Settings can't change this row; its choice is `blocked`. Omitted\nmeans false.",
+          "type": "boolean"
+        },
+        "lockedBy": {
+          "$ref": "#/$defs/ComputerUseAppLock",
+          "description": "Why the row is locked, when it is."
+        },
+        "name": {
+          "description": "The name the approval card shows for it, else the name stored with\nits grant or its last card; absent when there is none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundleId",
+        "choice"
+      ],
+      "type": "object"
+    },
+    "ComputerUseAppChoice": {
+      "description": "A per-app choice. **Open**, like `ComputerUseChoice`.",
+      "enum": [
+        "ask",
+        "alwaysAllow",
+        "blocked"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ComputerUseAppLock": {
+      "description": "Why Settings can't change a row. **Open**.",
+      "enum": [
+        "builtIn",
+        "file"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "ComputerUseAppPatch": {
+      "description": "One per-app choice to set in `computerUseSettings/update`.",
+      "properties": {
+        "bundleId": {
+          "description": "The app's bundle ID.",
+          "type": "string"
+        },
+        "choice": {
+          "$ref": "#/$defs/ComputerUseAppChoice",
+          "description": "`ask` removes the app's grant and the user's block; `alwaysAllow`\nsaves a grant and removes the user's block; `blocked` adds the\nuser's block and removes the grant."
+        }
+      },
+      "required": [
+        "bundleId",
+        "choice"
+      ],
+      "type": "object"
+    },
     "ComputerUseBlockedApp": {
       "description": "One row of the Settings blocked-apps list.",
       "properties": {
@@ -953,6 +1025,24 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ComputerUseInstalledApp": {
+      "description": "One installed or running app, for Settings' app picker.",
+      "properties": {
+        "bundleId": {
+          "description": "The app's bundle ID.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name the approval card shows for it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundleId",
+        "name"
+      ],
+      "type": "object"
+    },
     "ComputerUsePermission": {
       "description": "One macOS permission as setup last saw it. **Open**, like the phase.",
       "enum": [
@@ -966,6 +1056,13 @@
     "ComputerUseSettings": {
       "description": "`computerUseSettings/read` result, also answered by\n`computerUseSettings/update`.",
       "properties": {
+        "apps": {
+          "description": "The apps list: apps Computer Use has asked about, most recent first;\nthen the other saved grants, then the user's other blocks; then the\nlocked rows. Each app once. A host that serves the list always\nanswers it, so its absence means an older host.",
+          "items": {
+            "$ref": "#/$defs/ComputerUseApp"
+          },
+          "type": "array"
+        },
         "blockedApps": {
           "description": "The user's blocks in the order they were added, then the built-in\nblocks when `showBuiltIns` asked for them.",
           "items": {
@@ -976,6 +1073,13 @@
         "computerControl": {
           "$ref": "#/$defs/ComputerUseChoice",
           "description": "The computer-control dropdown, as it applies: `ask` while the stored\nblocked-apps list can't be read (ADR 630 D18.4)."
+        },
+        "installedApps": {
+          "description": "The installed and running apps, sorted by name, when the read asked\nfor `installed`.",
+          "items": {
+            "$ref": "#/$defs/ComputerUseInstalledApp"
+          },
+          "type": "array"
         },
         "screenshots": {
           "$ref": "#/$defs/ComputerUseChoice",
@@ -992,6 +1096,10 @@
     "ComputerUseSettingsReadParams": {
       "description": "`computerUseSettings/read` params.",
       "properties": {
+        "installed": {
+          "description": "Also answer `installedApps`, for an app picker. Omitted means false.",
+          "type": "boolean"
+        },
         "showBuiltIns": {
           "description": "Also list the built-in blocks as locked rows (the D18.8 toggle).\nOmitted means false.",
           "type": "boolean"
@@ -1002,6 +1110,13 @@
     "ComputerUseSettingsUpdateParams": {
       "description": "`computerUseSettings/update` params: a patch. Omitted members are left\nalone; the whole patch applies or none of it does.",
       "properties": {
+        "apps": {
+          "description": "Per-app choices to set. A locked app is refused; so is a bundle ID\nnamed twice, or also in `blockApps` or `unblockApps`.",
+          "items": {
+            "$ref": "#/$defs/ComputerUseAppPatch"
+          },
+          "type": "array"
+        },
         "blockApps": {
           "description": "Bundle IDs to add to the user's blocked apps. A built-in block is\nrefused: it is already blocked.",
           "items": {
@@ -2237,12 +2352,24 @@
           "description": "`workflow`: the reconciled terminal message, set on completion.",
           "type": "string"
         },
+        "messagePhase": {
+          "$ref": "#/$defs/MessagePhase",
+          "description": "`agentMessage`: the phase the model declared on the commit; see [`MessagePhase`]."
+        },
         "modelVisibleContent": {
           "description": "`toolCall`: rich content the model saw beyond text; base64 is not\ninlined on the view (tdd SS4.5.5).",
           "items": {
             "$ref": "#/$defs/ModelVisibleContent"
           },
           "type": "array"
+        },
+        "monitorDescription": {
+          "description": "`monitorFeed`: the monitor's arm-time description with the\ndurable `\"Monitor event: \"` summary prefix stripped; model-\ncontrolled tool input under the 64 KiB per-surface budget —\nsanitize before render (ADR 50058-monitor-feed-wire D1/D3).",
+          "type": "string"
+        },
+        "monitorId": {
+          "description": "`monitorFeed`: the monitor task id — the same value as that\nmonitor's `toolCall` `itemId` (ADR 50058-monitor-feed-wire D1).",
+          "type": "string"
         },
         "objective": {
           "description": "`subagent`: objective as spawned, bounded on the wire at the 64 KiB\nretained-text budget (tdd SS4.5.4, ADR 35691 D9); a cut sets\n`truncated`. The durable record stays verbatim.",
@@ -2412,11 +2539,11 @@
           "type": "string"
         },
         "truncated": {
-          "description": "`true` when the server's per-surface text budget saturated a streamed\nsurface (`agentMessage.text`, `reasoning.summary[*]`,\n`toolCall.visibleOutput`, `userShell.visibleOutput`), or cut a\n`subagent` surface (`objective`, `fallbackText`, `result.summary`,\n`result.text`). On a `subagent` item the flag is item-level and never\ncleared: once any of those four is cut, every later update keeps it,\neven when `result.text` arrives whole (ADR 35691 D9). The durable full\ntext remains in the log (tdd SS4.5.4).",
+          "description": "`true` when the server's per-surface text budget saturated a streamed\nsurface (`agentMessage.text`, `reasoning.summary[*]`,\n`toolCall.visibleOutput`, `userShell.visibleOutput`), cut a\n`subagent` surface (`objective`, `fallbackText`, `result.summary`,\n`result.text`), or cut a `monitorFeed` surface (`text`,\n`fallbackText`, `monitorDescription`) (ADR 50058-monitor-feed-wire\nD3). On a `subagent` item the flag is item-level and never\ncleared: once any of those four is cut, every later update keeps it,\neven when `result.text` arrives whole (ADR 35691 D9). The durable full\ntext remains in the log (tdd SS4.5.4).",
           "type": "boolean"
         },
         "turnId": {
-          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` only for `userShell` — the one kind outside a turn\n(tdd SS4.5.6).",
+          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` for the kinds outside a turn: `userShell` always\n(tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed`\nalways (ADR 50058-monitor-feed-wire D1).",
           "type": [
             "string",
             "null"
@@ -2517,7 +2644,8 @@
         "compaction",
         "hookRun",
         "sideChat",
-        "webSearch"
+        "webSearch",
+        "monitorFeed"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2800,6 +2928,15 @@
         "type"
       ],
       "type": "object"
+    },
+    "MessagePhase": {
+      "description": "`agentMessage.messagePhase` (tdd SS4.5.3, #50254): the phase the model\ndeclared on the commit, never inferred from position. Set on the\ncompleted item only; absent on `item/started`, which opens before the\nphase is recorded. Open: a client reads an absent or unknown value on a\ncompleted item as `\"finalAnswer\"` and still decodes the item. Not a\nturn-done signal; `turn/completed` is.",
+      "enum": [
+        "commentary",
+        "finalAnswer"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
     },
     "ModelCatalogEntry": {
       "description": "One visible catalog row (tdd SS3.10). Catalog rows marked hidden never\nreach the wire, so a client cannot select one.",
@@ -4098,6 +4235,10 @@
           ],
           "description": "`null` for root sessions; fork provenance otherwise (tdd SS2.4)."
         },
+        "generatedName": {
+          "description": "The served generated short title (tdd SS2.4/SS2.14.1, #50048; ADR\n50048-generated-name D1). **Additive-optional**, **fold-only**: the\nsnapshot fold derives the latest retained generated pair's short\ntitle from the log; `session/list` rows never carry it. Omitted when\nno pair was ever published — absent reads as unpublished, never\nfabricated, never inferred from the name text. `name` stays the\ncanonical name it always was.",
+          "type": "string"
+        },
         "kind": {
           "$ref": "#/$defs/SessionKind",
           "description": "What kind of session this is (spec 42713 FR-001, ADR 42713 D1/D4).\n**Open enum**, v1 values `\"root\"` and `\"subagent\"`; a client treats an\nunknown value as an unknown-but-present kind and renders it, never\nrejecting the row. **Additive-optional**: absence asserts nothing —\nthe host could not determine the home shape (FM-001), or the value is\nnot yet available to serve (FM-003)."
@@ -4901,6 +5042,10 @@
     "SessionNameChangedParams": {
       "description": "`session/nameChanged` params (tdd SS4.6.7, #27598): the fold of ANY\ndurable session-name record — the FIRST-NAMING automatic allocate as well\nas an accepted `session/rename` (or the same in-process runtime command).\nReplace-wholesale like every SS4.6 sibling.",
       "properties": {
+        "generatedName": {
+          "description": "The latest retained generated short title (tdd SS2.4/SS4.6.7,\n#50048; ADR 50048-generated-name D1). **Additive-optional**: carried\nat generated-pair publication and at settlement when a pair is\nalready published; omitted when no pair was ever published — absent\nreads as unpublished, never fabricated. `name` stays canonical.",
+          "type": "string"
+        },
         "name": {
           "description": "The new canonical name now in effect.",
           "type": "string"
@@ -5094,6 +5239,10 @@
         "history": {
           "$ref": "#/$defs/HistoryPreference",
           "description": "History mode preference, default `auto`. A PREFERENCE, not a budget\noverride: when the requested mode does not fit the history budget the\nserver downgrades it and `history.mode` reports what was actually\nserved (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it\nmoot."
+        },
+        "permissionProfile": {
+          "description": "The launch permission-profile pick (amendment 42624 FR-42624-1,\n#50054): a profile id the host catalog already admits. Select, never\ncreate. Omitted means today's behavior: restore retained authority\nonly, no override. The host restores first, then applies the pick in\nthe same pre-marker step; a pick that fails admission refuses the\nresume `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte. Explicit\n`null` is invalid params (the same closed null-tolerant set as at\nstart).",
+          "type": "string"
         },
         "sessionId": {
           "description": "The session to load.",
@@ -5350,7 +5499,7 @@
           "type": "string"
         },
         "permissionProfile": {
-          "description": "The new session's initial permission profile (amendment 42624\nFR-42624-1, ADR 42197 D2): a profile id the host catalog already\nadmits — the rows `permissionProfile/list` serves without\n`sessionId`. Select, never create. Omitted means today's behavior: the\nhost's configured default under native admission, unchanged. An id\nthe catalog does not carry, or one it serves unavailable, refuses the\nstart `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte, and an\nephemeral host refuses any id (`permission_profile_ephemeral_fixed`).\n`session/resume` and `session/fork` do not admit the member. Explicit\n`null` is invalid params: the set of members that tolerate `null` is\nclosed and excludes this one, exactly as it excludes `workspaceRoots`.",
+          "description": "The new session's initial permission profile (amendment 42624\nFR-42624-1, ADR 42197 D2): a profile id the host catalog already\nadmits — the rows `permissionProfile/list` serves without\n`sessionId`. Select, never create. Omitted means today's behavior: the\nhost's configured default under native admission, unchanged. An id\nthe catalog does not carry, or one it serves unavailable, refuses the\nstart `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte, and an\nephemeral host refuses any id (`permission_profile_ephemeral_fixed`).\n`session/fork` does not admit the member; `session/resume` admits it\nas the launch pick (FR-42624-1, #50054). Explicit `null` is invalid\nparams: the set of members that tolerate `null` is\nclosed and excludes this one, exactly as it excludes `workspaceRoots`.",
           "type": "string"
         },
         "providerId": {
@@ -5701,6 +5850,10 @@
         "source": {
           "$ref": "#/$defs/SkillSource",
           "description": "Where the skill comes from."
+        },
+        "title": {
+          "description": "The skill's declared human-readable name (`SKILL.md`\n`metadata.display-name`), for clients to show where people read the\nskill's name; absent when the skill declares none (ADR 56597 D2). The\npalette keeps showing `displayName`.",
+          "type": "string"
         }
       },
       "required": [
@@ -7261,6 +7414,66 @@
       ],
       "type": "object"
     },
+    "TurnModelRetryScheduledParams": {
+      "description": "`turn/modelRetryScheduled` params (tdd SS4.5.1; ADR\n`50047-model-retry-scheduled-members` D1): a durable model-stream\nretry-scheduled fact folded — the provider backoff behind one model\nattempt is observable BEFORE the turn terminates, so a streaming\nclient can render \"system words · retrying in Ss · attempt N/M\"\ninstead of dead air. Non-terminal: it never resolves a turn-wait.\nThe sibling `turn/retryScheduled` shape at the model layer: same\nmember names and semantics (attempt/nextAttempt/maxAttempts/\nretryDelayMs/system/errorKind/httpStatus), minus `reason` — the\nrow's words derive from `errorKind` through the shared gate-off\nmapping, and the recorded machine message is not user text. The\ndelay is the recorded scheduled backoff, never an absolute fire\ntime — clients derive any countdown locally. `sourceRange` cites\nthe session stream's mirror of the task-lifecycle record (tdd SS4.2).",
+      "properties": {
+        "attempt": {
+          "description": "The failed model attempt (producer-normalized, >= 1).",
+          "type": "integer"
+        },
+        "errorKind": {
+          "description": "The failing model attempt's durable kind, verbatim (ADR 50047\nD2) — a plain string: the durable vocabulary is open-ended.",
+          "type": "string"
+        },
+        "httpStatus": {
+          "description": "The failing model attempt's HTTP status (ADR 50047 D2).",
+          "type": "integer"
+        },
+        "maxAttempts": {
+          "description": "The model-retry chain bound.",
+          "type": "integer"
+        },
+        "nextAttempt": {
+          "description": "The scheduled model attempt (producer contract: attempt <\nnextAttempt <= maxAttempts; not a schema constraint).",
+          "type": "integer"
+        },
+        "retryDelayMs": {
+          "description": "The scheduled backoff delay in milliseconds, verbatim from the\ndurable fact.",
+          "type": "integer"
+        },
+        "sessionId": {
+          "description": "The owning session.",
+          "type": "string"
+        },
+        "sourceRange": {
+          "$ref": "#/$defs/SourceRange",
+          "description": "The durable record this event folded from (the session stream's\nmirror of the scheduled model task status; `first == last`)."
+        },
+        "system": {
+          "description": "The failing model attempt's provider system, verbatim\n(ADR 50047 D2) — e.g. `\"meta\"`. Always present from this producer\n(the durable `system` is a required `String`); optional on the wire\nso a future omission folds absent instead of failing the frame.",
+          "type": "string"
+        },
+        "turnId": {
+          "description": "The running turn whose model attempt is being retried.",
+          "type": "string"
+        },
+        "viewCursor": {
+          "description": "Opaque, strictly monotonic view cursor (tdd SS4.1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "maxAttempts",
+        "nextAttempt",
+        "retryDelayMs",
+        "sessionId",
+        "sourceRange",
+        "turnId",
+        "viewCursor"
+      ],
+      "type": "object"
+    },
     "TurnRef": {
       "description": "A turn named by the snapshot's active/queued lists (tdd SS4.9.1).",
       "properties": {
@@ -8664,7 +8877,8 @@
       "sessionListStream",
       "feedback",
       "computerUseSetup",
-      "computerUseHostSetup"
+      "computerUseHostSetup",
+      "sessionRename"
     ],
     "reserved": [
       {
@@ -9670,6 +9884,12 @@
       "description": "The turn's foreground work is done while named background reminder checks hold the turn open; explicitly non-terminal (SS4.5.12).",
       "params": {
         "$ref": "#/$defs/TurnForegroundCompletedParams"
+      }
+    },
+    "turn/modelRetryScheduled": {
+      "description": "A provider backoff behind one model attempt is scheduled and waiting out its delay; observable mid-turn, non-terminal (SS4.5.1; ADR 50047-model-retry-scheduled-members D1).",
+      "params": {
+        "$ref": "#/$defs/TurnModelRetryScheduledParams"
       }
     },
     "turn/retracted": {

@@ -7,7 +7,9 @@ host, so this recipe is deterministic and needs no credentials and no model.
 What it teaches (the docs page walks the same three points): ``item/delta``
 frames are the LIVE text, appended keyed by ``itemId``; ``item/completed`` is
 AUTHORITATIVE and the accumulation must equal it; the turn is over on
-``turn/completed``, not on the last delta.
+``turn/completed``, not on the last delta; and once it is over, every
+completed ``agentMessage`` is shown with its ``messagePhase`` — the last one
+is not "the answer": the phase labels a message, its position does not.
 
 Fixture mechanics, so the code reads honestly: serve-fixture matches our
 frames structurally against the transcript's client lines and replays the
@@ -217,6 +219,51 @@ async def _turn_terminal(context: Context) -> None:
         raise AssertionError(f"turn/completed usage lacks numeric token counts: {usage!r}")
 
 
+async def _every_message(context: Context) -> None:
+    host = require_host(context.host, "spawn-fixture")
+    if context.turn_id is None:
+        raise RuntimeError("`turn-start` did not finish")
+    # Only after turn/completed is the set of agent messages whole. A turn may
+    # narrate before and between tool calls (``messagePhase: "commentary"``)
+    # and then answer (``"finalAnswer"``); a UI shows each one as it arrived,
+    # labelled by its phase, and never treats the LAST agentMessage as "the
+    # answer": the phase labels a message, its position does not. This
+    # transcript was recorded before the member existed, so its phase is
+    # absent, which reads as a final answer.
+    completed: list[dict[str, object]] = []
+    for notification in host.notifications():
+        if notification.method != "item/completed":
+            continue
+        item = notification.params.get("item")
+        if not isinstance(item, dict) or item.get("kind") != "agentMessage":
+            continue
+        if item.get("status") != "completed":
+            continue
+        completed.append(item)
+    # The recorded answer predates the member, so it carries no
+    # ``messagePhase`` at all: the absent member is what this recipe proves
+    # reads as a final answer. Check that once, on the recording, before the
+    # mapping below (a current host labels every finished message, so copied
+    # code keeps the mapping and drops this recording check).
+    if any("messagePhase" in item for item in completed):
+        raise AssertionError(
+            "the recorded transcript's answer must not carry messagePhase: it is the old-host example"
+        )
+    messages: list[tuple[str, str, str]] = [
+        (
+            string_at(item, "itemId", "item/completed item"),
+            "commentary" if item.get("messagePhase") == "commentary" else "finalAnswer",
+            string_at(item, "text", "item/completed item"),
+        )
+        for item in completed
+    ]
+    if not messages:
+        raise AssertionError("the turn served no completed agentMessage")
+    if not any(item_id == context.item_id for item_id, _, _ in messages):
+        raise AssertionError("the streamed message is missing from the turn's completed messages")
+    equals(messages[0][1], "finalAnswer", "the recorded transcript's (absent) phase")
+
+
 async def _drain(context: Context) -> None:
     host = require_host(context.host, "spawn-fixture")
     exit_ = await host.close(CLOSE_BUDGET_MS)
@@ -243,6 +290,11 @@ SEGMENTS: tuple[Segment[Context], ...] = (
         _stream_and_settle,
     ),
     Segment("turn-terminal", "Wait for the turn's own terminal, not the last delta", _turn_terminal),
+    Segment(
+        "every-message",
+        "Show every completed agent message with its phase, now the turn is over",
+        _every_message,
+    ),
     Segment("drain", "Close stdin and let the fixture host exit cleanly", _drain),
 )
 

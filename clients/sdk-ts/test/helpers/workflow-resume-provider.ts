@@ -122,7 +122,10 @@ export async function workflowProvider(): Promise<{
         const names = toolNames(body);
         const user = latestUser(body);
         const child = /SDK64_CHILD:([a-z0-9-]+):([12])/.exec(user);
-        if (names.includes("submit_result") && JSON.stringify(body).includes("Run this generated workflow host.")) {
+        const encoded = JSON.stringify(body);
+        const generatedChild = encoded.includes("Run this generated Workflow child request.")
+          || encoded.includes("Run this generated workflow host.");
+        if (names.includes("submit_result") && generatedChild) {
           assert.ok(child, "generated child must carry its own step marker");
           const phase = child[1]!;
           const step = Number(child[2]);

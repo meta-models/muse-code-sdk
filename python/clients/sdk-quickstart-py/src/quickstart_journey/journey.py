@@ -41,7 +41,7 @@ from __future__ import annotations
 import re
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, List, Mapping
+from typing import Any, List, Mapping, Sequence
 
 import muse_code
 from muse_code import (
@@ -60,6 +60,7 @@ from .host import (
     STUB_VIEW_CURSOR,
     Host,
     HostOptions,
+    RecordedNotification,
     isolated_host_env,
     within,
 )
@@ -155,12 +156,38 @@ def _require_session_id(context: Context) -> str:
     return context.session_id
 
 
-def _agent_text(params: Mapping[str, Any]) -> str | None:
-    item = params.get("item")
-    if not isinstance(item, dict) or item.get("kind") != "agentMessage":
-        return None
-    text = item.get("text")
-    return text if isinstance(text, str) else None
+def _completed_agent_messages(
+    notifications: Sequence[RecordedNotification],
+) -> list[tuple[str, str]]:
+    """Every completed ``agentMessage`` a turn served, in arrival order, as
+    ``(messagePhase, text)``.
+
+    A turn holds several — commentary before and between tool calls, then
+    the final answer — and no position is special: the LAST one is not "the
+    answer": the phase labels a message, its position does not. Show them
+    all, each with its phase, once
+    ``turn/completed`` has arrived. An absent ``messagePhase`` is an older
+    host, which served final answers only (an absent phase reads as a final
+    answer).
+    """
+    messages: list[tuple[str, str]] = []
+    for notification in notifications:
+        if notification.method != "item/completed":
+            continue
+        item = notification.params.get("item")
+        if not isinstance(item, dict) or item.get("kind") != "agentMessage":
+            continue
+        if item.get("status") != "completed":
+            continue
+        text = item.get("text")
+        phase = item.get("messagePhase")
+        messages.append(
+            (
+                "commentary" if phase == "commentary" else "finalAnswer",
+                text if isinstance(text, str) else "",
+            )
+        )
+    return messages
 
 
 async def _start_turn(host: Host, session_id: str, prompt: str) -> str:
@@ -312,13 +339,17 @@ async def _turn(context: Context) -> None:
     deltas = [n for n in host.notifications() if n.method == "item/delta"]
     if not deltas:
         raise AssertionError("the turn completed without streaming a single item/delta")
-    answers = [
-        text
-        for text in (_agent_text(n.params) for n in host.notifications())
-        if text is not None
-    ]
-    if not answers or not answers[-1]:
-        raise AssertionError("the turn completed without a non-empty agentMessage item")
+    # Only now, after turn/completed, is the set of agent messages whole. A
+    # UI renders each one as it arrived, labelled by its phase; the last item
+    # is not "the answer" (the phase labels a message, its position does
+    # not), and a phase this client does not know still reads as a final
+    # answer.
+    messages = _completed_agent_messages(host.notifications())
+    shown = [f"[{phase}] {text}" for phase, text in messages]
+    if not any(text for _, text in messages):
+        raise AssertionError(
+            f"the turn completed without a non-empty agentMessage item; saw {shown!r}"
+        )
 
 
 async def _approval(context: Context) -> None:
@@ -485,7 +516,7 @@ async def _resume_rejects_unknown_cursor(context: Context) -> None:
         raise AssertionError("`resume` did not finish")
     session_id = _require_session_id(context)
     # A cursor at an impossible sequence: no host can ever have minted it.
-    impossible = f"v:{session_id}:999999"
+    impossible = f"v3:{session_id}:999999"
     try:
         result = await within(
             "the session/resume refusal",
@@ -784,18 +815,30 @@ def _sync_turn(context: SyncContext) -> None:
     outcome = turn.completed()
     if outcome.kind != "completed":
         raise AssertionError(f"the turn ended {outcome.kind!r}, expected completed")
-    agent_items = [i for i in items if i.get("kind") == "agentMessage"]
+    # Every completed agent message the turn served, each with its phase; the
+    # last one is not "the answer" (the phase labels a message, its position
+    # does not) and an absent phase is an older host's final answer.
+    agent_items = [
+        i for i in items if i.get("kind") == "agentMessage" and i.get("status") == "completed"
+    ]
     if not agent_items:
         raise AssertionError("the turn completed without an agentMessage item")
-    item_id = str(agent_items[-1]["itemId"])
+    shown = [
+        f"[{'commentary' if i.get('messagePhase') == 'commentary' else 'finalAnswer'}] "
+        f"{i.get('text') or ''}"
+        for i in agent_items
+    ]
     # The fold's delta accumulator only fills from item/delta frames, so a
-    # non-empty accumulation IS the incremental-streaming evidence.
-    accumulated = session.fold.items.accumulated(item_id)
-    if not accumulated:
+    # non-empty accumulation for some streamed message IS the
+    # incremental-streaming evidence.
+    if not any(session.fold.items.accumulated(str(i["itemId"])) for i in agent_items):
         raise AssertionError("the turn completed without streaming a single item/delta")
-    held = session.fold.items.get(item_id)
-    if held is None or not held.get("text"):
-        raise AssertionError("the turn completed without a non-empty agentMessage item")
+    if not any(
+        (session.fold.items.get(str(i["itemId"])) or {}).get("text") for i in agent_items
+    ):
+        raise AssertionError(
+            f"the turn completed without a non-empty agentMessage item; saw {shown!r}"
+        )
 
 
 def _sync_approval(context: SyncContext) -> None:
@@ -910,7 +953,7 @@ def _sync_resume_rejects_unknown_cursor(context: SyncContext) -> None:
     session_id = context.session_id
     if client is None or session_id is None:
         raise AssertionError("`resume` did not finish")
-    impossible = f"v:{session_id}:999999"
+    impossible = f"v3:{session_id}:999999"
     try:
         client.resume_session(
             ResumeSessionOptions(
