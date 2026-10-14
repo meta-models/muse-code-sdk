@@ -109,7 +109,7 @@ are.</p>
 <td><code dir="auto">string</code> | <code dir="auto">null</code></td>
 <td>Experimental</td>
 <td>required</td>
-<td>The requesting client’s <code dir="auto">clientInfo.name</code>. <strong>Always <code dir="auto">null</code> at this head</strong>: ’s durable permission-audit seat that would carry this value is carved out of ’s dark slice, and reinstating it is owner-gated on Q1/Q2. Once that seat lands this carries the name of the client that drove the change, and stays <code dir="auto">null</code> when no client did (the Initialization/ManagedRefresh causes).</td>
+<td>The requesting client’s <code dir="auto">clientInfo.name</code>, read from the committed fact’s durable <code dir="auto">PermissionCommandLinkV1.client_name</code> seat. <code dir="auto">null</code> when no client recorded the change: the Initialization/ ManagedRefresh causes, native picker commits, and facts written before the seat existed.</td>
 </tr>
 <tr>
 <td><code dir="auto">commandId</code></td>
