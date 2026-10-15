@@ -52,7 +52,7 @@ CLOSE_BUDGET_MS = 30_000
 CLIENT_INFO = {"name": "muse_sdk_cookbook_py", "version": "0.0.0"}
 """Announce the cookbook, not the quickstart, in the host's attribution."""
 
-IMPOSSIBLE_CURSOR = "v3:00000000-0000-7000-8000-000000000000:1"
+IMPOSSIBLE_CURSOR = "v4:00000000-0000-7000-8000-000000000000:1"
 """A cursor no host ever issued: structurally valid, so the refusal is about
 the ANCHOR being missing and not about the string being unparseable."""
 

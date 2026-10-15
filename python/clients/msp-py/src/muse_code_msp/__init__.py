@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:4e3200c3c9dc0cd7919d11022630d43f9bc1c5cdda375381e90b0183b5665069"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:5d3b43e5ccdb7dc4f5a32c380f5f2cde0f10e3059b93610afb2e73f73b1d914c"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = False
-REQUIRED_HOST_VERSION: Final[str] = "1.4.8"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.9"
 
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
 APPROVAL_AMENDMENT_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("session", "localPersistent",)
@@ -1024,6 +1024,7 @@ class Item(_ItemBase, total=False):
     cutOff: bool
     declaredPhase: str
     depth: int
+    displayLabel: ToolDisplayLabel
     displayText: str
     durationMs: int
     entryId: str
@@ -2472,6 +2473,14 @@ class TokenUsage(_TokenUsageBase, total=False):
     cacheWriteTokens: int
 
 
+class ToolDisplayLabel(TypedDict):
+    """`toolCall.displayLabel`: the call's words in three forms, each one line of plain text, always present together. The item's `status` picks the form."""
+
+    active: str
+    done: str
+    neutral: str
+
+
 class TraceContext(TypedDict, total=False):
     """Optional W3C trace context, on requests in both directions only — never on responses or notifications."""
 
@@ -3221,6 +3230,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
 NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "approval/requested": {"description": "An approval opened: the fold of its durable Requested record.", "params": "ApprovalRequestParams"},
     "approval/resolved": {"description": "The first durable approval terminal landed; protected delivery.", "params": "ApprovalResolvedParams"},
+    "approval/reviewing": {"description": "The native reviewer holds an approval: the fold of a Requested whose phase is automated_reviewing; typed activity, not a request.", "params": "ApprovalRequestParams"},
     "approval/updated": {"description": "A non-terminal approval record changed the pending view.", "params": "ApprovalUpdatedParams"},
     "computerUseSetup/changed": {"description": "A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in. Without sessionId it carries the host's own setup state, delivered only with computerUseHostSetup.", "params": "ComputerUseSetupChanged"},
     "initialized": {"description": "Client-to-server notification closing the handshake; no params.", "params": None},

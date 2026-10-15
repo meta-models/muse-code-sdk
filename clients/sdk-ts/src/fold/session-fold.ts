@@ -97,6 +97,7 @@ export type ViewEvent =
   | { readonly method: "turn/modelRetryScheduled"; readonly params: TurnModelRetryScheduledParams }
   | { readonly method: "turn/unqueued"; readonly params: TurnUnqueuedParams }
   | { readonly method: "approval/requested"; readonly params: ApprovalRequestParams }
+  | { readonly method: "approval/reviewing"; readonly params: ApprovalRequestParams }
   | { readonly method: "approval/updated"; readonly params: ApprovalUpdatedParams }
   | { readonly method: "approval/resolved"; readonly params: ApprovalResolvedParams }
   | { readonly method: "userInput/requested"; readonly params: UserInputRequestParams }
@@ -353,6 +354,14 @@ export type FoldOutcome =
       readonly kind: "sessionState";
       readonly outcome: DeepReadonly<StateApplyOutcome<SessionStateParams>>;
     }
+  /**
+   * `approval/reviewing` (tdd SS5.5.1, spec 209 FR-52080-1): the native
+   * reviewer holds this approval. A typed-activity NOTICE, never a pending
+   * entry — the approval is absent from `pendingRequests` and no decide is
+   * open until `approval/requested` releases it (or `approval/resolved`
+   * settles it) on the same id. Ids only, so nothing here needs sealing.
+   */
+  | { readonly kind: "approvalReviewing"; readonly approvalId: string }
   | {
       readonly kind: "approvalPending";
       readonly approvalId: string;
@@ -693,6 +702,8 @@ export class SessionFold {
 
       case "approval/requested":
         return this.#approvalRequested(typed.params);
+      case "approval/reviewing":
+        return this.#approvalReviewing(typed.params);
       case "approval/updated":
         return this.#approvalUpdated(typed.params);
       case "approval/resolved":
@@ -952,6 +963,16 @@ export class SessionFold {
     // a decide against them bounces -32053.
     this.#pendingApprovals.set(params.approvalId, { requested: params });
     return { kind: "approvalPending", approvalId: params.approvalId, requested: params };
+  }
+
+  #approvalReviewing(params: ApprovalRequestParams): FoldOutcome {
+    // The reviewer-held twin of `approval/requested` (tdd SS5.5.1): typed
+    // activity, not a request. It opens NO pending entry — a client that
+    // showed a decision card here would defeat the presentation hold that
+    // spec 209 FR-52080-1 exists for — and touches no other store; the
+    // release arrives as `approval/requested` (or `approval/resolved`) on
+    // this id.
+    return { kind: "approvalReviewing", approvalId: params.approvalId };
   }
 
   #approvalUpdated(params: ApprovalUpdatedParams): FoldOutcome {

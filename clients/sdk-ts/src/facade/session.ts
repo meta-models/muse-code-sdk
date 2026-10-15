@@ -538,6 +538,7 @@ export class Session<I = unknown> {
       case "turn/retryScheduled": // non-terminal by contract (SS4.5.1)
       case "turn/modelRetryScheduled": // non-terminal by contract (SS4.5.1)
       case "turn/foregroundCompleted": // non-terminal by contract (SS4.5.12)
+      case "approval/reviewing": // reviewer-held twin of approval/requested (tdd SS5.5.1): a notice, no decide is open
       case "approval/resolved":
       case "userInput/requested":
       case "userInput/settled":

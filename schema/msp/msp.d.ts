@@ -859,6 +859,8 @@ export interface Item {
   declaredPhase?: string;
   /** `subagent`: nesting depth. */
   depth?: number;
+  /** `toolCall`: the tool's own words for this call; absent = none (tdd SS4.5.5). */
+  displayLabel?: ToolDisplayLabel;
   /** `userMessage`: presentation form (tdd SS3.2); absent when the client sent none. */
   displayText?: string;
   /** `userShell`/`subagent`: observed wall-clock duration. `workflow`: the run's wall time from launch to reconciliation, set only on the settling `item/completed` — never a sum of child durations. */
@@ -2751,6 +2753,16 @@ export interface TokenUsage {
   reasoningTokens: number;
 }
 
+/** `toolCall.displayLabel`: the call's words in three forms, each one line of plain text, always present together. The item's `status` picks the form. */
+export interface ToolDisplayLabel {
+  /** Shown while the call runs (`inProgress`), e.g. "Setting up Computer Use". */
+  active: string;
+  /** Shown after the call succeeds (`completed`), e.g. "Set up Computer Use". */
+  done: string;
+  /** Shown for every other status (failed, rejected, timed out, cancelled), beside that status; never implies success. */
+  neutral: string;
+}
+
 export type ToolReceipt = { details?: CronReceipt; family: "cron"; operation: ToolReceiptOperation; outcome: ToolReceiptOutcome; } | { details?: CodeModeReceipt; family: "codeMode"; operation: ToolReceiptOperation; outcome: ToolReceiptOutcome; } | { details?: Record<string, unknown>; family: string; operation: string; outcome: string; };
 
 /** Which operation within the family the receipt describes (ADR 43399 D1/D2). Open — registered per family, never derived from the tool name. */
@@ -3474,7 +3486,7 @@ export interface WorkflowTokenBudget {
 /** Every wire method in this schema (SS1.9 index). */
 export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start" | "computerUseSetup/check";
 /** Every wire notification in this schema (SS1.9 index). */
-export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/modelRetryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
+export type MspNotification = "initialized" | "session/started" | "session/closed" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/modelRetryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/reviewing" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */

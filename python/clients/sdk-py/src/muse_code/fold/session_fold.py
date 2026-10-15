@@ -75,6 +75,9 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         "turn/modelRetryScheduled",
         "turn/unqueued",
         "approval/requested",
+        # The reviewer-held twin of `approval/requested`: routed to its own
+        # non-storing notice.
+        "approval/reviewing",
         "approval/updated",
         "approval/resolved",
         "userInput/requested",
@@ -282,6 +285,19 @@ class ModelRouteUnservedNotice:
 
 
 @dataclass(frozen=True)
+class ApprovalReviewingNotice:
+    """The ``approval/reviewing`` typed-activity signal.
+
+    The host's built-in reviewer holds this approval. A notice, never a
+    pending entry: it seeds no store and opens no decision — the approval is
+    absent from ``pending_approvals`` until ``approval/requested`` releases it
+    to the human (or ``approval/resolved`` settles it) on the same id.
+    """
+
+    approval_id: str
+
+
+@dataclass(frozen=True)
 class IgnoredUnrecognizedMethod:
     """A newer host's method this SDK has never heard of."""
 
@@ -330,6 +346,7 @@ FoldOutcome = (
     | UserInputSettledFold
     | DeliveryGap
     | ModelRouteUnservedNotice
+    | ApprovalReviewingNotice
     | IgnoredUnrecognizedMethod
     | IgnoredMissingParams
     | IgnoredStaleFrame
@@ -585,6 +602,8 @@ class SessionFold:
             return self._turn_foreground_completed(params)
         if method == "approval/requested":
             return self._approval_requested(params)
+        if method == "approval/reviewing":
+            return ApprovalReviewingNotice(approval_id=str(params["approvalId"]))
         if method == "approval/updated":
             return self._approval_updated(params)
         if method == "approval/resolved":

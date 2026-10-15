@@ -2288,6 +2288,10 @@
           "description": "`subagent`: nesting depth.",
           "type": "integer"
         },
+        "displayLabel": {
+          "$ref": "#/$defs/ToolDisplayLabel",
+          "description": "`toolCall`: the tool's own words for this call; absent = none (tdd SS4.5.5)."
+        },
         "displayText": {
           "description": "`userMessage`: presentation form (tdd SS3.2); absent when the client\nsent none.",
           "type": "string"
@@ -6999,6 +7003,29 @@
       ],
       "type": "object"
     },
+    "ToolDisplayLabel": {
+      "description": "`toolCall.displayLabel`: the call's words in three forms, each one line of\nplain text, always present together. The item's `status` picks the form.",
+      "properties": {
+        "active": {
+          "description": "Shown while the call runs (`inProgress`), e.g. \"Setting up Computer Use\".",
+          "type": "string"
+        },
+        "done": {
+          "description": "Shown after the call succeeds (`completed`), e.g. \"Set up Computer Use\".",
+          "type": "string"
+        },
+        "neutral": {
+          "description": "Shown for every other status (failed, rejected, timed out, cancelled),\nbeside that status; never implies success.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "active",
+        "done",
+        "neutral"
+      ],
+      "type": "object"
+    },
     "ToolReceipt": {
       "oneOf": [
         {
@@ -9719,6 +9746,12 @@
       "description": "The first durable approval terminal landed; protected delivery (SS5.5).",
       "params": {
         "$ref": "#/$defs/ApprovalResolvedParams"
+      }
+    },
+    "approval/reviewing": {
+      "description": "The native reviewer holds an approval: the fold of a Requested whose phase is automated_reviewing; typed activity, not a request (SS5.5.1, spec 209 FR-52080-1).",
+      "params": {
+        "$ref": "#/$defs/ApprovalRequestParams"
       }
     },
     "approval/updated": {

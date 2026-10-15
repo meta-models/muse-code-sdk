@@ -76,7 +76,7 @@ const CLIENT_INFO = { name: "muse_sdk_cookbook", version: "0.0.0" };
  * and not about the string being unparseable — the same shape the committed
  * `cursor-never-existed` transcript records.
  */
-const IMPOSSIBLE_CURSOR = "v3:00000000-0000-7000-8000-000000000000:1";
+const IMPOSSIBLE_CURSOR = "v4:00000000-0000-7000-8000-000000000000:1";
 
 interface Context {
   readonly museBin: string;

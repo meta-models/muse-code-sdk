@@ -15,6 +15,8 @@ from typing import Any
 from muse_code.fold import (
     LIVE_HOST_STATE_PROJECTIONS,
     VIEW_EVENT_METHODS,
+    ApprovalPending,
+    ApprovalReviewingNotice,
     ApprovalResolvedFold,
     DeliveryGap,
     FoldItems,
@@ -176,6 +178,13 @@ def approval_requested(
             "viewCursor": view_cursor,
         },
     }
+
+
+def approval_reviewing(approval_id: str, view_cursor: str) -> dict[str, Any]:
+    # The reviewer-held twin of `approval/requested`: same params shape,
+    # different method.
+    event = approval_requested(approval_id, view_cursor)
+    return {"method": "approval/reviewing", "params": event["params"]}
 
 
 def approval_updated(
@@ -1072,6 +1081,19 @@ def test_the_items_surface_is_an_allowlist_pinned_by_member_set() -> None:
     assert state_public == {"families", "get", "has"}
 
 
+def test_approval_reviewing_is_a_notice_that_opens_no_pending_approval() -> None:
+    # The host's built-in reviewer holds the approval; opening a pending
+    # entry here would defeat the presentation hold. The release arrives as
+    # `approval/requested` on the same id.
+    fold = SessionFold()
+    outcome = fold.apply(approval_reviewing("a-1", "v:s:1"))
+    assert outcome == ApprovalReviewingNotice(approval_id="a-1")
+    assert fold.pending_approvals() == []
+    released = fold.apply(approval_requested("a-1", "v:s:2"))
+    assert isinstance(released, ApprovalPending)
+    assert len(fold.pending_approvals()) == 1
+
+
 def test_every_generated_view_notification_is_routed_never_the_default() -> None:
     # The runtime twin of the TS AssertNever coverage pins, PLUS the routing
     # table: every generated notification except the handshake's
@@ -1156,6 +1178,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "turn/foregroundCompleted": foreground_completed("turn-t5", "v:t:23"),
         "turn/unqueued": turn_unqueued("turn-t4", "cmd-t4", "v:t:9"),
         "approval/requested": approval_requested("a-t", "v:t:10"),
+        "approval/reviewing": approval_reviewing("a-r", "v:t:23"),
         "approval/updated": approval_updated("a-t", "v:t:10b"),
         "approval/resolved": approval_resolved("a-t", "approved", "v:t:11"),
         "userInput/requested": user_input_requested("u-t", "v:t:12"),

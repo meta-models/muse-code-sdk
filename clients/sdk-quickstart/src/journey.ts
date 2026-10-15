@@ -561,7 +561,7 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       const sessionId = requireSessionId(context);
       // A cursor for this session at an impossible sequence. No host can
       // ever have minted it.
-      const impossible = `v3:${sessionId}:999999`;
+      const impossible = `v4:${sessionId}:999999`;
       let result: Record<string, unknown> | undefined;
       try {
         result = await host.msp.connection.command(

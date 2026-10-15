@@ -14,7 +14,7 @@
  *    working against a newer host.
  */
 export const EXPECTED_SCHEMA_FINGERPRINT =
-  "sha256:4e3200c3c9dc0cd7919d11022630d43f9bc1c5cdda375381e90b0183b5665069";
+  "sha256:5d3b43e5ccdb7dc4f5a32c380f5f2cde0f10e3059b93610afb2e73f73b1d914c";
 
 /**
  * What a build-time mismatch MEANS, in the words a human needs at 2am.

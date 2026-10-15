@@ -125,6 +125,15 @@ function approvalRequested(approvalId: string, viewCursor: string, command = "ls
   return { method: "approval/requested", params };
 }
 
+function approvalReviewing(approvalId: string, viewCursor: string): ViewEvent {
+  // The reviewer-held twin of `approval/requested` (tdd SS5.5.1): the same
+  // params, a different method. Narrowed through the discriminant so the
+  // params type is the request shape, not the whole `ViewEvent` union.
+  const requested = approvalRequested(approvalId, viewCursor);
+  if (requested.method !== "approval/requested") throw new Error("fixture: not an approval/requested");
+  return { method: "approval/reviewing", params: requested.params };
+}
+
 function approvalResolved(approvalId: string, decision: string, viewCursor: string): ViewEvent {
   const params: ApprovalResolvedParams = {
     approvalId,
@@ -672,6 +681,19 @@ test("turns are listed in first-observed order", () => {
 });
 
 // ---- approvals as fold inputs --------------------------------------------
+
+test("approval/reviewing is a typed-activity notice that opens no pending approval", () => {
+  // tdd SS5.5.1 / spec 209 FR-52080-1: the native reviewer holds the approval;
+  // a client that opened a pending entry here would defeat the presentation
+  // hold. The release arrives as `approval/requested` on the same id.
+  const fold = new SessionFold();
+  const outcome = fold.apply(approvalReviewing("a-1", "v:s:1"));
+  assert.deepEqual(outcome, { kind: "approvalReviewing", approvalId: "a-1" });
+  assert.deepEqual(fold.pendingApprovals(), []);
+  const released = fold.apply(approvalRequested("a-1", "v:s:2"));
+  assert.equal(released.kind, "approvalPending");
+  assert.equal(fold.pendingApprovals().length, 1);
+});
 
 test("approval/requested adds a pending approval", () => {
   const fold = new SessionFold();
@@ -1629,6 +1651,7 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     "turn/foregroundCompleted": { method: "turn/foregroundCompleted", params: foreground },
     "turn/unqueued": turnUnqueued("turn-t4", "cmd-t4", "v:t:9"),
     "approval/requested": approvalRequested("a-t", "v:t:10"),
+    "approval/reviewing": approvalReviewing("a-r", "v:t:23"),
     "approval/updated": { method: "approval/updated", params: approvalUpdated },
     "approval/resolved": approvalResolved("a-t", "approved", "v:t:11"),
     "userInput/requested": userInputRequested("u-t", "v:t:12"),
