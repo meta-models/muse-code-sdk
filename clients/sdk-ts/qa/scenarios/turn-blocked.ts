@@ -279,9 +279,7 @@ export const TURN_BLOCKED_SCENARIOS: readonly QaScenario[] = [
     title: "the `userInput` round trip settles the prompt",
     vein: "approvals flow",
     async subject(host, sessionId) {
-      // `reason` is host-required (crates/session-server user_input/params.rs);
-      // without it the cancel dies at param validation and never reaches the
-      // userInput plane (#23111).
+      // The host also accepts an omitted reason (ADR 23823 D1).
       await host.command("cancelInput", "userInput/cancel", {
         sessionId,
         userInputId: "00000000-0000-7000-8000-000000000000",

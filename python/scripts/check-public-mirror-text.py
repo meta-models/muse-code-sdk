@@ -121,13 +121,19 @@ def scan_findings(text: str) -> list[tuple[str, str, int, str]]:
     return findings
 
 
-def read_closure_manifest(manifest_path: Path) -> tuple[list[str], set[str]]:
-    """Closure entries plus the ``python/``-mapped subset.
+# A path_notes note opening maps its entry under this mirror folder; the
+# re-mirror copy uses the same rule.
+MIRROR_FOLDERS = (("Python closure", "python"), ("Rust closure", "rust"))
 
-    An entry is python-marked when its ``path_notes`` note starts with
-    "Python closure" — the same rule the re-mirror copy uses, so the
-    digest names every file exactly where the mirror carries it.
-    Fixture manifests without ``path_notes`` map nothing.
+
+def read_closure_manifest(manifest_path: Path) -> tuple[list[str], dict[str, str]]:
+    """Closure entries plus the mirror folder of each mapped entry.
+
+    An entry maps under ``python/`` when its ``path_notes`` note starts
+    with "Python closure", and under ``rust/`` when it starts with "Rust
+    closure" — the same rule the re-mirror copy uses, so the digest
+    names every file exactly where the mirror carries it. Fixture
+    manifests without ``path_notes`` map nothing.
     """
     try:
         raw = manifest_path.read_text(encoding="utf-8")
@@ -152,13 +158,24 @@ def read_closure_manifest(manifest_path: Path) -> tuple[list[str], set[str]]:
         raise AnchorError(
             f"closure manifest {manifest_path} has a non-string path_notes map"
         )
-    marked = {
-        path for path, note in notes.items() if note.startswith("Python closure")
+    mapped = {
+        path: folder
+        for path, note in notes.items()
+        for opening, folder in MIRROR_FOLDERS
+        if note.startswith(opening)
     }
-    return list(paths), marked
+    return list(paths), mapped
 
 
-def tracked_closure_files(root: Path, entries: list[str]) -> list[bytes]:
+def other_layout(relpath: str, mapped: dict[str, str]) -> str:
+    """The folder an entry may sit under besides its verbatim path: its
+    own mirror folder, or ``python/`` for an unmapped entry (as before)."""
+    return mapped.get(relpath, "python")
+
+
+def tracked_closure_files(
+    root: Path, entries: list[str], mapped: dict[str, str]
+) -> list[bytes]:
     """Git-tracked paths under the closure entries (one ``ls-files`` call).
 
     The digest covers the carried set — files the tree tracks — never
@@ -171,7 +188,7 @@ def tracked_closure_files(root: Path, entries: list[str]) -> list[bytes]:
     spec: list[str] = []
     for entry in entries:
         spec.append(f":(literal){entry}")
-        spec.append(f":(literal)python/{entry}")
+        spec.append(f":(literal){other_layout(entry, mapped)}/{entry}")
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z", "--", *spec],
@@ -201,10 +218,10 @@ def closure_digest(root: Path, manifest_path: Path) -> str:
 
     SHA-256 over the carried closure files: the manifest entries
     resolved to their git-tracked files, named by mirror-relative path
-    with the ``python/`` mapping applied, byte-sorted, each
+    with the ``python/`` and ``rust/`` mapping applied, byte-sorted, each
     contributing its path, one NUL byte, and its file bytes. The
     producer tree holds closure paths verbatim while the mirror maps
-    the python-marked ones under ``python/``; the reader accepts either
+    the marked ones under their folder; the reader accepts either
     layout so one gate verifies both trees, and an entry tracked under
     both layouts refuses as ambiguous. Every offending entry is
     collected and reported, never first-wins: a refusal naming only
@@ -214,29 +231,29 @@ def closure_digest(root: Path, manifest_path: Path) -> str:
     refuses every publish as a digest mismatch, so the two
     implementations must stay character-identical.
     """
-    paths, marked = read_closure_manifest(manifest_path)
-    tracked = tracked_closure_files(root, paths)
+    paths, mapped = read_closure_manifest(manifest_path)
+    tracked = tracked_closure_files(root, paths, mapped)
     contributions: list[tuple[bytes, Path]] = []
     errors: list[str] = []
     for relpath in paths:
         entry = os.fsencode(relpath)
+        folder = other_layout(relpath, mapped)
         mirror_entry = os.fsencode(
-            f"python/{relpath}" if relpath in marked else relpath
+            f"{folder}/{relpath}" if relpath in mapped else relpath
         )
+        shadow = os.fsencode(folder) + b"/" + entry
         verbatim = [path for path in tracked if _under(entry, path)]
-        shadowed = [
-            path for path in tracked if _under(b"python/" + entry, path)
-        ]
+        shadowed = [path for path in tracked if _under(shadow, path)]
         if verbatim and shadowed:
             errors.append(
                 f"digest input is ambiguous: {relpath} is tracked both "
-                f"verbatim and under python/ in {root}"
+                f"verbatim and under {folder}/ in {root}"
             )
             continue
         if not verbatim and not shadowed:
             errors.append(
                 f"digest input missing: {relpath} "
-                f"(neither {relpath} nor python/{relpath} tracked under {root})"
+                f"(neither {relpath} nor {folder}/{relpath} tracked under {root})"
             )
             continue
         # Contributed names are always mirror-relative: bytes found
@@ -244,7 +261,7 @@ def closure_digest(root: Path, manifest_path: Path) -> str:
         # them, so both layouts digest identically. Stripped per list,
         # never re-classified: the strip prefix is the same predicate
         # that bucketed the path.
-        for source, prefix in ((verbatim, entry), (shadowed, b"python/" + entry)):
+        for source, prefix in ((verbatim, entry), (shadowed, shadow)):
             for path in source:
                 rest = path[len(prefix):]
                 file_path = root / os.fsdecode(path)

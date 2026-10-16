@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """External-audience gate for the published Python and npm packages and
-the public python source tree.
+the public python source tree, and the published Rust crate.
 
 The first PyPI publish shipped long descriptions (the package READMEs), a
 pyproject ``description``, and module docstrings that cite artifacts only
@@ -12,7 +12,7 @@ TypeScript SDK's README. A registry reader has the published package, the
 public mirror, and the public docs site — nothing else — so every such
 reference is a dead end at best and a disclosure at worst.
 
-Four modes, two pattern tiers:
+Five modes, two pattern tiers:
 
   (default)         check the committed sources under --repo-root: package
                     METADATA surfaces (each README.md, each pyproject
@@ -37,6 +37,18 @@ Four modes, two pattern tiers:
                     publish gate: scripts/publish-sdk-npm.sh runs it after
                     `npm pack`, before any publish, so it audits what the
                     upload step would actually ship.
+  --crate CRATE     check a packaged Rust crate (a .crate tarball): its
+                    README.md, its Cargo.toml ``description`` and every
+                    packaged Rust file's ``//!`` docs (the module pages the
+                    crate's documentation shows, and the examples' headers;
+                    item docs stay on the tree tier) with the full table,
+                    and every packaged file whole with the tree tier,
+                    cargo's own records included. A crate that is not one
+                    readable package root, or that holds a non-UTF-8
+                    member, refuses. This is the crates.io publish gate:
+                    scripts/publish-sdk-crates.sh runs it on the crate
+                    `cargo package` wrote, before the dry run and any
+                    publish.
 
 The METADATA tier bans every repository path; the TREE tier bans only
 identifiers that resolve nowhere outside the producing repository, so
@@ -370,6 +382,69 @@ def check_npm_tarball(tarball: Path) -> list[str]:
     return findings
 
 
+def crate_manifest_findings(manifest_text: str, where: str) -> list[str]:
+    try:
+        package = tomllib.loads(manifest_text).get("package", {})
+    except tomllib.TOMLDecodeError as err:  # a broken shipped manifest is its own defect
+        raise SystemExit(f"FAILED: {where}: not parseable TOML: {err}")
+    return findings_in(package.get("description") or "", f"{where} [package] description")
+
+
+def module_docs(source: str) -> str:
+    """A Rust file's inner (`//!`) doc lines: the crate documentation's module page."""
+    return "\n".join(
+        line.strip()[3:] for line in source.splitlines() if line.strip().startswith("//!")
+    )
+
+
+def check_crate(crate: Path) -> list[str]:
+    # A .crate is a gzip tarball under one <name>-<version>/ root. The README,
+    # the manifest's description and each module's inner docs are registry
+    # metadata (full table, as PyPI's module docstrings are); every packaged
+    # file is public down to its comments (tree tier), cargo's generated
+    # Cargo.toml and .cargo_vcs_info.json included. Fail closed when an
+    # audited entry is absent, as the npm tarball mode does.
+    findings: list[str] = []
+    try:
+        archive_cm = tarfile.open(crate)
+    except (OSError, tarfile.TarError) as err:
+        raise SystemExit(f"FAILED: {crate.name} is not a readable crate archive: {err}")
+    with archive_cm as archive:
+        members = [member for member in archive.getmembers() if member.isfile()]
+        roots = {member.name.split("/", 1)[0] for member in members}
+        if len(roots) != 1:
+            raise SystemExit(f"FAILED: {crate.name} has no single package root: {sorted(roots)}")
+        root = roots.pop()
+
+        def text(member: tarfile.TarInfo) -> str:
+            payload = archive.extractfile(member)
+            assert payload is not None
+            try:
+                return payload.read().decode("utf-8")
+            except UnicodeDecodeError as err:
+                raise SystemExit(f"FAILED: {crate.name}!{member.name}: not UTF-8 text: {err}")
+
+        by_name = {member.name: member for member in members}
+        for entry, audit in (
+            (f"{root}/README.md", findings_in),
+            (f"{root}/Cargo.toml", crate_manifest_findings),
+        ):
+            member = by_name.get(entry)
+            if member is None:
+                raise SystemExit(
+                    f"FAILED: {crate.name} has no {entry}; the audience gate "
+                    "must audit what would actually ship"
+                )
+            findings += audit(text(member), f"{crate.name}!{entry}")
+        for member in members:
+            where = f"{crate.name}!{member.name}"
+            source = text(member)
+            findings += findings_in(source, where, TREE_PRIVATE_PATTERNS)
+            if member.name.endswith(".rs"):
+                findings += findings_in(module_docs(source), f"{where} module docs")
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -393,6 +468,12 @@ def main() -> int:
         default=None,
         help="audit a packed npm tarball's package/README.md + package/package.json description",
     )
+    mode.add_argument(
+        "--crate",
+        type=Path,
+        default=None,
+        help="audit a packaged Rust crate: README.md and Cargo.toml description, then every file",
+    )
     args = parser.parse_args()
 
     if args.dist is not None:
@@ -401,6 +482,8 @@ def main() -> int:
         findings = check_npm_source(args.repo_root)
     elif args.npm_tarball is not None:
         findings = check_npm_tarball(args.npm_tarball)
+    elif args.crate is not None:
+        findings = check_crate(args.crate)
     else:
         findings = check_tree(args.repo_root)
     if findings:

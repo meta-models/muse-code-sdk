@@ -10,7 +10,7 @@ from typing import Any, Final, Literal, TypedDict
 SCHEMA_FINGERPRINT: Final[str] = "sha256:5d3b43e5ccdb7dc4f5a32c380f5f2cde0f10e3059b93610afb2e73f73b1d914c"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = False
-REQUIRED_HOST_VERSION: Final[str] = "1.4.9"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.10"
 
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
 APPROVAL_AMENDMENT_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("session", "localPersistent",)

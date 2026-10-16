@@ -28,6 +28,7 @@ import type {
   ItemStartedParams,
   ItemUpdatedParams,
   Notification,
+  RetractOutcome,
   SessionApprovalModeChangedParams,
   SessionBranchChangedParams,
   SessionContextUsageParams,
@@ -90,8 +91,20 @@ function turnCompleted(
   return { method: "turn/completed", params };
 }
 
-function turnRetracted(turnId: string, commandId: string, viewCursor: string): ViewEvent {
-  const params: TurnRetractedParams = { commandId, sessionId: SESSION, sourceRange: SOURCE, turnId, viewCursor };
+function turnRetracted(
+  turnId: string,
+  commandId: string,
+  viewCursor: string,
+  outcome?: RetractOutcome,
+): ViewEvent {
+  const params: TurnRetractedParams = {
+    commandId,
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId,
+    viewCursor,
+    ...(outcome !== undefined ? { outcome } : {}),
+  };
   return { method: "turn/retracted", params };
 }
 
@@ -400,6 +413,72 @@ test("turn/retracted carries the commandId when the retract is the FIRST frame",
   assert.equal(retracted?.state, "retracted");
   assert.equal(retracted?.commandId, "cmd-9");
   assert.equal(retracted?.terminal, undefined, "a retract is not a TurnTerminal (INV-006)");
+});
+
+// A declined retract means the submission stood: the fold keeps a turn's prior
+// state, so `turn/completed` settles a running turn in either order. On a
+// turn the fold holds it records the retract's commandId (the standing
+// submission's).
+test("a declined turn/retracted after turn/completed leaves the turn settled and records its commandId", () => {
+  const fold = new SessionFold();
+  // First seen through its completion, so only the retract names the command.
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:1"));
+  const outcome = fold.apply(turnRetracted("turn-1", "cmd-c", "v:s:2", "declined"));
+
+  assert.deepEqual(outcome, { kind: "turn", turnId: "turn-1", state: "settled" });
+  const turn = fold.turn("turn-1");
+  assert.equal(turn?.state, "settled", "the submission stood");
+  assert.equal(turn?.terminal, "completed");
+  assert.equal(turn?.commandId, "cmd-c");
+});
+
+test("a declined turn/retracted while the turn runs leaves it running, and turn/completed settles it", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const outcome = fold.apply(turnRetracted("turn-1", "cmd-1", "v:s:2", "declined"));
+
+  assert.deepEqual(outcome, { kind: "turn", turnId: "turn-1", state: "running" });
+  assert.equal(fold.turn("turn-1")?.state, "running", "the submission stood");
+  assert.equal(fold.activeTurnId, "turn-1", "the turn is still the active one");
+
+  const completed = fold.apply(turnCompleted("turn-1", "completed", "v:s:3"));
+  assert.deepEqual(completed, { kind: "turn", turnId: "turn-1", state: "settled" });
+  assert.equal(fold.turn("turn-1")?.terminal, "completed", "the terminal is not dropped");
+  assert.equal(fold.activeTurnId, undefined);
+});
+
+test("a declined turn/retracted leaves a reclaimed turn unqueued and records its commandId", () => {
+  // The protocol never pairs these frames. The test pins the commandId rule
+  // for a held turn in any state, with a distinct id so the record shows.
+  const fold = new SessionFold();
+  fold.apply(turnUnqueued("turn-2", "cmd-2", "v:s:1"));
+  fold.apply(turnRetracted("turn-2", "cmd-c", "v:s:2", "declined"));
+
+  assert.equal(fold.turn("turn-2")?.state, "unqueued");
+  assert.equal(fold.turn("turn-2")?.commandId, "cmd-c");
+});
+
+test("a declined turn/retracted for a turn the fold has not seen creates no entry", () => {
+  const fold = new SessionFold();
+  // A client that joined after this turn's completion: the declined retract
+  // carries no lifecycle fact, so the fold must not invent a running turn.
+  const outcome = fold.apply(turnRetracted("turn-9", "cmd-9", "v:s:1", "declined"));
+
+  assert.deepEqual(outcome, { kind: "ignoredStaleFrame", method: "turn/retracted", id: "turn-9" });
+  assert.equal(fold.turn("turn-9"), undefined);
+  assert.equal(fold.activeTurnId, undefined);
+
+  fold.apply(turnCompleted("turn-9", "completed", "v:s:2"));
+  assert.equal(fold.turn("turn-9")?.state, "settled", "a later completion still settles it");
+});
+
+test("an unrecognized turn/retracted outcome reads as accepted", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  fold.apply(turnRetracted("turn-1", "cmd-1", "v:s:2", "future-outcome"));
+
+  assert.equal(fold.turn("turn-1")?.state, "retracted");
+  assert.equal(fold.activeTurnId, undefined);
 });
 
 test("turn/completed clears the retry countdown (tdd SS4.5.1)", () => {

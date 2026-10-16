@@ -21,6 +21,7 @@ so this file's own text stays clean under the tree tier.
 from __future__ import annotations
 
 import importlib.util
+import io
 import re
 import subprocess
 import sys
@@ -674,3 +675,190 @@ def test_the_npm_tarball_mode_refuses_a_tarball_missing_its_readme(tmp_path: Pat
     result = _run_checker("--npm-tarball", str(tarball))
     assert result.returncode != 0
     assert "no package/README.md" in result.stderr
+
+
+
+# A Rust source member's name, built at run time so this mirrored file carries
+# no repository source-path token of its own.
+LIB_RS = "src/lib" + ".r" + "s"
+
+def _seeded_crate(
+    tmp_path: Path,
+    *,
+    readme_line: str = "Drive the host from a Tokio runtime.",
+    description: str = "A clean summary.",
+    files: dict[str, str] | None = None,
+) -> Path:
+    # A .crate is a gzip tarball under one <name>-<version>/ root.
+    entries = {
+        "README.md": f"# clean\n\n{readme_line}\n",
+        "Cargo.toml": (
+            '[package]\nname = "muse-code-sdk"\nversion = "1.0.0"\n'
+            f'description = "{description}"\n'
+        ),
+        LIB_RS: "//! A clean crate.\n",
+    }
+    entries.update(files or {})
+    crate = tmp_path / "muse-code-sdk-1.0.0.crate"
+    with tarfile.open(crate, "w:gz") as archive:
+        for name, text in entries.items():
+            data = text.encode("utf-8")
+            info = tarfile.TarInfo(f"muse-code-sdk-1.0.0/{name}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return crate
+
+
+def _vcs_record(path_in_vcs: str) -> str:
+    return (
+        '{"git": {"sha1": "' + "a" * 40 + '", "dirty": false}, '
+        f'"path_in_vcs": "{path_in_vcs}"}}\n'
+    )
+
+
+def test_a_clean_crate_passes(tmp_path: Path) -> None:
+    result = _run_checker("--crate", str(_seeded_crate(tmp_path)))
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("site", "overrides"),
+    [
+        # A metadata-only class: the tree tier allows a closure path, the README
+        # (registry metadata) does not.
+        ("README.md", {"readme_line": LEAKS["client-path"]}),
+        ("Cargo.toml [package] description", {"description": LEAKS["client-path"]}),
+        (
+            LIB_RS + ": adr-citation",
+            {"files": {LIB_RS: "//! A clean crate.\n// Checked per " + LEAKS["adr-citation"] + ".\n"}},
+        ),
+    ],
+    ids=["crate-readme", "crate-description", "crate-source"],
+)
+def test_each_crate_site_is_refused(tmp_path: Path, site: str, overrides: dict) -> None:
+    result = _run_checker("--crate", str(_seeded_crate(tmp_path, **overrides)))
+    assert result.returncode != 0, f"a leak in the {site} site passed the crate gate"
+    assert site in result.stderr, f"the refusal must name the {site} site:\n{result.stderr}"
+
+
+def test_the_crate_mode_passes_the_mirrors_commit_record_and_refuses_the_producers(
+    tmp_path: Path,
+) -> None:
+    # Cargo writes .cargo_vcs_info.json into every crate packaged from git: a
+    # commit SHA (no class here) and the crate's path in the repository. The
+    # tree tier allows the mirror's rust/clients/sdk-rs; the producing
+    # checkout's path is a dev-loop path, so a crate packaged there refuses.
+    mirror = _seeded_crate(
+        tmp_path, files={".cargo_vcs_info.json": _vcs_record("rust/clients/sdk-rs")}
+    )
+    result = _run_checker("--crate", str(mirror))
+    assert result.returncode == 0, result.stderr
+    producer_dir = tmp_path / "producer"
+    producer_dir.mkdir()
+    producer = _seeded_crate(
+        producer_dir,
+        files={".cargo_vcs_info.json": _vcs_record("projects/" + "tb" + "h/clients/sdk-rs")},
+    )
+    result = _run_checker("--crate", str(producer))
+    assert result.returncode != 0
+    assert ".cargo_vcs_info.json: dev-loop-path" in result.stderr, result.stderr
+
+
+def test_the_crate_mode_refuses_a_crate_missing_its_readme(tmp_path: Path) -> None:
+    crate = tmp_path / "muse-code-sdk-1.0.0.crate"
+    data = b'[package]\nname = "muse-code-sdk"\nversion = "1.0.0"\n'
+    with tarfile.open(crate, "w:gz") as archive:
+        info = tarfile.TarInfo("muse-code-sdk-1.0.0/Cargo.toml")
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+    result = _run_checker("--crate", str(crate))
+    assert result.returncode != 0
+    assert "no muse-code-sdk-1.0.0/README.md" in result.stderr
+
+
+def test_the_crate_mode_holds_module_docs_to_the_full_table(tmp_path: Path) -> None:
+    # The crate's documentation pages show each module's inner docs, so a
+    # metadata-only class refuses there; the same text in an ordinary comment
+    # is tree-tier and passes.
+    in_docs = _seeded_crate(tmp_path, files={LIB_RS: "//! See " + LEAKS["client-path"] + ".\n"})
+    result = _run_checker("--crate", str(in_docs))
+    assert result.returncode != 0
+    assert LIB_RS + " module docs: client-path" in result.stderr, result.stderr
+    comment_dir = tmp_path / "comment"
+    comment_dir.mkdir()
+    in_comment = _seeded_crate(
+        comment_dir, files={LIB_RS: "//! A clean crate.\n// See " + LEAKS["client-path"] + ".\n"}
+    )
+    result = _run_checker("--crate", str(in_comment))
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_crate_mode_holds_example_headers_to_the_full_table(tmp_path: Path) -> None:
+    # Examples ship in the crate too, so their headers get the same table.
+    example = "examples/hello" + ".r" + "s"
+    crate = _seeded_crate(tmp_path, files={example: "//! See " + LEAKS["client-path"] + ".\nfn main() {}\n"})
+    result = _run_checker("--crate", str(crate))
+    assert result.returncode != 0
+    assert example + " module docs: client-path" in result.stderr, result.stderr
+
+
+def _crate_with(tmp_path: Path, members: dict[str, bytes]) -> Path:
+    crate = tmp_path / "muse-code-sdk-1.0.0.crate"
+    with tarfile.open(crate, "w:gz") as archive:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return crate
+
+
+_CLEAN_MANIFEST = b'[package]\nname = "muse-code-sdk"\nversion = "1.0.0"\n'
+
+
+@pytest.mark.parametrize(
+    ("members", "message"),
+    [
+        (
+            {"a-1.0.0/README.md": b"# a\n", "b-1.0.0/README.md": b"# b\n"},
+            "has no single package root",
+        ),
+        (
+            {
+                "muse-code-sdk-1.0.0/README.md": b"# clean\n",
+                "muse-code-sdk-1.0.0/Cargo.toml": _CLEAN_MANIFEST,
+                "muse-code-sdk-1.0.0/src/data.bin": b"\xff\xfe",
+            },
+            "not UTF-8 text",
+        ),
+        (
+            {
+                "muse-code-sdk-1.0.0/README.md": b"# clean\n",
+                "muse-code-sdk-1.0.0/Cargo.toml": b"[package\nname = 1\n",
+            },
+            "not parseable TOML",
+        ),
+    ],
+    ids=["two-roots", "binary-member", "bad-manifest"],
+)
+def test_the_crate_mode_refuses_a_malformed_crate(
+    tmp_path: Path, members: dict[str, bytes], message: str
+) -> None:
+    result = _run_checker("--crate", str(_crate_with(tmp_path, members)))
+    assert result.returncode != 0
+    assert message in result.stderr, result.stderr
+
+
+def test_the_crate_mode_refuses_a_file_that_is_no_crate_archive(tmp_path: Path) -> None:
+    not_a_crate = tmp_path / "muse-code-sdk-1.0.0.crate"
+    not_a_crate.write_text("not a tarball\n")
+    result = _run_checker("--crate", str(not_a_crate))
+    assert result.returncode != 0
+    assert "is not a readable crate archive" in result.stderr, result.stderr
+
+
+def test_the_crate_mode_refuses_a_crate_that_is_missing(tmp_path: Path) -> None:
+    # The publish script relies on this: it has no check of its own for the
+    # file `cargo package` writes.
+    result = _run_checker("--crate", str(tmp_path / "muse-code-sdk-1.0.0.crate"))
+    assert result.returncode != 0
+    assert "is not a readable crate archive" in result.stderr, result.stderr

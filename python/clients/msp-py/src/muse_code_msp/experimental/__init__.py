@@ -10,7 +10,7 @@ from typing import Any, Final, Literal, TypedDict
 SCHEMA_FINGERPRINT: Final[str] = "sha256:e8b3d24f3922af8e567838a9ebdf8a28b64e6e0ddb516689f1a760e46c2f7fa1"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.9"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.10"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable

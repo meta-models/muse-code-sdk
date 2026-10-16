@@ -433,6 +433,33 @@ def test_digest_tree_matches_across_layouts(tmp_path: Path) -> None:
     assert digest_of(producer) == digest_of(mirror)
 
 
+def test_digest_tree_matches_across_layouts_for_rust(tmp_path: Path) -> None:
+    # "Rust closure" entries map under rust/ the same way: the producer's
+    # verbatim crate and the mirror's rust/ copy digest identically.
+    producer = tmp_path / "producer"
+    mirror = tmp_path / "mirror"
+    notes = {
+        "clients/crate": "Rust closure. Marked for the mapping test.",
+        "scripts/publish.sh": "Rust closure. Marked for the mapping test.",
+    }
+    write_mirror_tree(
+        producer,
+        {"clients/crate/a.txt": "one\n", "scripts/publish.sh": "two\n"},
+        entries=["clients/crate", "scripts/publish.sh"],
+        notes=notes,
+    )
+    write_mirror_tree(
+        mirror,
+        {
+            "rust/clients/crate/a.txt": "one\n",
+            "rust/scripts/publish.sh": "two\n",
+        },
+        entries=["clients/crate", "scripts/publish.sh"],
+        notes=notes,
+    )
+    assert digest_of(producer) == digest_of(mirror)
+
+
 def test_digest_tree_refuses_symlink_inside_directory(tmp_path: Path) -> None:
     # A symlink anywhere under a walked entry refuses instead of
     # resolving: link following could escape the closure.
@@ -571,6 +598,16 @@ def test_closure_python_marked_set_is_frozen() -> None:
         "scripts/publish-sdk-pypi.sh",
         "scripts/sdk-py-wheel-rows.py",
     }
+
+
+def test_closure_rust_marked_set_is_frozen() -> None:
+    # LOAD-BEARING FREEZE, like the Python one: "Rust closure" notes map
+    # entries under rust/. None exist until the Rust SDK joins the mirror
+    # closure; that change updates this pin deliberately.
+    manifest = json.loads(CLOSURE_MANIFEST.read_text(encoding="utf-8"))
+    notes = manifest["path_notes"]
+    marked = {path for path, note in notes.items() if note.startswith("Rust closure")}
+    assert marked == set()
 
 
 def test_scan_text_refuses_undecodable_file(tmp_path: Path) -> None:

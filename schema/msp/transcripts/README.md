@@ -270,9 +270,9 @@ with `session/resume { excludeItems: true }`, accept the re-issued
 `userInput/request`, page history forward from genesis with `view/page`, and
 then settle the same server-minted prompt id. The answer scenario sends
 `userInput/answer`; the capability-less scenario sends the typed
-`userInput/cancel` with its required reason; the interrupt scenario sends a
-`userInput/engaged` note and then `userInput/interrupt` carrying a confirmed
-answer.
+`userInput/cancel` with a reason (optional on the wire); the
+interrupt scenario sends a `userInput/engaged` note and then
+`userInput/interrupt` carrying a confirmed answer.
 
 They are separate because `serve-fixture` is an exact linear oracle. One
 recorded client position cannot lawfully accept two different commands. The

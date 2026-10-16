@@ -69,17 +69,19 @@ def turn_completed(
     return {"method": "turn/completed", "params": params}
 
 
-def turn_retracted(turn_id: str, command_id: str, view_cursor: str) -> dict[str, Any]:
-    return {
-        "method": "turn/retracted",
-        "params": {
-            "commandId": command_id,
-            "sessionId": SESSION,
-            "sourceRange": SOURCE,
-            "turnId": turn_id,
-            "viewCursor": view_cursor,
-        },
+def turn_retracted(
+    turn_id: str, command_id: str, view_cursor: str, outcome: str | None = None
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "commandId": command_id,
+        "sessionId": SESSION,
+        "sourceRange": SOURCE,
+        "turnId": turn_id,
+        "viewCursor": view_cursor,
     }
+    if outcome is not None:
+        params["outcome"] = outcome
+    return {"method": "turn/retracted", "params": params}
 
 
 def turn_unqueued(turn_id: str, command_id: str, view_cursor: str) -> dict[str, Any]:
@@ -441,6 +443,79 @@ def test_a_reclaimed_turn_stays_unqueued_no_turn_completed_ever_settles_it() -> 
     assert held is not None
     assert held.state == "unqueued"
     assert held.terminal is None, "a reclaim is not a terminal"
+
+
+# A declined retract means the submission stood: the fold keeps a turn's prior
+# state, so turn/completed settles a running turn in either order. On a turn
+# the fold holds it records the retract's commandId (the standing
+# submission's).
+def test_a_declined_retract_after_turn_completed_leaves_the_turn_settled_and_records_its_command_id() -> None:
+    fold = SessionFold()
+    # First seen through its completion, so only the retract names the command.
+    fold.apply(turn_completed("turn-1", "completed", "v:s:1"))
+    outcome = fold.apply(turn_retracted("turn-1", "cmd-c", "v:s:2", "declined"))
+
+    assert outcome == TurnFold("turn-1", "settled")
+    turn = fold.turn("turn-1")
+    assert turn is not None
+    assert turn.state == "settled", "the submission stood"
+    assert turn.terminal == "completed"
+    assert turn.command_id == "cmd-c"
+
+
+def test_a_declined_retract_while_the_turn_runs_leaves_it_running_and_turn_completed_settles_it() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    outcome = fold.apply(turn_retracted("turn-1", "cmd-1", "v:s:2", "declined"))
+
+    assert outcome == TurnFold("turn-1", "running")
+    turn = fold.turn("turn-1")
+    assert turn is not None and turn.state == "running", "the submission stood"
+    assert fold.active_turn_id == "turn-1", "the turn is still the active one"
+
+    completed = fold.apply(turn_completed("turn-1", "completed", "v:s:3"))
+    assert completed == TurnFold("turn-1", "settled")
+    turn = fold.turn("turn-1")
+    assert turn is not None and turn.terminal == "completed", "the terminal is not dropped"
+    assert fold.active_turn_id is None
+
+
+def test_a_declined_retract_leaves_a_reclaimed_turn_unqueued_and_records_its_command_id() -> None:
+    # The protocol never pairs these frames. The test pins the commandId rule
+    # for a held turn in any state, with a distinct id so the record shows.
+    fold = SessionFold()
+    fold.apply(turn_unqueued("turn-2", "cmd-2", "v:s:1"))
+    fold.apply(turn_retracted("turn-2", "cmd-c", "v:s:2", "declined"))
+
+    turn = fold.turn("turn-2")
+    assert turn is not None
+    assert turn.state == "unqueued"
+    assert turn.command_id == "cmd-c"
+
+
+def test_a_declined_retract_for_a_turn_the_fold_has_not_seen_creates_no_entry() -> None:
+    fold = SessionFold()
+    # A client that joined after this turn's completion: the declined retract
+    # carries no lifecycle fact, so the fold must not invent a running turn.
+    outcome = fold.apply(turn_retracted("turn-9", "cmd-9", "v:s:1", "declined"))
+
+    assert outcome == IgnoredStaleFrame("turn/retracted", "turn-9")
+    assert fold.turn("turn-9") is None
+    assert fold.active_turn_id is None
+
+    fold.apply(turn_completed("turn-9", "completed", "v:s:2"))
+    turn = fold.turn("turn-9")
+    assert turn is not None and turn.state == "settled", "a later completion still settles it"
+
+
+def test_an_unrecognized_retract_outcome_reads_as_accepted() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(turn_retracted("turn-1", "cmd-1", "v:s:2", "future-outcome"))
+
+    turn = fold.turn("turn-1")
+    assert turn is not None and turn.state == "retracted"
+    assert fold.active_turn_id is None
 
 
 def test_turn_retracted_carries_the_command_id_when_the_retract_is_the_first_frame() -> None:

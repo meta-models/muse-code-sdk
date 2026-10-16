@@ -323,9 +323,12 @@ class IgnoredMissingParams:
 class IgnoredStaleFrame:
     """A recognized frame the fold deliberately dropped, state unchanged.
 
-    A ``turn/started`` or ``turn/completed`` for a turn that already left
-    ``running``, an ``approval/updated`` for an approval it never saw
-    requested (or whose entry a resolution already deleted), or a redelivered
+    A ``turn/started``, ``turn/retryScheduled``, ``turn/modelRetryScheduled``
+    or ``turn/foregroundCompleted`` for a turn that already left ``running``;
+    a ``turn/completed`` for a ``retracted`` or ``unqueued`` turn; a declined
+    ``turn/retracted`` for a turn the fold has not seen; an
+    ``approval/updated`` for an approval it never saw requested (or whose
+    entry a resolution already deleted); or a redelivered
     ``approval/requested`` / ``userInput/requested`` for an approval/prompt
     that already has its durable terminal. Truthful by contract: a "pending"
     outcome here would make a renderer show an entry the fold does not hold.
@@ -714,15 +717,25 @@ class SessionFold:
 
     def _turn_retracted(self, params: Params) -> FoldOutcome:
         turn_id = str(params["turnId"])
+        # A declined retract means the submission stood, so the fold keeps
+        # the turn's prior state: a running turn stays running and its
+        # turn/completed still settles it, and a settled turn stays settled.
+        # The fold records the standing submission's commandId on a turn it
+        # holds. A declined retract carries no lifecycle fact, so for a turn
+        # the fold has not seen it creates no entry. Only an explicit
+        # "declined" counts; an absent or unrecognized outcome reads as
+        # accepted.
+        if params.get("outcome") == "declined":
+            held = self._turns.get(turn_id)
+            if held is None:
+                return IgnoredStaleFrame("turn/retracted", turn_id)
+            held.command_id = params.get("commandId")
+            return TurnFold(turn_id, held.state)
         turn = self._turn_for(turn_id)
         turn.command_id = params.get("commandId")
         # A retract is NOT a TurnTerminal; leaving `terminal` unset is the
         # whole point. On accepted, the retracted user message re-arrives via
-        # `item/updated` with `retracted: true`, which the item half folds
-        # (a declined outcome also lands here for now: the entry reads
-        # retracted and the later turn/completed arrives as a stale frame,
-        # so its terminal is dropped too - a known gap in this fold,
-        # behavior unchanged).
+        # `item/updated` with `retracted: true`, which the item half folds.
         turn.state = "retracted"
         self._clear_active(turn_id)
         return TurnFold(turn_id, turn.state)
