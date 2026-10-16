@@ -291,7 +291,7 @@ keys are present on every event unless noted.</p>
 <tr>
 <td><code dir="auto">model_provider</code></td>
 <td>string</td>
-<td>The provider id. Present when Muse Code knows it for that event.</td>
+<td>The vendor of the selected model: <code dir="auto">meta</code> when the built-in Meta gateway catalog lists the model as Meta-owned. Omitted otherwise, including Claude or GPT models served through the Meta gateway, on <code dir="auto">PreCompact</code>/<code dir="auto">PostCompact</code>, and on the <code dir="auto">SessionStart</code> that a compaction inside a turn fires.</td>
 </tr>
 <tr>
 <td><code dir="auto">agent_id</code>, <code dir="auto">agent_type</code></td>
