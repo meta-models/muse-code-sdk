@@ -128,8 +128,11 @@ connection’s one server-request handler, routes each <code dir="auto">userInpu
 its session and answers <code dir="auto">{}</code> for you. Read the question from
 <code dir="auto">session.fold.pendingUserInputs()</code> (Python: <code dir="auto">session.fold.pending_user_inputs()</code>)
 and answer it with <code dir="auto">session.answerUserInput</code> (Python:
-<code dir="auto">session.answer_user_input</code>). Don’t also register a handler on a connection
-you gave a <code dir="auto">MuseClient</code>: the two compete for that one slot.</p>
+<code dir="auto">session.answer_user_input</code>). It routes <code dir="auto">approval/request</code> the same way, to
+the session’s approval handler; to catch an approval still pending when you
+resume, pass that handler to <code dir="auto">resumeSession</code> as <code dir="auto">onApproval</code>, and its failure
+observer as <code dir="auto">onApprovalError</code> (Python: <code dir="auto">ResumeSessionOptions(on_approval=..., on_approval_error=...)</code>). Don’t also register a handler on a
+connection you gave a <code dir="auto">MuseClient</code>: the two compete for that one slot.</p>
 <p>Check the method rather than acking everything — there is one handler for the
 whole connection, and the same handler also receives <code dir="auto">approval/request</code> when
 the agent reaches for a gated tool. The

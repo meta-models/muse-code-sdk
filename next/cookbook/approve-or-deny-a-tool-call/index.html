@@ -88,9 +88,13 @@ may pick from.</li>
 <li><code dir="auto">approval/request</code> — a <strong>JSON-RPC request</strong>. This one needs a reply, and the
 reply just means “a client is handling this”, not “approved”.</li>
 </ul>
-<p>If you never register a handler, the SDK answers that request with
-<code dir="auto">method not found</code> on your behalf, and the host is entitled to believe nobody
-is home. One line prevents it:</p>
+<p>On a bare connection, if you never register a handler, the SDK answers that
+request with <code dir="auto">method not found</code> on your behalf, and the host is entitled to
+believe nobody is home. With a <code dir="auto">MuseClient</code> the client answers <code dir="auto">{}</code> itself and
+delivers the approval to the session’s handler (<code dir="auto">session.onApproval</code>); pass
+that handler to <code dir="auto">resumeSession</code> as <code dir="auto">onApproval</code>, and its failure observer as
+<code dir="auto">onApprovalError</code> (Python: <code dir="auto">ResumeSessionOptions(on_approval=..., on_approval_error=...)</code>), to catch an approval still pending when you resume.
+On a bare connection, one line prevents the default:</p>
 <script>
 (() => {
 	class StarlightTabsRestore extends HTMLElement {
