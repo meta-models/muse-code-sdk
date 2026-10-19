@@ -1,0 +1,97 @@
+# Publish `muse-code-sdk` to crates.io.
+#
+# This workflow is a THIN CALLER. It holds no publishing logic: every gate
+# (trusted-publishing context, tree anchor, manifest identity and the host
+# version from publish-anchor.json, repository, no path dependencies, the
+# packaged-file whitelist, the external-audience text check over the .crate,
+# `cargo publish --dry-run`, and a standalone package of the rust/ layout)
+# lives in `rust/scripts/publish-sdk-crates.sh`. That script is authored in the
+# producing repository and mirrored here as part of the source closure, so a
+# hand run and a CI run apply the same gates.
+#
+# Prepared, not armed:
+#
+#  1. `workflow_dispatch` is the only trigger. No push, no tag, no schedule.
+#     The producing repository's publish-release job dispatches it with
+#     `dry_run` once its CRATES_PUBLISH switch is on.
+#  2. `dry_run` defaults to TRUE, so a run started with the defaults runs the
+#     script build-only and publishes nothing.
+#  3. There is no stored credential. Authentication is crates.io trusted
+#     publishing (OIDC): `id-token: write` on the job, and the
+#     crates-io-auth-action exchange mints a short-lived token for the publish
+#     step only. `secrets.*` appears nowhere in this file.
+#
+# Owner one-timers, none of which an agent can do:
+#
+#  - The `crates-io` environment in this repository's settings (the job below
+#    names it; attach a required reviewer there if you want one).
+#  - The trusted publisher on crates.io for `muse-code-sdk`: this repository,
+#    workflow `publish-crates.yml`, environment `crates-io`. crates.io binds
+#    trusted publishing only to a crate that already exists, so the first
+#    version was published by hand with an owner-held token.
+
+name: publish-crates
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every gate and the dry run only. Set to false to publish."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-crates
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # A wall, not a budget: the gates build the crate twice (the dry run and
+    # the standalone package), which takes a few minutes on a cold cache.
+    timeout-minutes: 30
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The crate needs Rust 1.97 or newer.
+      - name: Use the stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+
+      # The script is a closure path mirrored from the producing repository. If
+      # a republish ever drops it, say so in one line instead of failing later
+      # with a confusing "command not found".
+      - name: Check the publish script was mirrored
+        run: |
+          if [ ! -x rust/scripts/publish-sdk-crates.sh ]; then
+            echo "::error::rust/scripts/publish-sdk-crates.sh is missing or not executable."
+            echo "::error::It is authored in the producing repository and must be listed in its"
+            echo "::error::scripts/sdk-source-closure.json so the mirror republish carries it."
+            exit 1
+          fi
+
+      - name: Gate and dry-run (publishes nothing)
+        if: ${{ inputs.dry_run }}
+        run: rust/scripts/publish-sdk-crates.sh --build-only
+
+      # The OIDC exchange is the whole credential story: a short-lived token,
+      # minted here and handed only to the next step.
+      - name: Mint a crates.io token through trusted publishing
+        if: ${{ !inputs.dry_run }}
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Gate, dry-run and publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
+        run: rust/scripts/publish-sdk-crates.sh --publish
