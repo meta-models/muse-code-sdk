@@ -92,14 +92,14 @@
 <td><a href="../../types/approvalamendment/">ApprovalAmendment</a></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>The policy rule the decision created. Present only when the decision created one.</td>
 </tr>
 <tr>
 <td><code dir="auto">approvalId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The approval that was decided.</td>
 </tr>
 <tr>
 <td><code dir="auto">decidedAt</code></td>
@@ -113,56 +113,56 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>The <code dir="auto">commandId</code> of the <code dir="auto">approval/decide</code> command that won. Absent when no such command made the decision, for example a policy or LLM judge decision.</td>
 </tr>
 <tr>
 <td><code dir="auto">decision</code></td>
 <td><a href="../../types/approvaldecision/">ApprovalDecision</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The final decision.</td>
 </tr>
 <tr>
 <td><code dir="auto">itemId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The <code dir="auto">toolCall</code> view item this approval was holding.</td>
 </tr>
 <tr>
 <td><code dir="auto">policyResult</code></td>
 <td><a href="../../types/approvalpolicyresult/">ApprovalPolicyResult</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>Whether the final decision lets the action run (<code dir="auto">allow</code>) or blocks it (<code dir="auto">deny</code>).</td>
 </tr>
 <tr>
 <td><code dir="auto">resolvedBy</code></td>
 <td><a href="../../types/approvalresolvedby/">ApprovalResolvedBy</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>Who or what made the decision: <code dir="auto">user</code>, <code dir="auto">policy</code> or <code dir="auto">llmJudge</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The owning session.</td>
 </tr>
 <tr>
 <td><code dir="auto">sourceRange</code></td>
 <td><a href="../../types/sourcerange/">SourceRange</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The stored records this event was folded from: an opaque token clients must not interpret.</td>
 </tr>
 <tr>
 <td><code dir="auto">stageEvidence</code></td>
 <td><a href="../../types/approvalstageevidence/">ApprovalStageEvidence</a>[]</td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>For a <code dir="auto">shell</code> approval, how each stage was resolved when the decision became final. Empty for other subject kinds, and it can be empty for <code dir="auto">shell</code> too.</td>
 </tr>
 <tr>
 <td><code dir="auto">subagentOrigin</code></td>
@@ -176,14 +176,14 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The turn whose tool call this approval was holding.</td>
 </tr>
 <tr>
 <td><code dir="auto">viewCursor</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>This event’s view cursor: opaque, and strictly increasing within the session.</td>
 </tr>
 </tbody>
 </table>

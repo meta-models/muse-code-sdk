@@ -92,42 +92,42 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The approval that changed.</td>
 </tr>
 <tr>
 <td><code dir="auto">availableChoices</code></td>
 <td><a href="../../types/approvalchoice/">ApprovalChoice</a>[]</td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The refreshed choices for the current requirement.</td>
 </tr>
 <tr>
 <td><code dir="auto">change</code></td>
 <td><a href="../../types/approvalchange/">ApprovalChange</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>What changed; <code dir="auto">change.kind</code> names the kind of change.</td>
 </tr>
 <tr>
 <td><code dir="auto">currentRequirementId</code></td>
 <td><a href="../../types/approvalrequirementref/">ApprovalRequirementRef</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The requirement the next decision must target after this change; send it as <code dir="auto">requirementId</code> in <code dir="auto">approval/decide</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The owning session.</td>
 </tr>
 <tr>
 <td><code dir="auto">sourceRange</code></td>
 <td><a href="../../types/sourcerange/">SourceRange</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The stored records this event was folded from: an opaque token clients must not interpret.</td>
 </tr>
 <tr>
 <td><code dir="auto">subagentOrigin</code></td>
@@ -141,14 +141,14 @@
 <td><a href="../../types/approvalsubject/">ApprovalSubject</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The approval’s subject, with <code dir="auto">stages</code> refreshed for this change.</td>
 </tr>
 <tr>
 <td><code dir="auto">viewCursor</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>This event’s view cursor: opaque, and strictly increasing within the session.</td>
 </tr>
 </tbody>
 </table>

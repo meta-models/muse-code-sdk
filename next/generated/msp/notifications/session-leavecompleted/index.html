@@ -92,35 +92,35 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The leave command’s id, matching the <code dir="auto">session/leave</code> request.</td>
 </tr>
 <tr>
 <td><code dir="auto">outcome</code></td>
 <td><a href="../../types/sessionleaveoutcome/">SessionLeaveOutcome</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>How the leave ended: <code dir="auto">released</code> or <code dir="auto">failed</code>. The set is open, so newer hosts may add outcomes.</td>
 </tr>
 <tr>
 <td><code dir="auto">reason</code></td>
 <td><a href="../../types/sessionleavefailurereason/">SessionLeaveFailureReason</a></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>Why the leave failed. Present when <code dir="auto">outcome</code> is <code dir="auto">failed</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The session the leave was for.</td>
 </tr>
 <tr>
 <td><code dir="auto">viewCursor</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>The session’s view cursor at release: everything up to it was folded before the host let go. Present when <code dir="auto">outcome</code> is <code dir="auto">released</code>.</td>
 </tr>
 </tbody>
 </table>

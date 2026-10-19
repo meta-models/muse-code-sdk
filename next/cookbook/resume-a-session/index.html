@@ -181,15 +181,15 @@ guessing what you meant — the wire excerpt below shows that refusal.</p>
 <p>One value escapes that refusal, and it is the one you are most likely to
 produce by accident. The empty string is a <em>defined</em> cursor meaning “before
 anything happened”, so it is never refused as unknown — you never get the
-<code dir="auto">notFound</code> refusal shown below for it. Send it and you get the
-<code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code> answer above — no history — plus a subscription that
-starts at genesis, so the session’s whole view arrives as streamed events. That
-looks like success and behaves like a flood.</p>
+<code dir="auto">notFound</code> refusal shown below for it. Send it and the host treats it as no
+cursor at all: you get the answer a resume without a cursor gets, the session’s
+whole history (or a snapshot of it), not the <code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code> answer
+above. That looks like success and costs a full history read.</p>
 <p>Once the host has pruned the front of its retained view, the same <code dir="auto">""</code> stops
 being servable from genesis and gets the stale-cursor treatment instead — the
 snapshot fallback from the section above, or the <code dir="auto">viewTruncated</code> refusal shown
 below. So it is not even
-reliably a flood; it is whatever the retention floor makes it.</p>
+reliably served: past the retention floor it can be refused.</p>
 <p>Build a cursor and get an error; build an empty one and get something that
 depends on how much history still exists. Send back what you were given, and if
 you have nothing to send, <strong>omit the parameter</strong> rather than passing <code dir="auto">""</code>.</p>
@@ -251,9 +251,9 @@ birth — and a check that the model survived would then pass on a session that
 never had one to lose.</li>
 <li><strong>It sets an approval mode</strong> (to the most restrictive one, so nothing here
 reads as a recommendation). That folds one real event into the session’s view.
-A session that has emitted nothing has the before-genesis cursor <code dir="auto">""</code>, and the
-host answers <code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code> for that too — so the suffix check would
-pass while only exercising the degenerate case, never testing that a real
+A session that has emitted nothing has the before-genesis cursor <code dir="auto">""</code>, which
+the host treats as no cursor: it answers with the full history, not
+<code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code>, so the suffix check could never test that a real
 minted cursor round-trips. The recipe fails loudly if that fold ever stops
 producing one.</li>
 </ul>

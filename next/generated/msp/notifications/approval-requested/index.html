@@ -92,63 +92,63 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The approval’s stable id. Match <code dir="auto">approval/decide</code>, <code dir="auto">approval/updated</code> and <code dir="auto">approval/resolved</code> by it, never by the JSON-RPC request id, which belongs to one connection.</td>
 </tr>
 <tr>
 <td><code dir="auto">availableChoices</code></td>
 <td><a href="../../types/approvalchoice/">ApprovalChoice</a>[]</td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The choices the server offers for the current requirement. Send the chosen one’s <code dir="auto">choiceId</code> in <code dir="auto">approval/decide</code>; clients never build their own.</td>
 </tr>
 <tr>
 <td><code dir="auto">currentRequirementId</code></td>
 <td><a href="../../types/approvalrequirementref/">ApprovalRequirementRef</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The requirement the next decision must target; send it unchanged as <code dir="auto">requirementId</code> in <code dir="auto">approval/decide</code>. For <code dir="auto">shell</code> it names the first stage still needing a decision; for other kinds its <code dir="auto">sourceIndex</code> is 0.</td>
 </tr>
 <tr>
 <td><code dir="auto">itemId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The <code dir="auto">toolCall</code> view item waiting on this approval.</td>
 </tr>
 <tr>
 <td><code dir="auto">judgeEscalated</code></td>
 <td><code dir="auto">boolean</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td><code dir="auto">true</code> when the automated LLM judge saw this request first and handed it to a person without deciding. A display hint only. The host sends it as <code dir="auto">false</code> when it re-issues the request after a restart or on <code dir="auto">session/resume</code>; a re-send for a later stage keeps it.</td>
 </tr>
 <tr>
 <td><code dir="auto">protectedWrite</code></td>
 <td><code dir="auto">boolean</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td><code dir="auto">true</code> when this approval guards a write to a protected file. Only allow-once and reject choices are offered, and a decision is accepted only while at least one client is subscribed to the session.</td>
 </tr>
 <tr>
 <td><code dir="auto">rawArgs</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The tool call’s arguments as a string, usually JSON. With <code dir="auto">toolName</code>, it lets a client show a subject whose <code dir="auto">kind</code> it does not recognize.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The owning session. For a subagent’s approval shown on the parent, this is the parent session.</td>
 </tr>
 <tr>
 <td><code dir="auto">sourceRange</code></td>
 <td><a href="../../types/sourcerange/">SourceRange</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The stored records this event was folded from: an opaque token clients must not interpret.</td>
 </tr>
 <tr>
 <td><code dir="auto">subagentOrigin</code></td>
@@ -162,42 +162,42 @@
 <td><a href="../../types/approvalsubject/">ApprovalSubject</a></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>What the approval is for. Show a <code dir="auto">kind</code> you do not recognize generically, and never auto-approve it.</td>
 </tr>
 <tr>
 <td><code dir="auto">taskId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The id of the task running the tool call.</td>
 </tr>
 <tr>
 <td><code dir="auto">toolCallId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The model provider’s id for this tool call.</td>
 </tr>
 <tr>
 <td><code dir="auto">toolName</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The name of the tool being called.</td>
 </tr>
 <tr>
 <td><code dir="auto">turnId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The turn whose tool call is waiting on this approval.</td>
 </tr>
 <tr>
 <td><code dir="auto">viewCursor</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The cursor of the <code dir="auto">approval/requested</code> event that opened this request. A re-send for a later stage keeps this cursor, so <code dir="auto">view/page</code> at it returns the opening stage, which may be older than this payload.</td>
 </tr>
 </tbody>
 </table>

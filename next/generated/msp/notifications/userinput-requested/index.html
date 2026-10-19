@@ -92,70 +92,70 @@
 <td><code dir="auto">integer</code></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>The auto-resolution time per question, in milliseconds: a prompt nobody engages with settles as <code dir="auto">timedOut</code> after this value times the number of questions.</td>
 </tr>
 <tr>
 <td><code dir="auto">itemId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The <code dir="auto">toolCall</code> view item of the tool call waiting on this prompt.</td>
 </tr>
 <tr>
 <td><code dir="auto">questions</code></td>
 <td><a href="../../types/userinputquestion/">UserInputQuestion</a>[]</td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The questions to ask, one to three, in order.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The session that owns the prompt.</td>
 </tr>
 <tr>
 <td><code dir="auto">sourceRange</code></td>
 <td><a href="../../types/sourcerange/">SourceRange</a></td>
 <td></td>
 <td>optional</td>
-<td></td>
+<td>The stored records this prompt was folded from, when sent: an opaque token clients must not interpret.</td>
 </tr>
 <tr>
 <td><code dir="auto">toolCallId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The provider’s id for the tool call that opened the prompt.</td>
 </tr>
 <tr>
 <td><code dir="auto">toolName</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The name of the tool that opened the prompt.</td>
 </tr>
 <tr>
 <td><code dir="auto">turnId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The turn whose tool call is waiting on this prompt.</td>
 </tr>
 <tr>
 <td><code dir="auto">userInputId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The prompt’s stable id. Pass it to <code dir="auto">userInput/answer</code>, <code dir="auto">userInput/cancel</code>, <code dir="auto">userInput/clarify</code> and <code dir="auto">userInput/interrupt</code>, and use it to match the later <code dir="auto">userInput/settled</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">viewCursor</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>required</td>
-<td></td>
+<td>The cursor of the <code dir="auto">userInput/requested</code> event for this prompt. A client that missed the request can read the same payload at this cursor with <code dir="auto">view/page</code>.</td>
 </tr>
 </tbody>
 </table>
