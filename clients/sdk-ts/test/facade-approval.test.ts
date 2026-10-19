@@ -6,12 +6,11 @@
  * a real `approval/decide` frame out of the fake duplex, or asserts that none
  * was written.
  *
- * SHAPE NOTE, established from the bundle rather than assumed. `approval/request`
- * as a SERVER REQUEST is not enrolled — the schema carries `approval/requested`
- * as a NOTIFICATION only — so the round trip is inbound notification → fold →
- * handler → outbound `approval/decide` command, which is exactly the pair
- * FR-019 names. The server-request form would be a #206 enrollment request
- * (INV-001: a shape the generated layer lacks is never a local interface).
+ * These arms drive the inbound `approval/requested` notification → fold →
+ * handler → outbound `approval/decide` command, the pair FR-019 names, plus
+ * one transcript arm that replays the recorded `approval/request` with a
+ * resume reply. That server request's other arms (ADR 42116 D18) are in
+ * `facade-approval-resend.test.ts`.
  */
 
 import { test } from "node:test";
@@ -20,12 +19,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Connection, Session } from "../src/index.js";
+import { Connection, MuseClient, Session } from "../src/index.js";
 import type { ApprovalFailure } from "../src/index.js";
 import {
   answer,
   answerError,
   FakeDuplex,
+  frame,
   sentFrame,
   sentParams,
   settleMicrotasks,
@@ -306,6 +306,111 @@ test(
 );
 
 test(
+  "feedback on a choice that does not accept it is refused BEFORE the wire and answered with the offered reject",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The host refuses feedback on a choice without `acceptsFeedback` (-32052)
+    // and leaves its approval open, so the refusal belongs on this side, and
+    // the offered `denied` choice closes the approval instead.
+    const { session, transport } = wired();
+    const failures: ApprovalFailure[] = [];
+    session.onApprovalError((failure) => failures.push(failure));
+    session.onApproval(() => ({ choiceId: "allow_once", feedback: "looks safe" }));
+
+    const outcome = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    assert.equal(sentParams(transport, 0)["choiceId"], "deny", "the offered reject is sent instead");
+    assert.ok(!("feedback" in sentParams(transport, 0)), "the refused feedback never reaches the wire");
+    answer(transport, 0, decideResult("mint-0"));
+    await outcome.io;
+    assert.equal(transport.writes.length, 1, "one decision only");
+    assert.deepEqual(failures, [
+      {
+        kind: "feedbackNotAccepted",
+        approvalId: "a-1",
+        choiceId: "allow_once",
+        feedbackChoiceIds: ["deny"],
+      },
+    ]);
+  },
+);
+
+test(
+  "a failed decide for the substituted reject is reported after the refusal",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const { session, transport } = wired();
+    const failures: ApprovalFailure[] = [];
+    session.onApprovalError((failure) => failures.push(failure));
+    session.onApproval(() => ({ choiceId: "allow_once", feedback: "looks safe" }));
+
+    const outcome = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    answerError(transport, 0, {
+      code: -32053,
+      message: "stale requirementId",
+      data: { kind: "invalidParams" },
+    });
+    await outcome.io;
+
+    assert.deepEqual(
+      failures.map((failure) => failure.kind),
+      ["feedbackNotAccepted", "submitFailed"],
+    );
+  },
+);
+
+test(
+  "refused feedback falls back to the offered abort choice, and sends nothing when no reject is offered",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const allow: ApprovalChoice = {
+      choiceId: "allow_once",
+      decision: "approved",
+      label: "Allow once",
+      scope: "once",
+    };
+    const abort: ApprovalChoice = {
+      acceptsFeedback: true,
+      choiceId: "stop",
+      decision: "abort",
+      label: "Stop",
+      scope: "once",
+    };
+    const { session, transport } = wired();
+    session.onApproval(() => ({ choiceId: "allow_once", feedback: "looks safe" }));
+    const outcome = session.apply(approvalRequested({ availableChoices: [allow, abort] }));
+    await waitForWrites(transport, 1);
+    assert.equal(sentParams(transport, 0)["choiceId"], "stop", "abort when no denied choice is offered");
+    answer(transport, 0, decideResult("mint-0"));
+    await outcome.io;
+
+    // Denied wins over abort even when abort is offered first.
+    const deny: ApprovalChoice = { choiceId: "deny", decision: "denied", label: "Deny", scope: "once" };
+    const { session: both, transport: bothTransport } = wired();
+    both.onApproval(() => ({ choiceId: "allow_once", feedback: "looks safe" }));
+    const bothOutcome = both.apply(approvalRequested({ availableChoices: [allow, abort, deny] }));
+    await waitForWrites(bothTransport, 1);
+    assert.equal(sentParams(bothTransport, 0)["choiceId"], "deny", "denied wins over abort");
+    answer(bothTransport, 0, decideResult("mint-0"));
+    await bothOutcome.io;
+
+    const { session: bare, transport: bareTransport } = wired();
+    const failures: ApprovalFailure[] = [];
+    bare.onApprovalError((failure) => failures.push(failure));
+    bare.onApproval(() => ({ choiceId: "allow_once", feedback: "looks safe" }));
+    const bareOutcome = bare.apply(approvalRequested({ availableChoices: [allow] }));
+    await bareOutcome.io;
+    await settleMicrotasks();
+    assert.equal(bareTransport.writes.length, 0, "no reject offered, so nothing is sent");
+    assert.deepEqual(
+      failures.map((failure) => failure.kind),
+      ["feedbackNotAccepted"],
+    );
+  },
+);
+
+test(
   "T031/TEST-013: feedback is forwarded when offered and OMITTED when unset (SS1.2)",
   { timeout: ARM_TIMEOUT },
   async () => {
@@ -326,6 +431,27 @@ test(
     assert.ok(!("feedback" in sentParams(secondTransport, 0)), "feedback must be omitted, not null");
     answer(secondTransport, 0, decideResult("mint-0"));
     await secondOutcome.io;
+  },
+);
+
+test(
+  "an explicit null feedback on a choice that does not accept feedback is still sent, as no feedback",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The wire reads omitted and explicit `null` alike as no feedback, so only
+    // a real string on a choice without `acceptsFeedback` is refused.
+    const { session, transport } = wired();
+    const failures: ApprovalFailure[] = [];
+    session.onApprovalError((failure) => failures.push(failure));
+    session.onApproval(() => ({ choiceId: "allow_once", feedback: null } as never));
+
+    const outcome = session.apply(approvalRequested());
+    await waitForWrites(transport, 1);
+    assert.equal(sentParams(transport, 0)["choiceId"], "allow_once");
+    assert.ok(!("feedback" in sentParams(transport, 0)), "feedback must be omitted, not null");
+    answer(transport, 0, decideResult("mint-0"));
+    await outcome.io;
+    assert.deepEqual(failures, []);
   },
 );
 
@@ -447,10 +573,11 @@ test(
     // approval where stages 0 and 2 need decisions. The host resolves stage 0,
     // advances `currentRequirementId` 0 → 2 via `approval/updated`
     // (`change.kind: stageResolved`) and re-issues NO second
-    // `approval/requested` — the SS5.6 item-3 re-issue is the protected
-    // `approval/request` SERVER-REQUEST dual, which is not on the notification
-    // plane this SDK consumes. Routing only `approval/requested` therefore
-    // leaves stage 2 undecided and the turn pending forever.
+    // `approval/requested` — the SS5.6 item-3 re-issue is the `approval/request`
+    // server request, which reaches the router only through `Session.apply`
+    // (a client-owned connection delivers it). Here it never arrives, so routing only
+    // `approval/requested` would leave stage 2 undecided and the turn pending
+    // forever.
     const { minted, session, transport } = wired();
     const seen: ApprovalRequestParams[] = [];
     session.onApproval((request) => {
@@ -970,6 +1097,36 @@ test(
   },
 );
 
+/**
+ * The approval-round-trip transcript's frames, and a stripper for the params
+ * members its manifest normalizes ("params.commandId" → "commandId"; the
+ * frame-level "id" never appears inside params), READ from manifest.json.
+ */
+function approvalTranscript(): {
+  readonly lines: readonly { readonly dir: "client" | "server"; readonly frame: Record<string, unknown> }[];
+  readonly stripNormalized: (params: Record<string, unknown>) => Record<string, unknown>;
+} {
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+  const transcriptDir = join(projectRoot, "schema", "msp", "transcripts", "approval-round-trip");
+  const manifest = JSON.parse(readFileSync(join(transcriptDir, "manifest.json"), "utf8")) as {
+    normalize: readonly string[];
+  };
+  const normalizedParamKeys = manifest.normalize
+    .filter((entry) => entry.startsWith("params."))
+    .map((entry) => entry.slice("params.".length));
+  assert.ok(normalizedParamKeys.includes("commandId"), "sanity: the mint is per-run");
+  const lines = readFileSync(join(transcriptDir, "transcript.ndjson"), "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as { dir: "client" | "server"; raw: string })
+    .map((line) => ({ dir: line.dir, frame: JSON.parse(line.raw) as Record<string, unknown> }));
+  return {
+    lines,
+    stripNormalized: (params) =>
+      Object.fromEntries(Object.entries(params).filter(([key]) => !normalizedParamKeys.includes(key))),
+  };
+}
+
 test(
   "T031/TEST-013: the approval-round-trip TRANSCRIPT drives the recorded decide frame back out",
   { timeout: ARM_TIMEOUT },
@@ -983,28 +1140,8 @@ test(
     // recorded frame modulo the manifest's normalize list, READ from
     // manifest.json rather than hand-copied — a regenerated transcript with a
     // different list re-derives this arm's exclusions instead of silently
-    // weakening it. The server-request half stays out of scope per the SHAPE
-    // note atop this file.
-    const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-    const transcriptDir = join(projectRoot, "schema", "msp", "transcripts", "approval-round-trip");
-    const manifest = JSON.parse(readFileSync(join(transcriptDir, "manifest.json"), "utf8")) as {
-      normalize: readonly string[];
-    };
-    // The seed-minted params members ("params.commandId" → "commandId"); the
-    // frame-level entries ("id") never appear inside params.
-    const normalizedParamKeys = manifest.normalize
-      .filter((entry) => entry.startsWith("params."))
-      .map((entry) => entry.slice("params.".length));
-    assert.ok(normalizedParamKeys.includes("commandId"), "sanity: the mint is per-run");
-    const stripNormalized = (params: Record<string, unknown>): Record<string, unknown> =>
-      Object.fromEntries(
-        Object.entries(params).filter(([key]) => !normalizedParamKeys.includes(key)),
-      );
-    const lines = readFileSync(join(transcriptDir, "transcript.ndjson"), "utf8")
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as { dir: "client" | "server"; raw: string })
-      .map((line) => ({ dir: line.dir, frame: JSON.parse(line.raw) as Record<string, unknown> }));
+    // weakening it. The next arm replays the server-request half.
+    const { lines, stripNormalized } = approvalTranscript();
     const requested = lines.find(
       (line) => line.dir === "server" && line.frame["method"] === "approval/requested",
     );
@@ -1038,6 +1175,56 @@ test(
       terminal: true,
     });
     await outcome.io;
+  },
+);
+
+test(
+  "T031/TEST-013: the transcript's recorded approval/request, read with the resume reply, drives the recorded decide back out",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // The server-request half over the same transcript (FR-53910-1): the
+    // recorded request has to pass the routing guard, or a resume hangs while
+    // every hand-built arm still passes.
+    const { lines, stripNormalized } = approvalTranscript();
+    const request = lines.find((line) => line.dir === "server" && line.frame["method"] === "approval/request");
+    const recordedDecide = lines.find(
+      (line) => line.dir === "client" && line.frame["method"] === "approval/decide",
+    );
+    assert.ok(request !== undefined && recordedDecide !== undefined);
+    const requestParams = request.frame["params"] as ApprovalRequestParams;
+    const recordedParams = recordedDecide.frame["params"] as Record<string, unknown>;
+
+    const transport = new FakeDuplex();
+    const client = new MuseClient(new Connection(transport), { durability: { kind: "durable" } });
+    const pending = client.resumeSession({
+      sessionId: requestParams.sessionId,
+      onApproval: () => ({ choiceId: recordedParams["choiceId"] as string }),
+    });
+    await waitForWrites(transport, 1);
+    transport.chunks.push(
+      frame({
+        jsonrpc: "2.0",
+        id: sentFrame(transport, 0)["id"],
+        result: {
+          session: { sessionId: requestParams.sessionId, status: "idle" },
+          history: { mode: "none", items: [] },
+          pendingRequests: [],
+          viewCursor: "v:resume",
+        },
+      }) + frame(request.frame),
+    );
+    await pending;
+    await waitForWrites(transport, 3);
+
+    const sent = transport.writes.map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.ok(
+      sent.some((out) => out["id"] === request.frame["id"] && JSON.stringify(out["result"]) === "{}"),
+      "the recorded request gets the {} receipt",
+    );
+    const decide = sent.find((out) => out["method"] === "approval/decide");
+    assert.ok(decide !== undefined, "the recorded request reached the resume handler");
+    assert.deepEqual(stripNormalized(decide["params"] as Record<string, unknown>), stripNormalized(recordedParams));
+    await client.close();
   },
 );
 

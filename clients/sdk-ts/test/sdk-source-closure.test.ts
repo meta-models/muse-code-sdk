@@ -31,7 +31,7 @@ const PUBLISH_SCRIPT = "scripts/publish-sdk-npm.sh";
 interface ClosureManifest {
   artifact: string;
   producer: { repository: string };
-  mirror: { repository: string; python_tree?: string[] };
+  mirror: { repository: string; python_tree?: string[]; rust_tree?: string[] };
   closure_paths: string[];
   path_notes: Record<string, string>;
 }
@@ -96,6 +96,69 @@ test("the mirror section states the python/ destination for the Python closure",
     (manifest.mirror.python_tree ?? []).join(" "),
     /python\//,
     "the manifest no longer explains where the Python closure lands in the mirror",
+  );
+});
+
+/** The Rust publish path: the crates.io gate script the mirror's
+ * publish-crates.yml calls by path, with the PUBLISH_SCRIPT failure mode. */
+const CRATES_PUBLISH_SCRIPT = "scripts/publish-sdk-crates.sh";
+/** The Rust crate, carried by its shipped set rather than as one directory. */
+const RUST_CRATE = "clients/sdk-rs";
+/** A path_notes note opening with this lands its entry under the mirror's
+ * rust/ tree: the re-mirror copy and the anchor digest route by it. */
+const RUST_NOTE = "Rust closure";
+
+test("the crates.io publish script is in the closure and executable", () => {
+  assert.ok(
+    manifest.closure_paths.includes(CRATES_PUBLISH_SCRIPT),
+    `${CRATES_PUBLISH_SCRIPT} must be a closure path: the mirror's publish-crates.yml ` +
+      "holds no publishing logic and calls it by path",
+  );
+  assert.ok(
+    statSync(join(projectRoot, CRATES_PUBLISH_SCRIPT)).mode & 0o111,
+    `${CRATES_PUBLISH_SCRIPT}: the mirror checks the execute bit, so it has to survive the mirror`,
+  );
+});
+
+test("the mirror section states the rust/ destination for the Rust closure", () => {
+  assert.match(
+    (manifest.mirror.rust_tree ?? []).join(" "),
+    /rust\//,
+    "the manifest no longer explains where the Rust closure lands in the mirror",
+  );
+});
+
+test("the Rust closure is exactly the crate's packaged set", () => {
+  // The mirror carries what crates.io ships and nothing more: the crate's
+  // tests and process notes stay internal, so listing the crate directory
+  // whole would publish them. Derived from the manifest's `include` list,
+  // never a second hand-kept copy of it.
+  const cargo = readFileSync(join(projectRoot, RUST_CRATE, "Cargo.toml"), "utf8");
+  const include = /^include\s*=\s*\[([^\]]*)\]/m.exec(cargo)?.[1];
+  assert.ok(include !== undefined, `${RUST_CRATE}/Cargo.toml must declare the packaged set in an \`include\` list`);
+  const packaged = [...include.matchAll(/"([^"]+)"/g)]
+    .map((match) => `${RUST_CRATE}/${(match[1] ?? "").replace(/\/\*\*$/, "")}`)
+    .sort();
+  const listed = manifest.closure_paths.filter((p) => p === RUST_CRATE || p.startsWith(`${RUST_CRATE}/`));
+  assert.deepEqual(
+    listed,
+    packaged,
+    "the Rust closure entries must equal the crate's `include` list, entry for entry",
+  );
+});
+
+test("exactly the Rust closure entries carry the note that routes them under rust/", () => {
+  const rustEntries = manifest.closure_paths.filter(
+    (p) => p === CRATES_PUBLISH_SCRIPT || p.startsWith(`${RUST_CRATE}/`),
+  );
+  const marked = Object.entries(manifest.path_notes)
+    .filter(([, note]) => note.startsWith(RUST_NOTE))
+    .map(([path]) => path)
+    .sort();
+  assert.deepEqual(
+    marked,
+    rustEntries,
+    `exactly the Rust entries carry the "${RUST_NOTE}" note opening; any other entry lands at its verbatim layout`,
   );
 });
 

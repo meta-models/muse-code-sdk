@@ -602,12 +602,19 @@ def test_closure_python_marked_set_is_frozen() -> None:
 
 def test_closure_rust_marked_set_is_frozen() -> None:
     # LOAD-BEARING FREEZE, like the Python one: "Rust closure" notes map
-    # entries under rust/. None exist until the Rust SDK joins the mirror
-    # closure; that change updates this pin deliberately.
+    # entries under rust/. The set is the crate's shipped set plus its
+    # publish script; a new Rust entry updates this pin deliberately.
     manifest = json.loads(CLOSURE_MANIFEST.read_text(encoding="utf-8"))
     notes = manifest["path_notes"]
     marked = {path for path, note in notes.items() if note.startswith("Rust closure")}
-    assert marked == set()
+    assert marked == {
+        "clients/sdk-rs/Cargo.toml",
+        "clients/sdk-rs/LICENSE",
+        "clients/sdk-rs/README.md",
+        "clients/sdk-rs/examples",
+        "clients/sdk-rs/src",
+        "scripts/publish-sdk-crates.sh",
+    }
 
 
 def test_scan_text_refuses_undecodable_file(tmp_path: Path) -> None:

@@ -140,6 +140,21 @@ class ScriptedHost:
             )
             if self._auto_stream:
                 self.stream_turn()
+        elif method == "userInput/answer":
+            params = frame["params"]
+            self.chunks.push(
+                _frame(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": frame["id"],
+                        "result": {
+                            "commandId": params["commandId"],
+                            "status": "accepted",
+                            "userInputId": params["userInputId"],
+                        },
+                    }
+                )
+            )
 
     def stream_turn(self) -> None:
         """Push the scripted turn's view events (safe between blocking verbs:
@@ -286,6 +301,20 @@ def test_the_sync_wrapper_runs_the_journey_shape_with_the_same_verdicts() -> Non
     methods = [json.loads(line).get("method") for line in host.writes]
     assert methods == ["session/start", "turn/start"]
 
+    client.close()
+
+
+def test_the_sync_wrapper_answers_a_question_and_blocks_for_its_admission() -> None:
+    host, client = scripted_client(auto_stream=False)
+    session = client.start_session(StartSessionOptions(workspace_root="/tmp/w"))
+
+    result = session.answer_user_input(
+        "input-1", [{"questionId": "q-1", "selectedLabel": "Yes"}]
+    )
+
+    assert result["status"] == "accepted" and result["userInputId"] == "input-1"
+    methods = [json.loads(line).get("method") for line in host.writes]
+    assert methods == ["session/start", "userInput/answer"]
     client.close()
 
 

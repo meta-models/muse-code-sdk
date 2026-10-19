@@ -158,8 +158,9 @@ export class GapFiller<I> {
    */
   start(): Promise<readonly PendingRetirement<I>[]> {
     const gap = this.#options.fold.pendingGap;
-    // Only reachable if a caller invokes this with nothing outstanding; the
-    // one production caller folds the marker first, which always sets it.
+    // Only reachable if a caller invokes this with nothing outstanding:
+    // `Session.apply` folds the marker first (which sets it, or a stale repeat
+    // finds it already set), and `#run` checks it before it restarts itself.
     if (gap === undefined) return NO_RETIREMENTS;
     if (this.#filling) return NO_RETIREMENTS;
     const connection = this.#options.connection;
@@ -408,6 +409,9 @@ export class GapFiller<I> {
   }
 
   static #viewCursorOf(frame: WireFrame): string | undefined {
+    // A routed `approval/request` carries its notification's cursor but is not
+    // that event: matching it would spend the twin's overlap slot.
+    if (frame.method === "approval/request") return undefined;
     const cursor = (frame.params as { viewCursor?: unknown } | undefined)?.viewCursor;
     return typeof cursor === "string" ? cursor : undefined;
   }

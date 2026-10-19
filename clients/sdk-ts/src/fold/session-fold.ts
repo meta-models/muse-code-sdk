@@ -37,6 +37,9 @@ import type {
   ItemDeltaParams,
   ItemStartedParams,
   ItemUpdatedParams,
+  MonitorInboxItemAdmittedParams,
+  MonitorInboxItemDrainedParams,
+  MonitorInboxItemVoidedParams,
   MspNotification,
   SessionApprovalModeChangedParams,
   SessionBranchChangedParams,
@@ -145,7 +148,26 @@ export type ViewEvent =
    * heard of (SS1.5.4), and a consumer told that cannot tell a tolerated
    * unknown from an unfilled hole.
    */
-  | { readonly method: "view/gap"; readonly params: ViewGapParams };
+  | { readonly method: "view/gap"; readonly params: ViewGapParams }
+  /**
+   * The monitor-inbox trio: per-monitor inbox admissions, drains, and
+   * wake-missed voids. A NOTICE, never sticky state — the SDK holds no
+   * inbox store, so the per-task projection (tails, badges, counts,
+   * retirement) is consumer-folded from the facts on the outcome. The
+   * params ride the outcome verbatim for the consumer to fold once.
+   */
+  | {
+      readonly method: "monitor/inboxItemAdmitted";
+      readonly params: MonitorInboxItemAdmittedParams;
+    }
+  | {
+      readonly method: "monitor/inboxItemDrained";
+      readonly params: MonitorInboxItemDrainedParams;
+    }
+  | {
+      readonly method: "monitor/inboxItemVoided";
+      readonly params: MonitorInboxItemVoidedParams;
+    };
 
 /**
  * Compile-time coverage: every `MspNotification` except the handshake's
@@ -214,6 +236,8 @@ type NonFoldNotification =
   // Client-to-server, like `initialized` — the fold never sees it.
   | "userInput/engaged"
   | "session/viewHealthChanged"
+  // ADR 31741 D8: protected, non-view command terminal.
+  | "session/leaveCompleted"
   // `recap/completed` (tdd SS3.28.2, ADR 45447 D2) is a command-plane
   // settlement to the requesting connection only — no `viewCursor`, no
   // `sourceRange`, nothing durable to fold.
@@ -286,7 +310,8 @@ export type StaleDroppableMethod =
   | "turn/modelRetryScheduled"
   | "approval/requested"
   | "approval/updated"
-  | "userInput/requested";
+  | "userInput/requested"
+  | "view/gap";
 
 /**
  * The `NoStaleViewArm` sibling for the union above: these are hand-typed
@@ -410,6 +435,23 @@ export type FoldOutcome =
    * the params ride the outcome verbatim for the consumer to render once.
    */
   | { readonly kind: "modelRouteUnserved"; readonly params: SessionModelRouteUnservedParams }
+  /**
+   * One monitor-inbox trio fact, surfaced verbatim (see the `ViewEvent`
+   * arms above): the method names which of the three arrived, and the
+   * params carry that event's fact members for the consumer's own fold.
+   * Fresh wire objects, never store handles, so no D-14 seal applies.
+   */
+  | {
+      readonly kind: "monitorInbox";
+      readonly method:
+        | "monitor/inboxItemAdmitted"
+        | "monitor/inboxItemDrained"
+        | "monitor/inboxItemVoided";
+      readonly params:
+        | MonitorInboxItemAdmittedParams
+        | MonitorInboxItemDrainedParams
+        | MonitorInboxItemVoidedParams;
+    }
   | { readonly kind: "ignoredUnrecognizedMethod"; readonly method: string }
   | {
       /**
@@ -435,7 +477,9 @@ export type FoldOutcome =
        * not seen; an `approval/updated` for an approval it never saw
        * requested (or whose entry a resolution already deleted); or a
        * redelivered `approval/requested` / `userInput/requested` for an
-       * approval/prompt that already has its durable terminal. Truthful by
+       * approval/prompt that already has its durable terminal; or a
+       * `view/gap` whose `next` an earlier frame already named while the
+       * hole is open (`id` is that `next`, #62032). Truthful by
        * contract: a "pending" kind here would make a renderer show an entry
        * the fold does not hold (PR #23087 review round).
        *
@@ -584,6 +628,8 @@ export class SessionFold {
   readonly #settledUserInputs = new Map<string, UserInputSettledParams>();
   #activeTurnId: string | undefined;
   #pendingGap: ViewGapParams | undefined;
+  /** Every `next` a `view/gap` named while `#pendingGap` is open; `gapFilled` empties it. */
+  readonly #gapTargets = new Set<string>();
 
   /** The turn currently running, if one is. */
   get activeTurnId(): string | undefined {
@@ -599,6 +645,9 @@ export class SessionFold {
    * own D-16487-1 bracket rule. A recovery walks `(after, next)` and calls
    * `gapFilled(next)` with the target it actually reached, so a hole that grew
    * while the walk was in flight cannot be reported filled.
+   *
+   * A later frame moves `next` to its own, but one repeating a `next` already
+   * named while the hole is open is stale and changes nothing (#62032).
    */
   get pendingGap(): DeepReadonly<ViewGapParams> | undefined {
     return this.#pendingGap;
@@ -632,6 +681,7 @@ export class SessionFold {
   gapFilled(next: string): boolean {
     if (this.#pendingGap?.next !== next) return false;
     this.#pendingGap = undefined;
+    this.#gapTargets.clear();
     return true;
   }
 
@@ -720,6 +770,11 @@ export class SessionFold {
 
       case "view/gap":
         return this.#deliveryGap(typed.params);
+
+      case "monitor/inboxItemAdmitted":
+      case "monitor/inboxItemDrained":
+      case "monitor/inboxItemVoided":
+        return { kind: "monitorInbox", method: typed.method, params: typed.params };
 
       case "session/modelRouteUnserved":
         return { kind: "modelRouteUnserved", params: typed.params };
@@ -949,6 +1004,14 @@ export class SessionFold {
   // ---- the delivery-plane marker ------------------------------------------
 
   #deliveryGap(params: ViewGapParams): FoldOutcome {
+    // A `next` already named while this hole is open is a stale repeat of an
+    // earlier frame: taking it would move the target back, so a walk would
+    // stop short and the fold report current over an unfilled hole. It
+    // changes nothing, as in the Rust SDK's gap walk (ADR 42116 D1, #62032).
+    if (this.#gapTargets.has(params.next)) {
+      return { id: params.next, kind: "ignoredStaleFrame", method: "view/gap" };
+    }
+    this.#gapTargets.add(params.next);
     // Coalesced on the FIRST `after`: a second overflow while the first hole
     // is still open extends the range rather than replacing it. Replacing it
     // would move the lower bound past events that were never delivered, so a

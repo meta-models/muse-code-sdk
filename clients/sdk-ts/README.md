@@ -8,6 +8,9 @@ agent over the Muse Session Protocol (MSP).
   server-authored outcome.
 - Answer tool-approval requests with a handler you register — or register
   none and run under the server's own default-deny.
+- Answer the agent's questions: list them with
+  `session.fold.pendingUserInputs()` and answer with
+  `session.answerUserInput`.
 - A client-side fold keeps a live, typed view of the session — items, session
   state, pending commands — with gap recovery after dropped deliveries and
   safe same-command retry that can never double-submit.
@@ -75,8 +78,43 @@ session.onApproval(async (request) => ({
 }));
 ```
 
+An approval still pending when you resume a session arrives right after the
+resume reply, so pass the handler to `resumeSession` itself:
+
+```ts
+const session = await client.resumeSession({
+  sessionId,
+  onApproval: async (request) => ({
+    choiceId: request.availableChoices[0].choiceId,
+  }),
+  onApprovalError: (failure) => console.error(failure.kind, failure.approvalId),
+});
+```
+
+Pass `onApprovalError` there too: a failure for an approval that arrived with
+the resume reply can happen before `resumeSession` returns, so
+`session.onApprovalError` would be too late to hear it. That covers a handler
+that throws, picks a choice that was not offered, or adds feedback to a choice
+that takes none (which is then answered with the reject choice).
+
+To answer a question the agent asks, read it from
+`session.fold.pendingUserInputs()` and answer it with `session.answerUserInput`,
+one answer per question: `selectedLabel` for a single-select question,
+`selectedLabels` for a multiple-select one, or `freeText`. The question leaves
+the list when the server settles it:
+
+```ts
+const [prompt] = session.fold.pendingUserInputs();
+const [question] = prompt?.questions ?? [];
+if (prompt !== undefined && question !== undefined) {
+  await session.answerUserInput(prompt.userInputId, [
+    { questionId: question.id, selectedLabel: "Yes" },
+  ]);
+}
+```
+
 Status: developer preview. The facade — spawn, session open/resume, turns,
-approvals, and recovery after dropped deliveries — is complete and covered by
+approvals, questions, and recovery after dropped deliveries — is complete and covered by
 the conformance suites in the source repository.
 
 ## Documentation

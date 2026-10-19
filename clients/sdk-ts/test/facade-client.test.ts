@@ -175,6 +175,31 @@ test("T030/TEST-012: startSession forwards every caller-supplied member to the w
   });
 });
 
+for (const recoveryMode of [undefined, null, "on", "off"] as const) {
+  for (const method of ["session/start", "session/resume"] as const) {
+    test(`${method} forwards recovery selection or omits it: ${String(recoveryMode)}`, { timeout: ARM_TIMEOUT }, async () => {
+      const transport = new FakeDuplex();
+      const client = new MuseClient(new Connection(transport), DURABLE);
+      try {
+        // The null arm models a plain-JavaScript caller of the built SDK.
+        const options = { sessionId: "s-1", recoveryMode };
+        const pending = method === "session/start"
+          ? client.startSession(options as Parameters<MuseClient["startSession"]>[0])
+          : client.resumeSession(options as Parameters<MuseClient["resumeSession"]>[0]);
+        const sent = await exchange(transport, method === "session/start"
+          ? startResult("s-1") : resumeResult("s-1"));
+        await pending;
+        const { commandId, ...params } = sent["params"] as Record<string, unknown>;
+        assert.equal(typeof commandId, "string");
+        assert.deepEqual(params, recoveryMode == null
+          ? { sessionId: "s-1" } : { sessionId: "s-1", recoveryMode });
+      } finally {
+        await client.close();
+      }
+    });
+  }
+}
+
 test("T030/TEST-012: startSession() with no arguments sends only the minted commandId", async () => {
   // The zero-arg path is the one that relies on the `options = {}` default; no
   // other arm exercises it, so a refactor dropping that default would ship

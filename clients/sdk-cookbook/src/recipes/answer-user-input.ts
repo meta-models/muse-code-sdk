@@ -10,9 +10,11 @@
  *    the `request_user_input` tool. Like an approval, the ask arrives twice
  *    for two audiences: `userInput/requested` is a view-stream event for your
  *    UI, and `userInput/request` is a JSON-RPC request the SDK must answer.
- *    If you never register a server-request handler, the SDK answers "method
- *    not found" on your behalf — so answer it. The reply means "this client
- *    is showing the question", NOT "here is the answer".
+ *    On a bare connection, if you never register a server-request handler,
+ *    the SDK answers "method not found" on your behalf — so answer it. The
+ *    reply means "this client is showing the question", NOT "here is the
+ *    answer". (A `MuseClient` answers it for you and lists the question;
+ *    answer that with `session.answerUserInput`.)
  *  - a pending question SURVIVES the client: this transcript resumes an
  *    existing session and finds the question waiting in the resume result's
  *    `pendingRequests`, after which the host re-issues `userInput/request`

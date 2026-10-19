@@ -1358,6 +1358,37 @@
       ],
       "type": "object"
     },
+    "DamagedRange": {
+      "description": "`damagedRange`: what one damaged range of the session log cost (ADR\n60914 D1/D2). The reader finds the range in the log bytes; no log record\nis written for it, so every member is derived from the readable records\naround it.",
+      "properties": {
+        "lastGoodTurnId": {
+          "description": "The last finished turn before the first damaged range, when one\nexists: the safe `session/fork` cut (ADR 60914 D1 \"Fork cuts\", D4).",
+          "type": "string"
+        },
+        "missingRecords": {
+          "description": "Records the log proves missing (session-stream sequence numbers no\nreadable record or unreadable line accounts for).",
+          "type": "integer"
+        },
+        "readableAfterAt": {
+          "description": "RFC3339 `recordedAt` of the first readable record after the range;\nalways present, since a range is read past only when readable\nrecords follow it (ADR 60914 D1).",
+          "type": "string"
+        },
+        "readableBeforeAt": {
+          "description": "RFC3339 `recordedAt` of the last readable record before the range;\nabsent when the range starts the log.",
+          "type": "string"
+        },
+        "unreadableLines": {
+          "description": "Physical log lines in the range that are not a readable record.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "missingRecords",
+        "readableAfterAt",
+        "unreadableLines"
+      ],
+      "type": "object"
+    },
     "EffectiveApprovalModeState": {
       "description": "The effective approval-mode projection (`EffectiveApprovalModeState`,\ntdd SS5.12): the same object `session/setApprovalMode` returns as\n`effectiveMode` and the `Session` object carries as `approvalMode`.",
       "properties": {
@@ -1513,6 +1544,10 @@
         "reason": {
           "description": "Failure detail vocabulary (e.g. `\"missingAnchor\"` on `notFound` for a\nmissing view-cursor anchor).",
           "type": "string"
+        },
+        "recoveryObservation": {
+          "$ref": "#/$defs/RecoveryObservation",
+          "description": "The original recovery-dependent construction's coherent observation.\nAn absent or unusable observation establishes no supported recovery."
         },
         "resolution": {
           "$ref": "#/$defs/ApprovalResolutionSummary",
@@ -1823,6 +1858,10 @@
     "Goal": {
       "description": "The session goal block (tdd SS4.6.2, mirrors the runtime's goal state,\ncamelCased). `status` and `percentComplete` are carried **verbatim** —\nout-of-contract status strings and >100 percents pass through; display\nclamping is the renderer's job.",
       "properties": {
+        "createdAtMs": {
+          "description": "ADR 50064 D2 (pick-4): goal creation time, epoch milliseconds,\nverbatim from the durable row. Absent on blocks whose producer never\ncarried it (tool-result adoptions, pre-pick-4 logs); absence must\nnever render as a fabricated zero.",
+          "type": "integer"
+        },
         "currentWork": {
           "description": "Current work description, when present.",
           "type": "string"
@@ -1842,6 +1881,10 @@
         "status": {
           "description": "Goal status, verbatim from the durable goal state (free string by\ndesign: out-of-contract values pass through).",
           "type": "string"
+        },
+        "updatedAtMs": {
+          "description": "ADR 50064 D2 (pick-4): last goal mutation time, epoch milliseconds,\nverbatim from the durable row. Same absence rule as `createdAtMs`.",
+          "type": "integer"
         }
       },
       "required": [
@@ -2280,9 +2323,17 @@
           "description": "`agentMessage`: `true` when the provider stream died mid-reply and\nthe run failed with this partial text committed (ADR 50063 D2) —\nthe wire mark for the gate-off \"incomplete response\" rule\n(#13328). Absent otherwise; never cleared once set.",
           "type": "boolean"
         },
+        "damagedRange": {
+          "$ref": "#/$defs/DamagedRange",
+          "description": "`damagedRange`: what the damaged range cost (ADR 60914 D2)."
+        },
         "declaredPhase": {
           "description": "`workflow`: the run-level declared-phase label — the last `Phase`\ndetail-row label of the reconciled projection; terminal-only, absent\nwhile live (tdd SS4.5.8, #45449).",
           "type": "string"
+        },
+        "deliveryNumber": {
+          "description": "`scheduledFire`: the occurrence number within the job's\nhistory, present with occurrence metadata (tdd SS4.5.17;\nADR 45446 D2).",
+          "type": "integer"
         },
         "depth": {
           "description": "`subagent`: nesting depth.",
@@ -2341,7 +2392,11 @@
           "type": "string"
         },
         "itemId": {
-          "description": "Bare UUIDv7; the item's identity across its whole lifecycle. Identity\nrule (tdd SS4.4.1): the task id for task-backed kinds\n(`toolCall`, `subagent`), the pre-minted commit `message_id` for\ndelta-streamed kinds (`agentMessage`, `reasoning`), and the opening\ndurable record's event id for everything else. Opaque to clients.",
+          "description": "Bare UUIDv7; the item's identity across its whole lifecycle. Identity\nrule (tdd SS4.4.1): the task id for task-backed kinds\n(`toolCall`, `subagent`), the pre-minted commit `message_id` for\ndelta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive`\nover the session id and the range's starting sequence number for\n`damagedRange` (no record carries it, SS4.5.16), and the opening\ndurable record's event id for everything else. Opaque to clients.",
+          "type": "string"
+        },
+        "jobId": {
+          "description": "`scheduledFire`: the cron job id that fired (tdd SS4.5.17;\nADR 45446 D2, spec 13929 amendment #62595 FR-62595-1).",
           "type": "string"
         },
         "kind": {
@@ -2374,6 +2429,10 @@
         "monitorId": {
           "description": "`monitorFeed`: the monitor task id — the same value as that\nmonitor's `toolCall` `itemId` (ADR 50058-monitor-feed-wire D1).",
           "type": "string"
+        },
+        "nextFireAtMs": {
+          "description": "`scheduledFire`: the next scheduled epoch in milliseconds;\nabsent on a final delivery (tdd SS4.5.17; ADR 45446 D2).",
+          "type": "integer"
         },
         "objective": {
           "description": "`subagent`: objective as spawned, bounded on the wire at the 64 KiB\nretained-text budget (tdd SS4.5.4, ADR 35691 D9); a cut sets\n`truncated`. The durable record stays verbatim.",
@@ -2438,6 +2497,10 @@
         "runStatus": {
           "$ref": "#/$defs/HookRunStatus",
           "description": "`hookRun`: terminal-only durable outcome; stays `blocked` when the\nitem settles `rejected` (tdd SS4.5.11)."
+        },
+        "scheduledFireAtMs": {
+          "description": "`scheduledFire`: the fire's scheduled epoch in milliseconds\n(tdd SS4.5.17; ADR 45446 D2).",
+          "type": "integer"
         },
         "scriptId": {
           "description": "`workflow`: launched script identity.",
@@ -2547,7 +2610,7 @@
           "type": "boolean"
         },
         "turnId": {
-          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` for the kinds outside a turn: `userShell` always\n(tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed`\nalways (ADR 50058-monitor-feed-wire D1).",
+          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` for the kinds outside a turn: `userShell` always\n(tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed`\nalways (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13),\n`damagedRange` always (ADR 60914 D2).",
           "type": [
             "string",
             "null"
@@ -2649,7 +2712,9 @@
         "hookRun",
         "sideChat",
         "webSearch",
-        "monitorFeed"
+        "monitorFeed",
+        "damagedRange",
+        "scheduledFire"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -3231,6 +3296,152 @@
         "path",
         "sourceToolName",
         "type"
+      ],
+      "type": "object"
+    },
+    "MonitorInboxItemAdmittedParams": {
+      "description": "`monitor/inboxItemAdmitted` params (tdd SS4.5.18): one monitor\ninbox admission — the fold keys gate-off consumes.",
+      "properties": {
+        "body": {
+          "description": "The model-facing delivery text.",
+          "type": "string"
+        },
+        "displayBody": {
+          "description": "The producer-recorded pre-augmentation content; absent on\npre-#24686 records.",
+          "type": "string"
+        },
+        "eventIndex": {
+          "description": "Per-task event order key (with `line_index`).",
+          "type": "integer"
+        },
+        "eventKind": {
+          "description": "Monitor event kind, snake_case, open vocabulary — clients\nignore unknown kinds.",
+          "type": "string"
+        },
+        "itemId": {
+          "description": "The inbox item id (dedupe key).",
+          "type": "string"
+        },
+        "lineIndex": {
+          "description": "Line order key; absent when the event has no line.",
+          "type": "integer"
+        },
+        "queuedAt": {
+          "description": "Admission stamp (RFC3339); consumed by the pending sort.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The owning session.",
+          "type": "string"
+        },
+        "showLines": {
+          "description": "Whether the event carries displayable lines.",
+          "type": "boolean"
+        },
+        "sourceRange": {
+          "$ref": "#/$defs/SourceRange",
+          "description": "The durable records this event folded from."
+        },
+        "summary": {
+          "description": "The notice-text summary.",
+          "type": "string"
+        },
+        "taskId": {
+          "description": "The owning monitor task id (per-task set key).",
+          "type": "string"
+        },
+        "viewCursor": {
+          "description": "Opaque, strictly monotonic view cursor (tdd SS4.1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "eventIndex",
+        "eventKind",
+        "itemId",
+        "queuedAt",
+        "sessionId",
+        "showLines",
+        "sourceRange",
+        "summary",
+        "taskId",
+        "viewCursor"
+      ],
+      "type": "object"
+    },
+    "MonitorInboxItemDrainedParams": {
+      "description": "`monitor/inboxItemDrained` params (tdd SS4.5.18): one monitor inbox\ndrain — a consumption marker with its recorded stamp.",
+      "properties": {
+        "deliveryVisible": {
+          "description": "False is a local claim-only recall: no delivery row or recovery\nconsequence, but the drain still stamps the awaiting verdict.",
+          "type": "boolean"
+        },
+        "drainTargetRunStream": {
+          "$ref": "#/$defs/StreamRef",
+          "description": "The draining run stream (`StreamRef`), absent means the current\ndraining run."
+        },
+        "drainedAt": {
+          "description": "The drain record's recorded stamp (RFC3339), the drain-side\noperand of drain-vs-void latest-wins.",
+          "type": "string"
+        },
+        "itemId": {
+          "description": "The drained inbox item id.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The owning session.",
+          "type": "string"
+        },
+        "sourceRange": {
+          "$ref": "#/$defs/SourceRange",
+          "description": "The durable records this event folded from."
+        },
+        "viewCursor": {
+          "description": "Opaque, strictly monotonic view cursor (tdd SS4.1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deliveryVisible",
+        "drainedAt",
+        "itemId",
+        "sessionId",
+        "sourceRange",
+        "viewCursor"
+      ],
+      "type": "object"
+    },
+    "MonitorInboxItemVoidedParams": {
+      "description": "`monitor/inboxItemVoided` params (tdd SS4.5.18): one wake-missed\nvoid — count-only, no transcript row (spec 9627 D15).",
+      "properties": {
+        "itemId": {
+          "description": "The voided inbox item id.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The owning session.",
+          "type": "string"
+        },
+        "sourceRange": {
+          "$ref": "#/$defs/SourceRange",
+          "description": "The durable records this event folded from."
+        },
+        "viewCursor": {
+          "description": "Opaque, strictly monotonic view cursor (tdd SS4.1).",
+          "type": "string"
+        },
+        "voidedAt": {
+          "description": "The anomaly's recorded stamp (RFC3339), the void-side operand\nof drain-vs-void latest-wins.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemId",
+        "sessionId",
+        "sourceRange",
+        "viewCursor",
+        "voidedAt"
       ],
       "type": "object"
     },
@@ -4083,6 +4294,80 @@
       ],
       "type": "object"
     },
+    "RecoveryEffectiveSource": {
+      "description": "Proven effective-choice provenance, independently of input presence.",
+      "enum": [
+        "request",
+        "retained",
+        "legacyOmission",
+        "hostPolicy",
+        "unknown"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RecoveryMode": {
+      "description": "A requested construction choice; omission is distinct from explicit OFF.",
+      "enum": [
+        "on",
+        "off"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
+    "RecoveryObservation": {
+      "description": "One coherent producer snapshot; all members are required and non-null.",
+      "properties": {
+        "constructionId": {
+          "type": "string"
+        },
+        "effectiveMode": {
+          "$ref": "#/$defs/RecoveryObservedMode"
+        },
+        "effectiveSource": {
+          "$ref": "#/$defs/RecoveryEffectiveSource"
+        },
+        "qualification": {
+          "$ref": "#/$defs/RecoveryQualification"
+        },
+        "requestedMode": {
+          "$ref": "#/$defs/RecoveryObservedMode"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "constructionId",
+        "effectiveMode",
+        "effectiveSource",
+        "qualification",
+        "requestedMode",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "RecoveryObservedMode": {
+      "description": "A proven mode or unknown; future strings cannot establish OFF.",
+      "enum": [
+        "on",
+        "off",
+        "unknown"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RecoveryQualification": {
+      "description": "This construction's assessment, never an operation acceptance receipt.",
+      "enum": [
+        "qualified",
+        "unavailable",
+        "notRequired",
+        "unknown"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "Request": {
       "description": "A request frame, either direction (SS1.2 §2.1).",
       "properties": {
@@ -4419,7 +4704,7 @@
       "type": "object"
     },
     "SessionClosedParams": {
-      "description": "`session/closed` params (tdd SS2.6.2; enrolled by #33065): a loaded\nsession was unloaded from this host, broadcast to every initialized\nconnection. After it, the session is `notLoaded`; the log remains on disk\nand `session/resume` reloads it. A crash emits nothing — only the two\norderly unload paths do, and both write the durable `SessionEnd` record\nfirst.",
+      "description": "`session/closed` params (tdd SS2.6.2; enrolled by #33065): a loaded\nsession was unloaded from this host, broadcast to every initialized\nconnection. After it, the session is `notLoaded`; the log remains on disk\nand `session/resume` reloads it. A crash emits nothing — only the\norderly unload paths do (idle unload, host shutdown and a released\n`session/leave`), and each writes the durable `SessionEnd` record first.",
       "properties": {
         "reason": {
           "$ref": "#/$defs/SessionClosedReason",
@@ -4448,7 +4733,8 @@
       "description": "The SS2.6.2 closed-reason vocabulary. Server-produced and published\nOPEN by owner ruling — the #33065 menu-B pick (PR #33201 comment\n5638727249, recorded in the enrollment decision record), which settles\nthat this notification reason enum publishes open rather than resting on\nE2's result-vocabulary rule by analogy. A crash is deliberately not a\nreason, because a crash emits no notification at all.",
       "enum": [
         "idle",
-        "hostShutdown"
+        "hostShutdown",
+        "leave"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -4700,6 +4986,91 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "SessionLeaveCompletedParams": {
+      "description": "Params of the protected, non-view leave terminal notification.",
+      "properties": {
+        "commandId": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SessionLeaveOutcome"
+        },
+        "reason": {
+          "$ref": "#/$defs/SessionLeaveFailureReason"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "viewCursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "outcome",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionLeaveFailureReason": {
+      "description": "Current producer failure reasons for `session/leaveCompleted`;\nreceiver-open for additive future reasons.",
+      "enum": [
+        "timeout",
+        "responseUndelivered",
+        "persistenceFailed",
+        "runtimeFailed",
+        "abandoned"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "SessionLeaveOutcome": {
+      "description": "Current producer outcomes for `session/leaveCompleted`; receiver-open.",
+      "enum": [
+        "released",
+        "failed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "SessionLeaveParams": {
+      "description": "`session/leave` params (tdd SS2.15, ADR 31741 D2/D8).",
+      "properties": {
+        "commandId": {
+          "description": "Client-minted UUIDv7 command identity.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The exact loaded session whose ownership is to be released.",
+          "type": "string"
+        },
+        "stop": {
+          "description": "Explicitly cancel unfinished work before leaving. Omitted is `false`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionLeaveResult": {
+      "description": "The admission-only `session/leave` result.",
+      "properties": {
+        "commandId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandAckStatus"
+        }
+      },
+      "required": [
+        "commandId",
+        "status"
+      ],
+      "type": "object"
     },
     "SessionListBranchFilter": {
       "description": "Exact branch selection (#42035 FR-42035-2).",
@@ -5123,6 +5494,10 @@
           },
           "type": "array"
         },
+        "recoveryObservation": {
+          "$ref": "#/$defs/RecoveryObservation",
+          "description": "Current local construction only; never inferred from retained history.\nAbsence establishes neither a choice nor supported recovery."
+        },
         "session": {
           "$ref": "#/$defs/Session",
           "description": "The session as folded point-in-time."
@@ -5247,6 +5622,10 @@
         "permissionProfile": {
           "description": "The launch permission-profile pick (amendment 42624 FR-42624-1,\n#50054): a profile id the host catalog already admits. Select, never\ncreate. Omitted means today's behavior: restore retained authority\nonly, no override. The host restores first, then applies the pick in\nthe same pre-marker step; a pick that fails admission refuses the\nresume `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte. Explicit\n`null` is invalid params (the same closed null-tolerant set as at\nstart).",
           "type": "string"
+        },
+        "recoveryMode": {
+          "$ref": "#/$defs/RecoveryMode",
+          "description": "Cold-resume replacement choice; omission preserves the retained choice.\nA warm attach rejects a different or unestablished choice as invalidParams.\nExplicit null is invalid."
         },
         "sessionId": {
           "description": "The session to load.",
@@ -5512,6 +5891,10 @@
             "string",
             "null"
           ]
+        },
+        "recoveryMode": {
+          "$ref": "#/$defs/RecoveryMode",
+          "description": "Recovery choice for this construction; omission keeps legacy behavior.\nExplicit null is invalid."
         },
         "sessionId": {
           "description": "Exact identity for this new root session. When omitted the server\nmints a UUIDv7. This field never selects an existing session: a\nretained or reserved id is rejected `commandRejected` with reason\n`session_id_conflict` (tdd SS2.5.1).",
@@ -6056,6 +6439,17 @@
       "type": "string",
       "x-msp-openness": "closed"
     },
+    "SkillInvocationSource": {
+      "description": "A `skill` input part's picked-copy source (tdd SS3.22.3; ADR 32471\nD12): the D2 catalog-row `source` enum values, sent by the TUI on every\nskill submit so the host resolves the exact `(selector, source)` row.\n**Closed**: a client-selected write vocabulary (ADR 45433 D2) — an\nunknown value is `invalidParams`, never a fall-through to the bare row.\nContrast the open read-side [`SkillSource`].",
+      "enum": [
+        "bundled",
+        "user",
+        "project",
+        "plugin"
+      ],
+      "type": "string",
+      "x-msp-openness": "closed"
+    },
     "SkillListParams": {
       "description": "`skill/list` params (tdd SS3.22.1, SS3.30.3). Per-session because skill\nscope follows the session's workspace and plugin state.",
       "properties": {
@@ -6582,6 +6976,10 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "drained": {
+          "description": "`true` once the parent consumed the result (the inbox join fact the\ngate-off drain arm folds into the `Finished` marker — tdd SS4.5.7).\nAbsent otherwise; never cleared once set. Clients mint the\n`Finished` marker off this flag instead of re-deriving the join.",
+          "type": "boolean"
         },
         "errorKind": {
           "description": "Error kind, verbatim durable vocabulary, when the child failed.",
@@ -7358,6 +7756,10 @@
         "selector": {
           "description": "The skill to invoke, required on a `skill` part (tdd SS3.2, SS3.22.3;\nADR 32471 D4): a bare or plugin-qualified shortcut token from\n`skill/list`. The HOST resolves and expands; an unknown selector is\nthe typed `-32032 skillNotFound` request error.",
           "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SkillInvocationSource",
+          "description": "The picked copy's source, optional on a `skill` part (tdd SS3.22.3;\nADR 32471 D12): the D2 catalog-row `source` values. When present the\nhost resolves the exact `(selector, source)` row; when absent D4's\nbare resolution applies byte-for-byte. Closed: an unknown value is\n`invalidParams`, never a fall-through."
         },
         "text": {
           "description": "User prompt text, on a `text` part. Multiple text parts are joined in\norder into the turn's prompt.",
@@ -9359,6 +9761,15 @@
         "$ref": "#/$defs/SessionForkResult"
       }
     },
+    "session/leave": {
+      "description": "Admits release of one loaded session; final release or failure is pushed through session/leaveCompleted (SS2.15).",
+      "params": {
+        "$ref": "#/$defs/SessionLeaveParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionLeaveResult"
+      }
+    },
     "session/list": {
       "description": "Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases (SS2.5.4).",
       "params": {
@@ -9793,6 +10204,24 @@
         "$ref": "#/$defs/ItemUpdatedParams"
       }
     },
+    "monitor/inboxItemAdmitted": {
+      "description": "One monitor inbox admission: the fold keys gate-off consumes \\\n              (SS4.5.18).",
+      "params": {
+        "$ref": "#/$defs/MonitorInboxItemAdmittedParams"
+      }
+    },
+    "monitor/inboxItemDrained": {
+      "description": "One monitor inbox drain with its recorded stamp, the \\\n              drain-side operand of latest-wins (SS4.5.18).",
+      "params": {
+        "$ref": "#/$defs/MonitorInboxItemDrainedParams"
+      }
+    },
+    "monitor/inboxItemVoided": {
+      "description": "One wake-missed void with its recorded stamp; count-only, \\\n              no transcript row (SS4.5.18).",
+      "params": {
+        "$ref": "#/$defs/MonitorInboxItemVoidedParams"
+      }
+    },
     "plugin/changed": {
       "description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list` (ADR 45434 D5).",
       "params": {
@@ -9824,7 +10253,7 @@
       }
     },
     "session/closed": {
-      "description": "A loaded session was unloaded (idle | hostShutdown) with the final view cursor; broadcast to every initialized connection (SS2.6.2).",
+      "description": "A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection (SS2.6.2).",
       "params": {
         "$ref": "#/$defs/SessionClosedParams"
       }
@@ -9839,6 +10268,12 @@
       "description": "The session's goal block changed value; replace wholesale, an explicit null clears (SS4.6.2).",
       "params": {
         "$ref": "#/$defs/SessionGoalChangedParams"
+      }
+    },
+    "session/leaveCompleted": {
+      "description": "Protected correlated terminal for an admitted session/leave (SS2.15).",
+      "params": {
+        "$ref": "#/$defs/SessionLeaveCompletedParams"
       }
     },
     "session/listChanged": {

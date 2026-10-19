@@ -1,16 +1,18 @@
 /**
- * The FR-019 approval round trip: inbound `approval/requested` → the consumer's
- * handler → outbound `approval/decide` (spec 14990 T031, tdd SS5.4).
+ * The FR-019 approval round trip: inbound `approval/requested` or
+ * `approval/request` → the consumer's handler → outbound `approval/decide`
+ * (spec 14990 T031, FR-53910-1, tdd SS5.4).
  *
  * Split out of `session.ts` rather than added to it: the router owns a handler,
  * a per-stage latch, and a decision-shaping guard chain that have nothing to do
  * with folding a view, and `Session` was already the package's largest module.
  *
- * SHAPE NOTE, established from the bundle rather than assumed. `approval/request`
- * as a SERVER REQUEST is not enrolled — the schema carries `approval/requested`
- * as a NOTIFICATION only — so the round trip is notification-in /
- * command-out, which is exactly the pair FR-019 names. The server-request form
- * would be a #206 enrollment request (INV-001), never a local interface.
+ * Two frames carry a request in: the `approval/requested` notification and the
+ * enrolled `approval/request` server request (`RequestReceipt`), which the host
+ * sends beside it and re-sends after a resume (tdd SS5.6). A client-owned
+ * connection routes both here (ADR 42116 D18), and the per-stage latch decides
+ * each stage once, whichever arrives first. The decision goes out as the
+ * `approval/decide` command FR-019 names.
  */
 
 import type { Connection } from "../connection/connection.js";
@@ -102,9 +104,10 @@ export type ApprovalHandler = (
  *
  * REPORTED, not thrown: the trip is driven from a notification, so a throw
  * would escape into the consumer's pump with nothing to catch it — the same
- * hazard `Session.apply` already refuses a malformed frame for. Each arm names
- * a DIFFERENT owner (the consumer's handler, the consumer's choice, the host),
- * because the repair differs.
+ * hazard `Session.apply` already refuses a malformed frame for. Each kind names
+ * whose repair it is (the consumer's handler; the consumer's choice, for
+ * `unofferedChoice` and `feedbackNotAccepted`; the host), because the repair
+ * differs.
  */
 export type ApprovalFailure =
   | {
@@ -112,6 +115,21 @@ export type ApprovalFailure =
       readonly approvalId: string;
       readonly choiceId: string;
       readonly availableChoiceIds: readonly string[];
+    }
+  /**
+   * The handler attached `feedback` to a choice whose `acceptsFeedback` is not
+   * true. The host would refuse that decision, so it is not sent; the offered
+   * reject (the `denied` choice, else the `abort` one) is sent next, so the
+   * approval closes. With neither offered, nothing is sent and the approval
+   * stays open; a failure to send the reject is reported as `submitFailed`.
+   * Next time, answer without feedback, or pick one of `feedbackChoiceIds`, the
+   * offered choices that accept it.
+   */
+  | {
+      readonly kind: "feedbackNotAccepted";
+      readonly approvalId: string;
+      readonly choiceId: string;
+      readonly feedbackChoiceIds: readonly string[];
     }
   | { readonly kind: "handlerThrew"; readonly approvalId: string; readonly error: unknown }
   | { readonly kind: "submitFailed"; readonly approvalId: string; readonly error: unknown };
@@ -177,8 +195,9 @@ export class ApprovalRouter {
   }
 
   /**
-   * An `approval/requested` folded. Returns the decision round trip to await,
-   * or `undefined` when this client authors nothing for it.
+   * An `approval/requested` the fold kept pending, or a routed `approval/request`
+   * (FR-53910-1). Returns the decision round trip to await, or `undefined` when
+   * this client authors nothing for it.
    *
    * No handler at all is the supported default posture, NOT a degraded one
    * (D-008): the client runs under the server's own default-deny, and this SDK
@@ -201,10 +220,11 @@ export class ApprovalRouter {
    *
    * A multi-stage approval advances `currentRequirementId` through this frame
    * ALONE on the notification plane — the SS5.6 item-3 re-issue on stage
-   * advance is the protected `approval/request` SERVER-REQUEST dual, which is
-   * not enrolled here (SHAPE NOTE above) — so waiting for a re-issued
-   * `approval/requested` notification leaves the new stage undecided and the
-   * turn pending forever.
+   * advance is the `approval/request` server request, which reaches this
+   * router only through `Session.apply` (a `MuseClient`-owned connection
+   * delivers it; a bare `Connection` answers it `-32601`) — so waiting for a
+   * re-issued `approval/requested` notification leaves the new stage undecided
+   * and the turn pending forever.
    *
    * The update alone carries none of the request-shape members the handler is
    * typed on, but the fold retains the original request and every identity
@@ -295,7 +315,8 @@ export class ApprovalRouter {
     }
 
     const availableChoiceIds = params.availableChoices.map((choice) => choice.choiceId);
-    if (!availableChoiceIds.includes(decision.choiceId)) {
+    const chosen = params.availableChoices.find((choice) => choice.choiceId === decision.choiceId);
+    if (chosen === undefined) {
       // D-006 select-never-create, enforced on THIS side of the transport. An
       // invented choice bounces -32052 a round trip later, by which time the
       // stage may have advanced — so the diagnosis a consumer would actually
@@ -308,6 +329,26 @@ export class ApprovalRouter {
         kind: "unofferedChoice",
       });
       return;
+    }
+    if (decision.feedback != null && chosen.acceptsFeedback !== true) {
+      // The host refuses feedback on any other choice (-32052) and keeps its
+      // approval open, so refuse it here and answer with the offered reject
+      // instead, the choice the Rust SDK sends too: the approval closes and
+      // the host's turn goes on. With neither a `denied` nor an `abort`
+      // choice, nothing is sent.
+      this.#report({
+        approvalId: params.approvalId,
+        choiceId: decision.choiceId,
+        feedbackChoiceIds: params.availableChoices
+          .filter((choice) => choice.acceptsFeedback === true)
+          .map((choice) => choice.choiceId),
+        kind: "feedbackNotAccepted",
+      });
+      const reject =
+        params.availableChoices.find((choice) => choice.decision === "denied") ??
+        params.availableChoices.find((choice) => choice.decision === "abort");
+      if (reject === undefined) return;
+      decision = { choiceId: reject.choiceId };
     }
 
     const decideParams: DecideParams = {

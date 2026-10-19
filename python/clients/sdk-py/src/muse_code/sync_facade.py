@@ -33,10 +33,16 @@ from typing import (
     Generic,
     Iterator,
     Literal,
+    Sequence,
     TypeVar,
 )
 
-from muse_code_msp import InitializeResult, ItemDeltaParams
+from muse_code_msp import (
+    InitializeResult,
+    ItemDeltaParams,
+    UserInputAnswer,
+    UserInputAnswerResult,
+)
 
 from .connection.spawn import ExitClassification
 from .facade.approval import ApprovalFailureHandler, ApprovalHandler
@@ -390,6 +396,14 @@ class SyncSession(Generic[_I]):
     def on_gap_error(self, handler: GapFillFailureHandler) -> None:
         """Observe the protocol fills that did not complete."""
         self._session.on_gap_error(handler)
+
+    def answer_user_input(
+        self, user_input_id: str, answers: Sequence[UserInputAnswer]
+    ) -> UserInputAnswerResult:
+        """Blocking twin of ``answer_user_input``."""
+        return self._runner.run(
+            self._session.answer_user_input(user_input_id, answers)
+        )
 
     def stop_retrying(self, command_id: str) -> PendingRetirement[_I] | None:
         """The "Abandoned" verb: stop one entry's retry loop (sync, locked)."""

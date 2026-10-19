@@ -1,0 +1,50 @@
+[package]
+name = "muse-code-sdk"
+# SDK releases track the Muse Code host version.
+version = "1.4.11"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+description = "Async Rust client for Muse Code over MSP"
+# The public mirror is the one public venue; a published manifest never names
+# the private producer repository.
+repository = "https://github.com/meta-models/muse-code-sdk"
+homepage = "https://github.com/meta-models/muse-code-sdk"
+documentation = "https://docs.rs/muse-code-sdk"
+readme = "README.md"
+keywords = ["muse-code", "agent", "sdk", "msp", "async"]
+categories = ["api-bindings", "asynchronous", "development-tools"]
+# Only the library, its examples, and the public docs ship; tests, generated
+# test support, and internal process docs stay out of the package.
+include = ["src/**", "examples/**", "README.md", "LICENSE", "Cargo.toml"]
+
+# Its own copy of the workspace lints: the public mirror builds this crate
+# standalone, where `workspace = true` cannot resolve. A check in the
+# producing repository keeps these tables equal to its workspace lints.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+await_holding_lock = "deny"
+
+[dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# `SIGTERM` for the close ladder; tokio only kills.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.28", features = ["signal"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "test-util"] }
+
+[[example]]
+name = "quickstart"
+test = true
+
+[[example]]
+name = "recipes"
+test = true

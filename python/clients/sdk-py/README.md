@@ -8,7 +8,12 @@ wrapper for scripts and notebooks.
   one you already run.
 - Stream a turn's items and text deltas as async iterators; await the turn's
   server-authored outcome.
-- Answer tool-approval requests with a handler you register.
+- Answer tool-approval requests with a handler you register, or pass it as
+  `ResumeSessionOptions(on_approval=...)`, with `on_approval_error=...` for
+  its failures, so approvals still pending at resume reach it.
+- Answer the agent's questions: list them with
+  `session.fold.pending_user_inputs()` and answer with
+  `session.answer_user_input`.
 - A client-side fold keeps a live, typed view of the session — items, session
   state, pending commands — with gap recovery after reconnects, and safe
   same-command retry that can never double-submit.

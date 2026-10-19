@@ -10,8 +10,10 @@
  * What it teaches (and what the docs page walks through):
  *  - the host asks TWICE, for two different audiences: `approval/requested` is
  *    a notification for your UI, and `approval/request` is a JSON-RPC request
- *    the SDK must answer. If you never register a server-request handler, the
- *    SDK answers "method not found" on your behalf — so answer it.
+ *    the SDK must answer. On a bare connection, if you never register a
+ *    server-request handler, the SDK answers "method not found" on your
+ *    behalf — so answer it. (A `MuseClient` answers it for you and routes it
+ *    to `session.onApproval`.)
  *  - answer with `approval/decide`, picking a `choiceId` the host OFFERED in
  *    `availableChoices`. Do not invent one, and do not hardcode a choice the
  *    host may not offer for this subject.

@@ -10,7 +10,10 @@ notification is routed — is ported as the runtime tests at the end.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
+
+import pytest
 
 from muse_code.fold import (
     LIVE_HOST_STATE_PROJECTIONS,
@@ -24,6 +27,7 @@ from muse_code.fold import (
     IgnoredMissingParams,
     IgnoredStaleFrame,
     IgnoredUnrecognizedMethod,
+    MonitorInboxNotice,
     SessionFold,
     TurnFold,
     UserInputPending,
@@ -1047,6 +1051,56 @@ def test_a_session_lifecycle_broadcast_keeps_its_pre_enrollment_drop() -> None:
     assert fold.active_turn_id == "turn-1", "the rest of the fold is untouched"
 
 
+def test_the_monitor_inbox_trio_surfaces_verbatim_facts_and_seeds_no_store() -> None:
+    # This fold holds no inbox store, so each trio frame is a NOTICE —
+    # the per-task projection is consumer-folded from the facts on the
+    # outcome. The outcome carries the method plus that event's fact
+    # members; nothing sticks.
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    admitted = {
+        "body": "ok 3\n",
+        "eventIndex": 7,
+        "eventKind": "stdout_line",
+        "itemId": "mi-1",
+        "lineIndex": 3,
+        "queuedAt": "2026-10-17T10:51:38Z",
+        "sessionId": SESSION,
+        "showLines": False,
+        "sourceRange": SOURCE,
+        "summary": "monitor output",
+        "taskId": "task-1",
+        "viewCursor": "v:s:2",
+    }
+    assert fold.apply({"method": "monitor/inboxItemAdmitted", "params": admitted}) == (
+        MonitorInboxNotice(method="monitor/inboxItemAdmitted", params=admitted)
+    )
+    drained = {
+        "deliveryVisible": True,
+        "drainedAt": "2026-10-17T10:51:55Z",
+        "itemId": "mi-1",
+        "sessionId": SESSION,
+        "sourceRange": SOURCE,
+        "viewCursor": "v:s:3",
+    }
+    assert fold.apply({"method": "monitor/inboxItemDrained", "params": drained}) == (
+        MonitorInboxNotice(method="monitor/inboxItemDrained", params=drained)
+    )
+    voided = {
+        "itemId": "mi-1",
+        "sessionId": SESSION,
+        "sourceRange": SOURCE,
+        "viewCursor": "v:s:4",
+        "voidedAt": "2026-10-17T10:51:57Z",
+    }
+    assert fold.apply({"method": "monitor/inboxItemVoided", "params": voided}) == (
+        MonitorInboxNotice(method="monitor/inboxItemVoided", params=voided)
+    )
+    assert fold.items.size == 0, "a trio frame seeds no item"
+    assert fold.session_state.families() == [], "and no state family"
+    assert fold.active_turn_id == "turn-1", "the rest of the fold is untouched"
+
+
 def test_a_real_view_gap_frame_moves_the_folds_currency_and_no_store() -> None:
     fold = SessionFold()
     fold.apply(turn_started("turn-1", "cmd-1", "v:s:0"))
@@ -1077,6 +1131,56 @@ def test_consecutive_gaps_coalesce_on_the_first_after_gap_filled_clears_only_the
     # A repeat report of a hole already filled clears nothing.
     assert fold.gap_filled("v:s:9") is False
     assert fold.current is True
+
+
+def test_a_stale_repeat_of_an_earlier_gap_leaves_the_pending_gap_on_its_newest_target() -> None:
+    # The sequence the Rust SDK pins: a redelivered (v:1, v:3) after
+    # (v:3, v:7) must not move the pending `next` back to v:3, or a walk
+    # stops there and the fold reports current while v:4..v:7 never arrived.
+    fold = SessionFold()
+    fold.apply({"method": "view/gap", "params": {"after": "v:1", "next": "v:3", "sessionId": SESSION}})
+    fold.apply({"method": "view/gap", "params": {"after": "v:3", "next": "v:7", "sessionId": SESSION}})
+    repeat = fold.apply(
+        {"method": "view/gap", "params": {"after": "v:1", "next": "v:3", "sessionId": SESSION}}
+    )
+    assert repeat == IgnoredStaleFrame(method="view/gap", id="v:3")
+    assert fold.pending_gap == {"after": "v:1", "next": "v:7", "sessionId": SESSION}
+    assert fold.gap_filled("v:3") is False
+    assert fold.current is False
+    # A fill that missed keeps the targets: the repeat is still stale.
+    assert fold.apply(
+        {"method": "view/gap", "params": {"after": "v:1", "next": "v:3", "sessionId": SESSION}}
+    ) == IgnoredStaleFrame(method="view/gap", id="v:3")
+    assert fold.pending_gap == {"after": "v:1", "next": "v:7", "sessionId": SESSION}
+    assert fold.gap_filled("v:7") is True
+    assert fold.current is True
+
+    # Filling the hole clears the targets it saw: a gap naming v:7 again is
+    # a new hole, not a stale repeat (the Rust walk's answer too).
+    again = fold.apply(
+        {"method": "view/gap", "params": {"after": "v:3", "next": "v:7", "sessionId": SESSION}}
+    )
+    assert again == DeliveryGap(after="v:3", next="v:7")
+    assert fold.pending_gap == {"after": "v:3", "next": "v:7", "sessionId": SESSION}
+
+
+@pytest.mark.parametrize("missing", ["after", "sessionId"])
+def test_a_malformed_gap_leaves_no_target_behind(missing: str) -> None:
+    # A frame missing a field marks nothing, so the well-formed resend of the
+    # same gap still extends the hole. Today the fold raises on it; this pins
+    # only that the frame leaves no state behind.
+    fold = SessionFold()
+    fold.apply({"method": "view/gap", "params": {"after": "v:1", "next": "v:3", "sessionId": SESSION}})
+    malformed = {"after": "v:3", "next": "v:7", "sessionId": SESSION}
+    del malformed[missing]
+    with contextlib.suppress(KeyError):
+        fold.apply({"method": "view/gap", "params": malformed})
+    assert fold.pending_gap == {"after": "v:1", "next": "v:3", "sessionId": SESSION}
+    resent = fold.apply(
+        {"method": "view/gap", "params": {"after": "v:3", "next": "v:7", "sessionId": SESSION}}
+    )
+    assert resent == DeliveryGap(after="v:3", next="v:7")
+    assert fold.pending_gap == {"after": "v:1", "next": "v:7", "sessionId": SESSION}
 
 
 def test_the_generated_notification_frame_folds_with_no_re_wrapping() -> None:
@@ -1180,7 +1284,8 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # so it carries no cursor and folds into no transcript state. Excluded here
     # like the handshake's `initialized`; the client handles it out of band.
     # `userInput/engaged` is client-to-server, like the handshake's
-    # `initialized` — the fold never sees it.
+    # `initialized` — the fold never sees it. A leave completion is a
+    # command terminal with no view envelope or fold state.
     # `recap/completed` is a command-plane settlement to the requesting
     # connection only — no `viewCursor`, no `sourceRange`, nothing durable
     # to fold.
@@ -1188,6 +1293,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "initialized",
         "session/viewHealthChanged",
         "userInput/engaged",
+        "session/leaveCompleted",
         "recap/completed",
     }
     # Session lifecycle broadcasts (a session was loaded or unloaded on the
@@ -1370,6 +1476,46 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "view/gap": {
             "method": "view/gap",
             "params": {"after": "v:t:20", "next": "v:t:22", "sessionId": SESSION},
+        },
+        # The monitor-inbox trio: notice arms, each carrying its
+        # fact members for the consumer's own fold — never sticky.
+        "monitor/inboxItemAdmitted": {
+            "method": "monitor/inboxItemAdmitted",
+            "params": {
+                "body": "ok 3\n",
+                "eventIndex": 7,
+                "eventKind": "stdout_line",
+                "itemId": "mi-t",
+                "lineIndex": 3,
+                "queuedAt": "2026-10-17T10:51:38Z",
+                "sessionId": SESSION,
+                "showLines": False,
+                "sourceRange": SOURCE,
+                "summary": "monitor output",
+                "taskId": "task-t",
+                "viewCursor": "v:t:24",
+            },
+        },
+        "monitor/inboxItemDrained": {
+            "method": "monitor/inboxItemDrained",
+            "params": {
+                "deliveryVisible": True,
+                "drainedAt": "2026-10-17T10:51:55Z",
+                "itemId": "mi-t",
+                "sessionId": SESSION,
+                "sourceRange": SOURCE,
+                "viewCursor": "v:t:25",
+            },
+        },
+        "monitor/inboxItemVoided": {
+            "method": "monitor/inboxItemVoided",
+            "params": {
+                "itemId": "mi-t",
+                "sessionId": SESSION,
+                "sourceRange": SOURCE,
+                "viewCursor": "v:t:26",
+                "voidedAt": "2026-10-17T10:51:57Z",
+            },
         },
     }
     assert set(by_method) == set(VIEW_EVENT_METHODS), "the routing table must stay total"

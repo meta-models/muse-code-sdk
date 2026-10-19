@@ -26,6 +26,7 @@ from typing import (
     Literal,
     Mapping,
     Protocol,
+    Sequence,
     TypeVar,
     Union,
     cast,
@@ -39,16 +40,21 @@ from muse_code_msp import (
     ItemDeltaParams,
     TurnCompletedParams,
     TurnUnqueuedParams,
+    UserInputAnswer,
+    UserInputAnswerResult,
 )
 
-from ..connection.connection import Connection
+from ..connection.connection import Connection, ProtocolError
 from ..fold.item_store import IgnoredStaleRevision
 from ..fold.session_fold import (
     ApprovalPending,
+    ApprovalResolvedFold,
     DeliveryGap,
     FoldItems,
     FoldOutcome,
     FoldSessionState,
+    IgnoredStaleFrame,
+    IgnoredUnrecognizedMethod,
     ItemFold,
     Params,
     PendingApproval,
@@ -99,6 +105,28 @@ _I = TypeVar("_I")
 
 _USER_MESSAGE = "userMessage"
 assert _USER_MESSAGE in ITEM_KIND_KNOWN_VALUES
+
+
+def _is_routable_approval_request(request: Mapping[str, Any]) -> bool:
+    """True when a routed ``approval/request`` carries every member the approval
+    router reads: its ``approvalId``, the requirement's ``approvalId`` and
+    ``sourceIndex``, and each offered choice's ``choiceId``."""
+    if not isinstance(request.get("approvalId"), str):
+        return False
+    requirement = request.get("currentRequirementId")
+    choices = request.get("availableChoices")
+    if not isinstance(requirement, dict) or not isinstance(choices, list):
+        return False
+    index = requirement.get("sourceIndex")
+    return (
+        isinstance(requirement.get("approvalId"), str)
+        and isinstance(index, int)
+        and not isinstance(index, bool)
+        and all(
+            isinstance(choice, dict) and isinstance(choice.get("choiceId"), str)
+            for choice in choices
+        )
+    )
 
 
 class SessionFoldView(Protocol):
@@ -336,6 +364,10 @@ class SessionApplyOutcome(Generic[_I]):
             apply that started the fill, never on the buffered frame's own
             return. A second ``view/gap`` landing mid-fill rides the same
             channel: it extends the running walk, so its own ``io`` is empty.
+            A repeat of a ``next`` already named while the hole is open folds
+            as ``IgnoredStaleFrame`` and extends nothing; after a failed fill
+            it still restarts that fill, and the restarted walk's work
+            settles on this frame's ``io``.
         io: The client->server I/O this event triggered, settled — resolves to
             the retirements that I/O produced. A SEPARATE channel from
             ``retirements`` because ``apply`` is synchronous by contract: a
@@ -397,6 +429,11 @@ class Session(Generic[_I]):
         self._discarded = discarded
         self._connection = connection
         self._fold: SessionFold = SessionFold()
+        # Approvals the fold holds a durable terminal for. Read by a re-sent
+        # ``approval/request``, which skips the fold, so it authors nothing for
+        # an approval already resolved; mirrors the fold's own record, keyed
+        # for O(1).
+        self._resolved_approval_ids: set[str] = set()
         self._pending: PendingCommandSet[_I] = PendingCommandSet(
             discarded_command_ids=(
                 discarded.command_ids if discarded is not None else set()
@@ -545,7 +582,12 @@ class Session(Generic[_I]):
         # already reported synchronously) — appending an already-settled stub
         # instead would force ``_settled_io``'s gather arm, which needs a
         # running loop a fold-only ``apply`` may not have.
-        if isinstance(outcome, DeliveryGap):
+        # A stale repeat of an earlier gap still restarts a failed fill, as
+        # every folded ``view/gap`` (a ``DeliveryGap`` or a stale repeat)
+        # reaches ``start()`` (a no-op while a fill runs).
+        if isinstance(outcome, DeliveryGap) or (
+            isinstance(outcome, IgnoredStaleFrame) and outcome.method == "view/gap"
+        ):
             fill = self._gaps.start()
             if fill is not None:
                 sink.tasks.append(fill)
@@ -569,7 +611,32 @@ class Session(Generic[_I]):
         # everything downstream — the fold, the iterators, and the protocol
         # retirements.
         retirements: List[PendingRetirement[_I]] = []
+        # A re-sent ``approval/request`` server request skips the fold, which
+        # lists only the ``approval/requested`` notification, and reaches
+        # approval routing like that notification: the per-stage latch decides
+        # each stage once, and an approval already resolved authors nothing.
+        # Its handler task can land after the ``approval/resolved`` read with
+        # it, so in that case Python skips a request TypeScript would still
+        # route in arrival order. A request missing the members the router
+        # reads is dropped, never raised on, whichever path applies it: a held
+        # frame replayed inside ``resume_session`` included. A routed or
+        # dropped request reports ``IgnoredUnrecognizedMethod``, a sanctioned
+        # interim like ``session/started``'s (a dedicated outcome is tracked);
+        # one with no params dict falls through to the fold's
+        # ``IgnoredMissingParams``, like every other frame.
+        request = event.get("params")
+        if event.get("method") == "approval/request" and isinstance(request, dict):
+            if (
+                _is_routable_approval_request(request)
+                and request["approvalId"] not in self._resolved_approval_ids
+            ):
+                self._approval_requested(
+                    cast(ApprovalRequestParams, request), sink.tasks
+                )
+            return IgnoredUnrecognizedMethod("approval/request")
         outcome = self._fold.apply(event)
+        if isinstance(outcome, ApprovalResolvedFold):
+            self._resolved_approval_ids.add(outcome.approval_id)
         # The fold drops a params-less frame as IgnoredMissingParams;
         # the arms below read ``params`` on the turn/item arms, so return early.
         method = str(event.get("method"))
@@ -627,9 +694,9 @@ class Session(Generic[_I]):
                 )
         # ``view/gap`` deliberately routes to no turn: it names a hole in
         # DELIVERY, so what it moves is the fold's currency, and the recovery
-        # it triggers is started by ``apply`` off the ``DeliveryGap`` verdict
-        # rather than from here. Every other method is folded
-        # but routed to no turn.
+        # it triggers is started by ``apply`` off the ``DeliveryGap`` verdict,
+        # or off a stale ``view/gap``'s ``IgnoredStaleFrame``, rather than from
+        # here. Every other method is folded but routed to no turn.
 
         # The retired entries are gone from the set, so their replay memory
         # goes with them.
@@ -781,6 +848,62 @@ class Session(Generic[_I]):
         """Observe round trips that did not complete. See
         :data:`~muse_code.facade.approval.ApprovalFailure`."""
         self._approvals.on_approval_error(handler)
+
+    # ---- user-input answers ---------------------------------------------------
+
+    async def answer_user_input(
+        self, user_input_id: str, answers: Sequence[UserInputAnswer]
+    ) -> UserInputAnswerResult:
+        """Answer a question this session lists in ``fold.pending_user_inputs()``.
+
+        Sends ``userInput/answer`` with one answer per question and returns
+        the host's admission. The question leaves the pending list only when
+        the server's ``userInput/settled`` arrives.
+
+        Args:
+            user_input_id: The question to answer.
+            answers: One answer per question.
+
+        Returns:
+            The host's admission of the answer.
+
+        Raises:
+            MuseSessionDiscardedError: The session was discarded after an
+                ephemeral host death; nothing is sent.
+            RuntimeError: The session was constructed fold-only; nothing is sent.
+            ProtocolError: The acknowledgement has no command id or names
+                another question.
+        """
+        # Refused before anything is sent, as ``send_user_turn`` is: a
+        # discarded session cannot be reattached.
+        if self._discharge is not None and self._discharge.kind == "discharged":
+            from ..errors import MuseSessionDiscardedError
+
+            raise MuseSessionDiscardedError(
+                f"session {self.session_id} was discarded after an ephemeral host "
+                "death; it cannot answer a question"
+            )
+        connection = self._submit.require_connection("answer_user_input")
+        # No explicit ``commandId``: ``Connection.command`` mints and stamps it,
+        # and refuses an ack that echoes a different one. An ack with none is
+        # refused here, with one naming another question.
+        ack = await connection.command(
+            "userInput/answer",
+            {
+                "sessionId": self.session_id,
+                "userInputId": user_input_id,
+                "answers": list(answers),
+            },
+        )
+        if (
+            not isinstance(ack.get("commandId"), str)
+            or ack.get("userInputId") != user_input_id
+        ):
+            raise ProtocolError(
+                f"userInput/answer acknowledged command {ack.get('commandId')} for "
+                f"question {ack.get('userInputId')}, expected question {user_input_id}"
+            )
+        return cast(UserInputAnswerResult, ack)
 
     # ---- consumer-driven pending-retirement verbs ---------------------------------
 

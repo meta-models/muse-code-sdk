@@ -28,6 +28,7 @@ import type {
   ReplayAnswer,
   SnapshotJoinFacts,
 } from "../pending/pending-command-set.js";
+import { ProtocolError } from "../connection/connection.js";
 import type { Connection } from "../connection/connection.js";
 import { ApprovalRouter } from "./approval.js";
 import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
@@ -41,7 +42,7 @@ import {
   MuseHostDiedError,
   survivesHostDeath,
 } from "./host-death.js";
-import { MuseForeignSessionError } from "../errors.js";
+import { MuseForeignSessionError, MuseSessionDiscardedError } from "../errors.js";
 import type { DiscardedSessions } from "./discarded.js";
 import type {
   HostDeathDischarge,
@@ -59,7 +60,30 @@ import type {
   ItemKind,
   SessionResumeResult,
   SessionStartResult,
+  UserInputAnswer,
+  UserInputAnswerResult,
 } from "@muse-code/msp";
+
+/**
+ * True when a routed `approval/request` carries every member the approval
+ * router reads: its `approvalId`, the requirement's `approvalId` and
+ * `sourceIndex`, and each offered choice's `choiceId`.
+ */
+function isRoutableApprovalRequest(params: Record<string, unknown>): params is Record<string, unknown> & ApprovalRequestParams {
+  const { approvalId, currentRequirementId, availableChoices } = params;
+  return (
+    typeof approvalId === "string" &&
+    isRecord(currentRequirementId) &&
+    typeof currentRequirementId["approvalId"] === "string" &&
+    Number.isInteger(currentRequirementId["sourceIndex"]) &&
+    Array.isArray(availableChoices) &&
+    availableChoices.every((choice) => isRecord(choice) && typeof choice["choiceId"] === "string")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 /** Bound to the generated vocabulary so a misspelling fails `tsc`. */
 const USER_MESSAGE: Extract<ItemKind, "userMessage"> = "userMessage";
@@ -240,7 +264,10 @@ export interface SessionGapOverlap {
  * A SECOND `view/gap` that lands while a fill is running rides the same
  * channel for the same reason: it extends the running walk instead of starting
  * its own, so its apply reports `deliveryGap` with an already-settled empty
- * `io`, and the work it caused settles on the FIRST gap frame's.
+ * `io`, and the work it caused settles on the FIRST gap frame's. A repeat of a
+ * `next` already named while the hole is open folds as `ignoredStaleFrame` and
+ * extends nothing; after a failed fill it still restarts that fill, and the
+ * restarted walk's work settles on this frame's `io`.
  */
 export interface SessionApplyOutcome<I> {
   readonly fold: FoldOutcome | SessionApplyRefusal | SessionGapBuffered | SessionGapOverlap;
@@ -289,6 +316,12 @@ export class Session<I = unknown> {
   readonly #gaps: GapFiller<I>;
 
   readonly #fold = new SessionFold();
+  /**
+   * Approvals the fold holds a durable terminal for. Read by a re-sent
+   * `approval/request`, which skips the fold, so it authors nothing for an
+   * approval already resolved; mirrors the fold's own record, keyed for O(1).
+   */
+  readonly #resolvedApprovalIds = new Set<string>();
   readonly #durability: SessionDurabilityProfile;
   /** The first discharge, replayed verbatim on every later call. */
   #discharge: HostDeathDischarge<I> | undefined;
@@ -439,7 +472,15 @@ export class Session<I = unknown> {
     // HERE rather than inside the routing switch because it is the one arm
     // that authors client→server I/O off a notification, and `io` is the
     // channel that carries it.
-    if (outcome.kind === "deliveryGap") sink.tasks.push(this.#gaps.start());
+    // A stale repeat of an earlier gap still restarts a failed fill, as every
+    // folded `view/gap` (a `deliveryGap` or a stale repeat) reaches `start()`
+    // (a no-op while a fill runs).
+    if (
+      outcome.kind === "deliveryGap" ||
+      (outcome.kind === "ignoredStaleFrame" && outcome.method === "view/gap")
+    ) {
+      sink.tasks.push(this.#gaps.start());
+    }
     return {
       fold: outcome,
       io: Session.#settleIo(sink.tasks),
@@ -463,7 +504,25 @@ export class Session<I = unknown> {
   #foldAndRoute(event: WireFrame, sink: DrainSink<I>): FoldOutcome {
     const retirements: PendingRetirement<I>[] = [];
     const tasks = sink.tasks;
+    // A re-sent `approval/request` server request skips the fold, which lists
+    // only the `approval/requested` notification, and reaches approval routing
+    // like that notification: the per-stage latch decides each stage once, and
+    // an approval already resolved authors nothing.
+    // A request missing the members the router reads is dropped, never thrown
+    // on (SS1.5.4), whichever path applies it: a held frame replayed inside
+    // `resumeSession` included. A routed or dropped request reports
+    // `ignoredUnrecognizedMethod`, a sanctioned interim like `session/started`'s
+    // (#62835 owns a dedicated outcome); one with no params object falls through
+    // to the fold's `ignoredMissingParams`, like every other frame.
+    if (event.method === "approval/request" && isRecord(event.params)) {
+      const params = event.params;
+      if (isRoutableApprovalRequest(params) && !this.#resolvedApprovalIds.has(params.approvalId)) {
+        this.#approvalRequested(params, tasks);
+      }
+      return { kind: "ignoredUnrecognizedMethod", method: event.method };
+    }
     const outcome = this.#fold.apply(event);
+    if (outcome.kind === "approvalResolved") this.#resolvedApprovalIds.add(outcome.approvalId);
     // The fold drops a frame with no `params` as `ignoredMissingParams`
     // (SS1.5.4: drop, never throw). The switch below reads `event.params` on
     // the turn and delta arms, so without this early return a single
@@ -531,8 +590,9 @@ export class Session<I = unknown> {
       //
       // `view/gap` is here because it routes to no turn: it names a hole in
       // DELIVERY, so what it moves is the fold's currency, and the recovery
-      // it triggers is started by `apply` off the `deliveryGap` verdict rather
-      // than from this switch (FR-020 / T032).
+      // it triggers is started by `apply` off the `deliveryGap` verdict, or off
+      // a stale `view/gap`'s `ignoredStaleFrame`, rather than from this switch
+      // (FR-020 / T032).
       case "view/gap":
       case "turn/retracted": // the turn still reaches its own terminal
       case "turn/retryScheduled": // non-terminal by contract (SS4.5.1)
@@ -552,6 +612,12 @@ export class Session<I = unknown> {
       case "session/approvalModeChanged":
       case "session/modelRouteUnserved":
       case "session/nameChanged":
+      // The monitor-inbox trio (SS4.5.18): consumer-folded notices, never
+      // turn-handle traffic — the fold surfaces their facts on the
+      // `monitorInbox` outcome and seeds no store.
+      case "monitor/inboxItemAdmitted":
+      case "monitor/inboxItemDrained":
+      case "monitor/inboxItemVoided":
         break;
 
       default: {
@@ -746,6 +812,42 @@ export class Session<I = unknown> {
   /** Observe round trips that did not complete. See `ApprovalFailure`. */
   onApprovalError(handler: ApprovalFailureHandler): void {
     this.#approvals.onApprovalError(handler);
+  }
+
+  // ---- user-input answers (ADR 42116 D18) ----------------------------------
+
+  /**
+   * Answer a question this session lists in `fold.pendingUserInputs()` (tdd
+   * SS5.10.2): sends `userInput/answer` with one answer per question and
+   * resolves with the host's admission. The question leaves the pending list
+   * only when the server's `userInput/settled` arrives.
+   */
+  async answerUserInput(
+    userInputId: string,
+    answers: readonly UserInputAnswer[],
+  ): Promise<UserInputAnswerResult> {
+    // Refused before anything is sent, as `sendUserTurn` is: SS2.13.3b
+    // forbids reattaching a discarded session.
+    if (this.#discharge?.kind === "discharged") {
+      throw new MuseSessionDiscardedError(
+        `session ${this.sessionId} was discarded after an ephemeral host death; it cannot answer a question`,
+      );
+    }
+    const connection = this.#submit.requireConnection("answerUserInput");
+    // No explicit `commandId`: `Connection.command()` mints and stamps it, and
+    // refuses an ack that echoes a different one. An ack with none is refused
+    // here, with one naming another question.
+    const ack = await connection.command("userInput/answer", {
+      sessionId: this.sessionId,
+      userInputId,
+      answers: [...answers],
+    });
+    if (typeof ack["commandId"] !== "string" || ack["userInputId"] !== userInputId) {
+      throw new ProtocolError(
+        `userInput/answer acknowledged command ${String(ack["commandId"])} for question ${String(ack["userInputId"])}, expected question ${userInputId}`,
+      );
+    }
+    return ack as unknown as UserInputAnswerResult;
   }
 
   // ---- consumer-driven SS4.13 retirement verbs ----------------------------

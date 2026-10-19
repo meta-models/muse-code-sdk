@@ -26,7 +26,7 @@ from muse_code import MuseGapFillError, SendUserTurnOptions, Session, read_sessi
 from muse_code.connection import Connection
 from muse_code.facade import Turn
 from muse_code.connection.spawn import ExitClassification
-from muse_code.fold.session_fold import DeliveryGap, TurnFold
+from muse_code.fold.session_fold import DeliveryGap, IgnoredStaleFrame, TurnFold
 
 from helpers_connection import (
     FakeDuplex,
@@ -850,6 +850,64 @@ async def test_a_failed_page_surfaces_a_typed_error_and_leaves_the_fold_not_curr
     # hole to the one already reported.
     assert seen == ["i-9@1"]
     await end_turn(session, done)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_repeat_of_an_earlier_gap_after_a_failed_fill_restarts_the_walk() -> None:
+    transport, session = wired()
+    turn = start_turn(session)
+    _, done = collect_items(turn)
+    failures: List[MuseGapFillError] = []
+    session.on_gap_error(failures.append)
+
+    first = session.apply(gap_frame("v:1", "v:3"))
+    session.apply(gap_frame("v:3", "v:7"))
+    await wait_for_writes(transport, 1)
+    answer_error(transport, 0, {"code": -32011, "data": {"kind": "notFound"}, "message": "gone"})
+    await settled_io(first.io)
+    assert len(failures) == 1
+
+    # A redelivered earlier gap is stale: the target stays v:7, and like every
+    # `view/gap` it restarts the failed fill.
+    repeat = session.apply(gap_frame("v:1", "v:3"))
+    assert repeat.fold == IgnoredStaleFrame(method="view/gap", id="v:3")
+    await answer_page(transport, 1, [item_event("item/started", "v:7", item("i-7", 1))], "v:7")
+    assert sent_params(transport, 1)["cursor"] == "v:1"
+    await settled_io(repeat.io)
+    assert session.fold.current is True, "the restarted walk filled the hole to v:7"
+    await end_turn(session, done)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_frame_of_another_method_after_a_failed_fill_does_not_restart_it() -> None:
+    # Only a stale `view/gap` restarts the fill: any other stale frame would
+    # send a fresh `view/page` the fill's no-retry posture never asked for.
+    transport, session = wired()
+    failures: List[MuseGapFillError] = []
+    session.on_gap_error(failures.append)
+
+    gap = session.apply(gap_frame("v:1", "v:5"))
+    await wait_for_writes(transport, 1)
+    answer_error(transport, 0, {"code": -32011, "data": {"kind": "notFound"}, "message": "gone"})
+    await settled_io(gap.io)
+    assert len(failures) == 1
+
+    ghost = session.apply(
+        paged(
+            "approval/updated",
+            "v:6",
+            approvalId="a-ghost",
+            availableChoices=[],
+            change={"kind": "stageAdvanced"},
+            currentRequirementId={"approvalId": "a-ghost", "sourceIndex": 0},
+            subject={"kind": "shell"},
+        )
+    )
+    assert ghost.fold == IgnoredStaleFrame(method="approval/updated", id="a-ghost")
+    await pump()
+    assert len(transport.writes) == 1, "no second page was requested"
+    await settled_io(ghost.io)
+    assert session.fold.current is False
 
 
 @pytest.mark.asyncio

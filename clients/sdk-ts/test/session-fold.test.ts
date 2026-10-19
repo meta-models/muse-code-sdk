@@ -27,6 +27,9 @@ import type {
   ItemDeltaParams,
   ItemStartedParams,
   ItemUpdatedParams,
+  MonitorInboxItemAdmittedParams,
+  MonitorInboxItemDrainedParams,
+  MonitorInboxItemVoidedParams,
   Notification,
   RetractOutcome,
   SessionApprovalModeChangedParams,
@@ -1282,6 +1285,41 @@ test("consecutive gaps coalesce on the FIRST after; gapFilled clears only the ta
   assert.equal(fold.current, true);
 });
 
+test("a stale repeat of an earlier gap leaves the pending gap on its newest target (#62032)", () => {
+  // The sequence the Rust SDK pins (ADR 42116 D1 parity): a redelivered
+  // (v:1, v:3) after (v:3, v:7) must not move the pending `next` back to v:3,
+  // or a walk stops there and the fold reports current while v:4..v:7 never
+  // arrived.
+  const fold = new SessionFold();
+  fold.apply({ method: "view/gap", params: { after: "v:1", next: "v:3", sessionId: SESSION } });
+  fold.apply({ method: "view/gap", params: { after: "v:3", next: "v:7", sessionId: SESSION } });
+  const repeat = fold.apply({
+    method: "view/gap",
+    params: { after: "v:1", next: "v:3", sessionId: SESSION },
+  });
+  assert.deepEqual(repeat, { id: "v:3", kind: "ignoredStaleFrame", method: "view/gap" });
+  assert.deepEqual(fold.pendingGap, { after: "v:1", next: "v:7", sessionId: SESSION });
+  assert.equal(fold.gapFilled("v:3"), false);
+  assert.equal(fold.current, false);
+  // A fill that missed keeps the targets: the repeat is still stale.
+  assert.deepEqual(
+    fold.apply({ method: "view/gap", params: { after: "v:1", next: "v:3", sessionId: SESSION } }),
+    { id: "v:3", kind: "ignoredStaleFrame", method: "view/gap" },
+  );
+  assert.deepEqual(fold.pendingGap, { after: "v:1", next: "v:7", sessionId: SESSION });
+  assert.equal(fold.gapFilled("v:7"), true);
+  assert.equal(fold.current, true);
+
+  // Filling the hole clears the targets it saw: a gap naming v:7 again is a
+  // new hole, not a stale repeat (the Rust walk's answer too).
+  const again = fold.apply({
+    method: "view/gap",
+    params: { after: "v:3", next: "v:7", sessionId: SESSION },
+  });
+  assert.deepEqual(again, { after: "v:3", kind: "deliveryGap", next: "v:7" });
+  assert.deepEqual(fold.pendingGap, { after: "v:3", next: "v:7", sessionId: SESSION });
+});
+
 test("the generated Notification frame folds with no re-wrapping (the real wiring shape)", () => {
   const fold = new SessionFold();
   // This is EXACTLY the type `NotificationHandler` hands a consumer, and its
@@ -1766,6 +1804,46 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
       method: "view/gap",
       params: { after: "v:t:20", next: "v:t:22", sessionId: SESSION },
     },
+    // The monitor-inbox trio (SS4.5.18): notice arms, each carrying its
+    // fact members for the consumer's own fold — never sticky state.
+    "monitor/inboxItemAdmitted": {
+      method: "monitor/inboxItemAdmitted",
+      params: {
+        body: "ok 3\n",
+        eventIndex: 7,
+        eventKind: "stdout_line",
+        itemId: "mi-t",
+        lineIndex: 3,
+        queuedAt: "2026-10-17T10:51:38Z",
+        sessionId: SESSION,
+        showLines: false,
+        sourceRange: SOURCE,
+        summary: "monitor output",
+        taskId: "task-t",
+        viewCursor: "v:t:24",
+      } satisfies MonitorInboxItemAdmittedParams,
+    },
+    "monitor/inboxItemDrained": {
+      method: "monitor/inboxItemDrained",
+      params: {
+        deliveryVisible: true,
+        drainedAt: "2026-10-17T10:51:55Z",
+        itemId: "mi-t",
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        viewCursor: "v:t:25",
+      } satisfies MonitorInboxItemDrainedParams,
+    },
+    "monitor/inboxItemVoided": {
+      method: "monitor/inboxItemVoided",
+      params: {
+        itemId: "mi-t",
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        viewCursor: "v:t:26",
+        voidedAt: "2026-10-17T10:51:57Z",
+      } satisfies MonitorInboxItemVoidedParams,
+    },
   };
 
   const fold = new SessionFold();
@@ -1782,6 +1860,62 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
       `\`${method}\` with a fresh id must be consumed, not dropped as stale`,
     );
   }
+});
+
+test("the monitor-inbox trio surfaces verbatim facts and seeds no store (SS4.5.18)", () => {
+  // ADR 56492 D1–D3: the SDK holds no inbox store, so each trio frame is
+  // a NOTICE — the per-task projection is consumer-folded (the TUI folds
+  // gate-off parity from these same facts). The outcome carries the
+  // method plus that event's fact members; nothing sticks.
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const admitted: MonitorInboxItemAdmittedParams = {
+    body: "ok 3\n",
+    eventIndex: 7,
+    eventKind: "stdout_line",
+    itemId: "mi-1",
+    lineIndex: 3,
+    queuedAt: "2026-10-17T10:51:38Z",
+    sessionId: SESSION,
+    showLines: false,
+    sourceRange: SOURCE,
+    summary: "monitor output",
+    taskId: "task-1",
+    viewCursor: "v:s:2",
+  };
+  assert.deepEqual(fold.apply({ method: "monitor/inboxItemAdmitted", params: admitted }), {
+    kind: "monitorInbox",
+    method: "monitor/inboxItemAdmitted",
+    params: admitted,
+  });
+  const drained: MonitorInboxItemDrainedParams = {
+    deliveryVisible: true,
+    drainedAt: "2026-10-17T10:51:55Z",
+    itemId: "mi-1",
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    viewCursor: "v:s:3",
+  };
+  assert.deepEqual(fold.apply({ method: "monitor/inboxItemDrained", params: drained }), {
+    kind: "monitorInbox",
+    method: "monitor/inboxItemDrained",
+    params: drained,
+  });
+  const voided: MonitorInboxItemVoidedParams = {
+    itemId: "mi-1",
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    viewCursor: "v:s:4",
+    voidedAt: "2026-10-17T10:51:57Z",
+  };
+  assert.deepEqual(fold.apply({ method: "monitor/inboxItemVoided", params: voided }), {
+    kind: "monitorInbox",
+    method: "monitor/inboxItemVoided",
+    params: voided,
+  });
+  assert.equal(fold.items.size, 0, "a trio frame seeds no item");
+  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
+  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
 });
 
 test("the whole fold is deterministic over the same sequence (INV-002)", () => {

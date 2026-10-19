@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:e8b3d24f3922af8e567838a9ebdf8a28b64e6e0ddb516689f1a760e46c2f7fa1"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:195aeec21350d8a9a6979eaaa16edb06c7b7017ebc4130e96966ea30ee435614"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.10"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.11"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -162,7 +162,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "skillRead",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "skillRead",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -281,6 +281,21 @@ RECAP_FAILURE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("providerFailed",)
 RecapOutcome = str  # open enum: unknown values stay representable
 RECAP_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("completed", "failed", "cancelled", "timedOut",)
 
+# Proven effective-choice provenance, independently of input presence.
+RecoveryEffectiveSource = str  # open enum: unknown values stay representable
+RECOVERY_EFFECTIVE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("request", "retained", "legacyOmission", "hostPolicy", "unknown",)
+
+# A requested construction choice; omission is distinct from explicit OFF.
+RecoveryMode = Literal["on", "off"]
+
+# A proven mode or unknown; future strings cannot establish OFF.
+RecoveryObservedMode = str  # open enum: unknown values stay representable
+RECOVERY_OBSERVED_MODE_KNOWN_VALUES: Final[tuple[str, ...]] = ("on", "off", "unknown",)
+
+# This construction's assessment, never an operation acceptance receipt.
+RecoveryQualification = str  # open enum: unknown values stay representable
+RECOVERY_QUALIFICATION_KNOWN_VALUES: Final[tuple[str, ...]] = ("qualified", "unavailable", "notRequired", "unknown",)
+
 # A request id: client-chosen string or integer. `1` and `"1"` do not compare equal; each direction owns its own id space.
 RequestId = int | str
 
@@ -302,7 +317,7 @@ SANDBOX_UNAVAILABLE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("userNamespac
 
 # The closed-reason vocabulary. Server-produced and published OPEN by owner ruling — the menu-B pick, which settles that this notification reason enum publishes open rather than resting on E2's result-vocabulary rule by analogy. A crash is deliberately not a reason, because a crash emits no notification at all.
 SessionClosedReason = str  # open enum: unknown values stay representable
-SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown",)
+SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown", "leave",)
 
 # Whether this host writes its sessions to disk. A property of the host process, fixed at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: the unrepresented degraded state has candidate resolutions that add a third value here, so closed would make that a breaking change.
 SessionDurability = str  # open enum: unknown values stay representable
@@ -311,6 +326,14 @@ SESSION_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("durable", "ephemeral
 # What kind of session this is. **Open**: a new kind is additive evolution, and a client MUST render an unknown value as an unknown-but-present kind rather than rejecting the row. Both v1 values are terms the tree already uses — the child log directory is `subagent` and `ItemKind` already carries a `subagent` variant — so no new vocabulary is minted.
 SessionKind = str  # open enum: unknown values stay representable
 SESSION_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("root", "subagent",)
+
+# Current producer failure reasons for `session/leaveCompleted`; receiver-open for additive future reasons.
+SessionLeaveFailureReason = str  # open enum: unknown values stay representable
+SESSION_LEAVE_FAILURE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("timeout", "responseUndelivered", "persistenceFailed", "runtimeFailed", "abandoned",)
+
+# Current producer outcomes for `session/leaveCompleted`; receiver-open.
+SessionLeaveOutcome = str  # open enum: unknown values stay representable
+SESSION_LEAVE_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("released", "failed",)
 
 # A served session field `session/list` text search reads. The client selects it, so the set is closed.
 SessionListTextField = Literal["name", "title"]
@@ -347,6 +370,9 @@ SkillActivationState = Literal["on", "userInvocableOnly", "off"]
 
 # `skill/import` foreign ecosystem. **Closed**: a client-selected write vocabulary — a write must fail an ecosystem the host does not implement rather than import from an unknown dir. The host resolves its own foreign dir (the `foreign_skills_sources` derivation); no client paths cross the wire.
 SkillImportSource = Literal["claude", "codex"]
+
+# A `skill` input part's picked-copy source: the catalog-row `source` enum values, sent by the TUI on every skill submit so the host resolves the exact `(selector, source)` row. **Closed**: a client-selected write vocabulary — an unknown value is `invalidParams`, never a fall-through to the bare row. Contrast the open read-side [`SkillSource`].
+SkillInvocationSource = Literal["bundled", "user", "project", "plugin"]
 
 # A skill row's source scope: the projection of the skills crate's `SkillsSourceScope`. Open: a future scope value is additive.
 SkillSource = str  # open enum: unknown values stay representable
@@ -516,6 +542,7 @@ class _AdmissionRequestParamsBase(TypedDict):
 class AdmissionRequestParams(_AdmissionRequestParamsBase, total=False):
     """`admission/request` + `admission/requested` payload: the server→client prompt and its cursor-bearing durable fold carry the same payload, so a gapped client recovers it via `view/page`."""
 
+    heldBody: str
     requesterWorkspace: str
 
 
@@ -533,6 +560,7 @@ class _AdmissionRequestedViewParamsBase(TypedDict):
 class AdmissionRequestedViewParams(_AdmissionRequestedViewParamsBase, total=False):
     """`admission/requested` view event: the cursor-bearing durable fold of the prompt, so a gapped client recovers the identical payload via `view/page`."""
 
+    heldBody: str
     requesterWorkspace: str
 
 
@@ -1000,6 +1028,19 @@ class CumulativeTokenUsage(_CumulativeTokenUsageBase, total=False):
     cost: CumulativeCost
 
 
+class _DamagedRangeBase(TypedDict):
+    missingRecords: int
+    readableAfterAt: str
+    unreadableLines: int
+
+
+class DamagedRange(_DamagedRangeBase, total=False):
+    """`damagedRange`: what one damaged range of the session log cost. The reader finds the range in the log bytes; no log record is written for it, so every member is derived from the readable records around it."""
+
+    lastGoodTurnId: str
+    readableBeforeAt: str
+
+
 class EffectiveApprovalModeState(TypedDict):
     """The effective approval-mode projection: the same object `session/setApprovalMode` returns as `effectiveMode` and the `Session` object carries as `approvalMode`."""
 
@@ -1065,6 +1106,7 @@ class ErrorData(_ErrorDataBase, total=False):
     paths: list[str]
     projection: str
     reason: str
+    recoveryObservation: RecoveryObservation
     requestedStream: StreamRef
     resolution: ApprovalResolutionSummary
     retryable: bool
@@ -1154,8 +1196,10 @@ class _GoalBase(TypedDict):
 class Goal(_GoalBase, total=False):
     """The session goal block. `status` and `percentComplete` are carried **verbatim** — out-of-contract status strings and >100 percents pass through; display clamping is the renderer's job."""
 
+    createdAtMs: int
     currentWork: str
     nextWork: str
+    updatedAtMs: int
 
 
 class GoalClearParams(TypedDict):
@@ -1284,7 +1328,9 @@ class Item(_ItemBase, total=False):
     commandText: str
     controlStatus: SubagentControlStatus
     cutOff: bool
+    damagedRange: DamagedRange
     declaredPhase: str
+    deliveryNumber: int
     depth: int
     displayLabel: ToolDisplayLabel
     displayText: str
@@ -1299,12 +1345,14 @@ class Item(_ItemBase, total=False):
     finalSummary: str
     generationId: int
     hookKey: str
+    jobId: str
     label: str
     message: str
     messagePhase: MessagePhase
     modelVisibleContent: list[ModelVisibleContent]
     monitorDescription: str
     monitorId: str
+    nextFireAtMs: int
     objective: str
     outcome: CompactionOutcome
     outputRef: OutputRef
@@ -1325,6 +1373,7 @@ class Item(_ItemBase, total=False):
     retracted: bool
     role: str
     runStatus: HookRunStatus
+    scheduledFireAtMs: int
     scriptId: str
     selector: str
     sideSessionId: str
@@ -1706,6 +1755,52 @@ class ModelVisibleContent(_ModelVisibleContentBase, total=False):
 
     height: int
     width: int
+
+
+class _MonitorInboxItemAdmittedParamsBase(TypedDict):
+    body: str
+    eventIndex: int
+    eventKind: str
+    itemId: str
+    queuedAt: str
+    sessionId: str
+    showLines: bool
+    sourceRange: SourceRange
+    summary: str
+    taskId: str
+    viewCursor: str
+
+
+class MonitorInboxItemAdmittedParams(_MonitorInboxItemAdmittedParamsBase, total=False):
+    """`monitor/inboxItemAdmitted` params: one monitor inbox admission — the fold keys gate-off consumes."""
+
+    displayBody: str
+    lineIndex: int
+
+
+class _MonitorInboxItemDrainedParamsBase(TypedDict):
+    deliveryVisible: bool
+    drainedAt: str
+    itemId: str
+    sessionId: str
+    sourceRange: SourceRange
+    viewCursor: str
+
+
+class MonitorInboxItemDrainedParams(_MonitorInboxItemDrainedParamsBase, total=False):
+    """`monitor/inboxItemDrained` params: one monitor inbox drain — a consumption marker with its recorded stamp."""
+
+    drainTargetRunStream: StreamRef
+
+
+class MonitorInboxItemVoidedParams(TypedDict):
+    """`monitor/inboxItemVoided` params: one wake-missed void — count-only, no transcript row."""
+
+    itemId: str
+    sessionId: str
+    sourceRange: SourceRange
+    viewCursor: str
+    voidedAt: str
 
 
 class _NotificationBase(TypedDict):
@@ -2113,6 +2208,17 @@ class RecordPosition(TypedDict):
     sequence: int
 
 
+class RecoveryObservation(TypedDict):
+    """One coherent producer snapshot; all members are required and non-null."""
+
+    constructionId: str
+    effectiveMode: RecoveryObservedMode
+    effectiveSource: RecoveryEffectiveSource
+    qualification: RecoveryQualification
+    requestedMode: RecoveryObservedMode
+    sessionId: str
+
+
 class _RequestBase(TypedDict):
     id: RequestId
     jsonrpc: JsonRpcVersion
@@ -2207,7 +2313,7 @@ class SessionBranchChangedParams(_SessionBranchChangedParamsBase, total=False):
 
 
 class SessionClosedParams(TypedDict):
-    """`session/closed` params: a loaded session was unloaded from this host, broadcast to every initialized connection. After it, the session is `notLoaded`; the log remains on disk and `session/resume` reloads it. A crash emits nothing — only the two orderly unload paths do, and both write the durable `SessionEnd` record first."""
+    """`session/closed` params: a loaded session was unloaded from this host, broadcast to every initialized connection. After it, the session is `notLoaded`; the log remains on disk and `session/resume` reloads it. A crash emits nothing — only the orderly unload paths do (idle unload, host shutdown and a released `session/leave`), and each writes the durable `SessionEnd` record first."""
 
     reason: SessionClosedReason
     sessionId: str
@@ -2296,6 +2402,37 @@ class SessionHistory(_SessionHistoryBase, total=False):
     """The `history` envelope shared by `session/resume`, `session/fork`, and `session/read`."""
 
     noneReason: HistoryNoneReason
+
+
+class _SessionLeaveCompletedParamsBase(TypedDict):
+    commandId: str
+    outcome: SessionLeaveOutcome
+    sessionId: str
+
+
+class SessionLeaveCompletedParams(_SessionLeaveCompletedParamsBase, total=False):
+    """Params of the protected, non-view leave terminal notification."""
+
+    reason: SessionLeaveFailureReason
+    viewCursor: str
+
+
+class _SessionLeaveParamsBase(TypedDict):
+    commandId: str
+    sessionId: str
+
+
+class SessionLeaveParams(_SessionLeaveParamsBase, total=False):
+    """`session/leave` params."""
+
+    stop: bool
+
+
+class SessionLeaveResult(TypedDict):
+    """The admission-only `session/leave` result."""
+
+    commandId: str
+    status: CommandAckStatus
 
 
 class SessionListBranchFilter(TypedDict):
@@ -2446,6 +2583,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
     """`session/read` result. The `viewCursor` is the fold head at read time — a point-in-time read, immediately stale if a foreign host is appending."""
 
     lastTurn: LastTurn
+    recoveryObservation: RecoveryObservation
 
 
 class SessionReasoningEffortChangedParams(TypedDict):
@@ -2516,6 +2654,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     excludeItems: bool
     history: HistoryPreference
     permissionProfile: str
+    recoveryMode: RecoveryMode
 
 
 class _SessionResumeResultBase(TypedDict):
@@ -2623,6 +2762,7 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     modelId: str
     permissionProfile: str
     providerId: str | None
+    recoveryMode: RecoveryMode
     sessionId: str
     workspaceRoot: str
     workspaceRoots: list[str]
@@ -3020,6 +3160,7 @@ class _SubagentResultBase(TypedDict):
 class SubagentResult(_SubagentResultBase, total=False):
     """A subagent's result envelope."""
 
+    drained: bool
     errorKind: str
     structuredData: dict[str, Any]
     text: str
@@ -3248,6 +3389,7 @@ class TurnInputPart(_TurnInputPartBase, total=False):
     height: int
     mediaType: str
     selector: str
+    source: SkillInvocationSource
     text: str
     uploadId: str
     width: int
@@ -3939,6 +4081,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "recap/request": {"description": "Requests a \"while you were away\" recap for a loaded session; acks \\ `accepted` and settles exactly once on `recap/completed` — one \\ in flight per session, host-enforced 45s timeout.", "params": "RecapRequestParams", "result": "RecapRequestResult"},
     "session/compact": {"description": "Compacts the session's conversation context; runs asynchronously, so the ack is admission only.", "params": "SessionCompactParams", "result": "SessionCompactResult"},
     "session/fork": {"description": "Branches a session into a new id whose log copies the source through a cut point, with durable provenance.", "params": "SessionForkParams", "result": "SessionForkResult"},
+    "session/leave": {"description": "Admits release of one loaded session; final release or failure is pushed through session/leaveCompleted.", "params": "SessionLeaveParams", "result": "SessionLeaveResult"},
     "session/list": {"description": "Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases.", "params": "SessionListParams", "result": "SessionListResult"},
     "session/promptHint": {"description": "Picks one feature-tip table id over the client-supplied candidates; display-only, nothing is logged.", "params": "SessionPromptHintParams", "result": "SessionPromptHintResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
@@ -4009,14 +4152,18 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "log/gap": {"description": "Raw backlog collapsed for one subscription; fill (after, next) via log/page.", "params": "LogGapParams"},
     "log/record": {"description": "One raw record for an active subscription, in sequence order.", "params": "LogRecordParams"},
     "mcpServer/oauthLoginCompleted": {"description": "An MCP OAuth login flow reached a terminal outcome (granted, denied, expired, cancelled, or failed). Delivered to every experimental connection that has not opted the method out, initiator or not; never carries the authorization URL or any key material.", "params": "McpServerOAuthLoginCompletedParams"},
+    "monitor/inboxItemAdmitted": {"description": "One monitor inbox admission: the fold keys gate-off consumes \\.", "params": "MonitorInboxItemAdmittedParams"},
+    "monitor/inboxItemDrained": {"description": "One monitor inbox drain with its recorded stamp, the \\ drain-side operand of latest-wins.", "params": "MonitorInboxItemDrainedParams"},
+    "monitor/inboxItemVoided": {"description": "One wake-missed void with its recorded stamp; count-only, \\ no transcript row.", "params": "MonitorInboxItemVoidedParams"},
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
     "recap/completed": {"description": "A recap request settled exactly once — `completed` (with \\ `text` plus optional `title`), `failed` (`providerFailed`), \\ `cancelled`, or `timedOut` — delivered to the requesting \\ connection outside the view stream.", "params": "RecapCompletedParams"},
     "session/approvalModeChanged": {"description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact.", "params": "SessionApprovalModeChangedParams"},
     "session/branchChanged": {"description": "A durable workspace-branch observation landed; null branch is a detached-HEAD fact.", "params": "SessionBranchChangedParams"},
-    "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},
+    "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},
     "session/contextUsage": {"description": "A provider-reported context-occupancy fact folded to a changed (windowTokens, usedTokens, pressure) triple.", "params": "SessionContextUsageParams"},
     "session/goalChanged": {"description": "The session's goal block changed value; replace wholesale, an explicit null clears.", "params": "SessionGoalChangedParams"},
+    "session/leaveCompleted": {"description": "Protected correlated terminal for an admitted session/leave.", "params": "SessionLeaveCompletedParams"},
     "session/listChanged": {"description": "The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated.", "params": "SessionListChangedParams"},
     "session/modelChanged": {"description": "A durable model selection took effect.", "params": "SessionModelChangedParams"},
     "session/modelRouteUnserved": {"description": "An accepted login credential update installed a provider that cannot serve the session's standing model route; the standing selection is unchanged and a routable session/setModel repairs it.", "params": "SessionModelRouteUnservedParams"},

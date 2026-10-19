@@ -16,5 +16,11 @@
     "skipLibCheck": false,
     "stripInternal": true
   },
-  "include": ["src/**/*.ts", "qa/**/*.ts", "test/**/*.ts", "test/**/*.d.ts"]
+  "include": ["src/**/*.ts", "qa/**/*.ts", "test/**/*.ts", "test/**/*.d.ts"],
+  // #32029 B-1: disclosed staging, the TypeScript analogue of the Rust tests'
+  // cfg(any()) gate. This test reads config.developerPrompt, which the
+  // generated MSP types (schema/msp/msp.d.ts) do not carry at this head; the L3
+  // switch PR adds the protocol member, regenerates the declarations and removes
+  // this exclusion.
+  "exclude": ["test/developer-prompt-real-binary.test.ts"]
 }

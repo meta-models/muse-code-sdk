@@ -88,6 +88,13 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         # session state (a setModel repair would never clear a stored copy,
         # and a snapshot reseed would wipe it).
         "session/modelRouteUnserved",
+        # The monitor-inbox trio: per-monitor inbox admissions,
+        # drains, and wake-missed voids. Notices, never sticky state —
+        # this fold holds no inbox store, so the per-task projection
+        # is consumer-folded from the facts on the outcome.
+        "monitor/inboxItemAdmitted",
+        "monitor/inboxItemDrained",
+        "monitor/inboxItemVoided",
     )
 ) | frozenset(SESSION_STATE_METHODS)
 """Every notification method this fold routes to its own arm.
@@ -285,6 +292,20 @@ class ModelRouteUnservedNotice:
 
 
 @dataclass(frozen=True)
+class MonitorInboxNotice:
+    """One monitor-inbox trio fact, surfaced verbatim.
+
+    ``method`` names which of the three arrived (admission, drain, or
+    wake-missed void); ``params`` carries that event's fact members for
+    the consumer's own fold. A notice, never sticky state: the per-task
+    projection (tails, badges, counts, retirement) is consumer-folded.
+    """
+
+    method: str
+    params: Params
+
+
+@dataclass(frozen=True)
 class ApprovalReviewingNotice:
     """The ``approval/reviewing`` typed-activity signal.
 
@@ -330,7 +351,9 @@ class IgnoredStaleFrame:
     ``approval/updated`` for an approval it never saw requested (or whose
     entry a resolution already deleted); or a redelivered
     ``approval/requested`` / ``userInput/requested`` for an approval/prompt
-    that already has its durable terminal. Truthful by contract: a "pending"
+    that already has its durable terminal; or a ``view/gap`` whose ``next``
+    an earlier frame already named while the hole is open (``id`` is that
+    ``next``). Truthful by contract: a "pending"
     outcome here would make a renderer show an entry the fold does not hold.
     """
 
@@ -349,6 +372,7 @@ FoldOutcome = (
     | UserInputSettledFold
     | DeliveryGap
     | ModelRouteUnservedNotice
+    | MonitorInboxNotice
     | ApprovalReviewingNotice
     | IgnoredUnrecognizedMethod
     | IgnoredMissingParams
@@ -475,6 +499,9 @@ class SessionFold:
         self._settled_user_inputs: dict[str, Params] = {}
         self._active_turn_id: str | None = None
         self._pending_gap: dict[str, str] | None = None
+        # Every `next` a `view/gap` named while `_pending_gap` is open;
+        # `gap_filled` empties it.
+        self._gap_targets: set[str] = set()
 
     @property
     def items(self) -> FoldItems:
@@ -516,7 +543,9 @@ class SessionFold:
         """The outstanding delivery hole, or ``None``.
 
         COALESCED, keeping the FIRST ``after``: consecutive overflows are one
-        hole from a filler's point of view. A recovery walks
+        hole from a filler's point of view. A later frame moves ``next`` to
+        its own, but one repeating a ``next`` already named while the hole is
+        open is stale and changes nothing. A recovery walks
         ``(after, next)`` and calls :meth:`gap_filled` with the target it
         actually reached, so a hole that grew while the walk was in flight
         cannot be reported filled.
@@ -553,6 +582,7 @@ class SessionFold:
         if self._pending_gap is None or self._pending_gap["next"] != next_cursor:
             return False
         self._pending_gap = None
+        self._gap_targets.clear()
         return True
 
     def apply(self, event: Mapping[str, Any]) -> FoldOutcome:
@@ -632,6 +662,12 @@ class SessionFold:
             return SessionStateFold(
                 self._state_store.apply(method, params, params.get("viewCursor"))
             )
+        if method in (
+            "monitor/inboxItemAdmitted",
+            "monitor/inboxItemDrained",
+            "monitor/inboxItemVoided",
+        ):
+            return MonitorInboxNotice(method=method, params=params)
         return IgnoredUnrecognizedMethod(method)
 
     def turns(self) -> list[TurnEntry]:
@@ -816,23 +852,32 @@ class SessionFold:
     # ---- the delivery-plane marker ------------------------------------------
 
     def _delivery_gap(self, params: Params) -> FoldOutcome:
+        # A `next` already named while this hole is open is a stale repeat of
+        # an earlier frame: taking it would move the target back, so a walk
+        # would stop short and the fold report current over an unfilled hole.
+        # It changes nothing, as in the Rust SDK's gap walk. Every field is
+        # read first, so a frame missing one marks no target.
+        next_cursor = str(params["next"])
+        frame_after = str(params["after"])
+        session_id = str(params["sessionId"])
+        if next_cursor in self._gap_targets:
+            return IgnoredStaleFrame(method="view/gap", id=next_cursor)
+        self._gap_targets.add(next_cursor)
         # Coalesced on the FIRST `after`: a second overflow while the first
         # hole is still open extends the range rather than replacing it.
         # Replacing it would move the lower bound past events that were never
         # delivered, so a walk from the newer `after` would skip them
         # permanently — a silent hole manufactured by the very state that
         # exists to name one.
-        first_after = (
-            self._pending_gap["after"] if self._pending_gap is not None else str(params["after"])
-        )
+        first_after = self._pending_gap["after"] if self._pending_gap is not None else frame_after
         self._pending_gap = {
             "after": first_after,
-            "next": str(params["next"]),
-            "sessionId": str(params["sessionId"]),
+            "next": next_cursor,
+            "sessionId": session_id,
         }
         # The FRAME's own bounds, not the coalesced ones: this is a report of
         # what arrived. `pending_gap` is the outstanding hole.
-        return DeliveryGap(after=str(params["after"]), next=str(params["next"]))
+        return DeliveryGap(after=frame_after, next=next_cursor)
 
     # ---- approvals and user input as fold inputs ----------------------------
 

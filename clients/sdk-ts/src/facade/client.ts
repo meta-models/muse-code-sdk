@@ -49,6 +49,7 @@ import { isAbnormalHostDeath, readSessionDurability } from "./host-death.js";
 import type { SessionDurabilityProfile } from "./host-death.js";
 import { MspError, ProtocolError } from "../connection/connection.js";
 import { hostStartFailure } from "./host-start.js";
+import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
 import { Session } from "./session.js";
 import type { SessionOpening } from "./session.js";
 import type {
@@ -86,6 +87,7 @@ const START_FORWARDED = [
   "workspaceRoots",
   "modelId",
   "permissionProfile",
+  "recoveryMode",
 ] as const;
 type _StartIsExhaustive = AssertNever<
   Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config">
@@ -95,7 +97,7 @@ type _StartIsExhaustive = AssertNever<
  * Every `ResumeParams` member `resumeSession` forwards. `config` has the same
  * temporary capability-check boundary as the start facade above.
  */
-const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "permissionProfile"] as const;
+const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "permissionProfile", "recoveryMode"] as const;
 type _ResumeIsExhaustive = AssertNever<
   Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number] | "config">
 >;
@@ -135,9 +137,27 @@ export type StartSessionOptions = Readonly<
   }
 >;
 
+/** The resume options' approval members, installed before held frames apply. */
+type ResumeApprovalHandlers = Pick<ResumeSessionOptions, "onApproval" | "onApprovalError">;
+
 /** Caller-facing options for `session/resume` (tdd SS2.5.2). */
 export type ResumeSessionOptions = Readonly<
-  Omit<SessionResumeParams, "commandId" | "config">
+  Omit<SessionResumeParams, "commandId" | "config"> & {
+    /**
+     * Answers this session's approvals from its first frame, so an approval
+     * the host re-sends right after the resume reply reaches it. The same
+     * contract as `session.onApproval`, installed before the frames that
+     * arrived with the reply are applied.
+     */
+    onApproval?: ApprovalHandler;
+    /**
+     * Hears this session's approval failures from its first frame, as
+     * `session.onApprovalError` does later. A failure for an approval that
+     * arrived with the resume reply can happen before `resumeSession` returns,
+     * so only this option is sure to hear it.
+     */
+    onApprovalError?: ApprovalFailureHandler;
+  }
 >;
 
 /**
@@ -234,6 +254,30 @@ export class MuseClient {
     // "MuseClient owns the connection" means; a consumer that needs the raw
     // feed builds around a bare `Connection` and `Session` instead.
     this.#connection.onNotification((notification) => this.#route(notification));
+    // A question or approval still open at resume is re-sent as a
+    // `userInput/request` or `approval/request` server request (tdd SS5.6,
+    // SS5.10). Each is routed in arrival order and answered with the SS5.3.3
+    // receipt `{}`: a question as the `userInput/requested` twin it shares
+    // params with, so its session lists it, and an approval as itself, which
+    // the session routes to its approval handler. The receipt does not wait on
+    // `#route` finding the session: a request read during an open is held
+    // before that session exists. Every other server-request method keeps the
+    // `-32601` a bare `Connection` answers.
+    this.#connection.onServerRequest(async (request) => {
+      if (request.method === "userInput/request") {
+        this.#route({ method: "userInput/requested", params: request.params });
+        return {};
+      }
+      if (request.method === "approval/request") {
+        this.#route({ method: request.method, params: request.params });
+        return {};
+      }
+      throw new MspError({
+        code: -32601,
+        message: `method not found: ${request.method}`,
+        data: { kind: "methodNotFound", retryable: false },
+      });
+    });
     // Registered at construction, not at the first session: an EOF can land
     // before any session exists, and the flag has to be read at that moment.
     void this.#connection.closed.then(() => this.#transportClosed());
@@ -368,6 +412,7 @@ export class MuseClient {
     if (options.workspaceRoot != null) params.workspaceRoot = options.workspaceRoot;
     if (options.workspaceRoots != null) params.workspaceRoots = options.workspaceRoots;
     if (options.modelId != null) params.modelId = options.modelId;
+    if (options.recoveryMode != null) params.recoveryMode = options.recoveryMode;
     // The initial permission-profile selection, forwarded verbatim like the
     // other start members (undefined stays omitted).
     if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
@@ -437,11 +482,17 @@ export class MuseClient {
     if (options.cursor != null) params.cursor = options.cursor;
     if (options.excludeItems != null) params.excludeItems = options.excludeItems;
     if (options.history != null) params.history = options.history;
+    if (options.recoveryMode != null) params.recoveryMode = options.recoveryMode;
     if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
-    return this.#open("session/resume", params, (raw) => ({
-      result: raw as unknown as SessionResumeResult,
-      verb: "session/resume",
-    }));
+    return this.#open(
+      "session/resume",
+      params,
+      (raw) => ({
+        result: raw as unknown as SessionResumeResult,
+        verb: "session/resume",
+      }),
+      { onApproval: options.onApproval, onApprovalError: options.onApprovalError },
+    );
   }
 
   /**
@@ -482,18 +533,19 @@ export class MuseClient {
     verb: "session/start" | "session/resume",
     params: StartParams | ResumeParams,
     opening: (raw: Record<string, unknown>) => SessionOpening,
+    approvals: ResumeApprovalHandlers = {},
   ): Promise<Session> {
     this.#opening += 1;
     try {
       const opened = opening(await this.#connection.command(verb, params));
-      return this.#openSession(opened.result.session.sessionId, opened);
+      return this.#openSession(opened.result.session.sessionId, opened, approvals);
     } finally {
       this.#opening -= 1;
       if (this.#opening === 0) this.#held.clear();
     }
   }
 
-  #openSession(sessionId: string, opening: SessionOpening): Session {
+  #openSession(sessionId: string, opening: SessionOpening, approvals: ResumeApprovalHandlers): Session {
     const session = new Session({
       connection: this.#connection,
       discarded: this.#discarded,
@@ -501,6 +553,10 @@ export class MuseClient {
       opening,
       sessionId,
     });
+    // Before the held frames below: an approval re-sent with the resume reply
+    // must find the handler, and its failure the observer.
+    if (approvals.onApprovalError !== undefined) session.onApprovalError(approvals.onApprovalError);
+    if (approvals.onApproval !== undefined) session.onApproval(approvals.onApproval);
     this.#sessions.add(session);
     // The frames that named this session while its verb was in flight fold
     // NOW, in arrival order — synchronously, so nothing the pump routes next

@@ -40,11 +40,12 @@ from muse_code_msp import (
     ClientInfo,
     InitializeParams,
     InitializeResult,
+    RecoveryMode,
     SessionResumeParams,
     SessionStartParams,
 )
 
-from ..connection.connection import Connection
+from ..connection.connection import Connection, MspError
 from ..connection.spawn import (
     DEFAULT_SHUTDOWN_TIMEOUT_MS,
     ExitClassification,
@@ -63,6 +64,7 @@ from .host_death import (
     read_session_durability,
     survives_host_death,
 )
+from .approval import ApprovalFailureHandler, ApprovalHandler
 from .session import Session, SessionOpening, _ResumeOpening, _StartOpening
 from .turn_submit import _camel
 
@@ -105,6 +107,8 @@ class StartSessionOptions:
             of proceeding on the host default. Client-local: never sent on
             the wire. Setting it without ``permission_profile`` is a usage
             error.
+        recovery_mode: Optional recovery selection (wire ``recoveryMode``);
+            omitted means no selection is sent.
     """
 
     approval_mode: str | None = None
@@ -115,6 +119,7 @@ class StartSessionOptions:
     model_id: str | None = None
     permission_profile: str | None = None
     require_permission_profile: bool = False
+    recovery_mode: RecoveryMode | None = None
 
 
 @dataclass
@@ -134,6 +139,18 @@ class ResumeSessionOptions:
             wire's ``permissionProfile`` member: the host restores the
             retained authority first, then applies the pick. Omitted means
             no override.
+        recovery_mode: Optional recovery selection (wire ``recoveryMode``);
+            omitted means no selection is sent.
+        on_approval: Answers this session's approvals from its first frame,
+            so an approval the host re-sends right after the resume reply
+            reaches it. The same contract as ``Session.on_approval``,
+            installed before the frames that arrived with the reply are
+            applied. Never sent on the wire.
+        on_approval_error: Hears this session's approval failures from its
+            first frame, as ``Session.on_approval_error`` does later, so a
+            failure for an approval that arrived with the resume reply is
+            heard whatever task the caller registers from. Never sent on the
+            wire.
     """
 
     session_id: str
@@ -141,6 +158,9 @@ class ResumeSessionOptions:
     exclude_items: bool | None = None
     history: Mapping[str, Any] | None = None
     permission_profile: str | None = None
+    recovery_mode: RecoveryMode | None = None
+    on_approval: ApprovalHandler | None = None
+    on_approval_error: ApprovalFailureHandler | None = None
 
 
 # Drift pins — the Python twin of the TS `AssertNever` on START_FORWARDED /
@@ -162,7 +182,10 @@ assert (
 ), "StartSessionOptions drifted from SessionStartParams — forward the new member"
 
 _RESUME_EXCLUDED = {"commandId", "config"}
-assert {_camel(f.name) for f in fields(ResumeSessionOptions)} | _RESUME_EXCLUDED == set(
+_RESUME_OWNED = {"onApproval", "onApprovalError"}
+assert (
+    {_camel(f.name) for f in fields(ResumeSessionOptions)} - _RESUME_OWNED
+) | _RESUME_EXCLUDED == set(
     SessionResumeParams.__annotations__
 ), "ResumeSessionOptions drifted from SessionResumeParams — forward the new member"
 
@@ -279,6 +302,14 @@ class MuseClient(Generic[_I]):
         # spawn-built consumer hears no view frame. ``Connection`` holds ONE
         # notification handler — this client claims it.
         connection.on_notification(self._route)
+        # A question or approval still open when a session is resumed is
+        # re-sent as a ``userInput/request`` or ``approval/request`` server
+        # request. Each is routed and answered with the empty receipt ``{}``:
+        # a question as the ``userInput/requested`` twin it shares params with,
+        # so its session lists it, and an approval as itself, which the session
+        # routes to its approval handler. Every other server-request method
+        # keeps the ``-32601`` a bare ``Connection`` answers.
+        connection.on_server_request(self._serve_request)
         # Registered at construction, not at the first session: an EOF can land
         # before any session exists, and the flag has to be read at that moment.
         self._closed_watch = asyncio.ensure_future(self._watch_closed())
@@ -417,6 +448,8 @@ class MuseClient(Generic[_I]):
             params["workspaceRoots"] = options.workspace_roots
         if options.model_id is not None:
             params["modelId"] = options.model_id
+        if options.recovery_mode is not None:
+            params["recoveryMode"] = options.recovery_mode
         # The initial permission-profile selection, forwarded verbatim like the
         # other start members (None stays omitted).
         if options.permission_profile is not None:
@@ -488,9 +521,17 @@ class MuseClient(Generic[_I]):
             params["excludeItems"] = options.exclude_items
         if options.history is not None:
             params["history"] = options.history
+        if options.recovery_mode is not None:
+            params["recoveryMode"] = options.recovery_mode
         if options.permission_profile is not None:
             params["permissionProfile"] = options.permission_profile
-        return await self._open("session/resume", params, _ResumeOpening)
+        return await self._open(
+            "session/resume",
+            params,
+            _ResumeOpening,
+            options.on_approval,
+            options.on_approval_error,
+        )
 
     async def close(self) -> None:
         """Shut the host down in an orderly way.
@@ -519,6 +560,8 @@ class MuseClient(Generic[_I]):
         verb: str,
         params: dict[str, Any],
         opening: Callable[[Mapping[str, Any]], SessionOpening],
+        on_approval: ApprovalHandler | None = None,
+        on_approval_error: ApprovalFailureHandler | None = None,
     ) -> Session[_I]:
         # The window ``_route`` holds unknown-session frames for: from the
         # request to the Session's registration. Counted, not flagged, so two
@@ -530,7 +573,10 @@ class MuseClient(Generic[_I]):
             raw = await self._connection.command(verb, params)
             result: Mapping[str, Any] = raw
             return self._open_session(
-                str(result["session"]["sessionId"]), opening(result)
+                str(result["session"]["sessionId"]),
+                opening(result),
+                on_approval,
+                on_approval_error,
             )
         finally:
             self._opening -= 1
@@ -538,7 +584,11 @@ class MuseClient(Generic[_I]):
                 self._held.clear()
 
     def _open_session(
-        self, session_id: str, opening: SessionOpening
+        self,
+        session_id: str,
+        opening: SessionOpening,
+        on_approval: ApprovalHandler | None = None,
+        on_approval_error: ApprovalFailureHandler | None = None,
     ) -> Session[_I]:
         session: Session[_I] = Session(
             session_id,
@@ -547,6 +597,12 @@ class MuseClient(Generic[_I]):
             discarded=self._discarded,
             opening=opening,
         )
+        # Before the held frames below: an approval re-sent with the resume
+        # reply must find the handler, and its failure the observer.
+        if on_approval_error is not None:
+            session.on_approval_error(on_approval_error)
+        if on_approval is not None:
+            session.on_approval(on_approval)
         self._sessions.add(session)
         # The frames that named this session while its verb was in flight
         # fold NOW, in arrival order — synchronously, so nothing the pump
@@ -569,6 +625,37 @@ class MuseClient(Generic[_I]):
                 "this client's ephemeral host died; the protocol forbids "
                 "reattaching to it"
             )
+
+    async def _serve_request(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        # The connection runs this as its own task, so the twin can land after
+        # frames read in the same chunk. The same questions are listed, since
+        # the list is keyed by question id and a settled question stays
+        # settled; their order can differ when another question arrives in
+        # that chunk. The receipt does not depend on ``_route`` finding the
+        # session: a request read during an open is held before that session
+        # exists.
+        method = request.get("method")
+        if method == "userInput/request":
+            self._route(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "userInput/requested",
+                    "params": request.get("params"),
+                }
+            )
+            return {}
+        if method == "approval/request":
+            self._route(
+                {"jsonrpc": "2.0", "method": method, "params": request.get("params")}
+            )
+            return {}
+        raise MspError(
+            {
+                "code": -32601,
+                "message": f"method not found: {method}",
+                "data": {"kind": "methodNotFound", "retryable": False},
+            }
+        )
 
     def _route(self, notification: Mapping[str, Any]) -> None:
         # Deliver one view notification to the session(s) it names. A frame

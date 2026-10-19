@@ -1,18 +1,17 @@
-"""The approval round trip: inbound ``approval/requested`` → the consumer's
-handler → outbound ``approval/decide``. Port of the TypeScript SDK's
-approval router.
+"""The approval round trip: inbound ``approval/requested`` or
+``approval/request`` → the consumer's handler → outbound ``approval/decide``.
+Port of the TypeScript SDK's approval router.
 
 Split out of ``session.py`` rather than added to it: the router owns a
 handler, a per-stage latch, and a decision-shaping guard chain that have
 nothing to do with folding a view, and ``Session`` was already the package's
 largest module.
 
-SHAPE NOTE, established from the bundle rather than assumed. ``approval/request``
-as a SERVER REQUEST is not enrolled for the view stream this router rides —
-the schema carries ``approval/requested`` as a NOTIFICATION — so the round
-trip is notification-in / command-out, which is exactly the pair the
-protocol names. The server-request form would be a protocol enrollment
-request upstream, never a local interface.
+Two frames carry a request in: the ``approval/requested`` notification and
+the ``approval/request`` server request, which the host sends beside it and
+re-sends after a resume. A client-owned connection routes both here, and the
+per-stage latch decides each stage once, whichever arrives first. The
+decision goes out as the ``approval/decide`` command.
 """
 
 from __future__ import annotations
@@ -113,6 +112,22 @@ class UnofferedChoice:
 
 
 @dataclass(frozen=True)
+class FeedbackNotAccepted:
+    """The handler attached ``feedback`` to a choice whose ``acceptsFeedback``
+    is not true. The host would refuse that decision, so it is not sent; the
+    offered reject (the ``denied`` choice, else the ``abort`` one) is sent
+    next, so the approval closes. With neither offered, nothing is sent and the
+    approval stays open; a failure to send the reject is reported as
+    ``SubmitFailed``. Next time, answer without feedback, or pick one of
+    ``feedback_choice_ids``, the offered choices that accept it."""
+
+    approval_id: str
+    choice_id: str
+    feedback_choice_ids: tuple[str, ...]
+    kind: Literal["feedbackNotAccepted"] = "feedbackNotAccepted"
+
+
+@dataclass(frozen=True)
 class HandlerRaised:
     """The consumer's decision handler raised; nothing reached the wire."""
 
@@ -131,14 +146,15 @@ class SubmitFailed:
     kind: Literal["submitFailed"] = "submitFailed"
 
 
-ApprovalFailure = Union[UnofferedChoice, HandlerRaised, SubmitFailed]
+ApprovalFailure = Union[UnofferedChoice, FeedbackNotAccepted, HandlerRaised, SubmitFailed]
 """Why one approval round trip did not complete.
 
 REPORTED, not raised: the trip is driven from a notification, so an exception
 would escape into the consumer's pump with nothing to catch it — the same
-hazard ``Session.apply`` already refuses a malformed frame for. Each arm names
-a DIFFERENT owner (the consumer's handler, the consumer's choice, the host),
-because the repair differs.
+hazard ``Session.apply`` already refuses a malformed frame for. Each kind names
+whose repair it is (the consumer's handler; the consumer's choice, for
+``unofferedChoice`` and ``feedbackNotAccepted``; the host), because the repair
+differs.
 """
 
 ApprovalFailureHandler = Callable[[ApprovalFailure], None]
@@ -146,9 +162,10 @@ ApprovalFailureHandler = Callable[[ApprovalFailure], None]
 
 
 class ApprovalRouter:
-    """Routes folded ``approval/requested`` frames, and ``approval/updated``
-    frames that advance a pending approval's stage, to the consumer's handler
-    and authors the ``approval/decide`` command."""
+    """Routes folded ``approval/requested`` frames, routed ``approval/request``
+    frames, and ``approval/updated`` frames that advance a pending approval's
+    stage, to the consumer's handler and authors the ``approval/decide``
+    command."""
 
     def __init__(self, session_id: str, connection: Connection | None) -> None:
         """Builds the router; ``connection`` is absent on a fold-only session.
@@ -194,7 +211,8 @@ class ApprovalRouter:
         self._on_failure = handler
 
     def requested(self, params: ApprovalRequestParams) -> Awaitable[None] | None:
-        """An ``approval/requested`` folded. Returns the decision round trip to
+        """An ``approval/requested`` the fold kept pending, or a routed
+        ``approval/request``. Returns the decision round trip to
         await, or ``None`` when this call schedules nothing — no handler, an
         already-decided stage, or a fold-only session (whose ``SubmitFailed``
         is reported synchronously before returning).
@@ -327,7 +345,15 @@ class ApprovalRouter:
         available_choice_ids = tuple(
             choice["choiceId"] for choice in params["availableChoices"]
         )
-        if choice_id not in available_choice_ids:
+        chosen = next(
+            (
+                choice
+                for choice in params["availableChoices"]
+                if choice["choiceId"] == choice_id
+            ),
+            None,
+        )
+        if chosen is None:
             # Select-never-create, enforced on THIS side of the
             # transport. An invented choice bounces -32052 a round trip later,
             # by which time the stage may have advanced — so the diagnosis a
@@ -341,6 +367,36 @@ class ApprovalRouter:
                 )
             )
             return
+        if feedback is not None and chosen.get("acceptsFeedback") is not True:
+            # The host refuses feedback on any other choice (-32052) and
+            # keeps its approval open, so refuse it here and answer with the
+            # offered reject instead, the choice the Rust SDK sends too: the
+            # approval closes and the host's turn goes on. With neither a
+            # ``denied`` nor an ``abort`` choice, nothing is sent.
+            self._report(
+                FeedbackNotAccepted(
+                    approval_id=params["approvalId"],
+                    choice_id=choice_id,
+                    feedback_choice_ids=tuple(
+                        choice["choiceId"]
+                        for choice in params["availableChoices"]
+                        if choice.get("acceptsFeedback") is True
+                    ),
+                )
+            )
+            reject = next(
+                (
+                    choice
+                    for decision in ("denied", "abort")
+                    for choice in params["availableChoices"]
+                    if choice.get("decision") == decision
+                ),
+                None,
+            )
+            if reject is None:
+                return
+            choice_id = reject["choiceId"]
+            feedback = None
 
         decide_params: dict[str, Any] = {
             "approvalId": params["approvalId"],

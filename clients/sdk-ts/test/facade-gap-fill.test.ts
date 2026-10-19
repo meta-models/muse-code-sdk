@@ -1141,6 +1141,68 @@ test(
 );
 
 test(
+  "a stale repeat of an earlier gap after a failed fill restarts the walk toward the newest target (#62032)",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const { session, transport } = wired();
+    const turn = startTurn(session);
+    const { done } = collectItems(turn);
+    const failures: MuseGapFillError[] = [];
+    session.onGapError((failure) => failures.push(failure));
+
+    const first = session.apply(gapFrame("v:1", "v:3"));
+    session.apply(gapFrame("v:3", "v:7"));
+    await waitForWrites(transport, 1);
+    answerError(transport, 0, { code: -32011, data: { kind: "notFound" }, message: "gone" });
+    await first.io;
+    assert.equal(failures.length, 1);
+
+    // A redelivered earlier gap is stale: the target stays v:7, and like every
+    // `view/gap` it restarts the failed fill.
+    const repeat = session.apply(gapFrame("v:1", "v:3"));
+    assert.deepEqual(repeat.fold, { id: "v:3", kind: "ignoredStaleFrame", method: "view/gap" });
+    await answerPage(transport, 1, [itemEvent("item/started", "v:7", item("i-7", 1))], "v:7");
+    assert.equal(sentParams(transport, 1)["cursor"], "v:1");
+    await repeat.io;
+    assert.equal(session.fold.current, true, "the restarted walk filled the hole to v:7");
+    await endTurn(session, done);
+  },
+);
+
+test(
+  "a stale frame of another method after a failed fill does not restart it (#62032)",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // Only a stale `view/gap` restarts the fill: any other stale frame would
+    // send a fresh `view/page` the fill's no-retry posture never asked for.
+    const { session, transport } = wired();
+    const failures: MuseGapFillError[] = [];
+    session.onGapError((failure) => failures.push(failure));
+
+    const gap = session.apply(gapFrame("v:1", "v:5"));
+    await waitForWrites(transport, 1);
+    answerError(transport, 0, { code: -32011, data: { kind: "notFound" }, message: "gone" });
+    await gap.io;
+    assert.equal(failures.length, 1);
+
+    const ghost = session.apply(
+      paged("approval/updated", "v:6", {
+        approvalId: "a-ghost",
+        availableChoices: [],
+        change: { kind: "stageAdvanced" },
+        currentRequirementId: { approvalId: "a-ghost", sourceIndex: 0 },
+        subject: { kind: "shell" },
+      }),
+    );
+    assert.deepEqual(ghost.fold, { id: "a-ghost", kind: "ignoredStaleFrame", method: "approval/updated" });
+    await settleMicrotasks();
+    assert.equal(transport.writes.length, 1, "no second page was requested");
+    await ghost.io;
+    assert.equal(session.fold.current, false);
+  },
+);
+
+test(
   "a walk that does not advance fails as pageStalled instead of paging forever",
   { timeout: ARM_TIMEOUT },
   async () => {

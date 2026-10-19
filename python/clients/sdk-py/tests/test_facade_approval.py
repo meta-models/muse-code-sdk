@@ -5,12 +5,12 @@ trip is the contract, so every arm either drives a real ``approval/decide``
 (or ``userInput/answer``/``userInput/cancel``) frame out of the fake duplex,
 or asserts that none was written.
 
-SHAPE NOTE, established from the bundle rather than assumed (the TS twin's):
-``approval/request`` as a SERVER REQUEST is not what the view stream carries —
-the schema folds ``approval/requested`` as a NOTIFICATION — so the round trip
-is notification-in / command-out, exactly the governing rule pair. USER INPUT is the
-other shape: ``userInput/request`` IS a server request (integer id, answered
-``{}``), and the decision travels separately as the ``userInput/answer`` /
+These arms drive the ``approval/requested`` notification in and the
+``approval/decide`` command out, plus one transcript arm that replays the
+recorded ``approval/request`` with a resume reply. That server request's other
+arms are in ``test_facade_approval_resend.py``. USER INPUT is the other shape:
+``userInput/request`` is a server request (integer id, answered ``{}``), and
+the decision travels separately as the ``userInput/answer`` /
 ``userInput/cancel`` command — the transcript arms below pin both halves.
 """
 
@@ -23,7 +23,13 @@ from typing import Any, List
 
 import pytest
 
-from muse_code import Session, read_session_durability
+from muse_code import (
+    MuseClient,
+    MuseClientOptions,
+    ResumeSessionOptions,
+    Session,
+    read_session_durability,
+)
 from muse_code.connection import Connection
 from muse_code.facade import (
     ApprovalDecisionInput,
@@ -323,6 +329,112 @@ async def test_an_unoffered_choice_is_refused_before_the_wire() -> None:
         "allow_once",
         "deny",
     )
+
+
+@pytest.mark.asyncio
+async def test_feedback_on_a_choice_that_does_not_accept_it_is_refused_and_answered_with_the_offered_reject() -> (
+    None
+):
+    # The host refuses feedback on a choice without ``acceptsFeedback``
+    # (-32052) and leaves its approval open, so the refusal belongs on this
+    # side, and the offered ``denied`` choice closes the approval instead.
+    transport, session, _minted = wired()
+    failures: List[ApprovalFailure] = []
+    session.on_approval_error(failures.append)
+    session.on_approval(
+        lambda _r: ApprovalDecisionInput(choice_id="allow_once", feedback="looks safe")
+    )
+
+    outcome = session.apply(approval_requested())
+    await wait_for_writes(transport, 1)
+    assert sent_params(transport, 0)["choiceId"] == "deny", "the offered reject is sent"
+    assert "feedback" not in sent_params(transport, 0), "refused feedback never reaches the wire"
+    answer(transport, 0, decide_result("mint-0"))
+    await settled_io(outcome.io)
+    assert len(transport.writes) == 1, "one decision only"
+    assert len(failures) == 1
+    failure = failures[0]
+    assert failure.kind == "feedbackNotAccepted"
+    assert failure.approval_id == "a-1"
+    assert failure.kind == "feedbackNotAccepted" and failure.choice_id == "allow_once"
+    assert failure.kind == "feedbackNotAccepted" and failure.feedback_choice_ids == (
+        "deny",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_decide_for_the_substituted_reject_is_reported_after_the_refusal() -> (
+    None
+):
+    transport, session, _minted = wired()
+    failures: List[ApprovalFailure] = []
+    session.on_approval_error(failures.append)
+    session.on_approval(
+        lambda _r: ApprovalDecisionInput(choice_id="allow_once", feedback="looks safe")
+    )
+
+    outcome = session.apply(approval_requested())
+    await wait_for_writes(transport, 1)
+    answer_error(
+        transport,
+        0,
+        {"code": -32053, "message": "stale requirementId", "data": {"kind": "invalidParams"}},
+    )
+    await settled_io(outcome.io)
+
+    assert [failure.kind for failure in failures] == ["feedbackNotAccepted", "submitFailed"]
+
+
+@pytest.mark.asyncio
+async def test_refused_feedback_falls_back_to_abort_and_sends_nothing_without_a_reject() -> (
+    None
+):
+    allow: Params = {
+        "choiceId": "allow_once",
+        "decision": "approved",
+        "label": "Allow once",
+        "scope": "once",
+    }
+    abort: Params = {
+        "acceptsFeedback": True,
+        "choiceId": "stop",
+        "decision": "abort",
+        "label": "Stop",
+        "scope": "once",
+    }
+    transport, session, _minted = wired()
+    session.on_approval(
+        lambda _r: ApprovalDecisionInput(choice_id="allow_once", feedback="looks safe")
+    )
+    outcome = session.apply(approval_requested(availableChoices=[allow, abort]))
+    await wait_for_writes(transport, 1)
+    assert sent_params(transport, 0)["choiceId"] == "stop", "abort when no denied choice"
+    answer(transport, 0, decide_result("mint-0"))
+    await settled_io(outcome.io)
+
+    # Denied wins over abort even when abort is offered first.
+    deny: Params = {"choiceId": "deny", "decision": "denied", "label": "Deny", "scope": "once"}
+    both_transport, both, _both_minted = wired()
+    both.on_approval(
+        lambda _r: ApprovalDecisionInput(choice_id="allow_once", feedback="looks safe")
+    )
+    both_outcome = both.apply(approval_requested(availableChoices=[allow, abort, deny]))
+    await wait_for_writes(both_transport, 1)
+    assert sent_params(both_transport, 0)["choiceId"] == "deny", "denied wins over abort"
+    answer(both_transport, 0, decide_result("mint-0"))
+    await settled_io(both_outcome.io)
+
+    bare_transport, bare, _bare_minted = wired()
+    failures: List[ApprovalFailure] = []
+    bare.on_approval_error(failures.append)
+    bare.on_approval(
+        lambda _r: ApprovalDecisionInput(choice_id="allow_once", feedback="looks safe")
+    )
+    bare_outcome = bare.apply(approval_requested(availableChoices=[allow]))
+    await settled_io(bare_outcome.io)
+    await pump()
+    assert len(bare_transport.writes) == 0, "no reject offered, so nothing is sent"
+    assert [failure.kind for failure in failures] == ["feedbackNotAccepted"]
 
 
 @pytest.mark.asyncio
@@ -1018,6 +1130,71 @@ async def test_the_approval_round_trip_transcript_drives_the_recorded_decide_bac
         },
     )
     await settled_io(outcome.io)
+
+
+@pytest.mark.asyncio
+async def test_the_transcripts_recorded_request_read_with_the_resume_reply_drives_the_decide() -> None:
+    # The server-request half over the same transcript: the recorded
+    # `approval/request` has to pass the routing guard, or a resume hangs
+    # while every hand-built arm still passes.
+    lines = _transcript_lines("approval-round-trip")
+    normalized = _normalized_param_keys("approval-round-trip")
+    request = next(
+        frame_
+        for direction, frame_ in lines
+        if direction == "server" and frame_.get("method") == "approval/request"
+    )
+    recorded_decide = next(
+        frame_
+        for direction, frame_ in lines
+        if direction == "client" and frame_.get("method") == "approval/decide"
+    )
+    session_id = str(request["params"]["sessionId"])
+    recorded_params = dict(recorded_decide["params"])
+
+    transport = FakeDuplex()
+    client: MuseClient[Any] = MuseClient(
+        Connection(transport),
+        MuseClientOptions(
+            durability=read_session_durability({"sessionDurability": "durable"})
+        ),
+    )
+
+    async def handler(_request: Params) -> ApprovalDecisionInput:
+        return ApprovalDecisionInput(choice_id=str(recorded_params["choiceId"]))
+
+    pending = asyncio.ensure_future(
+        client.resume_session(ResumeSessionOptions(session_id=session_id, on_approval=handler))
+    )
+    await wait_for_writes(transport, 1)
+    transport.chunks.push(
+        frame(
+            {
+                "jsonrpc": "2.0",
+                "id": sent_frame(transport, 0)["id"],
+                "result": {
+                    "session": {"sessionId": session_id, "status": "idle"},
+                    "history": {"mode": "none", "items": []},
+                    "pendingRequests": [],
+                    "viewCursor": "v:resume",
+                },
+            }
+        )
+        + frame(request)
+    )
+    await pending
+    await wait_for_writes(transport, 3)
+
+    sent = [json.loads(line) for line in transport.writes]
+    assert any(
+        out.get("id") == request["id"] and out.get("result") == {} for out in sent
+    ), "the recorded request gets the {} receipt"
+    decide = next(
+        (out for out in sent if out.get("method") == "approval/decide"), None
+    )
+    assert decide is not None, "the recorded request reached the resume handler"
+    assert _strip(decide["params"], normalized) == _strip(recorded_params, normalized)
+    await client.close()
 
 
 @pytest.mark.asyncio

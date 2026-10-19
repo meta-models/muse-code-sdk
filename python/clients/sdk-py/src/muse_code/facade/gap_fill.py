@@ -206,7 +206,8 @@ class GapFiller(Generic[_I]):
         """
         gap = self._options.fold.pending_gap
         # Only reachable if a caller invokes this with nothing outstanding; the
-        # one production caller folds the marker first, which always sets it.
+        # one production caller folds the marker first, which sets it or, for
+        # a stale repeat, finds it already set.
         if gap is None:
             return None
         if self._filling:
@@ -489,6 +490,10 @@ class GapFiller(Generic[_I]):
 
 
 def _view_cursor_of(frame: WireFrame) -> str | None:
+    # A routed ``approval/request`` carries its notification's cursor but is
+    # not that event: matching it would spend the twin's overlap slot.
+    if frame.get("method") == "approval/request":
+        return None
     params = frame.get("params")
     cursor = params.get("viewCursor") if isinstance(params, dict) else None
     return cursor if isinstance(cursor, str) else None
