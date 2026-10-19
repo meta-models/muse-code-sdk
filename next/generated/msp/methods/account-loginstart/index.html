@@ -81,8 +81,7 @@ and forbidden for [<code dir="auto">AccountLoginType::DeviceCode</code>]; both v
 invalid-params errors, enforced by the handler so the error
 never echoes the raw params. <code dir="auto">Debug</code> is hand-written: the
 derive would print the raw key bytes into any <code dir="auto">{:?}</code> context (a tracing
-line, an error, a test assert), the exact leak the protocol forbids — the
-<code dir="auto">McpOAuthRecordV1</code> posture.</p>
+line, an error, a test assert), and the key must never reach a log — the <code dir="auto">McpOAuthRecordV1</code> posture.</p>
 <table>
 <thead>
 <tr>

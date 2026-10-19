@@ -87,12 +87,11 @@ at start, <code dir="auto">fork</code>, <code dir="auto">childSpawn</code>, <cod
 are unreachable on the wire until a later commit carries them — so an
 omitted-profile start and an empty-cut fork fold nothing and their
 <code dir="auto">""</code>-cursor rules hold byte-for-byte. A held id recommitting
-under a changed definition or an managed refresh folds too (the
+under a changed definition or a managed refresh folds too (the
 <code dir="auto">profileId</code> may equal the prior), exactly as the approvalMode precedent folds
 per accepted change. The <code dir="auto">session/approvalModeChanged</code> member pattern with
-<code dir="auto">profileId</code> in place of <code dir="auto">mode</code>; additive-optional under (clients
-predating it skip the unknown method); subscription-gated as view events
-are.</p>
+<code dir="auto">profileId</code> in place of <code dir="auto">mode</code>; additive-optional (clients predating it
+skip the unknown method); subscription-gated like every other view event.</p>
 <table>
 <thead>
 <tr>
