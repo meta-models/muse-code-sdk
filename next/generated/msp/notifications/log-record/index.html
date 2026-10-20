@@ -94,7 +94,7 @@ sequence order, for each active subscription on the record’s stream.</p>
 <td><code dir="auto">object</code></td>
 <td>Experimental</td>
 <td>required</td>
-<td>The record: a [<code dir="auto">RawLogRecordEnvelope</code>] — or, at an evicted ephemeral position inside an <code dir="auto">(after, tail]</code> replay (never on a live push), the retained-gap marker. Free-form because the envelope-or-marker union is unkeyable by the node-keyed gate walk: a member carrying <code dir="auto">retained_marker</code> is the marker, any other member is the envelope (<code dir="auto">log/page</code> publishes its shape).</td>
+<td>The record: a [<code dir="auto">RawLogRecordEnvelope</code>] — or, at an evicted or omitted ephemeral position stored as a marker line, the retained-gap marker. Free-form because the envelope-or-marker union is unkeyable by the node-keyed gate walk: a member carrying <code dir="auto">retained_marker</code> is the marker, any other member is the envelope (the <code dir="auto">RawLogRecordEnvelope</code> schema root publishes its shape).</td>
 </tr>
 <tr>
 <td><code dir="auto">subscriptionId</code></td>
