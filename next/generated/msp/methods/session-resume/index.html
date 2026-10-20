@@ -106,7 +106,7 @@
 <td><code dir="auto">string</code> | <code dir="auto">null</code></td>
 <td></td>
 <td>optional</td>
-<td>A view cursor previously observed by this client — or an observed <code dir="auto">summarizedThrough</code> compaction anchor. When present the server returns only the suffix and <code dir="auto">history.mode</code> is <code dir="auto">none</code>. Omitted and explicit <code dir="auto">null</code> both mean “no cursor”.</td>
+<td>A view cursor previously observed by this client — or an observed <code dir="auto">summarizedThrough</code> compaction anchor. When it names an event the server still holds, the server returns only the suffix and <code dir="auto">history.mode</code> is <code dir="auto">none</code>. A cursor the server minted that names no event yet, such as the empty start cursor of a session that had no events, is treated as no cursor: the server serves what a resume without a cursor would. A cursor older than the earliest event the server still holds gets a snapshot, or <code dir="auto">-32040</code> <code dir="auto">viewTruncated</code> when none fits. A cursor this session’s view never minted is refused with <code dir="auto">-32011</code> <code dir="auto">notFound</code>, reason <code dir="auto">missingAnchor</code>, and a compaction anchor naming a boundary the server has pruned is refused with <code dir="auto">-32042</code> <code dir="auto">boundaryPruned</code>. Omitted and explicit <code dir="auto">null</code> both mean “no cursor”.</td>
 </tr>
 <tr>
 <td><code dir="auto">excludeItems</code></td>

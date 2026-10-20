@@ -106,7 +106,7 @@
 <td><a href="../../types/sessionconfig/">SessionConfig</a></td>
 <td></td>
 <td>optional</td>
-<td>Reserved for per-session overrides owned by a future Configuration section. admits only its <code dir="auto">mcpServers</code> member.</td>
+<td>Reserved for future per-session overrides; only its <code dir="auto">mcpServers</code> member is admitted.</td>
 </tr>
 <tr>
 <td><code dir="auto">modelId</code></td>
@@ -162,7 +162,7 @@
 <td><a href="../../types/worktreestartrequest/">WorktreeStartRequest</a></td>
 <td>Experimental</td>
 <td>optional</td>
-<td>attach an existing one. <strong>Experimental</strong> (<code dir="auto">session/start.worktree</code>; unopted callers are refused <code dir="auto">-32602</code>). Absent means no worktree — the start proceeds exactly as today.</td>
+<td>Ask for a created worktree or attach an existing one. <strong>Experimental</strong> (<code dir="auto">session/start.worktree</code>; unopted callers are refused <code dir="auto">-32602</code>). Absent means no worktree — the start proceeds exactly as today.</td>
 </tr>
 </tbody>
 </table>
