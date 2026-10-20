@@ -181,10 +181,14 @@ guessing what you meant — the wire excerpt below shows that refusal.</p>
 <p>One value escapes that refusal, and it is the one you are most likely to
 produce by accident. The empty string is a <em>defined</em> cursor meaning “before
 anything happened”, so it is never refused as unknown — you never get the
-<code dir="auto">notFound</code> refusal shown below for it. Send it and the host treats it as no
-cursor at all: you get the answer a resume without a cursor gets, the session’s
-whole history (or a snapshot of it), not the <code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code> answer
-above. That looks like success and costs a full history read.</p>
+<code dir="auto">notFound</code> refusal shown below for it. Send it while the host still holds the
+session’s history from the start, and the host treats it as no cursor at all:
+you get the answer a resume without a cursor gets, the session’s whole history
+(or a snapshot of it), not the <code dir="auto">"none"</code>/<code dir="auto">cursorSuffix</code> answer above. That looks
+like success and costs a full history read. On a session too large for the host
+to read whole, it gets <code dir="auto">"none"</code> with <code dir="auto">noneReason: "projectionReadLimit"</code>
+instead, even where a resume without a cursor would get an anchored snapshot
+(<code dir="auto">"anchoredSnapshot"</code>).</p>
 <p>Once the host has pruned the front of its retained view, the same <code dir="auto">""</code> stops
 being servable from genesis and gets the stale-cursor treatment instead — the
 snapshot fallback from the section above, or the <code dir="auto">viewTruncated</code> refusal shown
