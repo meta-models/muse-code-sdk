@@ -134,14 +134,14 @@ stream surfaces.</p>
 <p>Python 3.10 or newer.</p>
 </li>
 <li>
-<p>The <code dir="auto">muse-code-sdk</code> package (import <code dir="auto">muse_code</code>) and its generated
-wire-types companion <code dir="auto">muse-code-msp</code> (import <code dir="auto">muse_code_msp</code>), published
-on PyPI — install both:</p>
-<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">pip</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">install</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">muse-code-sdk</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">muse-code-msp</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="pip install muse-code-sdk muse-code-msp"><div></div></button></div></figure></div>
+<p>The <code dir="auto">muse-code-sdk</code> package (import <code dir="auto">muse_code</code>), published on PyPI; it
+brings its generated wire-types companion <code dir="auto">muse-code-msp</code> (import
+<code dir="auto">muse_code_msp</code>) with it, pinned to the same version:</p>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">pip</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">install</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">muse-code-sdk</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="pip install muse-code-sdk"><div></div></button></div></figure></div>
 <p>The <a href="../../compatibility/#python">compatibility page’s Python section</a>
 lists the published wheels.
-The SDK declares exactly <strong>one runtime dependency</strong> (an exact-pinned
-<code dir="auto">pydantic</code>), ships <code dir="auto">py.typed</code>, and passes <code dir="auto">mypy --strict</code> — your editor
+The SDK declares exactly <strong>two runtime dependencies</strong> (<code dir="auto">muse-code-msp</code> at
+the SDK’s own version and an exact-pinned <code dir="auto">pydantic</code>), ships <code dir="auto">py.typed</code>, and passes <code dir="auto">mypy --strict</code> — your editor
 and type checker see the full surface.</p>
 </li>
 </ul></div><div id="tab-panel-102" aria-labelledby="tab-102" role="tabpanel" hidden><ul>
