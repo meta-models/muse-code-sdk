@@ -14,7 +14,7 @@ npm install @muse-code/sdk
 
 Requires Node.js 20 or newer. The package has **zero runtime dependencies**
 and ships its own TypeScript declarations. Start with the
-[quickstart](https://meta-models.github.io/muse-code-sdk/guides/quickstart/).
+[quickstart](https://meta-models.github.io/muse-code-sdk/latest/guides/quickstart/).
 
 The SDK is a **Developer Preview**: it is published pre-1.0 and carries no
 stability promise yet — minor releases may change APIs while the surface
