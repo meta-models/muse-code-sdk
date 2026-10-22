@@ -127,7 +127,7 @@
 <td><code dir="auto">string</code></td>
 <td></td>
 <td>optional</td>
-<td>The launch permission-profile pick: a profile id the host catalog already admits. Select, never create. Omitted means today’s behavior: restore retained authority only, no override. The host restores first, then applies the pick in the same pre-marker step; a pick that fails admission refuses the resume <code dir="auto">commandRejected</code> (-32030; <code dir="auto">permission_profile_unknown</code> / <code dir="auto">permission_profile_unavailable</code>) before any durable byte. Explicit <code dir="auto">null</code> is invalid params (the same closed null-tolerant set as at start).</td>
+<td>The launch permission-profile pick: a profile id the host catalog already admits. Select, never create. Omitted restores retained authority only, with no override. The host restores first, then applies the pick in the same pre-marker step; over a declared lost record the restore is the never-wider reset, committed before the pick, and where the reset cannot commit the pick is committed alone as that reset. A pick that fails admission refuses the resume <code dir="auto">commandRejected</code> (-32030; <code dir="auto">permission_profile_unknown</code> / <code dir="auto">permission_profile_unavailable</code>) before any durable byte. Explicit <code dir="auto">null</code> is invalid params (the same closed null-tolerant set as at start).</td>
 </tr>
 <tr>
 <td><code dir="auto">recoveryMode</code></td>
