@@ -122,7 +122,7 @@
     "clients/sdk-rs/Cargo.toml": "Rust closure. The crate manifest crates.io publishes from. It carries its own lint tables and an `include` list naming exactly the Rust crate entries here, so the mirror's `rust/` copy packages standalone, with no workspace above it.",
     "clients/sdk-rs/LICENSE": "Rust closure. The MIT licence text the manifest's `license` field names; the `include` list packages it, so it travels with the manifest.",
     "clients/sdk-rs/README.md": "Rust closure. The crate README crates.io renders as the package page: install, the version pairing with the host, and where the API reference and guides live.",
-    "clients/sdk-rs/examples": "Rust closure. The runnable quickstart and recipe programs the crate packages.",
+    "clients/sdk-rs/examples": "Rust closure. The runnable quickstart and recipe programs the crate packages; the docs site's Rust page points readers at them.",
     "clients/sdk-rs/src": "Rust closure. The library itself, including the generated stable wire types under `msp`. The crate is listed by its shipped set (manifest, licence, README, examples, library), never as one directory: its tests and its coverage and share-out notes are internal process material and stay out of both the package and the mirror.",
     "clients/sdk-ts": "The SDK itself — the package `npm publish` ships, plus the QA harness and tests that prove it. Only `dist/src` reaches the tarball; the rest is closure source.",
     "package-lock.json": "Pins the workspace install the mirror's `npm ci` performs. Without it a mirror build resolves different dependencies than this repository did.",

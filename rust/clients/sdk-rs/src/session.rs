@@ -20,7 +20,7 @@ use crate::approval::ApprovalDecisionInput;
 use crate::client::{ClientShared, lock};
 use crate::fold::SessionFold;
 use crate::msp::{
-    ApprovalRequestParams, ApprovalResolvedParams, ApprovalUpdatedParams, Item,
+    ApprovalRequestParams, ApprovalResolvedParams, ApprovalUpdatedParams, HistoryMode, Item,
     ItemCompletedParams, ItemDeltaParams, ItemStartedParams, ItemUpdatedParams, Notification,
     PendingRequestKind, SessionHistory, SessionResumeResult, SessionStartResult,
     TurnCompletedParams, TurnStartedParams, TurnUnqueuedParams,
@@ -60,8 +60,12 @@ pub struct Session {
 }
 
 /// The items a resume served: `history.items` when inline, else the
-/// snapshot's `state.items` (`snapshot` and `anchoredSnapshot` modes).
+/// snapshot's `state.items` (`snapshot` and `anchoredSnapshot` modes). An
+/// unknown mode serves none: its reading is "page it yourself".
 fn served_history_items(history: &SessionHistory) -> Option<&[Item]> {
+    if matches!(history.mode, HistoryMode::Unknown(_)) {
+        return None;
+    }
     history.items.as_deref().or_else(|| {
         history
             .snapshot
@@ -123,7 +127,12 @@ impl Session {
                 }
             }
             lock(&inner.state).history_turn_items = history_turn_items;
-            if let Some(active_turn_id) = result.session.active_turn_id.as_deref() {
+            // A turn `lastTurn` restates has ended, even if the host still
+            // reports it running: its terminal is final. It opens no route,
+            // so it holds no slot.
+            if let Some(active_turn_id) = result.session.active_turn_id.as_deref()
+                && inner.restated_last_turn(active_turn_id).is_none()
+            {
                 inner.turn_handle(active_turn_id);
             }
         }
@@ -185,10 +194,13 @@ impl Session {
     /// rejecting choice without reaching the handler, and an answer whose turn
     /// settles while the handler decides is replaced the same way; with no
     /// rejecting choice offered, nothing is sent, and a later stage that offers
-    /// one gets it. Approvals for a turn refused at the active-turn cap,
-    /// or for a turn this `Session` no longer remembers as settled (it
-    /// keeps only its most recent settled turns, and a resumed `Session` starts
-    /// with none), still reach the handler as usual.
+    /// one gets it. A [`Turn`](crate::turn::Turn) that
+    /// [`Session::send_user_turn`] or [`Session::resolve_reconnect`] returned
+    /// already failed, because the session was already tracking as many active
+    /// turns as it can, counts as settled until a later call returns a live turn
+    /// for it. Approvals for a turn this `Session` no longer remembers as
+    /// settled (it keeps only its most recent settled turns, and a resumed
+    /// `Session` starts with none) still reach the handler as usual.
     pub fn on_approval<Handler, HandlerFuture>(&self, handler: Handler)
     where
         Handler: Fn(ApprovalRequestParams) -> HandlerFuture + Send + Sync + 'static,
@@ -348,6 +360,8 @@ impl SessionInner {
         state.settled_turn_order.clear();
         state.retired_turns.clear();
         state.retired_turn_order.clear();
+        state.cap_refused_turns.clear();
+        state.cap_refused_turn_order.clear();
     }
 
     pub(crate) fn is_command_discarded(&self, command_id: &str) -> bool {
@@ -588,6 +602,131 @@ mod tests {
     /// Builds an `approval/requested` notification for one approval id.
     type ApprovalFixture = fn(&str) -> Notification;
 
+    /// A handler runs on its session's approval worker. When it opens a newer
+    /// `Session` for its own id, registering that one fails the older session
+    /// from the handler's own task, and that failure aborts the older
+    /// session's approval worker, but not the one it runs on: the handler goes
+    /// on to finish instead of being cancelled at its next await.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_handler_that_opens_a_newer_session_for_its_own_id_is_not_cancelled() {
+        let (inbound, reads) = mpsc::unbounded_channel();
+        let client = Arc::new(MuseClient::with_command_id_minter(
+            ChannelTransport { inbound: reads },
+            SessionDurability::Durable,
+            || "command-1".to_owned(),
+        ));
+        assert!(inbound.send(opened_session(1, "session-1")).is_ok());
+        let session = client.start_session(StartSessionOptions::default()).await;
+        assert!(session.is_ok(), "the session opens");
+        let Ok(session) = session else {
+            return;
+        };
+
+        let (reopened_tx, reopened_rx) = tokio::sync::oneshot::channel::<bool>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+        let signals = Arc::new(Mutex::new(Some((reopened_tx, release_rx, done_tx))));
+        let handler_client = Arc::clone(&client);
+        session.on_approval(move |_| {
+            let signals = lock(&signals).take();
+            let client = Arc::clone(&handler_client);
+            let host = inbound.clone();
+            async move {
+                if let Some((reopened_tx, release_rx, done_tx)) = signals {
+                    let _ = host.send(opened_session(2, "session-1"));
+                    let newer = client.start_session(StartSessionOptions::default()).await;
+                    let _ = reopened_tx.send(newer.is_ok());
+                    let _ = release_rx.await;
+                    let _ = done_tx.send(());
+                }
+                ApprovalDecisionInput {
+                    choice_id: "allow_once".to_owned(),
+                    feedback: None,
+                }
+            }
+        });
+        session.inner.apply(approval_requested("approval-1"));
+
+        // A cancelled handler drops its senders, so each wait resolves.
+        assert_eq!(
+            reopened_rx.await.ok(),
+            Some(true),
+            "the handler opened a newer session"
+        );
+        assert!(
+            session.inner.event_source_failure().is_some(),
+            "control: registering the newer session failed the older one"
+        );
+        let _ = release_tx.send(());
+        assert!(
+            done_rx.await.is_ok(),
+            "failing the older session aborted the worker its handler runs on"
+        );
+        client.close().await;
+    }
+
+    /// A handler can hold the session's last handle and drop it partway
+    /// through. The session's approval route is then dropped on the worker
+    /// the handler runs on, which it doesn't abort: the handler finishes.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_handler_that_drops_the_sessions_last_handle_mid_run_finishes() {
+        let (inbound, reads) = mpsc::unbounded_channel();
+        let client = MuseClient::with_command_id_minter(
+            ChannelTransport { inbound: reads },
+            SessionDurability::Durable,
+            || "command-1".to_owned(),
+        );
+        assert!(inbound.send(opened_session(1, "session-1")).is_ok());
+        let session = client.start_session(StartSessionOptions::default()).await;
+        assert!(session.is_ok(), "the session opens");
+        let Ok(session) = session else {
+            return;
+        };
+
+        let held = Arc::new(Mutex::new(None::<Session>));
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel::<bool>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+        let signals = Arc::new(Mutex::new(Some((dropped_tx, release_rx, done_tx))));
+        let handler_held = Arc::clone(&held);
+        session.on_approval(move |_| {
+            let signals = lock(&signals).take();
+            let last = lock(&handler_held).take();
+            async move {
+                if let Some((dropped_tx, release_rx, done_tx)) = signals {
+                    let weak = last.as_ref().map(Session::downgrade);
+                    drop(last);
+                    let gone = weak.is_some_and(|weak| weak.upgrade().is_none());
+                    let _ = dropped_tx.send(gone);
+                    let _ = release_rx.await;
+                    let _ = done_tx.send(());
+                }
+                ApprovalDecisionInput {
+                    choice_id: "allow_once".to_owned(),
+                    feedback: None,
+                }
+            }
+        });
+        let route = session.downgrade();
+        *lock(&held) = Some(session);
+        if let Some(inner) = route.upgrade() {
+            inner.apply(approval_requested("approval-1"));
+        }
+
+        // A cancelled handler drops its senders, so each wait resolves.
+        assert_eq!(
+            dropped_rx.await.ok(),
+            Some(true),
+            "the handler dropped the session's last handle"
+        );
+        let _ = release_tx.send(());
+        assert!(
+            done_rx.await.is_ok(),
+            "dropping the session's last handle aborted the worker its handler runs on"
+        );
+        client.close().await;
+    }
+
     /// The same approval offering only allow-once, so the worker has no deny
     /// to send for an answer the host never offered.
     fn allow_only_approval_requested(approval_id: &str) -> Notification {
@@ -802,6 +941,128 @@ mod tests {
         assert!(
             matches!(settled, Ok(None)),
             "a decide cut short by the transport end must stop the worker and leave the turn to the sweep, got {settled:?}"
+        );
+    }
+
+    /// A connection that breaks with a read error fails every pending request
+    /// with that I/O error, and the driver's end then runs the transport-end
+    /// sweep. A worker whose `approval/decide` is pending at that moment must
+    /// stop without failing its turn, as it does for a clean transport end,
+    /// and leave the turn to that sweep.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_approval_decide_cut_short_by_a_read_error_leaves_its_turn_to_the_sweep() {
+        let client = MuseClient::new(
+            crate::session::state::tests::StartsThenFailsRead::new("approval/decide"),
+            SessionDurability::Durable,
+        );
+        let session = client.start_session(StartSessionOptions::default()).await;
+        assert!(session.is_ok(), "the session opens");
+        let Ok(session) = session else {
+            return;
+        };
+        // A turn of the registered session, which the sweep reaches.
+        let swept = session.inner.claim_turn_for_ordering_tests("turn-0");
+
+        // Same client, never registered with its router, so the sweep skips it.
+        let unsettled = Session::from_opening(
+            Arc::clone(&session.inner.client),
+            session.opening().clone(),
+            &[],
+            None,
+        );
+        let turn = unsettled.inner.claim_turn_for_ordering_tests("turn-1");
+        unsettled.inner.apply(approval_requested("approval-1"));
+        let completion = turn.completed();
+        let stopped = unsettled.inner.approval.worker_stopped();
+        // antipattern-ok(timeout-wrapper): failure-only cap; success ends when the worker stops or the turn settles
+        let settled = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::select! {
+                biased;
+                // A worker that fails the turn and then stops has both ready,
+                // so the turn is read first.
+                outcome = completion => Some(outcome),
+                () = stopped => None,
+            }
+        })
+        .await;
+        assert!(
+            matches!(settled, Ok(None)),
+            "a decide cut short by a read error must stop the worker and leave the turn to the sweep, got {settled:?}"
+        );
+        // Only the decide's write fails the read, so the sweep shows it was sent.
+        let swept = swept.completed();
+        // antipattern-ok(timeout-wrapper): failure-only cap; success ends when the sweep settles the registered turn
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), swept).await;
+        assert!(
+            matches!(outcome, Ok(Err(crate::client::FacadeError::TransportEnded))),
+            "control: the decide was sent and its read error's sweep settled the registered turn, got {outcome:?}"
+        );
+    }
+
+    /// The same unrouted session, whose worker `close()` doesn't stop: the
+    /// client starts closing right after the worker minted the approval's
+    /// command id, so the decide is refused with `ClientClosed`. The worker
+    /// must stop there without failing the turn.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_approval_decide_refused_by_a_closing_client_stops_without_failing_its_turn() {
+        let (inbound, reads) = mpsc::unbounded_channel();
+        assert!(inbound.send(opened_session(1, "session-1")).is_ok());
+        // The second id is the approval's: minting it starts the close.
+        let closer = Arc::new(std::sync::OnceLock::<Weak<MuseClient>>::new());
+        let minted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let minter_closer = Arc::clone(&closer);
+        let minter_closing = Arc::clone(&closing);
+        let client = Arc::new(MuseClient::with_command_id_minter(
+            ChannelTransport { inbound: reads },
+            SessionDurability::Durable,
+            move || {
+                if minted.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 1
+                    && let Some(client) = minter_closer.get().and_then(Weak::upgrade)
+                {
+                    let mut close = Box::pin(client.close());
+                    let _ = poll_once(close.as_mut());
+                    minter_closing.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                "command-1".to_owned()
+            },
+        ));
+        let _ = closer.set(Arc::downgrade(&client));
+        let session = client.start_session(StartSessionOptions::default()).await;
+        assert!(session.is_ok(), "the session opens");
+        let Ok(session) = session else {
+            return;
+        };
+
+        // Same client, never registered with its router, so close() skips it.
+        let unsettled = Session::from_opening(
+            Arc::clone(&session.inner.client),
+            session.opening().clone(),
+            &[],
+            None,
+        );
+        let turn = unsettled.inner.claim_turn_for_ordering_tests("turn-1");
+        unsettled.inner.apply(approval_requested("approval-1"));
+        let completion = turn.completed();
+        let stopped = unsettled.inner.approval.worker_stopped();
+        // antipattern-ok(timeout-wrapper): failure-only cap; success ends when the worker stops or the turn settles
+        let settled = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::select! {
+                biased;
+                // A worker that fails the turn and then stops has both ready,
+                // so the turn is read first.
+                outcome = completion => Some(outcome),
+                () = stopped => None,
+            }
+        })
+        .await;
+        assert!(
+            closing.load(std::sync::atomic::Ordering::Relaxed),
+            "control: the client started closing as the approval's command id was minted"
+        );
+        assert!(
+            matches!(settled, Ok(None)),
+            "a decide refused by a closing client must stop the worker without failing its turn, got {settled:?}"
         );
     }
 
@@ -1931,6 +2192,32 @@ mod tests {
         );
     }
 
+    /// The cap-refused record keeps the most recent `MAX_RETIRED_TURNS`
+    /// refusals, and a live claim drops its entry from both its set and order.
+    #[test]
+    fn cap_refused_record_is_bounded_and_forgets_a_live_claim() {
+        let mut state = SessionState::default();
+        for sequence in 0..=MAX_RETIRED_TURNS {
+            state.remember_cap_refused(&format!("turn-{sequence}"));
+        }
+        assert_eq!(state.cap_refused_turns.len(), MAX_RETIRED_TURNS);
+        assert_eq!(state.cap_refused_turn_order.len(), MAX_RETIRED_TURNS);
+        assert!(!state.settled_for_approvals("turn-0"));
+        assert!(state.settled_for_approvals(&format!("turn-{MAX_RETIRED_TURNS}")));
+
+        state.forget_cap_refused("turn-1");
+        assert!(!state.settled_for_approvals("turn-1"));
+        assert_eq!(state.cap_refused_turn_order.len(), MAX_RETIRED_TURNS - 1);
+        state.remember_cap_refused("turn-1");
+        state.remember_cap_refused("turn-1");
+        assert_eq!(state.cap_refused_turns.len(), MAX_RETIRED_TURNS);
+        assert_eq!(state.cap_refused_turn_order.len(), MAX_RETIRED_TURNS);
+        assert!(state.settled_for_approvals("turn-1"));
+        // The record is approval routing's alone: notification acceptance
+        // still follows the active-turn cap.
+        assert!(state.accepts_turn_notification("turn-1"));
+    }
+
     #[test]
     fn a_resumed_session_holds_settled_aliases_until_released() {
         let mut state = SessionState::default();
@@ -2781,6 +3068,8 @@ mod tests {
         Inline,
         Snapshot,
         AnchoredSnapshot,
+        /// No history served (`none`, as a cursor resume answers).
+        None,
     }
 
     fn served_history(form: HistoryForm, items: serde_json::Value) -> serde_json::Value {
@@ -2788,6 +3077,12 @@ mod tests {
             HistoryForm::Inline => {
                 serde_json::json!({"mode": "inline", "items": items, "snapshot": null})
             }
+            HistoryForm::None => serde_json::json!({
+                "mode": "none",
+                "noneReason": "cursorSuffix",
+                "items": null,
+                "snapshot": null
+            }),
             HistoryForm::Snapshot | HistoryForm::AnchoredSnapshot => serde_json::json!({
                 "mode": match form {
                     HistoryForm::AnchoredSnapshot => "anchoredSnapshot",
@@ -2821,6 +3116,111 @@ mod tests {
                 }
             }),
         }
+    }
+
+    #[test]
+    fn inline_history_resume_opens_no_route_for_a_running_turn_last_turn_names() {
+        resume_with_running_and_last_turn(HistoryForm::Inline, "turn-live");
+    }
+
+    #[test]
+    fn resume_routes_a_running_turn_while_last_turn_names_an_earlier_one() {
+        // Control: only the turn `lastTurn` names is kept unrouted.
+        resume_with_running_and_last_turn(HistoryForm::Inline, "turn-old");
+    }
+
+    #[test]
+    fn snapshot_history_resume_opens_no_route_for_a_running_turn_last_turn_names() {
+        resume_with_running_and_last_turn(HistoryForm::Snapshot, "turn-live");
+    }
+
+    #[test]
+    fn none_history_resume_opens_no_route_for_a_running_turn_last_turn_names() {
+        resume_with_running_and_last_turn(HistoryForm::None, "turn-live");
+    }
+
+    #[test]
+    fn anchored_snapshot_history_resume_opens_no_route_for_a_running_turn_last_turn_names() {
+        resume_with_running_and_last_turn(HistoryForm::AnchoredSnapshot, "turn-live");
+    }
+
+    /// Resumes with `turn-live` running and `lastTurn` naming `last_turn`.
+    /// When a host reports as running a turn whose terminal `lastTurn`
+    /// restates, the terminal is final: resume opens no route for it, so it
+    /// holds no active-turn slot that no later terminal would free. A running
+    /// turn `lastTurn` does not name keeps its route.
+    fn resume_with_running_and_last_turn(form: HistoryForm, last_turn: &str) {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        assert!(runtime.is_ok(), "caller runtime builds");
+        let Ok(runtime) = runtime else {
+            return;
+        };
+        runtime.block_on(async {
+            let (inbound, reads) = mpsc::unbounded_channel();
+            let queued = inbound.send(format!(
+                "{}\n",
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "session": {
+                            "sessionId": "session-1",
+                            "path": "/tmp/session.jsonl",
+                            "status": "running",
+                            "activeTurnId": "turn-live",
+                            "createdAt": "2026-09-29T00:00:00Z",
+                            "updatedAt": "2026-09-29T00:00:00Z",
+                            "workspaceRoot": null,
+                            "providerId": null,
+                            "modelId": null,
+                            "turnCount": 1,
+                            "forkedFrom": null
+                        },
+                        "viewCursor": "cursor-1",
+                        "history": served_history(form, serde_json::json!([
+                                {
+                                    "itemId": "item-live",
+                                    "kind": "agentMessage",
+                                    "turnId": "turn-live",
+                                    "revision": 2,
+                                    "status": "completed",
+                                    "text": "final reply"
+                                }
+                            ])),
+                        "pendingRequests": [],
+                        "lastTurn": {"turnId": last_turn, "terminal": "completed"}
+                    }
+                })
+            ));
+            assert!(queued.is_ok(), "resume response queued");
+            let client = MuseClient::with_command_id_minter(
+                ChannelTransport { inbound: reads },
+                SessionDurability::Durable,
+                || "command-1".to_owned(),
+            );
+            let session = client
+                .resume_session(ResumeSessionOptions {
+                    session_id: "session-1".to_owned(),
+                    ..ResumeSessionOptions::default()
+                })
+                .await;
+            assert!(session.is_ok(), "session resumes");
+            let Ok(session) = session else {
+                return;
+            };
+            {
+                let state = lock(&session.inner.state);
+                assert_eq!(state.last_turn_id.as_deref(), Some(last_turn));
+                assert_eq!(
+                    state.turns.contains_key("turn-live"),
+                    last_turn != "turn-live",
+                    "a running turn gets a route at resume unless lastTurn names it"
+                );
+            }
+            client.close().await;
+        });
     }
 
     #[test]

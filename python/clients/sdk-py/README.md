@@ -23,13 +23,14 @@ Status: developer preview. Experimental protocol surfaces may change.
 
 The generated MSP wire types live in the companion package
 [`muse-code-msp`](https://pypi.org/project/muse-code-msp/) and are never
-restated here. One runtime dependency: `pydantic`, exact-pinned.
+restated here; it is installed with this package, pinned to the same version.
+One further runtime dependency: `pydantic`, exact-pinned.
 Python 3.10+. Fully typed (`py.typed`).
 
 ## Install
 
 ```sh
-pip install muse-code-sdk muse-code-msp
+pip install muse-code-sdk
 ```
 
 You also need the Muse Code CLI: a `muse` binary on `PATH`, or an explicit

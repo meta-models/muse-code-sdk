@@ -100,6 +100,11 @@ pub(super) struct SessionState {
     pub(super) settled_turn_order: VecDeque<String>,
     pub(super) retired_turns: HashMap<String, Option<String>>,
     pub(super) retired_turn_order: VecDeque<String>,
+    // Turns a claim failed at the active-turn cap. Only approval routing reads
+    // them, as settled: unlike `retired_turns`, they leave notification
+    // acceptance and the pending submission as they were.
+    pub(super) cap_refused_turns: HashSet<String>,
+    pub(super) cap_refused_turn_order: VecDeque<String>,
     submissions: HashMap<String, Submission>,
     submission_turns: HashMap<String, Vec<String>>,
     next_submission: u64,
@@ -107,7 +112,8 @@ pub(super) struct SessionState {
     // The turn a resume restates as `lastTurn`, and its handle once its route
     // retires here. Kept for the session's life, past the alias hold, so a
     // same-command retry of it finds the terminal this session applied, or,
-    // after a local fault, settles `Ended` from `lastTurn`.
+    // after a local fault, settles `Ended` from `lastTurn`, unless the event
+    // source has failed.
     pub(super) last_turn_id: Option<String>,
     pub(super) last_turn_settled: Option<TurnHandle>,
     // Positions of each turn's items in the served resume history (inline
@@ -323,6 +329,33 @@ impl SessionState {
         self.retired_turn_order.push_back(turn_id.to_owned());
     }
 
+    /// Whether approval routing treats `turn_id` as settled: retired here, or
+    /// failed by a claim at the active-turn cap that no later claim replaced.
+    pub(super) fn settled_for_approvals(&self, turn_id: &str) -> bool {
+        self.retired_turns.contains_key(turn_id) || self.cap_refused_turns.contains(turn_id)
+    }
+
+    pub(super) fn remember_cap_refused(&mut self, turn_id: &str) {
+        if self.cap_refused_turns.contains(turn_id) {
+            return;
+        }
+        if self.cap_refused_turns.len() >= MAX_RETIRED_TURNS
+            && let Some(oldest) = self.cap_refused_turn_order.pop_front()
+        {
+            self.cap_refused_turns.remove(&oldest);
+        }
+        self.cap_refused_turns.insert(turn_id.to_owned());
+        self.cap_refused_turn_order.push_back(turn_id.to_owned());
+    }
+
+    /// A claim that opened a route hands the caller a live turn again.
+    pub(super) fn forget_cap_refused(&mut self, turn_id: &str) {
+        if self.cap_refused_turns.remove(turn_id) {
+            self.cap_refused_turn_order
+                .retain(|refused| refused != turn_id);
+        }
+    }
+
     pub(super) fn is_command_discarded(&self, command_id: &str) -> bool {
         self.turns
             .values()
@@ -399,6 +432,56 @@ pub(super) mod tests {
                 let _ = self.replies.send(format!("{reply}\n"));
             }
             Box::pin(async { Ok(()) })
+        }
+    }
+
+    /// The chunk [`StartsThenFailsRead`] turns into a read error.
+    const READ_ERROR: &str = "\u{0}read-error";
+
+    /// Answers `session/start` like [`StartsOneSession`], then fails its stream
+    /// with a read error as soon as a request for `fails_on` is written, so
+    /// that request is still pending when the connection breaks and gets the
+    /// I/O error rather than a clean end.
+    pub(in crate::session) struct StartsThenFailsRead {
+        starts: StartsOneSession,
+        fails_on: &'static str,
+    }
+
+    impl StartsThenFailsRead {
+        pub(in crate::session) fn new(fails_on: &'static str) -> Self {
+            Self {
+                starts: StartsOneSession::new(),
+                fails_on,
+            }
+        }
+    }
+
+    impl DuplexTransport for StartsThenFailsRead {
+        fn read_chunk(
+            &mut self,
+        ) -> Pin<Box<dyn Future<Output = io::Result<Option<String>>> + Send + '_>> {
+            Box::pin(async {
+                match self.starts.inbound.recv().await {
+                    Some(chunk) if chunk == READ_ERROR => Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "connection reset",
+                    )),
+                    other => Ok(other),
+                }
+            })
+        }
+
+        fn write(
+            &mut self,
+            frame: &str,
+        ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+            if serde_json::from_str::<Value>(frame.trim())
+                .is_ok_and(|request| request["method"] == self.fails_on)
+            {
+                let _ = self.starts.replies.send(READ_ERROR.to_owned());
+                return Box::pin(async { Ok(()) });
+            }
+            self.starts.write(frame)
         }
     }
 

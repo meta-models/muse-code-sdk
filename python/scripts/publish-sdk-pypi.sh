@@ -373,17 +373,19 @@ for package in "${PACKAGE_DIRS[@]}"; do
     die "$package: the manifest advertises the private repository"
   ok "links point at $MIRROR_REPO"
 
-  # Dependency posture: zero runtime deps in muse-code-msp,
-  # exactly the pinned pydantic in muse-code-sdk. A drift here is an owner
-  # escalation, not a packaging decision.
+  # Dependency posture: zero runtime deps in muse-code-msp; in muse-code-sdk
+  # exactly the pinned pydantic plus the companion wire-types package pinned
+  # to the facade's OWN version (both ship from this tree, wire types first).
+  # A drift here is an owner escalation, not a packaging decision.
   DEPS="$(field "$MANIFEST" project.dependencies)"
   case "$package" in
     clients/msp-py)
       [[ "$DEPS" == "[]" ]] || die "$package: runtime dependencies declared ($DEPS); the wire-types package is granted none"
       ;;
     clients/sdk-py)
-      [[ "$DEPS" =~ ^\[\'pydantic==[0-9.]+\'\]$ ]] ||
-        die "$package: dependencies must be exactly the pinned pydantic, got $DEPS"
+      OWN_VERSION="$(field "$MANIFEST" project.version)"
+      [[ "$DEPS" == "['pydantic=="*"', 'muse-code-msp==$OWN_VERSION']" && "$DEPS" =~ ^\[\'pydantic==[0-9.]+\',\ \'muse-code-msp==[0-9.]+\'\]$ ]] ||
+        die "$package: dependencies must be exactly the pinned pydantic and muse-code-msp==$OWN_VERSION (the facade's own version), got $DEPS"
       ;;
   esac
   ok "dependency posture holds"

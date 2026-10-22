@@ -1,6 +1,7 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 use crate::msp::method::hook::HookEventName;
+use crate::msp::view::item_content::BackgroundTerminalCompletion;
 use crate::msp::view::item_content::CompactionOutcome;
 use crate::msp::view::item_content::CompactionTrigger;
 use crate::msp::view::item_content::DamagedRange;
@@ -133,8 +134,11 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_signal: Option<i64>,
     /// `userShell`/`subagent`: observed wall-clock duration. `workflow`: the
-    /// run's wall time from launch to reconciliation, set only on the
-    /// settling `item/completed` — never a sum of child durations.
+    /// run's wall time from launch to reconciliation, set only on the settling
+    /// `item/completed` — never a sum of child durations. `toolCall`: the
+    /// Backgrounded row's duration — the open→update record delta in whole ms,
+    /// served on the `backgroundStatus` re-emission and frozen there; absent
+    /// otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 
@@ -273,10 +277,9 @@ pub struct Item {
     /// `compaction`: summarizer strategy (installed only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy_id: Option<String>,
-    /// `compaction`: opaque provenance string naming the compaction boundary. A
-    /// compaction-anchored read anchor since the governing rules (2026-08-12):
-    /// accepted by `session/resume` and `view/page`. Still opaque — clients
-    /// relay it, never parse it.
+    /// `compaction`: opaque provenance string naming the compaction boundary.
+    /// Also a compaction-anchored read anchor, accepted by `session/resume` and
+    /// `view/page`. Still opaque — clients relay it, never parse it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summarized_through: Option<String>,
     /// `compaction`: token budget snapshot before, when measured.
@@ -345,6 +348,10 @@ pub struct Item {
     /// `damagedRange`: what the damaged range cost.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub damaged_range: Option<DamagedRange>,
+    /// `backgroundTerminalCompletion`: the five facts the Finished cell
+    /// renders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_terminal_completion: Option<BackgroundTerminalCompletion>,
     /// `scheduledFire` members, flattened beside the other optional members.
     #[serde(flatten)]
     pub scheduled_fire: ScheduledFireMembers,

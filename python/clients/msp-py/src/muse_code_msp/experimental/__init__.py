@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:195aeec21350d8a9a6979eaaa16edb06c7b7017ebc4130e96966ea30ee435614"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:c37d9b6db138c4f079e38da665815619a3a4337702568aacee62de7252690fc1"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.11"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.12"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -27,12 +27,15 @@ ACCOUNT_STATE_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("loggedOut", "envKey"
 AdmissionDecision = str  # open enum: unknown values stay representable
 ADMISSION_DECISION_KNOWN_VALUES: Final[tuple[str, ...]] = ("allow_once", "reject_once", "allow_connected", "block_connected", "timedOut",)
 
+# How long a rule created by an approval decision lasts. The set is open, so newer hosts may send other values.
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
 APPROVAL_AMENDMENT_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("session", "localPersistent",)
 
+# How long a grant made by a choice lasts. The set is open, so newer hosts may send other values.
 ApprovalChoiceScope = str  # open enum: unknown values stay representable
 APPROVAL_CHOICE_SCOPE_KNOWN_VALUES: Final[tuple[str, ...]] = ("once", "session", "localPersistent",)
 
+# The kind of decision a choice applies or an approval received. The set is open, so newer hosts may send values this version does not list.
 ApprovalDecision = str  # open enum: unknown values stay representable
 APPROVAL_DECISION_KNOWN_VALUES: Final[tuple[str, ...]] = ("approved", "approvedForSession", "approvedPolicyAmendment", "denied", "deniedPolicyAmendment", "timedOut", "abort",)
 
@@ -47,12 +50,15 @@ APPROVAL_MODE_APPLY_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("completed",
 ApprovalModeSource = str  # open enum: unknown values stay representable
 APPROVAL_MODE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("startup", "replay", "approvalReconfigure",)
 
+# The result of saving a granted rule to the local policy store. The set is open, so newer hosts may send other values.
 ApprovalPersistenceStatus = str  # open enum: unknown values stay representable
 APPROVAL_PERSISTENCE_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("succeeded", "failed",)
 
+# Whether an approval's final decision lets the action run. The set is open, so newer hosts may send other values.
 ApprovalPolicyResult = str  # open enum: unknown values stay representable
 APPROVAL_POLICY_RESULT_KNOWN_VALUES: Final[tuple[str, ...]] = ("allow", "deny",)
 
+# Who or what made an approval's final decision. The set is open, so newer hosts may send other values.
 ApprovalResolvedBy = str  # open enum: unknown values stay representable
 APPROVAL_RESOLVED_BY_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "policy", "llmJudge",)
 
@@ -68,9 +74,9 @@ BACKGROUND_INITIATOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "timeout",)
 BackgroundState = str  # open enum: unknown values stay representable
 BACKGROUND_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("backgrounded",)
 
-# A grantable capability name. Open: the reserved `rawLog` entry joins this domain as an additive open-enum extension when the protocol spec un-defers — closed would make that a retype.
+# A grantable capability name. Open: the experimental-only `rawLog` entry joins the stable domain as an additive open-enum extension when it graduates — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog", "rawLogPhysical",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -80,7 +86,7 @@ CODE_MODE_LANGUAGE_KNOWN_VALUES: Final[tuple[str, ...]] = ("javascript",)
 CodeModeOutputStream = str  # open enum: unknown values stay representable
 CODE_MODE_OUTPUT_STREAM_KNOWN_VALUES: Final[tuple[str, ...]] = ("transcript",)
 
-# The ack-status vocabulary: `"accepted"` for every admitted command; `session/compact` alone may answer `"noop"`. Closed: the protocol spec names exactly these two values, so SDK clients get a discriminated type and validation catches a wrong status — and a client that received a third value would have been told nothing it can act on, unlike [`TurnStartDisposition`], where "acked, not otherwise classified" is a usable reading.
+# The ack-status vocabulary: `"accepted"` for every admitted command; `session/compact` alone may answer `"noop"`. Closed: the protocol defines exactly these two values, so SDK clients get a discriminated type and validation catches a wrong status — and a client that received a third value would have been told nothing it can act on, unlike [`TurnStartDisposition`], where "acked, not otherwise classified" is a usable reading.
 CommandAckStatus = Literal["accepted", "noop"]
 
 # The ack `status`: `accepted` for every admitted command. `session/compact` is the one method that may additionally answer `noop` ([`crate::method::runtime::CompactStatus`]); no other command uses another status.
@@ -123,9 +129,9 @@ COMPUTER_USE_SETUP_PHASE_KNOWN_VALUES: Final[tuple[str, ...]] = ("dormant", "inP
 ContextPressureLevel = str  # open enum: unknown values stay representable
 CONTEXT_PRESSURE_LEVEL_KNOWN_VALUES: Final[tuple[str, ...]] = ("normal", "warning", "blocked",)
 
-# A stable `error.data.kind` category: camelCase, the value clients branch on. Open: the protocol spec lanes add kinds additively as their methods land, and the spec's edge-case rule makes a new `kind` additive only because this domain is declared open.
+# A stable `error.data.kind` category: camelCase, the value clients branch on. Open: new kinds are added as their methods land, and a new `kind` is additive only because this domain is declared open.
 ErrorKind = str  # open enum: unknown values stay representable
-ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid",)
+ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "limitsAboveMax", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid",)
 
 # `feedback/submit` classification: the four TUI classes in camelCase wire spelling. **Closed**: a client-selected param vocabulary.
 FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
@@ -138,7 +144,7 @@ FEEDBACK_SUBMIT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("uploaded", "rec
 HistoryMode = str  # open enum: unknown values stay representable
 HISTORY_MODE_KNOWN_VALUES: Final[tuple[str, ...]] = ("anchoredSnapshot", "inline", "snapshot", "none",)
 
-# Why a result served `history.mode: "none"` — the owning spec typed unavailability. Open on the client side: an absent (older server) or unknown (newer server) value decodes conservatively as an unknown reason, and `viewCursor` text never substitutes for it.
+# Why a result served `history.mode: "none"`: the server's typed reason for serving no history. Open on the client side: an absent (older server) or unknown (newer server) value decodes conservatively as an unknown reason, and `viewCursor` text never substitutes for it.
 HistoryNoneReason = str  # open enum: unknown values stay representable
 HISTORY_NONE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("excluded", "cursorSuffix", "historyBudget", "projectionUnavailable", "projectionReadLimit",)
 
@@ -147,7 +153,7 @@ HistoryPreference = Literal["auto", "inline", "snapshot", "anchored"]
 
 # Hook event names: the lowercase-first-letter spelling of every `HookEventKind::all()` variant. Open: a future event value is additive.
 HookEventName = str  # open enum: unknown values stay representable
-HOOK_EVENT_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("sessionStart", "userPromptSubmit", "preToolUse", "permissionRequest", "postToolUse", "preCompact", "postCompact", "subagentStart", "subagentStop", "stop", "sessionEnd", "notification", "postToolUseFailure", "stopFailure", "postToolBatch", "interrupt", "sessionFork", "toolUseStart", "preLLMCall", "postLLMCall",)
+HOOK_EVENT_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("sessionStart", "userPromptSubmit", "preToolUse", "permissionRequest", "postToolUse", "preLLMCall", "postLLMCall", "preCompact", "postCompact", "subagentStart", "subagentStop", "stop", "sessionEnd", "notification", "postToolUseFailure", "stopFailure", "postToolBatch", "interrupt", "sessionFork", "toolUseStart",)
 
 # A hook row's origin: the config `HookSourceKind` values plus plugin-contributed. Open: a future origin is additive.
 HookHandlerKind = str  # open enum: unknown values stay representable
@@ -162,7 +168,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "skillRead",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "skillRead",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -177,6 +183,9 @@ JsonRpcVersion = Literal["2.0"]
 # Quota limit kinds: open for evolution.
 LimitKind = str  # open enum: unknown values stay representable
 LIMIT_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("tierLimit",)
+
+# The sandbox-network axis values. **Closed**: a client selects one of the three serve spellings and can never construct another; the socket promise is same-version, so the result use needs no unknown arm (E2; the experimental tier carries no cross-version promise).
+LimitsNetworkMode = Literal["restricted", "enabled", "proxy-only"]
 
 # `log/gap` `reason`: only a `replayAnchorLost` gap is refillable through `log/page`; an `overFrame` gap is a known hole on that connection, its hole `(after, next]` less `next` when it is delivered. **Open**: a server-produced vocabulary.
 LogGapReason = str  # open enum: unknown values stay representable
@@ -244,13 +253,17 @@ PERMISSION_PROFILE_APPLY_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("comple
 
 # How a permission profile took effect. **Open**. Transliterates the native `PermissionTransitionCauseV1` (agent-session-permissions `snapshot_digest`) cause-for-cause; the wire never adds a cause the native enum lacks. Only the UserCommand-kind causes (`livePicker`, `resumeCli`) and the ManagedRefresh causes are reachable on the change event post-epoch-one; the Initialization causes are enumerated for fidelity but ride only the epoch-one/derivation facts this event does not fold.
 PermissionProfileSource = str  # open enum: unknown values stay representable
-PERMISSION_PROFILE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("newSessionDefault", "launchCli", "livePicker", "resumeCli", "fork", "childSpawn", "yolo", "legacyInitialization", "launchOverrides", "managedPolicyRefresh", "managedDefinitionRefresh", "managedResumeDowngrade",)
+PERMISSION_PROFILE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("newSessionDefault", "launchCli", "livePicker", "resumeCli", "fork", "childSpawn", "yolo", "legacyInitialization", "launchOverrides", "managedPolicyRefresh", "managedDefinitionRefresh", "managedResumeDowngrade", "lostRecordReset",)
 
 # Why a profile is unavailable. Open camelCase vocabulary; a client that meets an unknown entry treats the profile as simply unavailable. The fold of `PermissionSurfaceDisabledReasonV1`; `SessionBlocked(_)` has no wire fold (its only native bearer is the synthetic disabled row `permissionProfile/list` does not serve).
 PermissionProfileUnavailableReason = str  # open enum: unknown values stay representable
 PERMISSION_PROFILE_UNAVAILABLE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("managedExcluded", "ephemeralFixed",)
 
-# The server runtime's platform family; may differ from the client's. Closed: the protocol spec fixes the value set, so widening it is a deliberate, gate-visible protocol change rather than a silent addition.
+# `log/physicalReset` `reason`. **Open**: a server-produced vocabulary.
+PhysicalResetReason = str  # open enum: unknown values stay representable
+PHYSICAL_RESET_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("corrupt", "truncated", "gone", "unloaded",)
+
+# The server runtime's platform family; may differ from the client's. Closed: the protocol fixes the value set, so widening it is a deliberate, gate-visible protocol change rather than a silent addition (a later `Closed`→`Open` flip is itself additive).
 PlatformFamily = Literal["unix", "windows"]
 
 # The server's operating system. Closed, for the same reason as [`PlatformFamily`].
@@ -277,7 +290,7 @@ REASONING_EFFORT_CHANGE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "
 RecapFailureReason = str  # open enum: unknown values stay representable
 RECAP_FAILURE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("providerFailed",)
 
-# `recap/completed` outcome: the terminal vocabulary, camelCase per the protocol spec. **Open**: a server-produced result vocabulary.
+# `recap/completed` outcome: the terminal vocabulary, in camelCase. **Open**: a server-produced result vocabulary.
 RecapOutcome = str  # open enum: unknown values stay representable
 RECAP_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("completed", "failed", "cancelled", "timedOut",)
 
@@ -386,6 +399,10 @@ STATUS_HEALTH_LEVEL_KNOWN_VALUES: Final[tuple[str, ...]] = ("ok", "waiting", "de
 SubagentControlStatus = str  # open enum: unknown values stay representable
 SUBAGENT_CONTROL_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("accepted", "starting", "running", "resultReady", "closing", "closed", "recoveryPending", "manualReconciliation",)
 
+# A task row's execution mode. Open: clients MUST ignore unknown modes.
+TaskExecutionMode = str  # open enum: unknown values stay representable
+TASK_EXECUTION_MODE_KNOWN_VALUES: Final[tuple[str, ...]] = ("foreground", "background",)
+
 # A task row's status. Open: a future state is additive, and clients MUST ignore unknown statuses.
 TaskListStatus = str  # open enum: unknown values stay representable
 TASK_LIST_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("inProgress",)
@@ -420,20 +437,22 @@ TURN_TERMINAL_KNOWN_VALUES: Final[tuple[str, ...]] = ("completed", "failed", "ca
 # The only scalar alternative to a known effort array. Kept as a closed singleton so arbitrary strings and uppercase spellings fail decoding.
 UnknownModelReasoningEffortVariants = Literal["unknown"]
 
+# How a user-input prompt settled. More values may be added, so handle values you do not recognize.
 UserInputOutcome = str  # open enum: unknown values stay representable
 USER_INPUT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("answered", "cancelled", "interrupted", "clarified", "timedOut", "aborted",)
 
+# Whether a question takes one option or several.
 UserInputSelectionMode = Literal["single", "multiple"]
 
 # Version-control system of a branch observation. Open.
 Vcs = str  # open enum: unknown values stay representable
 VCS_KNOWN_VALUES: Final[tuple[str, ...]] = ("git", "sapling",)
 
-# The `view/page` request-mode anchor. Declared **open**: the protocol spec spells it "open string enum, v1 value `latestCompaction`".
+# The `view/page` request-mode anchor. Declared **open**: the protocol spells it "open string enum, v1 value `latestCompaction`".
 ViewPageAnchor = str  # open enum: unknown values stay representable
 VIEW_PAGE_ANCHOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("latestCompaction",)
 
-# The `view/page` paging direction. Closed: the protocol spec spells exactly two values and a third would change the paging contract.
+# The `view/page` paging direction. Closed: the protocol spells exactly two values and a third would change the paging contract.
 ViewPageDirection = Literal["forward", "backward"]
 
 # Which control to apply to the child's current attempt. Closed on the wire: an unknown value is `-32602 invalidParams`.
@@ -442,6 +461,9 @@ WorkflowChildAction = Literal["skip", "retry"]
 # Where a session's worktree came from: `created` means the host allocated it for the session, `attached` means the host bound a caller-provided worktree.
 WorktreeOrigin = str  # open enum: unknown values stay representable
 WORKTREE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("created", "attached",)
+
+# One axis value in a limits refusal: a boolean on the four boolean axes, the mode string on `sandboxNetwork`. **Closed**: exactly the two shapes, never another — named in the governing rules closed untagged-union list (`CLOSED_WITHOUT_MARKER`), since the untagged shape carries no schema marker. Untagged so the wire carries the bare JSON value; untagged also keeps the shape the schema builder requires (a bare `serde_json::Value` renders no type and is rejected).
+LimitsAxisValue = bool | LimitsNetworkMode
 
 # A complete ordered effort set, or an explicit unknown capability.
 ModelReasoningEffortVariants = list[ReasoningEffort] | UnknownModelReasoningEffortVariants
@@ -467,7 +489,7 @@ class _AccountLoginStartParamsBase(TypedDict):
 
 
 class AccountLoginStartParams(_AccountLoginStartParamsBase, total=False):
-    """`account/loginStart` params: exactly `{type, apiKey?}`. `apiKey` is required non-empty for [`AccountLoginType::ApiKey`] and forbidden for [`AccountLoginType::DeviceCode`]; both violations are invalid-params errors, enforced by the handler so the error never echoes the raw params. `Debug` is hand-written: the derive would print the raw key bytes into any `{:?}` context (a tracing line, an error, a test assert), the exact leak the governing rules forbids — the `McpOAuthRecordV1` posture."""
+    """`account/loginStart` params: exactly `{type, apiKey?}`. `apiKey` is required non-empty for [`AccountLoginType::ApiKey`] and forbidden for [`AccountLoginType::DeviceCode`]; both violations are invalid-params errors, enforced by the handler so the error never echoes the raw params. `Debug` is hand-written: the derive would print the raw key bytes into any `{:?}` context (a tracing line, an error, a test assert), and the key must never reach a log — the `McpOAuthRecordV1` posture."""
 
     apiKey: str
 
@@ -523,7 +545,7 @@ class AdmissionListPendingParams(TypedDict):
 
 
 class AdmissionListPendingResult(TypedDict):
-    """`admission/listPending` result: full the governing rules payloads."""
+    """`admission/listPending` result: each open request in full, as its `admission/request` prompt carries it."""
 
     admissions: list[AdmissionRequestParams]
     sessionId: str
@@ -588,9 +610,12 @@ class AdmissionResolvedViewParams(_AdmissionResolvedViewParamsBase, total=False)
 
     decidedByCommandId: str
     resolvedBy: str
+    terminalCause: str
 
 
 class ApprovalAmendment(TypedDict):
+    """The policy rule a decision created, in display form; the full rule is not included."""
+
     durability: ApprovalAmendmentDurability
     rulePreview: str
 
@@ -600,6 +625,8 @@ class _ApprovalChangeBase(TypedDict):
 
 
 class ApprovalChange(_ApprovalChangeBase, total=False):
+    """The change an `approval/updated` event reports. `kind` says what happened, and only the fields for that kind are present."""
+
     choiceId: str
     decision: ApprovalDecision
     executable: bool
@@ -617,8 +644,48 @@ class _ApprovalChoiceBase(TypedDict):
 
 
 class ApprovalChoice(_ApprovalChoiceBase, total=False):
+    """One option the server offers for deciding an approval. Clients pick one and send its `choiceId` in `approval/decide`; they never build their own."""
+
     acceptsFeedback: bool
     rulePreview: str
+
+
+class ApprovalCuaCardFacts(TypedDict, total=False):
+    """One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`."""
+
+    page: ApprovalCuaPage
+    steps: list[ApprovalCuaStep]
+    windowTitle: str
+
+
+class ApprovalCuaPage(TypedDict):
+    """The page's full host, no path or query."""
+
+    host: str
+    hostAscii: str
+
+
+class ApprovalCuaPoint(TypedDict):
+    """A point in the model's 0–1000 coordinates."""
+
+    x: int
+    y: int
+
+
+class _ApprovalCuaStepBase(TypedDict):
+    action: str
+    effect: str
+    kind: str
+    step: int
+
+
+class ApprovalCuaStep(_ApprovalCuaStepBase, total=False):
+    """One consequential step. A client renders \"Step N: <action> <roleWord> \"<label>\" — <effect>\"; a key step names its `chord`, and only a step with a `point` (and no label or chord) reads \"at x,y\"."""
+
+    chord: str
+    label: str
+    point: ApprovalCuaPoint
+    roleWord: str
 
 
 class _ApprovalDecideParamsBase(TypedDict):
@@ -662,6 +729,8 @@ class _ApprovalOriginBase(TypedDict):
 
 
 class ApprovalOrigin(_ApprovalOriginBase, total=False):
+    """What triggered a tool action, shown so the user can judge it. It is display-only and untrusted, and policy rules never match on it."""
+
     command: str
     url: str
 
@@ -687,11 +756,12 @@ class _ApprovalRequestParamsBase(TypedDict):
 class ApprovalRequestParams(_ApprovalRequestParamsBase, total=False):
     """Full params shared by `approval/request` and `approval/requested`."""
 
+    cuaCardFacts: ApprovalCuaCardFacts
     subagentOrigin: ApprovalSubagentOrigin
 
 
 class ApprovalRequirementRef(TypedDict):
-    """Approval-stage token carried in the protocol spec params and stale-requirement errors."""
+    """Identifies one requirement of an approval: for a `shell` approval, one stage. A client sends it back as `requirementId` in `approval/decide`, and a stale-requirement error names the current one."""
 
     approvalId: str
     sourceIndex: int
@@ -737,10 +807,14 @@ class _ApprovalStageBase(TypedDict):
 
 
 class ApprovalStage(_ApprovalStageBase, total=False):
+    """One stage of a `shell` approval: a single command from the pipeline or command list, approved separately from the others."""
+
     suggestedPrefix: ApprovalSuggestedPrefix
 
 
 class ApprovalStageEvidence(TypedDict):
+    """How one stage of a `shell` approval was resolved when the decision became final."""
+
     argv: list[str]
     position: int
     requirementId: ApprovalRequirementRef
@@ -753,6 +827,8 @@ class _ApprovalStageResolutionBase(TypedDict):
 
 
 class ApprovalStageResolution(_ApprovalStageResolutionBase, total=False):
+    """Whether a shell stage still needs a decision, or how it was satisfied. Satisfied stages are included so a client can show progress."""
+
     argvPrefix: list[str]
     diagnostic: str
 
@@ -786,6 +862,8 @@ class ApprovalSubject(_ApprovalSubjectBase, total=False):
 
 
 class ApprovalSuggestedPrefix(TypedDict):
+    """A suggested always-allow rule for a shell stage: commands starting with `argvPrefix` would run in this workspace without asking."""
+
     argvPrefix: list[str]
     label: str
 
@@ -817,6 +895,22 @@ class BackgroundStatus(_BackgroundStatusBase, total=False):
     detail: str
 
 
+class BackgroundTerminalCompletion(TypedDict):
+    """`backgroundTerminalCompletion`: the five facts the Finished cell renders. The fold reads them from the inbox terminal record and the backgrounded call it names; every member is required (empty output serializes as `\"\"`, never absent)."""
+
+    command: str
+    output: str
+    outputTruncated: bool
+    terminalStatus: str
+    toolCallId: str
+
+
+class BlockedPrompt(TypedDict):
+    """The cold recall seed on `session/resume` and `session/read` results: at most one, the latest blocked Main prompt — exactly the host's mirror of `prompt_recovery::replay::ReplayInput`'s choice."""
+
+    text: str
+
+
 class _BranchStateBase(TypedDict):
     branch: str | None
     workspaceRoot: str
@@ -826,6 +920,12 @@ class BranchState(_BranchStateBase, total=False):
     """The latest branch observation in the snapshot."""
 
     vcs: Vcs
+
+
+class CheckpointBoundary(TypedDict):
+    """A served checkpoint-prune boundary: `through_item_id` names the last first-opened item that opened strictly before the boundary checkpoint event."""
+
+    throughItemId: str
 
 
 class ClientCapabilities(TypedDict, total=False):
@@ -993,7 +1093,7 @@ class ContextUsage(_ContextUsageBase, total=False):
 
 
 class CronReceipt(TypedDict, total=False):
-    """Cron's `details` payload. Every field a family owns lives here, under the container's one `details` key, rather than flat beside the discriminators — the governing rules as amended. Each is a **bounded machine fact**: scalars, short identifiers and a small fixed-shape array of those."""
+    """Cron's `details` payload. Every field a family owns lives here, under the container's one `details` key, rather than flat beside the discriminators. Each is a **bounded machine fact**: scalars, short identifiers and a small fixed-shape array of those."""
 
     jobId: str
     jobs: list[CronReceiptJob]
@@ -1001,7 +1101,7 @@ class CronReceipt(TypedDict, total=False):
 
 
 class CronReceiptJob(TypedDict):
-    """One row of the Cron `list` receipt's `jobs` array. Server order, and **`active` + `firing` rows only** — the owner's `Serve active+firing only` directive. A small fixed-shape array of scalars, which is what keeps it inside the governing rules bounded-machine-fact rule."""
+    """One row of the Cron `list` receipt's `jobs` array. Server order, and **`active` + `firing` rows only**. A small fixed-shape array of scalars, which is what keeps it a bounded machine fact."""
 
     jobId: str
     nextFireAtMs: int
@@ -1021,7 +1121,7 @@ class _CumulativeTokenUsageBase(TypedDict):
 
 
 class CumulativeTokenUsage(_CumulativeTokenUsageBase, total=False):
-    """Session running totals of counted-once usage. Amendment a tracked change: the cache splits and server-computed `cost` join the counters. The counters stay accumulate-only; `cost` is the documented exception — it may move either way on price re-adoption and is labeled estimate. `Copy` was dropped for the `cost` member."""
+    """Session running totals of counted-once usage. The cache splits and server-computed `cost` join the counters. The counters stay accumulate-only; `cost` is the documented exception — it may move either way on price re-adoption and is labeled estimate. `Copy` was dropped for the `cost` member."""
 
     cacheReadTokens: int
     cacheWriteTokens: int
@@ -1083,6 +1183,7 @@ class ErrorData(_ErrorDataBase, total=False):
     anchor: str | None
     approvalId: str
     availability: str
+    axes: list[LimitsAboveMaxAxis]
     capability: CapabilityName
     capacity: int
     choiceId: str
@@ -1271,6 +1372,12 @@ class HookListResult(TypedDict):
     hooks: list[HookCatalogEntry]
 
 
+class HostReadLimitsResult(TypedDict):
+    """`host/readLimits` result: the host's posture ceiling."""
+
+    maxLimits: SessionLimits
+
+
 class _InitializeParamsBase(TypedDict):
     clientInfo: ClientInfo
 
@@ -1295,6 +1402,7 @@ class _InitializeResultBase(TypedDict):
 class InitializeResult(_InitializeResultBase, total=False):
     """The `initialize` result."""
 
+    maxLimits: SessionLimits
     sandboxAvailability: SandboxAvailability
     sandboxUnavailableReason: SandboxUnavailableReason
     sessionDurability: SessionDurability
@@ -1318,6 +1426,7 @@ class Item(_ItemBase, total=False):
     background: bool
     backgroundInitiator: BackgroundInitiator
     backgroundStatus: BackgroundStatus
+    backgroundTerminalCompletion: BackgroundTerminalCompletion
     blocking: bool
     callId: str
     childPromptRefs: list[OutputRef]
@@ -1437,7 +1546,7 @@ class _ItemReadOutputParamsBase(TypedDict):
 
 
 class ItemReadOutputParams(_ItemReadOutputParamsBase, total=False):
-    """`item/readOutput` params: byte-ranged fetch of stored full output that the view truncated — the `outputRef` fetch path the protocol's sections owe. Read-only; works on loaded and unloaded sessions; no lease."""
+    """`item/readOutput` params: byte-ranged fetch of stored full output that the view truncated, via the item's `outputRef`. Read-only; works on loaded and unloaded sessions; no lease."""
 
     lengthBytes: int
     offsetBytes: int
@@ -1487,6 +1596,14 @@ class LastTurn(_LastTurnBase, total=False):
     reason: str
 
 
+class LimitsAboveMaxAxis(TypedDict):
+    """One too-wide axis in a `-32028 limitsAboveMax` refusal: every too-wide axis is listed, never the first only. `requested`/`max` carry the axis's own JSON values."""
+
+    axis: str
+    max: LimitsAxisValue
+    requested: LimitsAxisValue
+
+
 class _LogGapParamsBase(TypedDict):
     after: RecordPosition
     next: RecordPosition
@@ -1510,10 +1627,72 @@ LogPageParams = TypedDict("LogPageParams", {
 
 
 class LogPageResult(TypedDict):
-    """`log/page` result: a contiguous, gap-free run in sequence order — a page never silently skips a sequence."""
+    """`log/page` result: a contiguous, gap-free run of the stored rows in sequence order, each as written to disk: envelopes and stored `omitted_live_only` markers alike. Clients that read record contents must skip markers."""
 
     nextCursor: RawLogCursor | None
-    records: list[RawLogRecordEnvelope]
+    records: list[dict[str, Any]]
+
+
+class LogPhysicalFilesParams(TypedDict):
+    """`log/physicalFiles` params."""
+
+    sessionId: str
+
+
+class LogPhysicalFilesResult(TypedDict):
+    """`log/physicalFiles` result."""
+
+    files: list[PhysicalFileEntry]
+
+
+class LogPhysicalLineParams(TypedDict):
+    """`log/physicalLine` notification params: one chunk of one complete physical line; the chunks concatenated plus `\\n` are the line."""
+
+    chunk: PhysicalChunk
+    data: str
+    endOffset: int
+    ordinal: int
+    startOffset: int
+    subscriptionId: int
+
+
+class LogPhysicalResetParams(TypedDict):
+    """`log/physicalReset` notification params: the terminal notification of a subscription that met a fault."""
+
+    at: PhysicalCursor
+    reason: PhysicalResetReason
+    subscriptionId: int
+
+
+class _LogPhysicalSubscribeParamsBase(TypedDict):
+    after: PhysicalCursor
+    sessionId: str
+
+
+class LogPhysicalSubscribeParams(_LogPhysicalSubscribeParamsBase, total=False):
+    """`log/physicalSubscribe` params."""
+
+    chunkBytes: int
+
+
+class LogPhysicalSubscribeResult(TypedDict):
+    """`log/physicalSubscribe` result."""
+
+    relPath: str
+    subscriptionId: int
+    tailOffset: int
+
+
+class LogPhysicalUnsubscribeParams(TypedDict):
+    """`log/physicalUnsubscribe` params."""
+
+    subscriptionId: int
+
+
+class LogPhysicalUnsubscribeResult(TypedDict):
+    """`log/physicalUnsubscribe` result: the empty object (idempotent)."""
+
+    pass
 
 
 class LogRecordParams(TypedDict):
@@ -1637,7 +1816,7 @@ class McpServerOAuthLogoutParams(TypedDict):
 
 
 class McpServerOAuthLogoutResult(TypedDict):
-    """`mcpServer/oauthLogout` result: spec-23007 the governing rules semantics — best-effort upstream revocation, authoritative local deletion."""
+    """`mcpServer/oauthLogout` result: the upstream revocation is best effort, and the local credential deletion is authoritative."""
 
     removed: bool
     revocation: McpOAuthRevocation
@@ -1880,7 +2059,7 @@ class _PendingRequestPointerBase(TypedDict):
 
 
 class PendingRequestPointer(_PendingRequestPointerBase, total=False):
-    """A late-joiner pointer at an unsettled server-initiated request. The full payloads arrive as re-issued server-to-client requests right after a `session/resume` response; `session/read` never re-issues them. **A second E4 instance, RULED with E4: the flat discriminated-object precedent is accepted for this type too, on the `ApprovalSubject` precedent, with the serialized JSON unchanged. A strict union node kind may be funded later; if it is, it must cover both this type and `TurnInputPart`.** the protocol spec ratifies two kind-discriminated entry shapes (`{kind: \"approval\", approvalId, viewCursor}` / `{kind: \"userInput\", userInputId, viewCursor}`); this is one flat object with both ids optional, so the published schema accepts `{\"kind\":\"approval\",\"userInputId\":…}` and an entry carrying no id at all. The v1 model names no object-variant union (the `ApprovalSubject` precedent, followed for `TurnInputPart`), and this instance differs from that one in a way the ruling should see: `kind` here is an OPEN enum, where `TurnInputPart.type` is closed."""
+    """A late-joiner pointer at an unsettled server-initiated request. The full payloads arrive as re-issued server-to-client requests right after a `session/resume` response; `session/read` never re-issues them. The protocol defines two kind-discriminated entry shapes (`{kind: \"approval\", approvalId, viewCursor}` / `{kind: \"userInput\", userInputId, viewCursor}`). This type is one flat object with both ids optional, as for `ApprovalSubject` and `TurnInputPart`, because the v1 model names no object-variant union; the serialized JSON is the same, but the published schema also accepts `{\"kind\":\"approval\",\"userInputId\":…}` and an entry carrying no id at all. Unlike `TurnInputPart.type`, `kind` here is an OPEN enum."""
 
     approvalId: str
     userInputId: str
@@ -1930,6 +2109,28 @@ class PermissionProfileRow(_PermissionProfileRowBase, total=False):
 
     description: str
     unavailableReasons: list[PermissionProfileUnavailableReason]
+
+
+class PhysicalChunk(TypedDict):
+    """One chunk's place within its line."""
+
+    count: int
+    index: int
+
+
+class PhysicalCursor(TypedDict):
+    """A physical line boundary in one file plus the client's ordinal label: `byteOffset` is zero or follows a `\\n`; `nextOrdinal` is echoed and never checked against the file, but must be in `1..=2^63`."""
+
+    byteOffset: int
+    nextOrdinal: int
+
+
+class PhysicalFileEntry(TypedDict):
+    """One log file in a session home."""
+
+    relPath: str
+    sessionId: str
+    sizeBytes: int
 
 
 class PluginCatalogEntry(TypedDict):
@@ -2273,6 +2474,7 @@ class Session(_SessionBase, total=False):
     attention: list[AttentionFlag]
     branch: str
     createdByClient: ClientInfo
+    currentLimits: SessionLimits
     firstUserPrompt: str
     generatedName: str
     kind: SessionKind
@@ -2343,7 +2545,7 @@ class SessionCompactResult(_SessionCompactResultBase, total=False):
 
 
 class SessionConfig(TypedDict, total=False):
-    """The open configuration extension object shared by `session/start` and `session/resume`. Unknown keys are ignored on the wire, never rejected: the live decoder is the governing rules tolerant path, and the governing rules keeps every exported bundle free of `additionalProperties: false`. The Rust typed model's `deny_unknown_fields` is internal and never exported — the E6b closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism stays inert. Recognized `mcpServers` values are typed and validated before they leave the wire boundary."""
+    """The open configuration extension object shared by `session/start` and `session/resume`. Unknown keys are ignored on the wire, never rejected: the live decoder tolerates them, and no exported bundle carries `additionalProperties: false`. The Rust typed model's `deny_unknown_fields` is internal and never exported — the closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism stays inert. Recognized `mcpServers` values are typed and validated before they leave the wire boundary."""
 
     mcpServers: dict[str, SessionMcpServerConfig]
 
@@ -2401,6 +2603,7 @@ class _SessionHistoryBase(TypedDict):
 class SessionHistory(_SessionHistoryBase, total=False):
     """The `history` envelope shared by `session/resume`, `session/fork`, and `session/read`."""
 
+    checkpointBoundary: CheckpointBoundary
     noneReason: HistoryNoneReason
 
 
@@ -2433,6 +2636,26 @@ class SessionLeaveResult(TypedDict):
 
     commandId: str
     status: CommandAckStatus
+
+
+class SessionLimits(TypedDict):
+    """A five-axis limits report: every `maxLimits` / `currentLimits` member is this one definition, and every member is required — reporting always fills all five, so readers never see an absence."""
+
+    sandboxEnabled: bool
+    sandboxNetwork: LimitsNetworkMode
+    shellEnabled: bool
+    workspaceTrusted: bool
+    writesEnabled: bool
+
+
+class SessionLimitsChoice(TypedDict, total=False):
+    """The `session/start` `limits` choice: every member is optional — a start names only the axes it chooses. Reports use `SessionLimits`, whose members are always present."""
+
+    sandboxEnabled: bool
+    sandboxNetwork: LimitsNetworkMode
+    shellEnabled: bool
+    workspaceTrusted: bool
+    writesEnabled: bool
 
 
 class SessionListBranchFilter(TypedDict):
@@ -2531,7 +2754,7 @@ class SessionNameChangedParams(_SessionNameChangedParamsBase, total=False):
 
 
 class SessionPermissionProfileChangedParams(TypedDict):
-    """`session/permissionProfileChanged` params: the fold of the durable profile-commit audit fact — fired on every accepted POST-EPOCH-ONE profile commit, never for a mode-only change (that writes no such fact and keeps folding `session/approvalModeChanged` from its own reconfigure fact) and never for a reviewer-attachment change. It folds on EVERY `PermissionProfileCommittedV1` EXCEPT the epoch-one initialization fact and fork/child derivation facts — their causes (`newSessionDefault`, `launchCli` at start, `fork`, `childSpawn`, `legacyInitialization`, `launchOverrides`) are unreachable on the wire until a later commit carries them — so an omitted-profile start and an empty-cut fork fold nothing and their `\"\"`-cursor rules hold byte-for-byte. A held id recommitting under a changed definition or an managed refresh folds too (the `profileId` may equal the prior), exactly as the approvalMode precedent folds per accepted change. The `session/approvalModeChanged` member pattern with `profileId` in place of `mode`; additive-optional under the protocol spec (clients predating it skip the unknown method); subscription-gated as the protocol spec view events are."""
+    """`session/permissionProfileChanged` params: the fold of the durable profile-commit audit fact — fired on every accepted POST-EPOCH-ONE profile commit, never for a mode-only change (that writes no such fact and keeps folding `session/approvalModeChanged` from its own reconfigure fact) and never for a reviewer-attachment change. It folds on EVERY `PermissionProfileCommittedV1` EXCEPT the epoch-one initialization fact and fork/child derivation facts — their causes (`newSessionDefault`, `launchCli` at start, `fork`, `childSpawn`, `legacyInitialization`, `launchOverrides`) are unreachable on the wire until a later commit carries them — so an omitted-profile start and an empty-cut fork fold nothing and their `\"\"`-cursor rules hold byte-for-byte. A held id recommitting under a changed definition or a managed refresh folds too (the `profileId` may equal the prior), exactly as the approvalMode precedent folds per accepted change. The `session/approvalModeChanged` member pattern with `profileId` in place of `mode`; additive-optional (clients predating it skip the unknown method); subscription-gated like every other view event."""
 
     clientName: str | None
     commandId: str | None
@@ -2562,6 +2785,19 @@ class SessionPromptHintResult(TypedDict, total=False):
     hintId: str
 
 
+class SessionReadLimitsParams(TypedDict):
+    """`session/readLimits` params."""
+
+    sessionId: str
+
+
+class SessionReadLimitsResult(TypedDict):
+    """`session/readLimits` result: one session's effective limits."""
+
+    currentLimits: SessionLimits
+    sessionId: str
+
+
 class _SessionReadParamsBase(TypedDict):
     sessionId: str
 
@@ -2582,6 +2818,7 @@ class _SessionReadResultBase(TypedDict):
 class SessionReadResult(_SessionReadResultBase, total=False):
     """`session/read` result. The `viewCursor` is the fold head at read time — a point-in-time read, immediately stale if a foreign host is appending."""
 
+    blockedPrompt: BlockedPrompt
     lastTurn: LastTurn
     recoveryObservation: RecoveryObservation
 
@@ -2667,7 +2904,9 @@ class _SessionResumeResultBase(TypedDict):
 class SessionResumeResult(_SessionResumeResultBase, total=False):
     """`session/resume` result."""
 
+    blockedPrompt: BlockedPrompt
     lastTurn: LastTurn
+    tightenedAxes: list[str]
 
 
 class SessionSetApprovalModeParams(TypedDict):
@@ -2759,6 +2998,7 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
 
     approvalMode: ApprovalMode | None
     config: SessionConfig
+    limits: SessionLimitsChoice
     modelId: str
     permissionProfile: str
     providerId: str | None
@@ -2859,14 +3099,14 @@ class SessionWorktree(TypedDict):
 
 
 class SettingsReadResult(TypedDict):
-    """`settings/read` result: `{schemaVersion, values}` — the host's composed effective values for exactly the key set. TUI-local keys are never served."""
+    """`settings/read` result: `{schemaVersion, values}` — the host's composed effective values for exactly the host-owned keys. TUI-local keys are never served."""
 
     schemaVersion: int
     values: dict[str, Any]
 
 
 class SettingsReadSchemaResult(TypedDict):
-    """`settings/readSchema` result: `{schemaVersion, keys}` — for each key, its allowed shape plus its enforced managed constraint where one applies. Absent constraint means unmanaged."""
+    """`settings/readSchema` result: `{schemaVersion, keys}` — for each host-owned key, its allowed shape plus its enforced managed constraint where one applies. Absent constraint means unmanaged."""
 
     keys: dict[str, Any]
     schemaVersion: int
@@ -3047,7 +3287,7 @@ class _SnapshotStateBase(TypedDict):
 
 
 class SnapshotState(_SnapshotStateBase, total=False):
-    """The complete folded view at the snapshot cursor. Additive-optional evolution applies exactly as everywhere else; unknown members MUST be ignored, and preserved if re-serialized. **One served site does not satisfy this type today, escalated under a tracked change (E8).** The genesis snapshot rung serves `state: {\"items\": [...]}` alone, while the anchored rung serves the full folded state. A schema-validating client resuming with `{\"history\": \"snapshot\"}` against the real fold therefore sees the other required members missing. The fix is a serving change in the lane (serialize the `SessionViewState` the genesis path already folds, as the anchored path does) plus its own RED against the real fold; it is not a shape change here, because the protocol spec ratifies this shape."""
+    """The complete folded view at the snapshot cursor. Additive-optional evolution applies exactly as everywhere else; unknown members MUST be ignored, and preserved if re-serialized."""
 
     contextUsage: ContextUsage
     name: str | None
@@ -3229,9 +3469,11 @@ class _TaskListEntryBase(TypedDict):
 
 
 class TaskListEntry(_TaskListEntryBase, total=False):
-    """One background-task inventory row. The row is the stable contract: `kind` and `status` stay open so a future state extends them without breaking clients."""
+    """One task inventory row. The row is the stable contract: `kind` and `status` stay open so a future state extends them without breaking clients."""
 
     backgroundInitiator: BackgroundInitiator
+    command: str
+    executionMode: TaskExecutionMode
     startedAt: str
     tool: str
 
@@ -3243,7 +3485,7 @@ class TaskListParams(TypedDict):
 
 
 class TaskListResult(TypedDict):
-    """`task/list` result: one row per running background workload in `task/stopAll` reach, oldest first; empty when nothing is running."""
+    """`task/list` result: one row per live workload, background and foreground, oldest first; empty when nothing is running."""
 
     tasks: list[TaskListEntry]
 
@@ -3382,7 +3624,7 @@ class _TurnInputPartBase(TypedDict):
 
 
 class TurnInputPart(_TurnInputPartBase, total=False):
-    """One ordered content part of a turn submission. File mentions are text, not a part type: write `@relative/path` in a text part. A structured `mention` part is reserved and currently rejected, and an unknown part type is `invalidParams` — which is what closes [`TurnInputPartType`]. Modelled as a discriminated flat object rather than a Rust `enum`, the convention [`crate::view::approval::ApprovalSubject`] already established for a wire union in this crate: the v1 schema model names no object-variant union shape and fails closed on one. The serialized JSON is the protocol spec shape either way; what a flat object cannot express is \"`mediaType` is required exactly when `type` is `image`\". **RULED: the precedent is accepted.** A strict union node kind may be funded later as a follow-up; if it is, it must cover [`crate::method::lifecycle::PendingRequestPointer`] too."""
+    """One ordered content part of a turn submission. File mentions are text, not a part type: write `@relative/path` in a text part. A structured `mention` part is reserved and currently rejected, and an unknown part type is `invalidParams` — which is what closes [`TurnInputPartType`]. Modelled as a discriminated flat object rather than a Rust `enum`, the convention [`crate::view::approval::ApprovalSubject`] already established for a wire union in this crate: the v1 schema model names no object-variant union shape and fails closed on one. The serialized JSON is the same either way; what a flat object cannot express is \"`mediaType` is required exactly when `type` is `image`\"."""
 
     arguments: str
     base64Data: str
@@ -3572,14 +3814,14 @@ class TurnUserShell(TypedDict):
 
 
 class UnframedViewNotification(TypedDict):
-    """One element of a `view/page` result's `events` array: an **unframed view notification** exactly as the protocol spec defines it — the nested pair `{\"method\", \"params\"}`, which is the live notification minus `jsonrpc` and `emittedAtMs`, with nothing lifted out of `params` and nothing spliced into it. the protocol spec is the single normative definition; the protocol's sections both cite it, so the two surfaces cannot drift."""
+    """One element of a `view/page` result's `events` array: an **unframed view notification** — the nested pair `{\"method\", \"params\"}`, which is the live notification minus `jsonrpc` and `emittedAtMs`, with nothing lifted out of `params` and nothing spliced into it. `view/page` and `muse exec --json` share this one definition, so the two surfaces cannot drift."""
 
     method: str
     params: UnframedViewNotificationParams
 
 
 class UnframedViewNotificationParams(TypedDict):
-    """The `params` of an unframed view notification. Declares the base members every view notification carries, and stays **open** for the event-specific fields the protocol's sections add per event type. The v1 schema model names no method-correlated union, so the per-event arms cannot be expressed here without one; enumerating them as an uncorrelated union would additionally exclude `turn/unqueued`, whose notification row is another lane's ratified deferral — a published schema that rejects a real page element is the exact defect this PR exists to close. Recorded as a Design delta on a tracked change. `sourceRange` is required here and not optional: `view/page` serves durable-sourced events only, and durable-sourced is *defined* as carrying a `sourceRange` — the ephemeral-sourced exemption applies to `item/delta`, which `view/page` never replays."""
+    """The `params` of an unframed view notification. Declares the base members every view notification carries, and stays **open** for the event-specific fields each event type adds. The v1 schema model names no method-correlated union (the `events` element's `params` arm is selected by its sibling `method`), so the per-event arms cannot be expressed here without one, and an uncorrelated union of them could reject a real page element, which a published schema must not do. `sourceRange` is required here and not optional: `view/page` serves durable-sourced events only, and durable-sourced is *defined* as carrying a `sourceRange` — the ephemeral-sourced exemption applies to `item/delta`, which `view/page` never replays."""
 
     sessionId: str
     sourceRange: SourceRange
@@ -3597,6 +3839,8 @@ class _UserInputAnswerBase(TypedDict):
 
 
 class UserInputAnswer(_UserInputAnswerBase, total=False):
+    """One question's answer, as sent in `userInput/answer` or `userInput/interrupt` and as recorded in `userInput/settled`."""
+
     freeText: str
     note: str
     selectedLabel: str
@@ -3604,7 +3848,7 @@ class UserInputAnswer(_UserInputAnswerBase, total=False):
 
 
 class UserInputAnswerParams(TypedDict):
-    """`userInput/answer` params: answer every question. Each answer carries `questionId` then exactly one of `selectedLabel` (single mode), `selectedLabels` (multiple mode, within min/max bounds), or `freeText` (<=500 chars); plus an optional `note` (<=500). Answers that do not match the prompt fail -32057 `userInputAnswerInvalid`. Image `attachments` are a **reserved** field in v1, rejected if sent, because the blob-upload path they reference is reserved in the protocol spec."""
+    """`userInput/answer` params: answer every question. Each answer carries `questionId` then exactly one of `selectedLabel` (single mode), `selectedLabels` (multiple mode, within min/max bounds), or `freeText` (<=500 chars); plus an optional `note` (<=500). Answers that do not match the prompt fail -32057 `userInputAnswerInvalid`. Image `attachments` are a **reserved** field in v1, rejected if sent, because the blob-upload path they reference is also reserved."""
 
     answers: list[UserInputAnswer]
     commandId: str
@@ -3641,6 +3885,8 @@ class UserInputCancelResult(TypedDict):
 
 
 class UserInputClarification(TypedDict):
+    """A free-form reply the user gives instead of choosing from the options; the model reads it and decides again."""
+
     content: str
     format: str
 
@@ -3694,16 +3940,22 @@ class _UserInputOptionBase(TypedDict):
 
 
 class UserInputOption(_UserInputOptionBase, total=False):
+    """One option offered for a question."""
+
     description: str
     preview: UserInputOptionPreview
 
 
 class UserInputOptionPreview(TypedDict):
+    """Rich content a client can show for an option. Only single-select questions carry previews."""
+
     content: str
     format: str
 
 
 class UserInputQuestion(TypedDict):
+    """One question in a user-input prompt."""
+
     header: str
     id: str
     options: list[UserInputOption]
@@ -3734,6 +3986,8 @@ class _UserInputSelectionBase(TypedDict):
 
 
 class UserInputSelection(_UserInputSelectionBase, total=False):
+    """How many options the user may pick for a question."""
+
     maxSelections: int
     minSelections: int
 
@@ -4040,8 +4294,8 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "account/loginStart": {"description": "Starts a host-owned login flow: the RFC 8628 device-code flow (result carries the verification URL and user code for native rendering) or the apiKey type (stores the carried key; completes synchronously). Supersedes a pending flow.", "params": "AccountLoginStartParams", "result": "AccountLoginStartResult"},
     "account/logout": {"description": "Clears the stored credential (with the best-effort pre-clear session revoke) and answers the fresh projected state.", "params": None, "result": "AccountState"},
     "account/read": {"description": "Reads the host's projected credential state: which credential lane is in effect, an optional display label, and whether the deployment needs a credential at all.", "params": None, "result": "AccountState"},
-    "admission/decide": {"description": "Decides an open peer-admission request; every decide is terminal \\ for its request, first durable wins.", "params": "AdmissionDecideParams", "result": "AdmissionDecideResult"},
-    "admission/listPending": {"description": "Lists the session's open peer-admission requests with full \\ request payloads.", "params": "AdmissionListPendingParams", "result": "AdmissionListPendingResult"},
+    "admission/decide": {"description": "Decides an open peer-admission request; every decide is terminal for its request, first durable wins.", "params": "AdmissionDecideParams", "result": "AdmissionDecideResult"},
+    "admission/listPending": {"description": "Lists the session's open peer-admission requests with full request payloads.", "params": "AdmissionListPendingParams", "result": "AdmissionListPendingResult"},
     "approval/decide": {"description": "Decides a pending approval, guarded by the current requirement id against the multi-stage race.", "params": "ApprovalDecideParams", "result": "ApprovalDecideResult"},
     "approval/listPending": {"description": "Reads the full pending approval and user-input payloads for a session; a lease-free fold read.", "params": "ApprovalListPendingParams", "result": "ApprovalListPendingResult"},
     "computerUseSettings/read": {"description": "Reads the computer-use Settings: each capability's Always allow switch and the user's blocked apps from the approval policy store, plus the built-in blocks as locked rows when asked; computerUseUnavailable while the CUA gate is off.", "params": "ComputerUseSettingsReadParams", "result": "ComputerUseSettings"},
@@ -4056,19 +4310,23 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "goal/resume": {"description": "Resumes a paused goal under the same wake gate as goal/set.", "params": "GoalResumeParams", "result": "GoalCommandResult"},
     "goal/set": {"description": "Sets the session goal objective; wakes a goal-driving turn iff idle and the resulting goal is unfinished.", "params": "GoalSetParams", "result": "GoalCommandResult"},
     "hook/list": {"description": "Reads the session's installed hook rows — one per installed handler per event, config-file handlers plus plugin-contributed hooks; a query, not a command.", "params": "HookListParams", "result": "HookListResult"},
+    "host/readLimits": {"description": "Reads the host's posture ceiling as a limits object — experimental, same-user socket only.", "params": None, "result": "HostReadLimitsResult"},
     "initialize": {"description": "Opens the connection: client identification, capability requests, and the experimental opt-in; the reply carries the envelope schema version and the stable-surface fingerprint.", "params": "InitializeParams", "result": "InitializeResult"},
     "item/readOutput": {"description": "Byte-ranged read of stored full output the view truncated; works on loaded and unloaded sessions and takes no lease.", "params": "ItemReadOutputParams", "result": "ItemReadOutputResult"},
-    "log/page": {"description": "Reads a contiguous, gap-free page of a stream's records \\ after a position.", "params": "LogPageParams", "result": "LogPageResult"},
-    "log/streams": {"description": "Enumerates a session's raw streams with tails and \\ earliest-available positions.", "params": "LogStreamsParams", "result": "LogStreamsResult"},
-    "log/subscribe": {"description": "Attaches a live tail to one stream, optionally resuming \\ after a cursor position.", "params": "LogSubscribeParams", "result": "LogSubscribeResult"},
+    "log/page": {"description": "Reads a contiguous, gap-free page of a stream's stored rows after a position, each as written to disk: envelopes and stored omitted_live_only markers.", "params": "LogPageParams", "result": "LogPageResult"},
+    "log/physicalFiles": {"description": "Lists every log file in a session home with its size.", "params": "LogPhysicalFilesParams", "result": "LogPhysicalFilesResult"},
+    "log/physicalSubscribe": {"description": "Follows one retained log file byte-exactly from a line-boundary cursor.", "params": "LogPhysicalSubscribeParams", "result": "LogPhysicalSubscribeResult"},
+    "log/physicalUnsubscribe": {"description": "Ends a physical subscription; idempotent.", "params": "LogPhysicalUnsubscribeParams", "result": "LogPhysicalUnsubscribeResult"},
+    "log/streams": {"description": "Enumerates a session's raw streams with tails and earliest-available positions.", "params": "LogStreamsParams", "result": "LogStreamsResult"},
+    "log/subscribe": {"description": "Attaches a live tail to one stream, optionally resuming after a cursor position.", "params": "LogSubscribeParams", "result": "LogSubscribeResult"},
     "log/unsubscribe": {"description": "Detaches a live tail; idempotent.", "params": "LogUnsubscribeParams", "result": "LogUnsubscribeResult"},
     "mcpServer/list": {"description": "Projects the effective MCP server set: without sessionId the host-global rows (settings + plugin), with sessionId that loaded session's effective set (host rows plus its frozen ADR-32760 additions); every row carries its ladder state.", "params": "McpServerListParams", "result": "McpServerListResult"},
     "mcpServer/oauthLogin": {"description": "Starts a host-owned MCP OAuth login flow for one server: the result carries the provider authorization URL the client opens in a browser; completion arrives as mcpServer/oauthLoginCompleted. Supersedes a pending flow.", "params": "McpServerOAuthLoginParams", "result": "McpServerOAuthLoginResult"},
     "mcpServer/oauthLoginCancel": {"description": "Cancels the pending login flow for one server binding; cancelled is false when nothing for that binding was pending.", "params": "McpServerOAuthLoginCancelParams", "result": "McpServerOAuthLoginCancelResult"},
     "mcpServer/oauthLogout": {"description": "Deletes one server's stored MCP OAuth credential (best-effort upstream revocation, authoritative local delete) and answers what was removed.", "params": "McpServerOAuthLogoutParams", "result": "McpServerOAuthLogoutResult"},
-    "media/upload": {"description": "Moves one video chunk into the session's video store; answers the \\ `uploadId` receipt on every chunk.", "params": "MediaUploadParams", "result": "MediaUploadResult"},
+    "media/upload": {"description": "Moves one video chunk into the session's video store; answers the `uploadId` receipt on every chunk.", "params": "MediaUploadParams", "result": "MediaUploadResult"},
     "model/list": {"description": "Reads the catalog of models the host will accept in `session/setModel`; a query, not a command.", "params": "ModelListParams", "result": "ModelListResult"},
-    "peer/list": {"description": "Lists the viewing session's live local peers from the registry \\ snapshot, minus the viewer, ordered by session id — one row per \\ live entry with its authority-joined name, label, status, age, \\ and eligibility.", "params": "PeerListParams", "result": "PeerListResult"},
+    "peer/list": {"description": "Lists the viewing session's live local peers from the registry snapshot, minus the viewer, ordered by session id — one row per live entry with its authority-joined name, label, status, age, and eligibility.", "params": "PeerListParams", "result": "PeerListResult"},
     "permissionProfile/list": {"description": "Reads the selectable permission profiles for a session; a lease-free read.", "params": "PermissionProfileListParams", "result": "PermissionProfileListResult"},
     "plugin/install": {"description": "Install one plugin from a marketplace pair or a host local path with scope (per-session, `commandId`-idempotent, hold-open; answers the installed receipt).", "params": "PluginInstallParams", "result": "PluginInstallResult"},
     "plugin/list": {"description": "Reads the installed plugin records — one row per installed plugin; a query, not a command.", "params": "PluginListParams", "result": "PluginListResult"},
@@ -4076,15 +4334,16 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "plugin/marketplaceRemove": {"description": "Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name).", "params": "PluginMarketplaceRemoveParams", "result": "PluginMarketplaceRemoveResult"},
     "plugin/marketplaceUpdate": {"description": "Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceUpdateParams", "result": "PluginMarketplaceRecordResult"},
     "projection/list": {"description": "Lists the registered server-side read projections.", "params": "ProjectionListParams", "result": "ProjectionListResult"},
-    "projection/read": {"description": "Reads one named projection's snapshot with its fold basis \\.", "params": "ProjectionReadParams", "result": "ProjectionReadResult"},
-    "recap/cancel": {"description": "Cancels the session's in-flight recap, which settles `cancelled`; \\ idle is an accepted no-op.", "params": "RecapCancelParams", "result": "RecapCancelResult"},
-    "recap/request": {"description": "Requests a \"while you were away\" recap for a loaded session; acks \\ `accepted` and settles exactly once on `recap/completed` — one \\ in flight per session, host-enforced 45s timeout.", "params": "RecapRequestParams", "result": "RecapRequestResult"},
+    "projection/read": {"description": "Reads one named projection's snapshot with its fold basis.", "params": "ProjectionReadParams", "result": "ProjectionReadResult"},
+    "recap/cancel": {"description": "Cancels the session's in-flight recap, which settles `cancelled`; idle is an accepted no-op.", "params": "RecapCancelParams", "result": "RecapCancelResult"},
+    "recap/request": {"description": "Requests a \"while you were away\" recap for a loaded session; acks `accepted` and settles exactly once on `recap/completed` — one in flight per session, host-enforced 45s timeout.", "params": "RecapRequestParams", "result": "RecapRequestResult"},
     "session/compact": {"description": "Compacts the session's conversation context; runs asynchronously, so the ack is admission only.", "params": "SessionCompactParams", "result": "SessionCompactResult"},
     "session/fork": {"description": "Branches a session into a new id whose log copies the source through a cut point, with durable provenance.", "params": "SessionForkParams", "result": "SessionForkResult"},
     "session/leave": {"description": "Admits release of one loaded session; final release or failure is pushed through session/leaveCompleted.", "params": "SessionLeaveParams", "result": "SessionLeaveResult"},
     "session/list": {"description": "Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases.", "params": "SessionListParams", "result": "SessionListResult"},
     "session/promptHint": {"description": "Picks one feature-tip table id over the client-supplied candidates; display-only, nothing is logged.", "params": "SessionPromptHintParams", "result": "SessionPromptHintResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
+    "session/readLimits": {"description": "Reads one session's effective limits — experimental, same-user socket only.", "params": "SessionReadLimitsParams", "result": "SessionReadLimitsResult"},
     "session/rename": {"description": "Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile.", "params": "SessionRenameParams", "result": "SessionRenameResult"},
     "session/reportStartupPhases": {"description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer.", "params": "SessionReportStartupPhasesParams", "result": "SessionReportStartupPhasesResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},
@@ -4095,13 +4354,13 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/sideChat": {"description": "Opens a side chat from a loaded main session, with durable provenance.", "params": "SessionSideChatParams", "result": "SessionSideChatResult"},
     "session/start": {"description": "Creates a brand-new session, loads it on this host, durably records the start, and auto-subscribes this connection.", "params": "SessionStartParams", "result": "SessionStartResult"},
     "session/userShell": {"description": "Runs a user-initiated shell command in the session's workspace; capability-gated on `userShell`.", "params": "SessionUserShellParams", "result": "SessionUserShellResult"},
-    "settings/read": {"description": "Reads the host's composed effective values for exactly the \\ the governing rules key set, re-read under the advisory lock on every \\ call; a corrupt file fails the single call, never the host \\.", "params": None, "result": "SettingsReadResult"},
-    "settings/readSchema": {"description": "Reads each key's allowed shape plus its enforced \\ managed constraint where one applies; absent constraint means \\ unmanaged.", "params": None, "result": "SettingsReadSchemaResult"},
-    "settings/writeMany": {"description": "Writes several the governing rules key paths atomically — one invalid edit fails the whole call and writes nothing; answers the per-edit folded values in edit order.", "params": "SettingsWriteManyParams", "result": "SettingsWriteManyResult"},
-    "settings/writeValue": {"description": "Writes one key path's absolute value (null clears the member to absent); answers the folded effective value.", "params": "SettingsWriteValueParams", "result": "SettingsWriteValueResult"},
-    "skill/import": {"description": "Imports foreign skills from the host's own `claude | codex` dirs \\through the single `SkillsService::import_skills` seam; answers \\per-skill installed/quarantined/skipped/failed plus counts. \\`commandId`-idempotent (including `dryRun` previews); each \\successful write is an detection point.", "params": "SkillImportParams", "result": "SkillImportResult"},
+    "settings/read": {"description": "Reads the host's composed effective values for exactly the host-owned keys, re-read under the advisory lock on every call; a corrupt file fails the single call, never the host.", "params": None, "result": "SettingsReadResult"},
+    "settings/readSchema": {"description": "Reads each host-owned key's allowed shape plus its enforced managed constraint where one applies; absent constraint means unmanaged.", "params": None, "result": "SettingsReadSchemaResult"},
+    "settings/writeMany": {"description": "Writes several host-owned key paths atomically — one invalid edit fails the whole call and writes nothing; answers the per-edit folded values in edit order.", "params": "SettingsWriteManyParams", "result": "SettingsWriteManyResult"},
+    "settings/writeValue": {"description": "Writes one host-owned key path's absolute value (null clears the member to absent); answers the folded effective value.", "params": "SettingsWriteValueParams", "result": "SettingsWriteValueResult"},
+    "skill/import": {"description": "Imports foreign skills from the host's own `claude | codex` dirs through the single `SkillsService::import_skills` seam; answers per-skill installed/quarantined/skipped/failed plus counts. `commandId`-idempotent (including `dryRun` previews); each successful write is a `skill/changed` detection point.", "params": "SkillImportParams", "result": "SkillImportResult"},
     "skill/list": {"description": "Reads the session's user-invocable skill rows — one per typed-invocable shortcut spelling, the predicate and shared name resolution by call-through; a query, not a command.", "params": "SkillListParams", "result": "SkillListResult"},
-    "skill/setActivation": {"description": "Writes one skill's activation in any scope through the single \\ `SkillsService::set_activation` seam; answers the applied \\ state plus `previous`. `commandId`-idempotent; each \\ successful write is an detection point.", "params": "SkillSetActivationParams", "result": "SkillSetActivationResult"},
+    "skill/setActivation": {"description": "Writes one skill's activation in any scope through the single `SkillsService::set_activation` seam; answers the applied state plus `previous`. `commandId`-idempotent; each successful write is a `skill/changed` detection point.", "params": "SkillSetActivationParams", "result": "SkillSetActivationResult"},
     "subagent/close": {"description": "Owner-close a child; the terminal mapping folds per the protocol spec.", "params": "SubagentOwnerReasonParams", "result": "CommandAcceptedResult"},
     "subagent/followupTask": {"description": "Queue a follow-up task for a child; admission-only ack, the task settles on the child session's view stream.", "params": "SubagentInputParams", "result": "CommandAcceptedResult"},
     "subagent/interrupt": {"description": "Ask a child to yield at its next boundary; outcome folds to the parent's subagent item.", "params": "SubagentOwnerReasonParams", "result": "CommandAcceptedResult"},
@@ -4150,14 +4409,16 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "item/started": {"description": "An item opened on the transcript.", "params": "ItemStartedParams"},
     "item/updated": {"description": "An open item changed non-terminally: full re-emission at a higher revision.", "params": "ItemUpdatedParams"},
     "log/gap": {"description": "Raw backlog collapsed for one subscription; fill (after, next) via log/page.", "params": "LogGapParams"},
+    "log/physicalLine": {"description": "One chunk of one complete physical line for a physical subscription.", "params": "LogPhysicalLineParams"},
+    "log/physicalReset": {"description": "Ends a physical subscription after a fault, naming the last fully delivered boundary.", "params": "LogPhysicalResetParams"},
     "log/record": {"description": "One raw record for an active subscription, in sequence order.", "params": "LogRecordParams"},
     "mcpServer/oauthLoginCompleted": {"description": "An MCP OAuth login flow reached a terminal outcome (granted, denied, expired, cancelled, or failed). Delivered to every experimental connection that has not opted the method out, initiator or not; never carries the authorization URL or any key material.", "params": "McpServerOAuthLoginCompletedParams"},
-    "monitor/inboxItemAdmitted": {"description": "One monitor inbox admission: the fold keys gate-off consumes \\.", "params": "MonitorInboxItemAdmittedParams"},
-    "monitor/inboxItemDrained": {"description": "One monitor inbox drain with its recorded stamp, the \\ drain-side operand of latest-wins.", "params": "MonitorInboxItemDrainedParams"},
-    "monitor/inboxItemVoided": {"description": "One wake-missed void with its recorded stamp; count-only, \\ no transcript row.", "params": "MonitorInboxItemVoidedParams"},
+    "monitor/inboxItemAdmitted": {"description": "One monitor inbox admission: the fold keys gate-off consumes.", "params": "MonitorInboxItemAdmittedParams"},
+    "monitor/inboxItemDrained": {"description": "One monitor inbox drain with its recorded stamp, the drain-side operand of latest-wins.", "params": "MonitorInboxItemDrainedParams"},
+    "monitor/inboxItemVoided": {"description": "One wake-missed void with its recorded stamp; count-only, no transcript row.", "params": "MonitorInboxItemVoidedParams"},
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
-    "recap/completed": {"description": "A recap request settled exactly once — `completed` (with \\ `text` plus optional `title`), `failed` (`providerFailed`), \\ `cancelled`, or `timedOut` — delivered to the requesting \\ connection outside the view stream.", "params": "RecapCompletedParams"},
+    "recap/completed": {"description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream.", "params": "RecapCompletedParams"},
     "session/approvalModeChanged": {"description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact.", "params": "SessionApprovalModeChangedParams"},
     "session/branchChanged": {"description": "A durable workspace-branch observation landed; null branch is a detached-HEAD fact.", "params": "SessionBranchChangedParams"},
     "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},
@@ -4208,6 +4469,7 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32023, "kind": "forkBoundaryInvalid", "retryable": False, "overrideKinds": ()},
     {"code": -32024, "kind": "sessionNotLoaded", "retryable": False, "overrideKinds": ()},
     {"code": -32025, "kind": "sessionStreamMismatch", "retryable": False, "overrideKinds": ()},
+    {"code": -32028, "kind": "limitsAboveMax", "retryable": False, "overrideKinds": ()},
     {"code": -32029, "kind": "workspaceNotTrusted", "retryable": False, "overrideKinds": ()},
     {"code": -32030, "kind": "commandRejected", "retryable": False, "overrideKinds": ()},
     {"code": -32031, "kind": "backpressured", "retryable": True, "overrideKinds": ()},
@@ -4239,4 +4501,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32072, "kind": "admissionChoiceInvalid", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging", "rawLogPhysical",)

@@ -80,7 +80,7 @@ __all__ = [
 ]
 
 EXPECTED_SCHEMA_FINGERPRINT: Final[str] = (
-    "sha256:f282ad16e21520d0cda68cb190149b86e2b062eef1dd282749360c05aa3d1082"
+    "sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0"
 )
 """The stable schema-bundle fingerprint this SDK was built against.
 
@@ -92,7 +92,7 @@ Python SDK reds this lane instead of drifting silently.
 # The lockstep rule: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
 # time.
-__version__: Final[str] = "1.4.11"
+__version__: Final[str] = "1.4.12"
 
 # The facade is imported last so the constants above are already bound: the
 # spawn path reads ``EXPECTED_SCHEMA_FINGERPRINT`` (lazily, at initialize

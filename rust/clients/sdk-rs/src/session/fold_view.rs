@@ -6,7 +6,7 @@ use serde_json::Value;
 use super::{Session, SessionInner};
 use crate::client::lock;
 use crate::fold::{DeliveryGap, PendingApproval, SessionFold, Turn};
-use crate::msp::{Notification, ViewGapParams};
+use crate::msp::{HistoryMode, Notification, ViewGapParams};
 
 impl Session {
     /// A read view of this session's fold.
@@ -75,7 +75,9 @@ impl SessionFoldView<'_> {
     /// The turn whose `turn/started` the fold applied last, until that turn
     /// completes, is retracted or is unqueued. On a resumed session the turn
     /// running at resume shows here only if the resume's streamed events
-    /// replay its `turn/started`; [`Session::opening`] names that turn.
+    /// replay its `turn/started`; [`Session::opening`] names that turn in
+    /// `session.activeTurnId`, but if its `lastTurn` names the same turn, that
+    /// turn has ended.
     pub fn active_turn_id(&self) -> Option<String> {
         self.read(|fold| fold.active_turn_id().map(str::to_owned))
     }
@@ -226,9 +228,15 @@ pub(crate) fn drop_unreadable_snapshot(result: &mut Value) -> Option<u64> {
     Some(version)
 }
 
-/// The raw items a resume served, inline or in its snapshot. Seeding from
-/// the raw objects keeps members this SDK does not know.
-pub(crate) fn resume_history_items(result: &Value) -> &[Value] {
+/// The raw items a resume served, inline or in its snapshot, under the
+/// result's decoded `mode`. Seeding from the raw objects keeps members this
+/// SDK does not know. A history mode this SDK does not know seeds nothing:
+/// its reading is "page it yourself", so no member it carries is read as
+/// history.
+pub(crate) fn resume_history_items<'a>(result: &'a Value, mode: &HistoryMode) -> &'a [Value] {
+    if matches!(mode, HistoryMode::Unknown(_)) {
+        return &[];
+    }
     ["/history/items", "/history/snapshot/state/items"]
         .iter()
         .find_map(|pointer| result.pointer(pointer).and_then(Value::as_array))

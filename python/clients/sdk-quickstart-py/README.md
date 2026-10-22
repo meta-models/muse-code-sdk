@@ -11,9 +11,9 @@ snippet on this page to the program's own source — so it cannot go stale.
 
 ## What you need
 
-- Python 3.10 or newer, with the two SDK packages importable
-  (`pip install muse-code-sdk muse-code-msp`, or editable installs of
-  `clients/msp-py` and `clients/sdk-py` from this tree).
+- Python 3.10 or newer, with the SDK importable (`pip install muse-code-sdk`,
+  which brings the wire-types package `muse-code-msp` with it, or editable
+  installs of `clients/msp-py` and `clients/sdk-py` from this tree).
 - A `muse` binary: an installed Muse Code CLI, or a release build of the
   host. Its MSP surface is what your program talks to.
 

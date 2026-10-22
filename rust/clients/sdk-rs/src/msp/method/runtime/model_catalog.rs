@@ -61,6 +61,8 @@ pub struct ModelCost {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UnknownModelReasoningEffortVariants {
+    /// The wire value `"unknown"`: the host does not know which reasoning
+    /// efforts the model supports.
     Unknown,
 }
 
@@ -68,7 +70,10 @@ pub enum UnknownModelReasoningEffortVariants {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ModelReasoningEffortVariants {
+    /// The model's complete, ordered list of selectable reasoning efforts; an
+    /// empty list means the model offers no effort choice.
     Known(Vec<crate::msp::method::turn::ReasoningEffort>),
+    /// The host does not know which reasoning efforts this model supports.
     Unknown(UnknownModelReasoningEffortVariants),
 }
 

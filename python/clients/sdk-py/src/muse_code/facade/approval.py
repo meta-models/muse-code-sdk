@@ -61,6 +61,7 @@ _REFRESH_FROM_UPDATE = frozenset(
 _REFRESH_FROM_REQUEST = frozenset(
     {
         "approvalId",
+        "cuaCardFacts",
         "itemId",
         "judgeEscalated",
         "protectedWrite",
@@ -297,6 +298,10 @@ class ApprovalRouter:
         # Omitted rather than nulled when absent, like ``feedback`` below.
         if "subagentOrigin" in params:
             refreshed["subagentOrigin"] = params["subagentOrigin"]
+        # A Computer Use card's facts belong to the call, so they stay with
+        # the retained request across stages.
+        if "cuaCardFacts" in requested:
+            refreshed["cuaCardFacts"] = requested["cuaCardFacts"]
         acked = self._in_flight.get(requested["approvalId"])
         if acked is not None:
             return self._after_ack(acked, refreshed)

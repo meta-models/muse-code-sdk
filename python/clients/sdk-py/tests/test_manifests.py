@@ -3,7 +3,7 @@
 The governing rule: the two package manifests carry the chartered shape
 (names, floor, wheel purity, license, ``py.typed``), the dependency posture
 holds (zero runtime deps in ``muse_code_msp``; exactly one exact-pinned
-pydantic in ``muse_code``; every dev tool exact-pinned in the committed
+pydantic plus ``muse-code-msp`` at the facade's own version in ``muse_code``; every dev tool exact-pinned in the committed
 lock), and the schema-fingerprint pin binds to the stable bundle manifest so
 a schema advance that forgets the Python SDK reds this lane.
 """
@@ -66,12 +66,16 @@ def test_facade_package_manifest_shape() -> None:
     assert project["name"] == "muse-code-sdk"
     assert project["requires-python"] == ">=3.10"
     deps = project.get("dependencies", [])
-    assert len(deps) == 1, (
+    assert len(deps) == 2, (
         f"muse_code declares {len(deps)} runtime dependencies; the ruled "
-        "grant is exactly one (pydantic, exact pin)"
+        "grant is exactly two: pydantic (exact pin) and the companion "
+        "wire-types package at the facade's own version"
     )
     assert re.fullmatch(r"pydantic==\d+(\.\d+)+", deps[0]), (
         f"the pydantic dependency must be an exact pin, got: {deps[0]!r}"
+    )
+    assert deps[1] == f"muse-code-msp=={project['version']}", (
+        f"the wire-types dependency must be pinned to the facade's own version, got: {deps[1]!r}"
     )
     assert "license" in project
     assert (SDK_DIR / "src" / "muse_code" / "py.typed").is_file()

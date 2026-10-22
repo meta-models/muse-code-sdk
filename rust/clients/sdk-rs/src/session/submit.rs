@@ -49,7 +49,10 @@ impl Session {
     /// turn's terminal if this session applied it before the claim, as it
     /// does one received before the answer unless a pending view-gap fill
     /// holds that one back; otherwise it replays the turn's held history and
-    /// settles as [`TurnOutcome::Ended`](crate::turn::TurnOutcome::Ended).
+    /// settles as [`TurnOutcome::Ended`](crate::turn::TurnOutcome::Ended),
+    /// unless the session's event source has failed, or it keeps no route for
+    /// that turn and already follows as many turns as it can, when the `Turn`
+    /// fails instead.
     pub async fn send_user_turn(&self, options: SendUserTurnOptions) -> FacadeResult<Turn> {
         self.inner.ensure_available()?;
         let command_id = self.inner.client.mint_command_id()?;
@@ -247,13 +250,9 @@ impl SessionInner {
                 return turn;
             }
         }
+        // Every turn returned here is settled under this guard, so it needs no
+        // discard owner.
         let turn = self.claim_turn_locked(&mut state, &result.turn_id);
-        let turn = match &result.disposition {
-            TurnStartDisposition::Started | TurnStartDisposition::Queued => {
-                turn.with_discard(command_id.to_owned())
-            }
-            TurnStartDisposition::Steered | TurnStartDisposition::Unknown(_) => turn,
-        };
         // No terminal for it was applied before this claim, and the resume says
         // it already ended: settle the route the claim opened from the resume's
         // own restatement. A claim the session refused opens no route, so its

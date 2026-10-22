@@ -211,8 +211,10 @@ async fn retry_safe() -> Result<(), Box<dyn std::error::Error>> {
             ..ResumeSessionOptions::default()
         })
         .await?;
-    // The original command ids make this a retry: a written intake replays its
-    // first decision instead of running the work a second time.
+    // The original command ids make this a retry: a written intake the new
+    // host can still read replays its first decision instead of running the
+    // work a second time. A host that cannot read it takes the resend as new
+    // and may run the work again.
     let result = retry_result(resumed.resolve_reconnect(carried).await).await;
     drop(first_attempt);
     reconnected.client.close().await;
@@ -242,9 +244,10 @@ async fn settle_retries(resolutions: Vec<ReconnectResolution>) -> Vec<io::Error>
             Ok(Reconnected::Live(turn)) => {
                 live_retry_failure(turn.turn_id(), drain_turn(&turn).await)
             }
-            // The resend replayed a turn that had already ended, so the work
-            // did not run twice. That turn's terminal is the first attempt's,
-            // usually the cancellation this recipe's own close caused.
+            // The resend named the turn the resume restated as ended, usually
+            // ended by this recipe's own close. A host that could read the
+            // first admission replayed it; one that could not may have run the
+            // work again.
             Ok(Reconnected::Ended { last_turn, .. }) => {
                 print_last_turn_terminal(
                     &last_turn.turn_id,
@@ -1021,7 +1024,7 @@ mod tests {
     }
 
     /// Every entry is handled, so a refusal does not stop the ones after it;
-    /// an `Ended` entry is a replay of a turn that already ended, whatever its
+    /// an `Ended` entry names a turn the resume restated as ended, whatever its
     /// terminal, so it is not a failed retry.
     #[test]
     fn retry_safe_recipe_reports_each_refused_resend_and_passes_a_replayed_end()

@@ -13,9 +13,8 @@ pub(crate) mod vocabulary;
 
 /// One row of the Cron `list` receipt's `jobs` array.
 ///
-/// Server order, and **`active` + `firing` rows only** — the owner's `Serve
-/// active+firing only` directive. A small fixed-shape array of scalars, which
-/// is what keeps it inside the governing rules bounded-machine-fact rule.
+/// Server order, and **`active` + `firing` rows only**. A small fixed-shape
+/// array of scalars, which is what keeps it a bounded machine fact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -29,20 +28,18 @@ pub struct CronReceiptJob {
 /// Cron's `details` payload.
 ///
 /// Every field a family owns lives here, under the container's one `details`
-/// key, rather than flat beside the discriminators — the governing rules as
-/// amended. Each is a **bounded machine fact**: scalars, short identifiers and
-/// a small fixed-shape array of those.
+/// key, rather than flat beside the discriminators. Each is a **bounded machine
+/// fact**: scalars, short identifiers and a small fixed-shape array of those.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct CronReceipt {
     /// Cron `create` and `delete`: the job id. On `delete`'s `missing` arm this
-    /// is the caller's own id echoed back under the governing rules declared
-    /// echo — that arm has no server-side subject to name.
+    /// is the caller's own id echoed back — that arm has no server-side subject
+    /// to name.
     ///
-    /// Also the field governing rules declaration names as conveying the hidden
-    /// fact on the declared `created` + `cancelled` pairing: a job row was
-    /// committed and will fire.
+    /// On the `created` + `cancelled` pairing, this field also conveys the
+    /// hidden fact: a job row was committed and will fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<String>,
     /// Cron `create` (`created`, `duplicate`): absolute epoch-milliseconds of
@@ -58,13 +55,13 @@ pub struct CronReceipt {
 /// The family-selected body of a receipt: the `family` discriminator and the
 /// one `details` object whose shape that discriminator chooses.
 ///
-/// Adjacently tagged in spirit — `tag = "family"`, `content = "details"` — but
-/// written by hand rather than derived, for one reason: serde's
+/// Adjacently tagged in spirit — `tag = "family"`, `content = "details"` —
+/// but written by hand rather than derived, for one reason: serde's
 /// `#[serde(other)]` fallback admits only a **unit** variant, which would
-/// discard both the unrecognized family word and its `details`. the governing
-/// rules openness requires the opposite: an unknown value is preserved verbatim
-/// so a client falls back only for the part it does not recognize. The
-/// `Unknown` arm therefore keeps both.
+/// discard both the unrecognized family word and its `details`. The open
+/// vocabulary requires the opposite: an unknown value is preserved verbatim so
+/// a client falls back only for the part it does not recognize. The `Unknown`
+/// arm therefore keeps both.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ToolReceiptBody {

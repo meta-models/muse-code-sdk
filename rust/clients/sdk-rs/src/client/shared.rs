@@ -228,16 +228,14 @@ struct RouterState {
     // Every session id that registered. A resume is counted under the id it
     // asked for, so this catches a reply that names an id already registered.
     registered: HashSet<String>,
-    // Set in the same critical section as `close()`'s snapshot: a session
-    // registering after it is one `close()` never saw.
+    // Set in the same critical section as `close()`'s snapshot, unless the
+    // transport-end sweep's came first: a session registering after it is one
+    // `close()` never saw. Once set it stays set, so the earlier snapshot wins.
     closed: bool,
     // Set in the same critical section as the transport-end sweep's snapshot,
     // which also drains `unrouted`: a session registering after it is one
     // that sweep never saw.
     transport_swept: bool,
-    // Whether the sweep's snapshot came before `close()`'s, so a session
-    // registering after both settles as the earlier one did for its peers.
-    swept_before_close: bool,
     // Sessions `close()` never saw, held for that sweep: it finds no route
     // for them.
     unrouted: Vec<Weak<SessionInner>>,
@@ -291,7 +289,7 @@ impl NotificationRouter {
         let newer = session.downgrade();
         let (should_drain, replaced, reopened) = {
             let mut state = lock(&self.state);
-            if state.closed && !state.swept_before_close {
+            if state.closed {
                 return Registration::AfterClose;
             }
             if state.transport_swept {
@@ -359,13 +357,14 @@ impl NotificationRouter {
         true
     }
 
-    /// `close()`'s snapshot: it also marks the router closed, so a session
-    /// registering later knows `close()` never saw it.
+    /// `close()`'s snapshot: unless the transport-end sweep's came first, it
+    /// also marks the router closed, so a session registering later knows
+    /// `close()` never saw it.
     fn sessions_for_close(&self) -> Vec<Arc<SessionInner>> {
         let mut state = lock(&self.state);
-        // `close()` takes this snapshot once, behind the client's closed flag.
-        state.swept_before_close = state.transport_swept;
-        state.closed = true;
+        if !state.transport_swept {
+            state.closed = true;
+        }
         state.terminal_snapshot()
     }
 }

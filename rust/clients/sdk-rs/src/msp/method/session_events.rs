@@ -6,8 +6,6 @@ use super::session::Session;
 use serde::Deserialize;
 use serde::Serialize;
 
-mod catch_all;
-
 /// `session/statusChanged` params: a loaded session's projected `(status,
 /// attention)` value flipped. A command-plane broadcast — delivered to every
 /// connection regardless of its view subscription set, never gated, no
@@ -53,7 +51,8 @@ pub enum SessionStatus {
     /// Loaded, a run in flight.
     Running,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }
 
@@ -121,6 +120,7 @@ pub enum SessionClosedReason {
     /// `session/leaveCompleted` terminal.
     Leave,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }

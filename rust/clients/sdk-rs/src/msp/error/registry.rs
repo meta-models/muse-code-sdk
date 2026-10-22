@@ -11,14 +11,19 @@ pub const SESSION_NOT_LOADED_CODE: i64 = -32024;
 /// write lane refuses before it can append a fabricated history.
 pub const SESSION_STREAM_MISMATCH_CODE: i64 = -32025;
 
+/// The session-lifecycle wire code for [`ErrorKind::LimitsAboveMax`]: one
+/// shared symbol so the `session/start` producer and test assertions cannot
+/// drift on the literal.
+pub const LIMITS_ABOVE_MAX_CODE: i64 = -32028;
+
 /// The v1 error codes enrolled in the public bundle.
 ///
 /// Enrolment tracks what the BINARY can emit, not what the bundle's method
-/// index has reached: the protocol spec makes the export exact for the binary
-/// that produced it, so a code a v1 host puts on the wire is enrolled here even
-/// while its method's params/result types are still pending. The
-/// `-32060…-32069` the protocol spec block stays out because it is deferred
-/// whole and a v1 host never emits it.
+/// index has reached: the export is exact for the binary that produced it, so a
+/// code a v1 host puts on the wire is enrolled here even while its method's
+/// params/result types are still pending. Of the `-32060…-32069` raw-log block,
+/// only the five experimental rows are enrolled; the rest stays out because a
+/// v1 host never emits it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorCode {
@@ -57,6 +62,9 @@ pub enum ErrorCode {
     /// `-32025` — the store's own stream id is not the requested session
     /// (a moved or renamed session directory).
     SessionStreamMismatch,
+    /// `-32028` — a `session/start` choice is wider than the host ceiling on at
+    /// least one axis.
+    LimitsAboveMax,
     /// `-32029` — a worktree action names an untrusted repository.
     WorkspaceNotTrusted,
     /// `-32030` — durable runtime rejection; `data.reason` is snake_case.
@@ -178,11 +186,10 @@ const fn preempted(code: i64, kind: ErrorKind) -> ErrorCodeDefinition {
 }
 
 impl ErrorCode {
-    /// Every code enrolled in the public bundle, in the protocol spec order:
-    /// the 37 stable rows plus the 5 experimental the protocol spec rows, the
-    /// experimental row, and the 3 experimental a tracked change rows, which
-    /// render only in the experimental bundle.
-    pub const ALL: [Self; 46] = [
+    /// Every code enrolled in the public bundle, in registry order: the 37
+    /// stable rows plus 10 experimental rows (5 raw-log, 1 workspace-trust, 1
+    /// limits, 3 admission), which render only in the experimental bundle.
+    pub const ALL: [Self; 47] = [
         Self::ParseError,
         Self::InvalidRequest,
         Self::MethodNotFound,
@@ -200,6 +207,7 @@ impl ErrorCode {
         Self::ForkBoundaryInvalid,
         Self::SessionNotLoaded,
         Self::SessionStreamMismatch,
+        Self::LimitsAboveMax,
         Self::WorkspaceNotTrusted,
         Self::CommandRejected,
         Self::Backpressured,
@@ -231,12 +239,12 @@ impl ErrorCode {
         Self::AdmissionChoiceInvalid,
     ];
 
-    /// This code's complete the protocol spec row. Keeping the row together
-    /// prevents the generated bundle columns from drifting across separate
-    /// matches, so this stays ONE wildcard-free match over every variant: a new
-    /// code fails to compile until its row exists. The three shape helpers
-    /// below carry the `retryable` column's vocabulary — a shared name per
-    /// column value, not a default anyone can inherit by omission.
+    /// This code's complete registry row. Keeping the row together prevents
+    /// the generated bundle columns from drifting across separate matches, so
+    /// this stays ONE wildcard-free match over every variant: a new code fails
+    /// to compile until its row exists. The three shape helpers below carry the
+    /// `retryable` column's vocabulary — a shared name per column value, not a
+    /// default anyone can inherit by omission.
     const fn definition(self) -> ErrorCodeDefinition {
         match self {
             Self::ParseError => fatal(-32700, ErrorKind::ParseError),
@@ -282,6 +290,9 @@ impl ErrorCode {
                 SESSION_STREAM_MISMATCH_CODE,
                 ErrorKind::SessionStreamMismatch,
             ),
+            Self::LimitsAboveMax => {
+                ErrorCodeDefinition::experimental(LIMITS_ABOVE_MAX_CODE, ErrorKind::LimitsAboveMax)
+            }
             Self::WorkspaceNotTrusted => {
                 ErrorCodeDefinition::experimental(-32029, ErrorKind::WorkspaceNotTrusted)
             }

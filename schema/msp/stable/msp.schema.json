@@ -1,11 +1,14 @@
 {
   "$defs": {
     "ApprovalAmendment": {
+      "description": "The policy rule a decision created, in display form; the full rule is not\nincluded.",
       "properties": {
         "durability": {
-          "$ref": "#/$defs/ApprovalAmendmentDurability"
+          "$ref": "#/$defs/ApprovalAmendmentDurability",
+          "description": "How long the rule lasts: `session` or `localPersistent`."
         },
         "rulePreview": {
+          "description": "A human-readable preview of the rule, for display.",
           "type": "string"
         }
       },
@@ -16,6 +19,7 @@
       "type": "object"
     },
     "ApprovalAmendmentDurability": {
+      "description": "How long a rule created by an approval decision lasts. The set is open, so\nnewer hosts may send other values.",
       "enum": [
         "session",
         "localPersistent"
@@ -24,30 +28,39 @@
       "x-msp-openness": "open"
     },
     "ApprovalChange": {
+      "description": "The change an `approval/updated` event reports. `kind` says what happened,\nand only the fields for that kind are present.",
       "properties": {
         "choiceId": {
+          "description": "The `choiceId` that satisfied the stage. Present only when `kind` is\n`stageResolved`.",
           "type": "string"
         },
         "decision": {
-          "$ref": "#/$defs/ApprovalDecision"
+          "$ref": "#/$defs/ApprovalDecision",
+          "description": "The decision the chosen option applied to the stage. Present only when\n`kind` is `stageResolved`."
         },
         "executable": {
+          "description": "A recovery detail: whether the action could run without a new decision.\nPresent only when `kind` is `restartRecovered`.",
           "type": "boolean"
         },
         "kind": {
+          "description": "What happened: for example `stageResolved` (a shell stage was\nsatisfied), `policyPersistence` (saving a rule succeeded or failed),\n`reviewStarted` or `reviewCompleted` (the automated LLM judge started or\nfinished reviewing), `restartRecovered` (a host restart recovered this\napproval: either the host first resolves it `abort` and a re-ask comes\nas a new approval with a new `approvalId`, or it stays pending under\nthe same `approvalId` with refreshed choices) or `alreadyTerminal`\n(recovery found it already decided). The set is open, so newer hosts\nmay add kinds.",
           "type": "string"
         },
         "reason": {
+          "description": "Why saving the policy rule failed, as human-readable text. Present only\nwhen `kind` is `policyPersistence` and `status` is `failed`.",
           "type": "string"
         },
         "reparsed": {
+          "description": "A recovery detail: whether the command was re-parsed during recovery.\nPresent only when `kind` is `restartRecovered`.",
           "type": "boolean"
         },
         "requirementId": {
-          "$ref": "#/$defs/ApprovalRequirementRef"
+          "$ref": "#/$defs/ApprovalRequirementRef",
+          "description": "The stage requirement that was satisfied. Present only when `kind` is\n`stageResolved`."
         },
         "status": {
-          "$ref": "#/$defs/ApprovalPersistenceStatus"
+          "$ref": "#/$defs/ApprovalPersistenceStatus",
+          "description": "Whether saving the policy rule succeeded or failed; present only when\n`kind` is `policyPersistence`. A failure does not undo the decision;\nonly the saved rule is missing."
         }
       },
       "required": [
@@ -56,24 +69,31 @@
       "type": "object"
     },
     "ApprovalChoice": {
+      "description": "One option the server offers for deciding an approval. Clients pick one and\nsend its `choiceId` in `approval/decide`; they never build their own.",
       "properties": {
         "acceptsFeedback": {
+          "description": "`true` when this choice takes optional `feedback` text in\n`approval/decide`, which reaches the model as guidance. Omitted when\n`false`.",
           "type": "boolean"
         },
         "choiceId": {
+          "description": "The id to send as `choiceId` in `approval/decide`. The set of ids is\nopen, so show `label` and do not base behavior on specific ids.",
           "type": "string"
         },
         "decision": {
-          "$ref": "#/$defs/ApprovalDecision"
+          "$ref": "#/$defs/ApprovalDecision",
+          "description": "The decision this choice applies, so a client can act on approve or\nreject without knowing choice ids."
         },
         "label": {
+          "description": "The human-readable label to show for this choice.",
           "type": "string"
         },
         "rulePreview": {
+          "description": "A human-readable preview of what this choice grants, such as the policy\nrule it would create; show it exactly as given.",
           "type": "string"
         },
         "scope": {
-          "$ref": "#/$defs/ApprovalChoiceScope"
+          "$ref": "#/$defs/ApprovalChoiceScope",
+          "description": "The grant duration this choice declares: `once` (this request only),\n`session` (the rest of the session) or `localPersistent` (saved in the\nlocal policy store)."
         }
       },
       "required": [
@@ -85,6 +105,7 @@
       "type": "object"
     },
     "ApprovalChoiceScope": {
+      "description": "How long a grant made by a choice lasts. The set is open, so newer hosts may\nsend other values.",
       "enum": [
         "once",
         "session",
@@ -92,6 +113,105 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "ApprovalCuaCardFacts": {
+      "description": "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`.",
+      "properties": {
+        "page": {
+          "$ref": "#/$defs/ApprovalCuaPage",
+          "description": "For a browser, the host of the window's current page."
+        },
+        "steps": {
+          "description": "Only the consequential steps, in call order.",
+          "items": {
+            "$ref": "#/$defs/ApprovalCuaStep"
+          },
+          "type": "array"
+        },
+        "windowTitle": {
+          "description": "The target window's title: the app's own text, which a page can set;\na client shows it quoted and as plain text, never as markup or a\nchoice, and may cap it.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ApprovalCuaPage": {
+      "description": "The page's full host, no path or query.",
+      "properties": {
+        "host": {
+          "description": "The host in Unicode.",
+          "type": "string"
+        },
+        "hostAscii": {
+          "description": "The host's `xn--` form; equal to `host` when they don't differ.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "hostAscii"
+      ],
+      "type": "object"
+    },
+    "ApprovalCuaPoint": {
+      "description": "A point in the model's 0–1000 coordinates.",
+      "properties": {
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ApprovalCuaStep": {
+      "description": "One consequential step. A client renders \"Step N: <action> <roleWord>\n\"<label>\" — <effect>\"; a key step names its `chord`, and only a step with\na `point` (and no label or chord) reads \"at x,y\".",
+      "properties": {
+        "action": {
+          "description": "The host's verb phrase, such as `click` or `type into`.",
+          "type": "string"
+        },
+        "chord": {
+          "description": "The chord, for a key step.",
+          "type": "string"
+        },
+        "effect": {
+          "description": "The host's trusted sentence for what the step may do.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "An open tag for styling and tests only (`verb:<class>`, `unresolved`,\n`unlabeled`); a client that doesn't know a value renders the step from\n`effect` and its label as usual.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The control's label: the app's own text, shown quoted and as plain\ntext; a client may cap it.",
+          "type": "string"
+        },
+        "point": {
+          "$ref": "#/$defs/ApprovalCuaPoint",
+          "description": "The step's own 0–1000 model coordinates, only for a point step."
+        },
+        "roleWord": {
+          "description": "`button`, `link`, `menu item` or `key`; absent for a point step.",
+          "type": "string"
+        },
+        "step": {
+          "description": "1-based, as the batch numbers its steps.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "effect",
+        "kind",
+        "step"
+      ],
+      "type": "object"
     },
     "ApprovalDecideParams": {
       "description": "`approval/decide` params (tdd SS5.4): the decision. A standard SS3\ncommand — requires the session loaded on this host, requires `commandId`,\ndurable intake before ack, value-identical replay.",
@@ -162,6 +282,7 @@
       "type": "object"
     },
     "ApprovalDecision": {
+      "description": "The kind of decision a choice applies or an approval received. The set is\nopen, so newer hosts may send values this version does not list.",
       "enum": [
         "approved",
         "approvedForSession",
@@ -191,14 +312,14 @@
       "description": "`approval/listPending` result (tdd SS5.7). Ordering is by opening\n`viewCursor`; empty arrays when nothing is pending. The result is\npoint-in-time — to act on it race-safely, `approval/decide` carries the\n`requirementId` guard regardless of how the client learned the state.",
       "properties": {
         "approvals": {
-          "description": "Exactly the `approval/request` params of tdd SS5.3, one per pending\napproval.",
+          "description": "Exactly the `approval/request` params, one per pending approval.",
           "items": {
             "$ref": "#/$defs/ApprovalRequestParams"
           },
           "type": "array"
         },
         "userInputs": {
-          "description": "Exactly the `userInput/request` params of tdd SS5.10, one per pending\nprompt.",
+          "description": "Exactly the `userInput/request` params, one per pending prompt.",
           "items": {
             "$ref": "#/$defs/UserInputRequestParams"
           },
@@ -242,14 +363,18 @@
       "x-msp-openness": "open"
     },
     "ApprovalOrigin": {
+      "description": "What triggered a tool action, shown so the user can judge it. It is\ndisplay-only and untrusted, and policy rules never match on it.",
       "properties": {
         "command": {
+          "description": "The shell command whose process asked for the action. Present when\n`kind` is `shellCommand`.",
           "type": "string"
         },
         "kind": {
+          "description": "Which kind of origin this is: `shellCommand` or `url`.",
           "type": "string"
         },
         "url": {
+          "description": "The full URL a fetch tool is requesting. Present when `kind` is `url`.",
           "type": "string"
         }
       },
@@ -259,6 +384,7 @@
       "type": "object"
     },
     "ApprovalPersistenceStatus": {
+      "description": "The result of saving a granted rule to the local policy store. The set is\nopen, so newer hosts may send other values.",
       "enum": [
         "succeeded",
         "failed"
@@ -267,6 +393,7 @@
       "x-msp-openness": "open"
     },
     "ApprovalPolicyResult": {
+      "description": "Whether an approval's final decision lets the action run. The set is open,\nso newer hosts may send other values.",
       "enum": [
         "allow",
         "deny"
@@ -278,55 +405,74 @@
       "description": "Full params shared by `approval/request` and `approval/requested`.",
       "properties": {
         "approvalId": {
+          "description": "The approval's stable id. Match `approval/decide`, `approval/updated`\nand `approval/resolved` by it, never by the JSON-RPC request id, which\nbelongs to one connection.",
           "type": "string"
         },
         "availableChoices": {
+          "description": "The choices the server offers for the current requirement. Send the\nchosen one's `choiceId` in `approval/decide`; clients never build their\nown.",
           "items": {
             "$ref": "#/$defs/ApprovalChoice"
           },
           "type": "array"
         },
+        "cuaCardFacts": {
+          "$ref": "#/$defs/ApprovalCuaCardFacts",
+          "description": "A Computer Use card's facts: the page, the window and each step that\nmay have an effect, in the host's words; absent on every other\napproval."
+        },
         "currentRequirementId": {
-          "$ref": "#/$defs/ApprovalRequirementRef"
+          "$ref": "#/$defs/ApprovalRequirementRef",
+          "description": "The requirement the next decision must target; send it unchanged as\n`requirementId` in `approval/decide`. For `shell` it names the first\nstage still needing a decision; for other kinds its `sourceIndex` is 0."
         },
         "itemId": {
+          "description": "The `toolCall` view item waiting on this approval.",
           "type": "string"
         },
         "judgeEscalated": {
+          "description": "`true` when the automated LLM judge saw this request first and handed it\nto a person without deciding. A display hint only. The host sends it\nas `false` when it re-issues the request after a restart or on\n`session/resume`; a re-send for a later stage keeps it.",
           "type": "boolean"
         },
         "protectedWrite": {
+          "description": "`true` when this approval guards a write to a protected file. Only\nallow-once and reject choices are offered, and a decision is accepted\nonly while at least one client is subscribed to the session.",
           "type": "boolean"
         },
         "rawArgs": {
+          "description": "The tool call's arguments as a string, usually JSON. With `toolName`, it\nlets a client show a subject whose `kind` it does not recognize.",
           "type": "string"
         },
         "sessionId": {
+          "description": "The owning session. For a subagent's approval shown on the parent, this\nis the parent session.",
           "type": "string"
         },
         "sourceRange": {
-          "$ref": "#/$defs/SourceRange"
+          "$ref": "#/$defs/SourceRange",
+          "description": "The stored records this event was folded from: an opaque token clients\nmust not interpret."
         },
         "subagentOrigin": {
           "$ref": "#/$defs/ApprovalSubagentOrigin",
           "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
         },
         "subject": {
-          "$ref": "#/$defs/ApprovalSubject"
+          "$ref": "#/$defs/ApprovalSubject",
+          "description": "What the approval is for. Show a `kind` you do not recognize\ngenerically, and never auto-approve it."
         },
         "taskId": {
+          "description": "The id of the task running the tool call.",
           "type": "string"
         },
         "toolCallId": {
+          "description": "The model provider's id for this tool call.",
           "type": "string"
         },
         "toolName": {
+          "description": "The name of the tool being called.",
           "type": "string"
         },
         "turnId": {
+          "description": "The turn whose tool call is waiting on this approval.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "The cursor of the `approval/requested` event that opened this request.\nA re-send for a later stage keeps this cursor, so `view/page` at it\nreturns the opening stage, which may be older than this payload.",
           "type": "string"
         }
       },
@@ -350,12 +496,14 @@
       "type": "object"
     },
     "ApprovalRequirementRef": {
-      "description": "Approval-stage token carried in SS5 params and stale-requirement errors.",
+      "description": "Identifies one requirement of an approval: for a `shell` approval, one\nstage. A client sends it back as `requirementId` in `approval/decide`, and a\nstale-requirement error names the current one.",
       "properties": {
         "approvalId": {
+          "description": "The approval this requirement belongs to.",
           "type": "string"
         },
         "sourceIndex": {
+          "description": "The requirement's index within the approval, counting from 0; an\napproval with a single requirement uses 0.",
           "type": "integer"
         }
       },
@@ -369,12 +517,15 @@
       "description": "Winning terminal returned to a losing `approval/decide` command.",
       "properties": {
         "decision": {
+          "description": "The winning decision, as an `approval/resolved` decision value such as\n`approved` or `abort`.",
           "type": "string"
         },
         "resolvedBy": {
+          "description": "Who made the winning decision, such as `user`, `policy` or `llmJudge`.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "The view cursor of the winning `approval/resolved` event.",
           "type": "string"
         }
       },
@@ -386,6 +537,7 @@
       "type": "object"
     },
     "ApprovalResolvedBy": {
+      "description": "Who or what made an approval's final decision. The set is open, so newer\nhosts may send other values.",
       "enum": [
         "user",
         "policy",
@@ -398,9 +550,11 @@
       "description": "`approval/resolved` params: the first durable terminal decision.",
       "properties": {
         "amendment": {
-          "$ref": "#/$defs/ApprovalAmendment"
+          "$ref": "#/$defs/ApprovalAmendment",
+          "description": "The policy rule the decision created. Present only when the decision\ncreated one."
         },
         "approvalId": {
+          "description": "The approval that was decided.",
           "type": "string"
         },
         "decidedAt": {
@@ -408,27 +562,35 @@
           "type": "string"
         },
         "decidedByCommandId": {
+          "description": "The `commandId` of the `approval/decide` command that won. Absent when\nno such command made the decision, for example a policy or LLM judge\ndecision.",
           "type": "string"
         },
         "decision": {
-          "$ref": "#/$defs/ApprovalDecision"
+          "$ref": "#/$defs/ApprovalDecision",
+          "description": "The final decision."
         },
         "itemId": {
+          "description": "The `toolCall` view item this approval was holding.",
           "type": "string"
         },
         "policyResult": {
-          "$ref": "#/$defs/ApprovalPolicyResult"
+          "$ref": "#/$defs/ApprovalPolicyResult",
+          "description": "Whether the final decision lets the action run (`allow`) or blocks it\n(`deny`)."
         },
         "resolvedBy": {
-          "$ref": "#/$defs/ApprovalResolvedBy"
+          "$ref": "#/$defs/ApprovalResolvedBy",
+          "description": "Who or what made the decision: `user`, `policy` or `llmJudge`."
         },
         "sessionId": {
+          "description": "The owning session.",
           "type": "string"
         },
         "sourceRange": {
-          "$ref": "#/$defs/SourceRange"
+          "$ref": "#/$defs/SourceRange",
+          "description": "The stored records this event was folded from: an opaque token clients\nmust not interpret."
         },
         "stageEvidence": {
+          "description": "For a `shell` approval, how each stage was resolved when the decision\nbecame final. Empty for other subject kinds, and it can be empty for\n`shell` too.",
           "items": {
             "$ref": "#/$defs/ApprovalStageEvidence"
           },
@@ -439,9 +601,11 @@
           "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
         },
         "turnId": {
+          "description": "The turn whose tool call this approval was holding.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "This event's view cursor: opaque, and strictly increasing within the\nsession.",
           "type": "string"
         }
       },
@@ -460,29 +624,37 @@
       "type": "object"
     },
     "ApprovalStage": {
+      "description": "One stage of a `shell` approval: a single command from the pipeline or\ncommand list, approved separately from the others.",
       "properties": {
         "argv": {
+          "description": "The stage's command words as parsed. When `argvComplete` is `false`,\nthis can be a single unparsed piece of the command.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "argvComplete": {
+          "description": "`true` when `argv` is the stage's complete command, known before it\nruns; `false` when part of it cannot be resolved ahead of time (for\nexample a command substitution). A stage with `false` never has a\n`suggestedPrefix`.",
           "type": "boolean"
         },
         "position": {
+          "description": "This stage's 1-based position in the command; it equals\n`requirementId.sourceIndex + 1`.",
           "type": "integer"
         },
         "requirementId": {
-          "$ref": "#/$defs/ApprovalRequirementRef"
+          "$ref": "#/$defs/ApprovalRequirementRef",
+          "description": "This stage's requirement id. When it equals the approval's\n`currentRequirementId`, send it as `requirementId` in `approval/decide`."
         },
         "resolution": {
-          "$ref": "#/$defs/ApprovalStageResolution"
+          "$ref": "#/$defs/ApprovalStageResolution",
+          "description": "Whether this stage still needs a decision or, if not, how it was\nsatisfied."
         },
         "suggestedPrefix": {
-          "$ref": "#/$defs/ApprovalSuggestedPrefix"
+          "$ref": "#/$defs/ApprovalSuggestedPrefix",
+          "description": "A command prefix the host suggests always allowing in this workspace,\npresent only when one can be taken from a fully parsed stage.\n`availableChoices` shows whether that grant is offered."
         },
         "totalStages": {
+          "description": "The total number of stages in the command.",
           "type": "integer"
         }
       },
@@ -497,23 +669,29 @@
       "type": "object"
     },
     "ApprovalStageEvidence": {
+      "description": "How one stage of a `shell` approval was resolved when the decision became\nfinal.",
       "properties": {
         "argv": {
+          "description": "The stage's command words as parsed.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "position": {
+          "description": "The stage's 1-based position in the command.",
           "type": "integer"
         },
         "requirementId": {
-          "$ref": "#/$defs/ApprovalRequirementRef"
+          "$ref": "#/$defs/ApprovalRequirementRef",
+          "description": "The stage's requirement id."
         },
         "resolution": {
-          "$ref": "#/$defs/ApprovalStageResolution"
+          "$ref": "#/$defs/ApprovalStageResolution",
+          "description": "How the stage was resolved at the final decision."
         },
         "totalStages": {
+          "description": "The total number of stages in the command.",
           "type": "integer"
         }
       },
@@ -527,17 +705,21 @@
       "type": "object"
     },
     "ApprovalStageResolution": {
+      "description": "Whether a shell stage still needs a decision, or how it was satisfied.\nSatisfied stages are included so a client can show progress.",
       "properties": {
         "argvPrefix": {
+          "description": "The command prefix saved as an always-allow rule when this stage was\napproved. Present only when `kind` is `policyAmendment`.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "diagnostic": {
+          "description": "Free-form text naming the rule or mode that allowed the stage, for\ndisplay or troubleshooting. Present only when `kind` is `policyAllow`.",
           "type": "string"
         },
         "kind": {
+          "description": "One of `unresolved`, `knownSafe`, `policyAllow`, `allowOnce` or\n`policyAmendment`. The set is open, so newer hosts may add values.",
           "type": "string"
         }
       },
@@ -573,12 +755,15 @@
       "description": "Open approval subject union. Unknown kinds are rendered generically and\nnever auto-approved by clients (tdd SS5.2).",
       "properties": {
         "access": {
+          "description": "The access asked for: `read` or `write` for `fileAccess`, `control` for\n`process`. Absent for other kinds.",
           "type": "string"
         },
         "command": {
+          "description": "The full raw shell command. Present when `kind` is `shell`.",
           "type": "string"
         },
         "host": {
+          "description": "The network host the tool wants to reach. Present when `kind` is\n`network`.",
           "type": "string"
         },
         "kind": {
@@ -586,30 +771,38 @@
           "type": "string"
         },
         "origin": {
-          "$ref": "#/$defs/ApprovalOrigin"
+          "$ref": "#/$defs/ApprovalOrigin",
+          "description": "What triggered the action (a shell command or a URL), for display only\nand untrusted. It is not sent on `shell` subjects, and policy rules\nnever match on it."
         },
         "path": {
+          "description": "For `fileAccess`, the path the tool asked to access, normalized by the\nhost (workspace-relative inside the workspace); for\n`unixSocket`, the exact resolved socket path, sent unescaped, so escape\nit before display.",
           "type": "string"
         },
         "port": {
+          "description": "The network port, present only on `network` subjects that name one. A\nsession grant made from a subject without a port covers every port.",
           "type": "integer"
         },
         "protocol": {
+          "description": "The network protocol, for example `https`. Present only on `network`\nsubjects that name one.",
           "type": "string"
         },
         "stages": {
+          "description": "The shell command split into stages that are approved separately (the\ncommands of a pipeline or command list), in order. Present on `shell`\nsubjects; it may be empty.",
           "items": {
             "$ref": "#/$defs/ApprovalStage"
           },
           "type": "array"
         },
         "target": {
+          "description": "Display text naming the process the tool wants to control. Present when\n`kind` is `process`.",
           "type": "string"
         },
         "toolName": {
+          "description": "The tool asking for the action. Present for every kind except `shell`.",
           "type": "string"
         },
         "workspaceRoot": {
+          "description": "The canonical workspace root the shell command runs in, present on\n`shell` subjects when the host knows it. Saved command-prefix rules\napply only within this root.",
           "type": "string"
         }
       },
@@ -619,14 +812,17 @@
       "type": "object"
     },
     "ApprovalSuggestedPrefix": {
+      "description": "A suggested always-allow rule for a shell stage: commands starting with\n`argvPrefix` would run in this workspace without asking.",
       "properties": {
         "argvPrefix": {
+          "description": "The leading command words the rule would allow, for example `[\"cargo\",\n\"test\"]`.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "label": {
+          "description": "A human-readable label for the suggestion, ready to show as is.",
           "type": "string"
         }
       },
@@ -640,34 +836,42 @@
       "description": "`approval/updated` params: the refreshed pending view plus one change.",
       "properties": {
         "approvalId": {
+          "description": "The approval that changed.",
           "type": "string"
         },
         "availableChoices": {
+          "description": "The refreshed choices for the current requirement.",
           "items": {
             "$ref": "#/$defs/ApprovalChoice"
           },
           "type": "array"
         },
         "change": {
-          "$ref": "#/$defs/ApprovalChange"
+          "$ref": "#/$defs/ApprovalChange",
+          "description": "What changed; `change.kind` names the kind of change."
         },
         "currentRequirementId": {
-          "$ref": "#/$defs/ApprovalRequirementRef"
+          "$ref": "#/$defs/ApprovalRequirementRef",
+          "description": "The requirement the next decision must target after this change; send it\nas `requirementId` in `approval/decide`."
         },
         "sessionId": {
+          "description": "The owning session.",
           "type": "string"
         },
         "sourceRange": {
-          "$ref": "#/$defs/SourceRange"
+          "$ref": "#/$defs/SourceRange",
+          "description": "The stored records this event was folded from: an opaque token clients\nmust not interpret."
         },
         "subagentOrigin": {
           "$ref": "#/$defs/ApprovalSubagentOrigin",
           "description": "Present only for a child (native subagent) approval projected onto\nthe parent session's plane (ADR 36182); parent-own approvals omit it."
         },
         "subject": {
-          "$ref": "#/$defs/ApprovalSubject"
+          "$ref": "#/$defs/ApprovalSubject",
+          "description": "The approval's subject, with `stages` refreshed for this change."
         },
         "viewCursor": {
+          "description": "This event's view cursor: opaque, and strictly increasing within the\nsession.",
           "type": "string"
         }
       },
@@ -701,6 +905,52 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "BackgroundTerminalCompletion": {
+      "description": "`backgroundTerminalCompletion`: the five facts the Finished cell\nrenders (ADR 50041 D3/D4). The fold reads them from the inbox\nterminal record and the backgrounded call it names; every member\nis required (empty output serializes as `\"\"`, never absent).",
+      "properties": {
+        "command": {
+          "description": "The title text gate-off shows for the backgrounded command.",
+          "type": "string"
+        },
+        "output": {
+          "description": "The completion text; empty when the terminal carries none.",
+          "type": "string"
+        },
+        "outputTruncated": {
+          "description": "True when `output` is a prefix of the terminal text.",
+          "type": "boolean"
+        },
+        "terminalStatus": {
+          "description": "One of `completed`, `failed`, `cancelled`, `timedOut`,\n`rejected` (the ItemStatus wire vocabulary, tdd SS4.4.1).",
+          "type": "string"
+        },
+        "toolCallId": {
+          "description": "The backgrounded call's call id: the live/history correlation\nkey behind the skip-when-minted rule (ADR 50041 D6).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "output",
+        "outputTruncated",
+        "terminalStatus",
+        "toolCallId"
+      ],
+      "type": "object"
+    },
+    "BlockedPrompt": {
+      "description": "The cold recall seed on `session/resume` and `session/read` results\n(ADR 50074 D2): at most one, the latest blocked Main prompt — exactly\nthe host's mirror of `prompt_recovery::replay::ReplayInput`'s choice.",
+      "properties": {
+        "text": {
+          "description": "The exact submitted prompt, verbatim — no truncation, no\nnormalization; recall fidelity requires exactness.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "BranchState": {
       "description": "The latest branch observation in the snapshot (tdd SS4.6.4, SS4.9.1).",
       "properties": {
@@ -727,7 +977,7 @@
       "type": "object"
     },
     "CapabilityName": {
-      "description": "A grantable capability name (SS1.4.4). Open: the reserved `rawLog` entry\njoins this domain as an additive open-enum extension when SS6 un-defers\n(#13929, Scenario 5 AS-3) — closed would make that a retype.",
+      "description": "A grantable capability name. Open: the experimental-only `rawLog` entry\njoins the stable domain as an additive open-enum extension when it graduates\n— closed would make that a retype.",
       "enum": [
         "userShell",
         "sessionMcp",
@@ -739,6 +989,19 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "CheckpointBoundary": {
+      "description": "A served checkpoint-prune boundary (spec 13929 amendment\nFR-50042-1; ADR 50042 D3): `through_item_id` names the last\nfirst-opened item that opened strictly before the boundary\ncheckpoint event.",
+      "properties": {
+        "throughItemId": {
+          "description": "The last pre-boundary item's id, in served (first-opened) order.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "throughItemId"
+      ],
+      "type": "object"
     },
     "ClientCapabilities": {
       "description": "The client's requested capability posture (SS1.4.1). Every member\ndefaults; an absent `capabilities` object means all defaults.",
@@ -878,7 +1141,7 @@
       "type": "object"
     },
     "CommandAckStatus": {
-      "description": "The ack-status vocabulary (`tdd.md` SS3.1/SS3.1.2): `\"accepted\"` for every\nadmitted command; `session/compact` alone may answer `\"noop\"`. Closed:\nSS3.1.2 names exactly these two values, so SDK clients get a discriminated\ntype and validation catches a wrong status (PR #21550 review) — and a\nclient that received a third value would have been told nothing it can act\non, unlike [`TurnStartDisposition`], where \"acked, not otherwise\nclassified\" is a usable reading.",
+      "description": "The ack-status vocabulary: `\"accepted\"` for every admitted command;\n`session/compact` alone may answer `\"noop\"`. Closed: the protocol defines\nexactly these two values, so SDK clients get a discriminated type and\nvalidation catches a wrong status — and a client that received a third value\nwould have been told nothing it can act on, unlike [`TurnStartDisposition`],\nwhere \"acked, not otherwise classified\" is a usable reading.",
       "enum": [
         "accepted",
         "noop"
@@ -1267,10 +1530,10 @@
       "type": "object"
     },
     "CronReceipt": {
-      "description": "Cron's `details` payload (ADR 42728 D2, thirteenth directive).\n\nEvery field a family owns lives here, under the container's one\n`details` key, rather than flat beside the discriminators — ADR 43399 D5\nas amended. Each is a **bounded machine fact**: scalars, short\nidentifiers and a small fixed-shape array of those.",
+      "description": "Cron's `details` payload (ADR 42728 D2, thirteenth directive).\n\nEvery field a family owns lives here, under the container's one `details`\nkey, rather than flat beside the discriminators. Each is a **bounded machine\nfact**: scalars, short identifiers and a small fixed-shape array of those.",
       "properties": {
         "jobId": {
-          "description": "Cron `create` and `delete`: the job id. On `delete`'s `missing` arm\nthis is the caller's own id echoed back under ADR 43399 D1's declared\necho — that arm has no server-side subject to name.\n\nAlso the field ADR 42728 D4's D8 declaration names as conveying the\nhidden fact on the declared `created` + `cancelled` pairing: a job row\nwas committed and will fire.",
+          "description": "Cron `create` and `delete`: the job id. On `delete`'s `missing` arm this\nis the caller's own id echoed back — that arm has no server-side subject\nto name.\n\nOn the `created` + `cancelled` pairing, this field also conveys the\nhidden fact: a job row was committed and will fire.",
           "type": "string"
         },
         "jobs": {
@@ -1288,7 +1551,7 @@
       "type": "object"
     },
     "CronReceiptJob": {
-      "description": "One row of the Cron `list` receipt's `jobs` array (ADR 42728 D2).\n\nServer order, and **`active` + `firing` rows only** — the owner's\n`Serve active+firing only` directive. A small fixed-shape array of\nscalars, which is what keeps it inside D5's bounded-machine-fact rule.",
+      "description": "One row of the Cron `list` receipt's `jobs` array (ADR 42728 D2).\n\nServer order, and **`active` + `firing` rows only**. A small fixed-shape\narray of scalars, which is what keeps it a bounded machine fact.",
       "properties": {
         "jobId": {
           "description": "The job's server-owned id.",
@@ -1324,7 +1587,7 @@
       "type": "object"
     },
     "CumulativeTokenUsage": {
-      "description": "Session running totals of counted-once usage (tdd SS4.6.5).\n\nAmendment #41610: the cache splits and server-computed `cost` join the\ncounters. The counters stay accumulate-only; `cost` is the documented\nexception — it may move either way on price re-adoption and is labeled\nestimate (INV-41610-1). `Copy` was dropped for the `cost` member.",
+      "description": "Session running totals of counted-once usage (tdd SS4.6.5).\n\nThe cache splits and server-computed `cost` join the counters. The counters\nstay accumulate-only; `cost` is the documented exception — it may move\neither way on price re-adoption and is labeled estimate. `Copy` was dropped\nfor the `cost` member.",
       "properties": {
         "cacheReadTokens": {
           "description": "Cache-read tokens, session total (FR-41610-1): saturating sum of\nthe per-completion splits; an absent split contributes 0.\nAdditive-optional: absent on the wire reads as 0 and zero totals\nare omitted, so pre-feature bytes decode and re-encode identically.",
@@ -1456,7 +1719,7 @@
           ]
         },
         "approvalId": {
-          "description": "Approval identity on SS5 errors.",
+          "description": "Approval id on approval errors.",
           "type": "string"
         },
         "availability": {
@@ -1465,7 +1728,7 @@
         },
         "capability": {
           "$ref": "#/$defs/CapabilityName",
-          "description": "The missing capability, on `capabilityRequired` errors. Typed on the\ngrantable registry, so `rawLog` is outside the v1 domain and joins it\nas an additive open-enum extension when SS6 un-defers (TEST-009)."
+          "description": "The missing capability, on `capabilityRequired` errors. Typed on the\ngrantable registry, so the experimental-only `rawLog` joins the stable\ndomain as an additive open-enum extension when it graduates."
         },
         "capacity": {
           "description": "The configured command-admission bound, on `backpressured` errors.",
@@ -1484,7 +1747,7 @@
           "description": "Current stage token on `approvalRequirementStale`."
         },
         "descriptor": {
-          "description": "SS1.5.1 descriptor, on `experimentalRequired` errors.",
+          "description": "On `experimentalRequired` errors, the name of the experimental method,\nfield or variant the request used, for example\n`turn/start.providerRequestOptions`.",
           "type": "string"
         },
         "details": {
@@ -1582,7 +1845,7 @@
           "type": "string"
         },
         "userInputId": {
-          "description": "User-input prompt identity on SS5.10 errors.",
+          "description": "Prompt identity on user-input errors.",
           "type": "string"
         },
         "viewCursor": {
@@ -1596,7 +1859,7 @@
       "type": "object"
     },
     "ErrorKind": {
-      "description": "A stable `error.data.kind` category (SS1.6): camelCase, the value clients\nbranch on. Open: SS2–SS5 lanes add kinds additively as their methods land\n(Appendix B already registers them), and the spec's edge-case rule makes a\nnew `kind` additive only because this domain is declared open.",
+      "description": "A stable `error.data.kind` category: camelCase, the value clients branch on.\nOpen: new kinds are added as their methods land, and a new `kind` is\nadditive only because this domain is declared open.",
       "enum": [
         "parseError",
         "invalidRequest",
@@ -1859,7 +2122,7 @@
       "description": "The session goal block (tdd SS4.6.2, mirrors the runtime's goal state,\ncamelCased). `status` and `percentComplete` are carried **verbatim** —\nout-of-contract status strings and >100 percents pass through; display\nclamping is the renderer's job.",
       "properties": {
         "createdAtMs": {
-          "description": "ADR 50064 D2 (pick-4): goal creation time, epoch milliseconds,\nverbatim from the durable row. Absent on blocks whose producer never\ncarried it (tool-result adoptions, pre-pick-4 logs); absence must\nnever render as a fabricated zero.",
+          "description": "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (tool-result adoptions,\nolder logs); absence must never render as a fabricated zero.",
           "type": "integer"
         },
         "currentWork": {
@@ -1883,7 +2146,7 @@
           "type": "string"
         },
         "updatedAtMs": {
-          "description": "ADR 50064 D2 (pick-4): last goal mutation time, epoch milliseconds,\nverbatim from the durable row. Same absence rule as `createdAtMs`.",
+          "description": "Last goal mutation time, epoch milliseconds, verbatim from the durable\nrow. Same absence rule as `createdAtMs`.",
           "type": "integer"
         }
       },
@@ -2028,7 +2291,7 @@
       "x-msp-openness": "open"
     },
     "HistoryNoneReason": {
-      "description": "Why a result served `history.mode: \"none\"` — spec 208 FM-005's typed\nunavailability (tdd SS2.5.2; D-050). Open on the client side: an absent\n(older server) or unknown (newer server) value decodes conservatively as\nan unknown reason, and `viewCursor` text never substitutes for it\n(spec 208 INV-19734-1).",
+      "description": "Why a result served `history.mode: \"none\"`: the server's typed reason for\nserving no history. Open on the client side: an absent (older server) or\nunknown (newer server) value decodes conservatively as an unknown reason,\nand `viewCursor` text never substitutes for it.",
       "enum": [
         "excluded",
         "cursorSuffix",
@@ -2086,6 +2349,8 @@
         "preToolUse",
         "permissionRequest",
         "postToolUse",
+        "preLLMCall",
+        "postLLMCall",
         "preCompact",
         "postCompact",
         "subagentStart",
@@ -2098,9 +2363,7 @@
         "postToolBatch",
         "interrupt",
         "sessionFork",
-        "toolUseStart",
-        "preLLMCall",
-        "postLLMCall"
+        "toolUseStart"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2212,7 +2475,7 @@
         },
         "sandboxAvailability": {
           "$ref": "#/$defs/SandboxAvailability",
-          "description": "Whether this host can enforce the sandbox (ADR\n50064-startup-report-sandbox-availability D2/D4). Optional so the\naddition is additive under SS1.5.4; a v1 host always sends it, and a\nclient reads absent as unknown — the host predates the field, so the\nclient falls back to its own probe rather than inventing an answer."
+          "description": "Whether this host can enforce the sandbox. Optional so adding it stays\nbackward compatible; a v1 host always sends it, and a client reads\nabsent as unknown — the host predates the field, so the client falls\nback to its own probe rather than inventing an answer."
         },
         "sandboxUnavailableReason": {
           "$ref": "#/$defs/SandboxUnavailableReason",
@@ -2228,7 +2491,7 @@
         },
         "sessionDurability": {
           "$ref": "#/$defs/SessionDurability",
-          "description": "Whether this host persists its sessions (SS2.13). Optional so the\naddition is additive under SS1.5.4; a v1 host always sends it, and a\nclient reads absent as `durable` because no server that omits it has\nthe ephemeral profile."
+          "description": "Whether this host persists its sessions. Optional so adding it stays\nbackward compatible; a v1 host always sends it, and a client reads\nabsent as `durable` because no server that omits it has the ephemeral\nprofile."
         },
         "userAgent": {
           "description": "Exact user-agent string presented to upstream model providers.",
@@ -2276,6 +2539,10 @@
         "backgroundInitiator": {
           "$ref": "#/$defs/BackgroundInitiator",
           "description": "`toolCall`: who backgrounded the task; absent on pre-split records —\nnever inferred (tdd SS4.5.5)."
+        },
+        "backgroundTerminalCompletion": {
+          "$ref": "#/$defs/BackgroundTerminalCompletion",
+          "description": "`backgroundTerminalCompletion`: the five facts the Finished\ncell renders (ADR 50041 D4)."
         },
         "blocking": {
           "description": "`reminderChild`: `true` when this child is a blocking reminder (it holds\nthe turn open until it settles); absent otherwise, never `false` (ADR\n41191 D4). The status word stays off the wire; clients name the\nreminder from `reminderAgentId`.",
@@ -2348,7 +2615,7 @@
           "type": "string"
         },
         "durationMs": {
-          "description": "`userShell`/`subagent`: observed wall-clock duration. `workflow`: the\nrun's wall time from launch to reconciliation, set only on the\nsettling `item/completed` — never a sum of child durations.",
+          "description": "`userShell`/`subagent`: observed wall-clock duration. `workflow`: the\nrun's wall time from launch to reconciliation, set only on the\nsettling `item/completed` — never a sum of child durations.\n`toolCall`: the Backgrounded row's duration (ADR 50041 D11) — the\nopen→update record delta in whole ms, served on the\n`backgroundStatus` re-emission and frozen there; absent otherwise.",
           "type": "integer"
         },
         "entryId": {
@@ -2559,7 +2826,7 @@
           "type": "string"
         },
         "summarizedThrough": {
-          "description": "`compaction`: opaque provenance string naming the compaction\nboundary. A compaction-anchored read anchor since D-029 (2026-08-12):\naccepted by `session/resume` and `view/page` (wire shape and\nvalidation are the #208 lane's). Still opaque — clients relay it,\nnever parse it (tdd SS4.5.10).",
+          "description": "`compaction`: opaque provenance string naming the compaction boundary.\nAlso a compaction-anchored read anchor, accepted by `session/resume` and\n`view/page`. Still opaque — clients relay it, never parse it.",
           "type": "string"
         },
         "summary": {
@@ -2714,7 +2981,9 @@
         "webSearch",
         "monitorFeed",
         "damagedRange",
-        "scheduledFire"
+        "scheduledFire",
+        "backgroundTerminalCompletion",
+        "overdueNotice"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -2729,7 +2998,7 @@
       "x-msp-openness": "closed"
     },
     "ItemReadOutputParams": {
-      "description": "`item/readOutput` params (tdd SS4.7.4): byte-ranged fetch of stored full\noutput that the view truncated — the `outputRef` fetch path SS3.9 and\nSS4.5.5 owe. Read-only; works on loaded and unloaded sessions; no lease.",
+      "description": "`item/readOutput` params: byte-ranged fetch of stored full output that the\nview truncated, via the item's `outputRef`. Read-only; works on loaded and\nunloaded sessions; no lease.",
       "properties": {
         "itemId": {
           "description": "The item whose stored output is fetched.",
@@ -2923,7 +3192,7 @@
           "type": "integer"
         },
         "commandId": {
-          "description": "One per call; SS3.1.1 replay answers the recorded receipt.",
+          "description": "One per call. While the host runs, replaying it with the same params\nreturns the recorded receipt, and reusing it with different params is\nrefused. After a host restart, start over under a new `uploadId`.",
           "type": "string"
         },
         "mediaType": {
@@ -3583,7 +3852,7 @@
       "x-msp-openness": "open"
     },
     "PendingRequestPointer": {
-      "description": "A late-joiner pointer at an unsettled server-initiated request\n(tdd SS2.5.2, SS2.2.1). The full payloads arrive as re-issued\nserver-to-client requests right after a `session/resume` response\n(tdd SS5.6); `session/read` never re-issues them (tdd SS2.5.5).\n\n**A second E4 instance, RULED with E4 (#22785, owner, 2026-08-26): the\nflat discriminated-object precedent is accepted for this type too, on the\n`ApprovalSubject` precedent, with the serialized JSON unchanged. A strict\nunion node kind may be funded later; if it is, it must cover both this\ntype and `TurnInputPart`.** SS2.5.2 ratifies two\nkind-discriminated entry shapes (`{kind: \"approval\", approvalId,\nviewCursor}` / `{kind: \"userInput\", userInputId, viewCursor}`); this is one\nflat object with both ids optional, so the published schema accepts\n`{\"kind\":\"approval\",\"userInputId\":…}` and an entry carrying no id at all.\nThe v1 model names no object-variant union (the `ApprovalSubject`\nprecedent, followed for `TurnInputPart`), and this instance differs from\nthat one in a way the ruling should see: `kind` here is an OPEN enum,\nwhere `TurnInputPart.type` is closed.",
+      "description": "A late-joiner pointer at an unsettled server-initiated request\n(tdd SS2.5.2, SS2.2.1). The full payloads arrive as re-issued\nserver-to-client requests right after a `session/resume` response\n(tdd SS5.6); `session/read` never re-issues them (tdd SS2.5.5).\n\nThe protocol defines two kind-discriminated entry shapes (`{kind:\n\"approval\", approvalId, viewCursor}` / `{kind: \"userInput\", userInputId,\nviewCursor}`). This type is one flat object with both ids optional, as for\n`ApprovalSubject` and `TurnInputPart`, because the v1 model names no\nobject-variant union; the serialized JSON is the same, but the published\nschema also accepts `{\"kind\":\"approval\",\"userInputId\":…}` and an entry\ncarrying no id at all. Unlike `TurnInputPart.type`, `kind` here is an OPEN\nenum.",
       "properties": {
         "approvalId": {
           "description": "Present on an `approval` entry.",
@@ -3631,7 +3900,7 @@
       "type": "object"
     },
     "PlatformFamily": {
-      "description": "The server runtime's platform family (SS1.4.1); may differ from the\nclient's. Closed: SS1.4.1 fixes the value set, so widening it is a\ndeliberate, gate-visible protocol change rather than a silent addition\n(a later `Closed`→`Open` flip is itself additive, data-model.md §5.2).",
+      "description": "The server runtime's platform family; may differ from the client's. Closed:\nthe protocol fixes the value set, so widening it is a deliberate,\ngate-visible protocol change rather than a silent addition (a later\n`Closed`→`Open` flip is itself additive).",
       "enum": [
         "unix",
         "windows"
@@ -4230,7 +4499,7 @@
       "x-msp-openness": "open"
     },
     "RecapOutcome": {
-      "description": "`recap/completed` outcome (tdd SS3.28.2): the terminal vocabulary,\ncamelCase per SS1.6. **Open**: a server-produced result vocabulary\n(#22785 E2).",
+      "description": "`recap/completed` outcome: the terminal vocabulary, in camelCase. **Open**:\na server-produced result vocabulary.",
       "enum": [
         "completed",
         "failed",
@@ -4480,7 +4749,7 @@
       "description": "The session object every lifecycle method returns or lists (tdd SS2.4).\n\nAdditive-optional evolution applies: clients must ignore unknown fields.",
       "properties": {
         "activeTurnId": {
-          "description": "The `turnId` of the current foreground turn when `status` is\n`running`, and `null` when the session is idle (tdd SS2.4).\n\n**Required-nullable, per the owner ruling on #22946** (\"approve\nrequired-nullable\", review comment `r3863946961`, 2026-08-26). Both\nproduction writers hard-code `\"activeTurnId\": null`\n(`session/start/commit_load.rs` for `session/start`,\n`session/snapshot.rs` feeding resume/read/list/fork) and nothing\nstrips it, so this is what the binary emits and what SS2.4's example\nspells. The optional-absent shape published it as plain `string` and\nREJECTED every idle `Session` frame the host sent — the #19923 defect\nclass this PR exists to close.\n\nE5's original evidence for optional-absent (\"every committed\ntranscript shows the omission\") was wrong: those transcripts are\nhand-authored fixtures, not host recordings. They are corrected in the\nsame change under the ruling's SS1.5 `regenerationJustification`.",
+          "description": "The `turnId` of the current foreground turn when `status` is\n`running`, and `null` when the session is idle (tdd SS2.4).\n\n**Required-nullable.** Every served `Session` carries the member: `null`\nwhen the session is idle or not loaded, the turn id when it is running.\nAn optional-absent shape would publish it as plain `string` and reject\nevery idle `Session` frame the host sends.",
           "type": [
             "string",
             "null"
@@ -4784,7 +5053,7 @@
       "type": "object"
     },
     "SessionConfig": {
-      "description": "The open configuration extension object shared by `session/start` and\n`session/resume` (ADR 32760 D1).\n\nUnknown keys are ignored on the wire, never rejected (tdd SS1.5.4, spec\n206 INV-015; D-052 resolving\n[#23456](https://github.com/mslsrc/tbh/issues/23456)): the live decoder\nis D-042's tolerant path, and TEST-024 keeps every exported bundle free\nof `additionalProperties: false`. The Rust typed model's\n`deny_unknown_fields` is internal and never exported — the #22785 E6b\nclosedness export applies nowhere, and the `x-msp-closed` opt-in\nmechanism stays inert. Recognized `mcpServers` values are typed and\nvalidated before they leave the wire boundary.",
+      "description": "The open configuration extension object shared by `session/start` and\n`session/resume` (ADR 32760 D1).\n\nUnknown keys are ignored on the wire, never rejected: the live decoder\ntolerates them, and no exported bundle carries `additionalProperties:\nfalse`. The Rust typed model's `deny_unknown_fields` is internal and never\nexported — the closedness export applies nowhere, and the `x-msp-closed`\nopt-in mechanism stays inert. Recognized `mcpServers` values are typed and\nvalidated before they leave the wire boundary.",
       "properties": {
         "mcpServers": {
           "additionalProperties": {
@@ -4937,6 +5206,10 @@
     "SessionHistory": {
       "description": "The `history` envelope shared by `session/resume`, `session/fork`, and\n`session/read` (tdd SS2.5.2).",
       "properties": {
+        "checkpointBoundary": {
+          "$ref": "#/$defs/CheckpointBoundary",
+          "description": "The checkpoint-prune boundary (spec 13929 amendment FR-50042-1):\nrows for served items at-or-before `through_item_id` in served\norder predate the selected checkpoint. Additive-optional;\nabsence is a non-assertion (ADR 50042 D6)."
+        },
         "items": {
           "anyOf": [
             {
@@ -4991,18 +5264,23 @@
       "description": "Params of the protected, non-view leave terminal notification.",
       "properties": {
         "commandId": {
+          "description": "The leave command's id, matching the `session/leave` request.",
           "type": "string"
         },
         "outcome": {
-          "$ref": "#/$defs/SessionLeaveOutcome"
+          "$ref": "#/$defs/SessionLeaveOutcome",
+          "description": "How the leave ended: `released` or `failed`. The set is open, so newer\nhosts may add outcomes."
         },
         "reason": {
-          "$ref": "#/$defs/SessionLeaveFailureReason"
+          "$ref": "#/$defs/SessionLeaveFailureReason",
+          "description": "Why the leave failed. Present when `outcome` is `failed`."
         },
         "sessionId": {
+          "description": "The session the leave was for.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "The session's view cursor at release: everything up to it was folded\nbefore the host let go. Present when `outcome` is `released`.",
           "type": "string"
         }
       },
@@ -5060,10 +5338,12 @@
       "description": "The admission-only `session/leave` result.",
       "properties": {
         "commandId": {
+          "description": "The leave command's id.",
           "type": "string"
         },
         "status": {
-          "$ref": "#/$defs/CommandAckStatus"
+          "$ref": "#/$defs/CommandAckStatus",
+          "description": "The admission status, `accepted` once the leave is admitted. The final\nresult arrives later as `session/leaveCompleted`. Sending the same leave\ncommand again returns `accepted` and re-pushes the recorded result if\nthere is one, from the host that ran the leave (for as long as it runs,\neven after the release) or from a host that has the session loaded\n(after a host crash, `abandoned` among them). Any other host treats it\nas a fresh leave: a durable host that has not loaded the session refuses\nit with `sessionNotLoaded` until it is resumed there."
         }
       },
       "required": [
@@ -5137,7 +5417,7 @@
           "description": "Optional structured selection applied inside the bounded index query\nbefore paging (#42035, spec 207 FR-42035-1). Present — including\n`{}` — makes a supporting server echo its canonical form as\n`appliedFilter`; omitted keeps the pre-#42035 behavior."
         },
         "limit": {
-          "description": "Page size; default 50, max 200 — the cap is published under #22785\nE6c (owner-ruled 2026-08-26).",
+          "description": "Page size; default 50, max 200 — the schema publishes the cap.",
           "maximum": 200,
           "type": "integer"
         },
@@ -5479,6 +5759,10 @@
     "SessionReadResult": {
       "description": "`session/read` result (tdd SS2.5.5). The `viewCursor` is the fold head at\nread time — a point-in-time read, immediately stale if a foreign host is\nappending.",
       "properties": {
+        "blockedPrompt": {
+          "$ref": "#/$defs/BlockedPrompt",
+          "description": "Same member as `session/resume` (tdd SS2.5.5, ADR 50074 D2)."
+        },
         "history": {
           "$ref": "#/$defs/SessionHistory",
           "description": "The served history."
@@ -5520,7 +5804,7 @@
       "properties": {
         "reasoningEffort": {
           "$ref": "#/$defs/ReasoningEffort",
-          "description": "The new session default: the closed eight-string tier vocabulary of\ntdd SS3.2, spelled identically."
+          "description": "The new session default: the same closed eight-string tier vocabulary as\n`turn/start`."
         },
         "sessionId": {
           "description": "The owning session.",
@@ -5605,7 +5889,7 @@
           "description": "The same open construction-time extension object as `session/start`."
         },
         "cursor": {
-          "description": "A view cursor previously observed by this client — or an observed\n`summarizedThrough` compaction anchor (tdd SS4.5.10, D-029). When\npresent the server returns only the suffix and `history.mode` is\n`none` (tdd SS2.5.2). Omitted and explicit `null` both mean \"no\ncursor\" (#23468).",
+          "description": "A view cursor previously observed by this client — or an observed\n`summarizedThrough` compaction anchor. When it names an event the server\nstill holds, the server returns only the suffix and `history.mode` is\n`none`. A cursor the server minted that names no event yet, such as the\nempty start cursor of a session that had no events, is treated as no\ncursor: the server serves what a resume without a cursor would. A cursor\nolder than the earliest event the server still holds gets a snapshot, or\n`-32040` `viewTruncated` when none fits. A cursor this session's view\nnever minted is refused with `-32011` `notFound`, reason\n`missingAnchor`, and a compaction anchor naming a boundary the server\nhas pruned is refused with `-32042` `boundaryPruned`. Omitted and\nexplicit `null` both mean \"no cursor\".",
           "type": [
             "string",
             "null"
@@ -5641,6 +5925,10 @@
     "SessionResumeResult": {
       "description": "`session/resume` result (tdd SS2.5.2).",
       "properties": {
+        "blockedPrompt": {
+          "$ref": "#/$defs/BlockedPrompt",
+          "description": "The recallable blocked prompt's refill text (ADR 50074 D2).\n**Additive-optional**; absence means no blocked prompt to recall\n(an unblocked session, or a pre-feature host). Data only, never\na rendered row: clients seed cold recall from it (C-p refills\n`text`) and MUST NOT display it as history."
+        },
         "history": {
           "$ref": "#/$defs/SessionHistory",
           "description": "The served history."
@@ -5875,7 +6163,7 @@
         },
         "config": {
           "$ref": "#/$defs/SessionConfig",
-          "description": "Reserved for per-session overrides owned by a future Configuration\nsection. Issue #32760 admits only its `mcpServers` member."
+          "description": "Reserved for future per-session overrides; only its `mcpServers` member\nis admitted."
         },
         "modelId": {
           "description": "Initial model; server default when omitted.",
@@ -6580,7 +6868,7 @@
       "type": "object"
     },
     "SnapshotState": {
-      "description": "The complete folded view at the snapshot cursor (tdd SS4.9.1).\n\nAdditive-optional evolution applies exactly as everywhere else; unknown\nmembers MUST be ignored, and preserved if re-serialized.\n\n**One served site does not satisfy this type today, escalated under\n#22785 (E8).** The genesis snapshot rung serves\n`state: {\"items\": [...]}` alone\n(`tbh-session-view-serve`'s `materialized_fold.rs`, the\n`select_genesis_history` call), while the anchored rung serves the full\nfolded state. A schema-validating client resuming with\n`{\"history\": \"snapshot\"}` against the real fold therefore sees the other\nrequired members missing. The fix is a serving change in the #208/#14653\nlane (serialize the `SessionViewState` the genesis path already folds, as\nthe anchored path does) plus its own RED against the real fold; it is not\na shape change here, because SS4.9.1 ratifies this shape.",
+      "description": "The complete folded view at the snapshot cursor (tdd SS4.9.1).\n\nAdditive-optional evolution applies exactly as everywhere else; unknown\nmembers MUST be ignored, and preserved if re-serialized.",
       "properties": {
         "activeTurn": {
           "anyOf": [
@@ -6610,7 +6898,7 @@
         },
         "contextUsage": {
           "$ref": "#/$defs/ContextUsage",
-          "description": "The latest `(windowTokens, usedTokens, pressure)` triple. SS4.9.1\nsays \"`null`/absent\" and SS4.9.2's worked example OMITS the member;\nthe binary omits it too, so this is the absent arm — the four\nsiblings above are present-null in the same frame. INV-017 admits one\nor the other, never both; escalated under #22785."
+          "description": "The latest `(windowTokens, usedTokens, pressure)` triple. The protocol\nallows \"`null`/absent\" and its worked example OMITS the member; the\nbinary omits it too, so this is the absent arm — the four siblings above\nare present-null in the same frame. A member is published as one or the\nother, never both."
         },
         "effectiveModel": {
           "anyOf": [
@@ -7175,12 +7463,29 @@
       ],
       "type": "object"
     },
+    "TaskExecutionMode": {
+      "description": "A task row's execution mode (tdd SS3.31, ADR 62268 D2). Open\n(server-produced result vocabulary, the #22785 enum-openness rule):\nclients MUST ignore unknown modes.",
+      "enum": [
+        "foreground",
+        "background"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "TaskListEntry": {
-      "description": "One background-task inventory row (tdd SS3.31). The row is the stable\ncontract: `kind` and `status` stay open so a future state extends them\nwithout breaking clients.",
+      "description": "One task inventory row (tdd SS3.31). The row is the stable\ncontract: `kind` and `status` stay open so a future state extends them\nwithout breaking clients.",
       "properties": {
         "backgroundInitiator": {
           "$ref": "#/$defs/BackgroundInitiator",
           "description": "Who backgrounded the task, mirroring the item field.\n**Additive-optional**: absent on pre-split records and\nregistry-only rows, never inferred."
+        },
+        "command": {
+          "description": "The raw command text: the joined `toolCall` item's `command`\nargument verbatim (ADR 62268 D2). **Additive-optional**:\nomitted when the row has no item or the item carries no\ncommand. Monitors join raw — clients redact (INV-17544-6).",
+          "type": "string"
+        },
+        "executionMode": {
+          "$ref": "#/$defs/TaskExecutionMode",
+          "description": "`\"foreground\" | \"background\"` (ADR 62268 D2).\n**Additive-optional**: absent means `\"background\"` (only\npre-change hosts omit it, and those list background rows only);\nnever guessed."
         },
         "kind": {
           "description": "What the workload is: `\"tool\"` or `\"tool.*\"` for item rows (the\nrecorded kind when the registry records one, else `\"tool\"`); the\nrecorded registry kind string verbatim for registry-only rows.\nOpen vocabulary — clients MUST ignore unknown kinds. A `String`,\nnot an enum: registry kind strings are unbounded.",
@@ -7224,10 +7529,10 @@
       "type": "object"
     },
     "TaskListResult": {
-      "description": "`task/list` result (tdd SS3.31): one row per running background\nworkload in `task/stopAll` reach, oldest first; empty when nothing is\nrunning.",
+      "description": "`task/list` result (tdd SS3.31): one row per live workload,\nbackground and foreground (ADR 62268 D1), oldest first; empty when\nnothing is running.",
       "properties": {
         "tasks": {
-          "description": "The session's live background-task rows.",
+          "description": "The session's live task rows.",
           "items": {
             "$ref": "#/$defs/TaskListEntry"
           },
@@ -7735,7 +8040,7 @@
           "height"
         ]
       },
-      "description": "One ordered content part of a turn submission (tdd SS3.2). File mentions\nare text, not a part type: write `@relative/path` in a text part. A\nstructured `mention` part is reserved and currently rejected, and an\nunknown part type is `invalidParams` (tdd SS3.1.2, SS3.2) — which is what\ncloses [`TurnInputPartType`].\n\nModelled as a discriminated flat object rather than a Rust `enum`, the\nconvention [`crate::view::approval::ApprovalSubject`] already established\nfor a wire union in this crate: the v1 schema model names no\nobject-variant union shape and fails closed on one. The serialized JSON is\nthe tdd shape either way; what a flat object cannot express is\n\"`mediaType` is required exactly when `type` is `image`\".\n\n**RULED (#22785 E4, owner, 2026-08-26): the precedent is accepted.** A\nstrict union node kind may be funded later as a follow-up; if it is, it\nmust cover [`crate::method::lifecycle::PendingRequestPointer`] too.",
+      "description": "One ordered content part of a turn submission (tdd SS3.2). File mentions\nare text, not a part type: write `@relative/path` in a text part. A\nstructured `mention` part is reserved and currently rejected, and an\nunknown part type is `invalidParams` (tdd SS3.1.2, SS3.2) — which is what\ncloses [`TurnInputPartType`].\n\nModelled as a discriminated flat object rather than a Rust `enum`, the\nconvention [`crate::view::approval::ApprovalSubject`] already established\nfor a wire union in this crate: the v1 schema model names no\nobject-variant union shape and fails closed on one. The serialized JSON is\nthe same either way; what a flat object cannot express is \"`mediaType` is\nrequired exactly when `type` is `image`\".",
       "properties": {
         "arguments": {
           "description": "Free-text skill arguments, optional on a `skill` part — the wire twin\nof what the TUI accepts after the shortcut token (tdd SS3.22.3).",
@@ -7759,7 +8064,7 @@
         },
         "source": {
           "$ref": "#/$defs/SkillInvocationSource",
-          "description": "The picked copy's source, optional on a `skill` part (tdd SS3.22.3;\nADR 32471 D12): the D2 catalog-row `source` values. When present the\nhost resolves the exact `(selector, source)` row; when absent D4's\nbare resolution applies byte-for-byte. Closed: an unknown value is\n`invalidParams`, never a fall-through."
+          "description": "The picked copy's source, optional on a `skill` part: one of the catalog\nrows' `source` values. When present the host resolves the exact\n`(selector, source)` row; when absent it resolves the selector, bare or\nplugin-qualified, against the session's skill catalog, as the TUI\nshortcut does. Closed: an unknown value is `invalidParams`, never a\nfall-through."
         },
         "text": {
           "description": "User prompt text, on a `text` part. Multiple text parts are joined in\norder into the turn's prompt.",
@@ -7774,7 +8079,7 @@
           "type": "string"
         },
         "width": {
-          "description": "Pixel width; must be provided together with `height` or not at all\n(tdd SS3.2). Published as a `dependentRequired` pair under #22785 E6c.",
+          "description": "Pixel width; must be provided together with `height` or not at all.\nPublished as a `dependentRequired` pair.",
           "type": "integer"
         }
       },
@@ -7919,7 +8224,7 @@
           "type": "boolean"
         },
         "turnId": {
-          "description": "The turn's id, pre-minted per tdd SS3.1.4.",
+          "description": "The turn's id, minted at admission.",
           "type": "string"
         }
       },
@@ -8317,7 +8622,7 @@
       "type": "object"
     },
     "UnframedViewNotification": {
-      "description": "One element of a `view/page` result's `events` array: an **unframed view\nnotification** exactly as tdd SS4.2.1 defines it — the nested pair\n`{\"method\", \"params\"}`, which is the live notification minus `jsonrpc`\nand `emittedAtMs`, with nothing lifted out of `params` and nothing spliced\ninto it. SS4.2.1 is the single normative definition; SS4.7.3 and SS7.4\nboth cite it, so the two surfaces cannot drift.",
+      "description": "One element of a `view/page` result's `events` array: an **unframed view\nnotification** — the nested pair `{\"method\", \"params\"}`, which is the live\nnotification minus `jsonrpc` and `emittedAtMs`, with nothing lifted out of\n`params` and nothing spliced into it. `view/page` and `muse exec --json`\nshare this one definition, so the two surfaces cannot drift.",
       "properties": {
         "method": {
           "description": "The event type — the live notification's method name, retained because\nthe type lives only in the notification name and would otherwise be\nlost (tdd SS4.2.1).",
@@ -8335,7 +8640,7 @@
       "type": "object"
     },
     "UnframedViewNotificationParams": {
-      "description": "The `params` of an unframed view notification (tdd SS4.2.1, SS4.2).\n\nDeclares the SS4.2 base members every view notification carries, and stays\n**open** for the event-specific fields SS4.5/SS4.6/SS5 add per event type.\nThe v1 schema model names no method-correlated union (the SS4.7.3 `events`\nelement's `params` arm is selected by its sibling `method`), so the\nper-event arms cannot be expressed here without one; enumerating them as\nan uncorrelated union would additionally exclude `turn/unqueued`, whose\nnotification row is another lane's ratified deferral (#207/#14407) — a\npublished schema that rejects a real page element is the exact #19923\ndefect this PR exists to close. Recorded as a Design delta on #22785.\n\n`sourceRange` is required here and not optional: `view/page` serves\ndurable-sourced events only (tdd SS4.7.3), and durable-sourced is *defined*\nas carrying a `sourceRange` — the SS4.2 ephemeral-sourced exemption applies\nto `item/delta`, which `view/page` never replays.",
+      "description": "The `params` of an unframed view notification (tdd SS4.2.1, SS4.2).\n\nDeclares the base members every view notification carries, and stays\n**open** for the event-specific fields each event type adds. The v1 schema\nmodel names no method-correlated union (the `events` element's `params` arm\nis selected by its sibling `method`), so the per-event arms cannot be\nexpressed here without one, and an uncorrelated union of them could reject a\nreal page element, which a published schema must not do.\n\n`sourceRange` is required here and not optional: `view/page` serves\ndurable-sourced events only (tdd SS4.7.3), and durable-sourced is *defined*\nas carrying a `sourceRange` — the SS4.2 ephemeral-sourced exemption applies\nto `item/delta`, which `view/page` never replays.",
       "properties": {
         "sessionId": {
           "description": "The owning session (tdd SS4.2).",
@@ -8376,20 +8681,26 @@
       "type": "object"
     },
     "UserInputAnswer": {
+      "description": "One question's answer, as sent in `userInput/answer` or\n`userInput/interrupt` and as recorded in `userInput/settled`.",
       "properties": {
         "freeText": {
+          "description": "A free-form answer, at most 500 characters.",
           "type": "string"
         },
         "note": {
+          "description": "An optional comment the user adds to the answer, at most 500 characters.",
           "type": "string"
         },
         "questionId": {
+          "description": "The `id` of the question this answers.",
           "type": "string"
         },
         "selectedLabel": {
+          "description": "The label of the chosen option, for a `single` question.",
           "type": "string"
         },
         "selectedLabels": {
+          "description": "The labels of the chosen options for a `multiple` question, within its\nselection bounds; omitted when empty.",
           "items": {
             "type": "string"
           },
@@ -8402,7 +8713,7 @@
       "type": "object"
     },
     "UserInputAnswerParams": {
-      "description": "`userInput/answer` params (tdd SS5.10.2): answer every question.\n\nEach answer carries `questionId` then exactly one of `selectedLabel`\n(single mode), `selectedLabels` (multiple mode, within min/max bounds), or\n`freeText` (<=500 chars); plus an optional `note` (<=500). Answers that do\nnot match the prompt fail -32057 `userInputAnswerInvalid`. Image\n`attachments` are a **reserved** field in v1, rejected if sent, because\nthe blob-upload path they reference is reserved in tdd SS3.2.",
+      "description": "`userInput/answer` params (tdd SS5.10.2): answer every question.\n\nEach answer carries `questionId` then exactly one of `selectedLabel`\n(single mode), `selectedLabels` (multiple mode, within min/max bounds), or\n`freeText` (<=500 chars); plus an optional `note` (<=500). Answers that do\nnot match the prompt fail -32057 `userInputAnswerInvalid`. Image\n`attachments` are a **reserved** field in v1, rejected if sent, because\nthe blob-upload path they reference is also reserved.",
       "properties": {
         "answers": {
           "description": "One entry per question.",
@@ -8506,11 +8817,14 @@
       "type": "object"
     },
     "UserInputClarification": {
+      "description": "A free-form reply the user gives instead of choosing from the options; the\nmodel reads it and decides again.",
       "properties": {
         "content": {
+          "description": "The clarification text, at most 500 characters.",
           "type": "string"
         },
         "format": {
+          "description": "The content format. `text` is the only value today, and more may be\nadded.",
           "type": "string"
         }
       },
@@ -8643,15 +8957,19 @@
       "type": "object"
     },
     "UserInputOption": {
+      "description": "One option offered for a question.",
       "properties": {
         "description": {
+          "description": "An optional longer explanation of the option, at most 240 characters.",
           "type": "string"
         },
         "label": {
+          "description": "The option's text, at most 80 characters and unique within its question;\nan answer selects the option by this exact label.",
           "type": "string"
         },
         "preview": {
-          "$ref": "#/$defs/UserInputOptionPreview"
+          "$ref": "#/$defs/UserInputOptionPreview",
+          "description": "An optional rich preview of the option, present only on single-select\nquestions."
         }
       },
       "required": [
@@ -8660,11 +8978,14 @@
       "type": "object"
     },
     "UserInputOptionPreview": {
+      "description": "Rich content a client can show for an option. Only single-select questions\ncarry previews.",
       "properties": {
         "content": {
+          "description": "The preview content in that format, at most 2000 characters.",
           "type": "string"
         },
         "format": {
+          "description": "The content format, for example `markdown`.",
           "type": "string"
         }
       },
@@ -8675,6 +8996,7 @@
       "type": "object"
     },
     "UserInputOutcome": {
+      "description": "How a user-input prompt settled. More values may be added, so handle values\nyou do not recognize.",
       "enum": [
         "answered",
         "cancelled",
@@ -8687,24 +9009,30 @@
       "x-msp-openness": "open"
     },
     "UserInputQuestion": {
+      "description": "One question in a user-input prompt.",
       "properties": {
         "header": {
+          "description": "A short title for the question, at most 12 characters.",
           "type": "string"
         },
         "id": {
+          "description": "The question's id, unique within the prompt and at most 64 characters.\nAn answer names it in `questionId`.",
           "type": "string"
         },
         "options": {
+          "description": "The options offered, two or three, in order.",
           "items": {
             "$ref": "#/$defs/UserInputOption"
           },
           "type": "array"
         },
         "question": {
+          "description": "The full question text to show the user.",
           "type": "string"
         },
         "selection": {
-          "$ref": "#/$defs/UserInputSelection"
+          "$ref": "#/$defs/UserInputSelection",
+          "description": "Whether the user picks one option or several."
         }
       },
       "required": [
@@ -8720,36 +9048,46 @@
       "description": "Full params shared by `userInput/request` and `userInput/requested`.",
       "properties": {
         "autoResolutionMs": {
+          "description": "The auto-resolution time per question, in milliseconds: a prompt nobody\nengages with settles as `timedOut` after this value times the number of\nquestions.",
           "type": "integer"
         },
         "itemId": {
+          "description": "The `toolCall` view item of the tool call waiting on this prompt.",
           "type": "string"
         },
         "questions": {
+          "description": "The questions to ask, one to three, in order.",
           "items": {
             "$ref": "#/$defs/UserInputQuestion"
           },
           "type": "array"
         },
         "sessionId": {
+          "description": "The session that owns the prompt.",
           "type": "string"
         },
         "sourceRange": {
-          "$ref": "#/$defs/SourceRange"
+          "$ref": "#/$defs/SourceRange",
+          "description": "The stored records this prompt was folded from, when sent: an opaque\ntoken clients must not interpret."
         },
         "toolCallId": {
+          "description": "The provider's id for the tool call that opened the prompt.",
           "type": "string"
         },
         "toolName": {
+          "description": "The name of the tool that opened the prompt.",
           "type": "string"
         },
         "turnId": {
+          "description": "The turn whose tool call is waiting on this prompt.",
           "type": "string"
         },
         "userInputId": {
+          "description": "The prompt's stable id. Pass it to `userInput/answer`,\n`userInput/cancel`, `userInput/clarify` and `userInput/interrupt`, and\nuse it to match the later `userInput/settled`.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "The cursor of the `userInput/requested` event for this prompt. A client\nthat missed the request can read the same payload at this cursor with\n`view/page`.",
           "type": "string"
         }
       },
@@ -8766,15 +9104,19 @@
       "type": "object"
     },
     "UserInputSelection": {
+      "description": "How many options the user may pick for a question.",
       "properties": {
         "maxSelections": {
+          "description": "The most options the user may pick. Sent only in `multiple` mode; when\nabsent the maximum is the number of options.",
           "type": "integer"
         },
         "minSelections": {
+          "description": "The minimum selection count for a `multiple` answer. Sent only in\n`multiple` mode; when absent the minimum is 1.",
           "type": "integer"
         },
         "mode": {
-          "$ref": "#/$defs/UserInputSelectionMode"
+          "$ref": "#/$defs/UserInputSelectionMode",
+          "description": "`single` or `multiple`: whether an answer selects one option or several."
         }
       },
       "required": [
@@ -8783,6 +9125,7 @@
       "type": "object"
     },
     "UserInputSelectionMode": {
+      "description": "Whether a question takes one option or several.",
       "enum": [
         "single",
         "multiple"
@@ -8794,6 +9137,7 @@
       "description": "`userInput/settled` params: the first durable prompt settlement.",
       "properties": {
         "answers": {
+          "description": "The recorded answers: one per question for `answered`, any confirmed\npartial answers for `interrupted`, and empty for every other outcome.",
           "items": {
             "$ref": "#/$defs/UserInputAnswer"
           },
@@ -8807,7 +9151,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The user's free-form clarification when the outcome is `clarified`;\n`null` otherwise."
         },
         "decidedAt": {
           "description": "The decision time as RFC3339, projected from the durable settlement\nrecord's own stamp (ADR 45450 D3, ruling 2026-10-01): always present\non the wire (schema-required, `null`-able); decoders still tolerate\nits absence (`default`, never skipped — SS5.10.3 keeps every member\npresent), and current hosts always populate it.",
@@ -8817,30 +9162,37 @@
           ]
         },
         "decidedByCommandId": {
+          "description": "The `commandId` of the client command that settled the prompt; `null`\nwhen no command did, for example after a timeout or an abort.",
           "type": [
             "string",
             "null"
           ]
         },
         "outcome": {
-          "$ref": "#/$defs/UserInputOutcome"
+          "$ref": "#/$defs/UserInputOutcome",
+          "description": "How the prompt ended."
         },
         "reason": {
+          "description": "The reason, when one applies: the optional reason given with a cancel,\nor why an `aborted` prompt was closed; `null` otherwise.",
           "type": [
             "string",
             "null"
           ]
         },
         "sessionId": {
+          "description": "The session that owns the prompt.",
           "type": "string"
         },
         "sourceRange": {
-          "$ref": "#/$defs/SourceRange"
+          "$ref": "#/$defs/SourceRange",
+          "description": "The stored records this event was folded from: an opaque token clients\nmust not interpret."
         },
         "userInputId": {
+          "description": "The prompt that settled. Accept a settlement even for a prompt whose\nrequest you never saw.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "This event's view cursor: opaque, and strictly increasing within the\nsession.",
           "type": "string"
         }
       },
@@ -8862,9 +9214,11 @@
       "description": "Winning terminal returned to a late user-input command.",
       "properties": {
         "outcome": {
+          "description": "How the prompt settled, as a `userInput/settled` outcome value such as\n`answered` or `timedOut`.",
           "type": "string"
         },
         "viewCursor": {
+          "description": "The view cursor of the `userInput/settled` event that recorded the\nsettlement.",
           "type": "string"
         }
       },
@@ -8907,7 +9261,7 @@
       "type": "object"
     },
     "ViewPageAnchor": {
-      "description": "The `view/page` request-mode anchor (tdd SS4.7.3). Declared **open**: the\ntdd spells it \"open string enum, v1 value `latestCompaction`\".",
+      "description": "The `view/page` request-mode anchor. Declared **open**: the protocol spells\nit \"open string enum, v1 value `latestCompaction`\".",
       "enum": [
         "latestCompaction"
       ],
@@ -8915,7 +9269,7 @@
       "x-msp-openness": "open"
     },
     "ViewPageDirection": {
-      "description": "The `view/page` paging direction (tdd SS4.7.3). Closed: the tdd spells\nexactly two values and a third would change the paging contract.",
+      "description": "The `view/page` paging direction. Closed: the protocol spells exactly two\nvalues and a third would change the paging contract.",
       "enum": [
         "forward",
         "backward"
@@ -8939,7 +9293,7 @@
           "description": "Paging direction; `forward` when omitted."
         },
         "limit": {
-          "description": "Maximum events to return, 1–1000. The server MAY return fewer\n(tdd SS4.7.3's short-serve rule).\n\nThe 1–1000 range is ratified and now **published**: #22785 E6c is\nowner-ruled, so the model carries the bound and the bundle renders\n`minimum`/`maximum` instead of a bare `integer`.",
+          "description": "Maximum events to return, 1–1000. The server MAY return fewer.\n\nThe 1–1000 range is ratified and **published**: the model carries the\nbound and the bundle renders `minimum`/`maximum` instead of a bare\n`integer`.",
           "maximum": 1000,
           "minimum": 1,
           "type": "integer"
@@ -9663,7 +10017,7 @@
       }
     },
     "media/upload": {
-      "description": "Moves one video chunk into the session's video store; answers the \\\n              `uploadId` receipt on every chunk (tdd SS3.33, ADR 45443 D5).",
+      "description": "Moves one video chunk into the session's video store; answers the `uploadId` receipt on every chunk (tdd SS3.33, ADR 45443 D5).",
       "params": {
         "$ref": "#/$defs/MediaUploadParams"
       },
@@ -9726,7 +10080,7 @@
       }
     },
     "recap/cancel": {
-      "description": "Cancels the session's in-flight recap, which settles `cancelled`; \\\n              idle is an accepted no-op (ADR 45447 D5, tdd SS3.28.5).",
+      "description": "Cancels the session's in-flight recap, which settles `cancelled`; idle is an accepted no-op (ADR 45447 D5, tdd SS3.28.5).",
       "params": {
         "$ref": "#/$defs/RecapCancelParams"
       },
@@ -9735,7 +10089,7 @@
       }
     },
     "recap/request": {
-      "description": "Requests a \"while you were away\" recap for a loaded session; acks \\\n              `accepted` and settles exactly once on `recap/completed` — one \\\n              in flight per session, host-enforced 45s timeout (ADR 45447 \\\n              D1/D5, tdd SS3.28.1).",
+      "description": "Requests a \"while you were away\" recap for a loaded session; acks `accepted` and settles exactly once on `recap/completed` — one in flight per session, host-enforced 45s timeout (ADR 45447 D1/D5, tdd SS3.28.1).",
       "params": {
         "$ref": "#/$defs/RecapRequestParams"
       },
@@ -9861,7 +10215,7 @@
       }
     },
     "skill/import": {
-      "description": "Imports foreign skills from the host's own `claude | codex` dirs \\through the single `SkillsService::import_skills` seam; answers \\per-skill installed/quarantined/skipped/failed plus counts. \\`commandId`-idempotent (including `dryRun` previews); each \\successful write is an SS3.22.2 detection point (tdd SS3.30.2, \\ADR 45433 D2/D4/D5, #45433).",
+      "description": "Imports foreign skills from the host's own `claude | codex` dirs through the single `SkillsService::import_skills` seam; answers per-skill installed/quarantined/skipped/failed plus counts. `commandId`-idempotent (including `dryRun` previews); each successful write is a `skill/changed` detection point (tdd SS3.30.2, ADR 45433 D2/D4/D5, #45433).",
       "params": {
         "$ref": "#/$defs/SkillImportParams"
       },
@@ -9879,7 +10233,7 @@
       }
     },
     "skill/setActivation": {
-      "description": "Writes one skill's activation in any scope through the single \\\n              `SkillsService::set_activation` seam; answers the applied \\\n              state plus `previous`. `commandId`-idempotent; each \\\n              successful write is an SS3.22.2 detection point (tdd SS3.30.1, \\\n              ADR 45433 D2/D4/D5, #45433).",
+      "description": "Writes one skill's activation in any scope through the single `SkillsService::set_activation` seam; answers the applied state plus `previous`. `commandId`-idempotent; each successful write is a `skill/changed` detection point (tdd SS3.30.1, ADR 45433 D2/D4/D5, #45433).",
       "params": {
         "$ref": "#/$defs/SkillSetActivationParams"
       },
@@ -10205,19 +10559,19 @@
       }
     },
     "monitor/inboxItemAdmitted": {
-      "description": "One monitor inbox admission: the fold keys gate-off consumes \\\n              (SS4.5.18).",
+      "description": "One monitor inbox admission: the fold keys gate-off consumes (SS4.5.18).",
       "params": {
         "$ref": "#/$defs/MonitorInboxItemAdmittedParams"
       }
     },
     "monitor/inboxItemDrained": {
-      "description": "One monitor inbox drain with its recorded stamp, the \\\n              drain-side operand of latest-wins (SS4.5.18).",
+      "description": "One monitor inbox drain with its recorded stamp, the drain-side operand of latest-wins (SS4.5.18).",
       "params": {
         "$ref": "#/$defs/MonitorInboxItemDrainedParams"
       }
     },
     "monitor/inboxItemVoided": {
-      "description": "One wake-missed void with its recorded stamp; count-only, \\\n              no transcript row (SS4.5.18).",
+      "description": "One wake-missed void with its recorded stamp; count-only, no transcript row (SS4.5.18).",
       "params": {
         "$ref": "#/$defs/MonitorInboxItemVoidedParams"
       }
@@ -10235,7 +10589,7 @@
       }
     },
     "recap/completed": {
-      "description": "A recap request settled exactly once — `completed` (with \\\n              `text` plus optional `title`), `failed` (`providerFailed`), \\\n              `cancelled`, or `timedOut` — delivered to the requesting \\\n              connection outside the view stream (ADR 45447 D2, tdd \\\n              SS3.28.2).",
+      "description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream (ADR 45447 D2, tdd SS3.28.2).",
       "params": {
         "$ref": "#/$defs/RecapCompletedParams"
       }

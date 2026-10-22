@@ -100,6 +100,7 @@ impl ApprovalRoute {
     pub(super) fn abort(&self) {
         lock(&self.contexts).clear();
         if let Some(worker) = lock(&self.worker).as_ref() {
+            // Can run on the worker (its handler opened a newer session for its id): let it finish.
             abort_unless_current(worker);
         }
     }
@@ -418,6 +419,7 @@ impl ApprovalRoute {
 impl Drop for ApprovalRoute {
     fn drop(&mut self) {
         if let Some(worker) = lock(&self.worker).take() {
+            // Can run on the worker, when its handler drops the last handle mid-run: let it finish.
             abort_unless_current(&worker);
         }
     }

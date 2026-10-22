@@ -30,15 +30,15 @@ pub(super) async fn route_requests(session: Weak<SessionInner>, mut woken: mpsc:
         if !current && !inner.approval.owes(&request) {
             continue;
         }
-        let retired = turn_retired(&inner, &request.turn_id);
-        if !current && !retired {
+        let settled = turn_settled(&inner, &request.turn_id);
+        if !current && !settled {
             continue;
         }
         drop(inner);
         // The caller has already seen this turn end, so its handler may not
         // approve more work in it.
         let routed = match router {
-            Some(router) if !retired => router.route(&request).await,
+            Some(router) if !settled => router.route(&request).await,
             _ => Ok(None),
         };
         // A worker `close()` did not abort (the closing handler's own, or one
@@ -56,7 +56,7 @@ pub(super) async fn route_requests(session: Weak<SessionInner>, mut woken: mpsc:
             Ok(Some(decision)) => decision,
             Ok(None) => match deny_decision(&request) {
                 Ok(decision) => decision,
-                Err(_) if retired => {
+                Err(_) if settled => {
                     retire_owing(&session, &request);
                     continue;
                 }
@@ -112,7 +112,7 @@ pub(super) async fn route_requests(session: Weak<SessionInner>, mut woken: mpsc:
         if !current && !owes {
             continue;
         }
-        let decision = if turn_retired(&inner, &request.turn_id) {
+        let decision = if turn_settled(&inner, &request.turn_id) {
             match deny_decision(&request) {
                 Ok(denial) => denial,
                 Err(_) => {
@@ -154,7 +154,12 @@ pub(super) async fn route_requests(session: Weak<SessionInner>, mut woken: mpsc:
             .await
         {
             Ok(result) => result,
-            Err(FacadeError::ClientClosed | FacadeError::TransportEnded) => return,
+            // A client close or a transport end, clean or a read or write
+            // error that breaks the connection, settles the turn itself;
+            // don't fail it here.
+            Err(
+                FacadeError::ClientClosed | FacadeError::TransportEnded | FacadeError::Transport(_),
+            ) => return,
             // The server resolved it first (its own policy denial, or a turn
             // interrupt); the turn's own terminal settles it.
             Err(FacadeError::Msp(error)) if error.matches(ErrorCode::ApprovalAlreadyResolved) => {
@@ -216,8 +221,8 @@ fn has_owed(session: &Weak<SessionInner>, request: &ApprovalRequestParams) -> bo
         .is_some_and(|inner| inner.approval.has_owed(&request.approval_id))
 }
 
-fn turn_retired(inner: &SessionInner, turn_id: &str) -> bool {
-    lock(&inner.state).retired_turns.contains_key(turn_id)
+fn turn_settled(inner: &SessionInner, turn_id: &str) -> bool {
+    lock(&inner.state).settled_for_approvals(turn_id)
 }
 
 // Prefer an offered `Denied`; hosts offer only `abort` ("Reject") today, which

@@ -129,6 +129,13 @@ async fn a_cap_refused_claim_keeps_its_failure_and_stays_pending() -> Result<(),
             ));
         }
     }
+    // The refused retry's approvals get the rejecting choice only through
+    // this record.
+    if !inner.settled_for_approvals_for_tests(ENDED_TURN) {
+        return Err(
+            "a cap-refused ended-turn retry must record the refusal for approvals".to_owned(),
+        );
+    }
     if session.pending().len() == 1 {
         Ok(())
     } else {

@@ -52,9 +52,8 @@ pub enum ToolReceiptOutcome {
     /// The list was served.
     Listed,
     /// The call was refused before it ran — by a human at approval or by the
-    /// policy engine with no human in the loop. Bound by the governing rules to
-    /// `status` `rejected` or `failed`, never `completed` — the first such
-    /// binding, published as v1 contract text by the` amendment.
+    /// policy engine with no human in the loop. Its `status` is always
+    /// `rejected` or `failed`, never `completed`.
     Rejected,
     /// The Code Mode cell ran to its own completion; status `completed`.
     Completed,

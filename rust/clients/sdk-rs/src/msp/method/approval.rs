@@ -74,11 +74,9 @@ pub struct ApprovalListPendingParams {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ApprovalListPendingResult {
-    /// Exactly the `approval/request` params of the protocol spec, one per
-    /// pending approval.
+    /// Exactly the `approval/request` params, one per pending approval.
     pub approvals: Vec<ApprovalRequestParams>,
-    /// Exactly the `userInput/request` params of the protocol spec, one per
-    /// pending prompt.
+    /// Exactly the `userInput/request` params, one per pending prompt.
     pub user_inputs: Vec<UserInputRequestParams>,
 }
 

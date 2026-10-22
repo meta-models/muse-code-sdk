@@ -70,10 +70,10 @@ pub struct TokenUsage {
 
 /// Session running totals of counted-once usage.
 ///
-/// Amendment a tracked change: the cache splits and server-computed `cost` join
-/// the counters. The counters stay accumulate-only; `cost` is the documented
-/// exception — it may move either way on price re-adoption and is labeled
-/// estimate. `Copy` was dropped for the `cost` member.
+/// The cache splits and server-computed `cost` join the counters. The counters
+/// stay accumulate-only; `cost` is the documented exception — it may move
+/// either way on price re-adoption and is labeled estimate. `Copy` was dropped
+/// for the `cost` member.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]

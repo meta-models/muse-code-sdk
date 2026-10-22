@@ -10,7 +10,9 @@ use serde::Serialize;
 pub struct MediaUploadParams {
     /// The session owning the video store.
     pub session_id: String,
-    /// One per call; the protocol spec replay answers the recorded receipt.
+    /// One per call. While the host runs, replaying it with the same params
+    /// returns the recorded receipt, and reusing it with different params is
+    /// refused. After a host restart, start over under a new `uploadId`.
     pub command_id: String,
     /// The client-minted upload id (UUIDv7), sent on every chunk.
     pub upload_id: String,

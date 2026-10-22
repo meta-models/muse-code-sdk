@@ -152,6 +152,18 @@ async def test_absent_malformed_or_unbound_observation_is_unknown(diagnose, obse
 @pytest.mark.parametrize("delta, support, expected", [
     ({"effectiveMode": "on", "effectiveSource": "request", "qualification": "qualified"}, "recognized", "qualified"),
     pytest.param(
+        {"effectiveMode": "on", "effectiveSource": "retained", "qualification": "qualified"},
+        "recognized", "qualified", id="retained-source",
+    ),
+    pytest.param(
+        {"effectiveMode": "off", "effectiveSource": "hostPolicy", "qualification": "notRequired"},
+        "recognized", "unknown", id="host-policy-source",
+    ),
+    pytest.param(
+        {"effectiveMode": "on", "effectiveSource": "request", "qualification": "unknown"},
+        "recognized", "unknown", id="unknown-qualification",
+    ),
+    pytest.param(
         {"effectiveMode": "on", "effectiveSource": "request", "qualification": "future-value"},
         "unknown", "unknown", id="future-qualification",
     ),

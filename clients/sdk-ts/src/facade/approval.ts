@@ -67,6 +67,7 @@ const REFRESH_FROM_UPDATE = [
 ] as const;
 const REFRESH_FROM_REQUEST = [
   "approvalId",
+  "cuaCardFacts",
   "itemId",
   "judgeEscalated",
   "protectedWrite",
@@ -268,6 +269,11 @@ export class ApprovalRouter {
     // Omitted rather than nulled, like `feedback` above: absent on the
     // parent's own approvals by contract (#36182 `skip_serializing_if`).
     if (params.subagentOrigin !== undefined) refreshed.subagentOrigin = params.subagentOrigin;
+    // A Computer Use card's facts belong to the call, so they stay with the
+    // retained request across stages; omitted when absent.
+    if (requested.cuaCardFacts !== undefined) {
+      refreshed.cuaCardFacts = requested.cuaCardFacts as ApprovalRequestParams["cuaCardFacts"];
+    }
     const acked = this.#inFlight.get(requested.approvalId);
     if (acked !== undefined) return this.#afterAck(acked, refreshed);
     return this.requested(refreshed);

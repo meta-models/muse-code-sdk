@@ -71,14 +71,14 @@ pub struct ViewPageParams {
     pub direction: Option<ViewPageDirection>,
     /// Maximum events to return, 1–1000. The server MAY return fewer.
     ///
-    /// The 1–1000 range is ratified and now **published**: a tracked change is
-    /// ruled, so the model carries the bound and the bundle renders
-    /// `minimum`/`maximum` instead of a bare `integer`.
+    /// The 1–1000 range is ratified and **published**: the model carries the
+    /// bound and the bundle renders `minimum`/`maximum` instead of a bare
+    /// `integer`.
     pub limit: u32,
 }
 
-/// The `view/page` request-mode anchor. Declared **open**: the protocol spec
-/// spells it "open string enum, v1 value `latestCompaction`".
+/// The `view/page` request-mode anchor. Declared **open**: the protocol spells
+/// it "open string enum, v1 value `latestCompaction`".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -87,8 +87,8 @@ pub enum ViewPageAnchor {
     LatestCompaction,
 }
 
-/// The `view/page` paging direction. Closed: the protocol spec spells exactly
-/// two values and a third would change the paging contract.
+/// The `view/page` paging direction. Closed: the protocol spells exactly two
+/// values and a third would change the paging contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewPageDirection {
@@ -99,8 +99,8 @@ pub enum ViewPageDirection {
 }
 
 /// `item/readOutput` params: byte-ranged fetch of stored full output that the
-/// view truncated — the `outputRef` fetch path the protocol's sections owe.
-/// Read-only; works on loaded and unloaded sessions; no lease.
+/// view truncated, via the item's `outputRef`. Read-only; works on loaded and
+/// unloaded sessions; no lease.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemReadOutputParams {
@@ -157,11 +157,10 @@ pub struct ItemReadOutputResult {
 }
 
 /// One element of a `view/page` result's `events` array: an **unframed view
-/// notification** exactly as the protocol spec defines it — the nested pair
-/// `{"method", "params"}`, which is the live notification minus `jsonrpc` and
-/// `emittedAtMs`, with nothing lifted out of `params` and nothing spliced into
-/// it. the protocol spec is the single normative definition; the protocol's
-/// sections both cite it, so the two surfaces cannot drift.
+/// notification** — the nested pair `{"method", "params"}`, which is the live
+/// notification minus `jsonrpc` and `emittedAtMs`, with nothing lifted out of
+/// `params` and nothing spliced into it. `view/page` and `muse exec --json`
+/// share this one definition, so the two surfaces cannot drift.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -177,13 +176,11 @@ pub struct UnframedViewNotification {
 /// The `params` of an unframed view notification.
 ///
 /// Declares the base members every view notification carries, and stays
-/// **open** for the event-specific fields the protocol's sections add per event
-/// type. The v1 schema model names no method-correlated union, so the per-event
-/// arms cannot be expressed here without one; enumerating them as an
-/// uncorrelated union would additionally exclude `turn/unqueued`, whose
-/// notification row is another lane's ratified deferral — a published schema
-/// that rejects a real page element is the exact defect this PR exists to
-/// close. Recorded as a Design delta on a tracked change.
+/// **open** for the event-specific fields each event type adds. The v1 schema
+/// model names no method-correlated union (the `events` element's `params` arm
+/// is selected by its sibling `method`), so the per-event arms cannot be
+/// expressed here without one, and an uncorrelated union of them could reject a
+/// real page element, which a published schema must not do.
 ///
 /// `sourceRange` is required here and not optional: `view/page` serves
 /// durable-sourced events only, and durable-sourced is *defined* as carrying a

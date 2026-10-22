@@ -5,7 +5,8 @@
 //! for a caller that answers approvals still waiting at the drop.
 //! The old session's unobserved
 //! submissions cross to the resumed one and are resent under their original
-//! command ids, which the server answers idempotently.
+//! command ids, which a server that can still read their earlier admission
+//! answers with its first decision.
 
 use std::sync::Mutex;
 
@@ -44,6 +45,16 @@ impl PendingTurn {
     }
 
     /// The turn an answer named, or `None` when no answer arrived.
+    ///
+    /// A resend's answer can name another turn: a host that cannot read the
+    /// earlier admission takes the resend as a new submission, which names a
+    /// different turn when it or the earlier one joined a turn already
+    /// running. The resend's input then runs in the turn its answer names, which
+    /// [`Reconnected::Live`] follows, and may already have run once in the
+    /// earlier turn, so it may have run twice, tools included. A
+    /// [`Turn::turn_id`](crate::turn::Turn::turn_id) that differs from this
+    /// shows the host took the resend as new; the same id, or no earlier id,
+    /// does not rule that out.
     pub fn turn_id(&self) -> Option<&str> {
         self.turn_id.as_deref()
     }
@@ -55,7 +66,10 @@ impl PendingTurn {
 #[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
 pub enum Reconnected {
-    /// The answer names a turn this session follows to its terminal.
+    /// The answer names a turn this session follows to its terminal. It can
+    /// differ from the carried [`PendingTurn::turn_id`] when the host took the
+    /// resend as a new submission (see that method); the resend's input runs
+    /// in this turn and may have run once before.
     Live(Turn),
     /// The answer names the turn the resume restated as `lastTurn`: that turn
     /// already ended, so this carries the restated terminal instead of a
@@ -94,7 +108,9 @@ impl Session {
 
     /// Resends carried submissions in order under their original command ids.
     ///
-    /// A written intake replays its first decision instead of running twice.
+    /// A written intake the host can still read replays its first decision
+    /// instead of running twice; a host that cannot read it takes the resend
+    /// as new and may run it again (see [`PendingTurn::turn_id`]).
     /// On a durable client, a server refusal fails only its own entry; after a
     /// transport end, that entry and every later one stay in this session's
     /// [`Session::pending`].

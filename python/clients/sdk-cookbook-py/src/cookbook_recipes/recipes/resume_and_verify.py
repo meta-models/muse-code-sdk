@@ -137,9 +137,10 @@ async def _start(context: Context) -> None:
     context.started_provider_id = provider_id
     context.started_model_id = model_id
 
-    # Put ONE real event in the session's view — setup against VACUITY: a
-    # session that emitted nothing has the before-genesis "" head cursor, and
-    # the suffix arm below would go green on the degenerate case. Setting the
+    # Put ONE real event in the session's view: a session that emitted
+    # nothing has the before-genesis "" head cursor, which the host treats as
+    # no cursor and answers with the full history, never none/cursorSuffix, so
+    # the suffix arm below could never test a real minted cursor. Setting the
     # approval mode is the cheapest view-visible state change without a model
     # or credentials; denyUnmatched deliberately, the most conservative mode,
     # so nothing here reads as advice about which mode to run.
@@ -247,13 +248,14 @@ async def _pending_and_cursor(context: Context) -> None:
         raise AssertionError(f"session/resume must serve a view cursor, got {cursor!r}")
     # A client must NEVER read a cursor's text — it is opaque. This next
     # check is a HARNESS PRECONDITION, not client guidance: `start` folded a
-    # view event on purpose, so the head cursor must now be a minted one; ""
-    # would make the suffix arm vacuous.
+    # view event on purpose, so the head cursor must now be a minted one; the
+    # host answers "" with the full history, so the suffix arm could not test it.
     if cursor == "":
         raise AssertionError(
             "`start` folded one view event, so the resumed head cursor must be "
-            'past genesis; got the before-genesis sentinel "", which would make '
-            "the suffix arm vacuous"
+            'past genesis; got the before-genesis sentinel "", which the host '
+            "answers with the full history, so the suffix arm could not test a "
+            "real cursor"
         )
     # The stub IS checked too: it is the pre-Seam-C placeholder, so serving it
     # means the view fold is not wired.

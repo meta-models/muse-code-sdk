@@ -16,6 +16,7 @@ regressed package.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -181,28 +182,39 @@ def test_the_classifiers_state_the_posture() -> None:
         )
 
 
-def test_the_wire_types_stay_out_of_the_facade_dependencies() -> None:
-    # The rule's letter: exactly one runtime dependency (the pydantic pin);
-    # any second, for either package, is an owner escalation. muse-code-msp is
-    # therefore deliberately NOT declared, the @muse-code/msp devDependency
-    # precedent: it does not exist on the registry, and declaring it before it
-    # does would turn a working editable install into a hard `pip install`
-    # failure. The gate script's printed owner-run sequence publishes
-    # muse-code-msp FIRST; promoting it into dependencies at that point is the
-    # owner escalation the governing rule names, decided with the publish itself.
-    deps = _pyproject(SDK_DIR)["project"].get("dependencies", [])
-    assert all(not d.startswith("muse-code-msp") for d in deps)
+def test_the_wire_types_are_a_same_version_pin_of_the_facade() -> None:
+    # The facade imports the generated wire types at import time, so a plain
+    # `pip install muse-code-sdk` must bring them along: muse-code-msp is the
+    # facade's second runtime dependency, exact-pinned to the facade's OWN
+    # version (both packages are versioned and released from the same tree,
+    # wire types first). The release bump rewrites the facade's version and
+    # its muse-code-msp pin together (pydantic bumps stay reviewed PRs); a
+    # drift between them, or a range, is a packaging defect. The wire-types
+    # package itself still declares no runtime dependency.
+    sdk = _pyproject(SDK_DIR)["project"]
+    deps = sdk.get("dependencies", [])
+    msp_pins = [d for d in deps if d.startswith("muse-code-msp")]
+    assert msp_pins == [f"muse-code-msp=={sdk['version']}"], (
+        f"muse-code-msp must be pinned to the facade's own version {sdk['version']!r}, got {msp_pins!r}"
+    )
+    assert sdk["version"] == _pyproject(MSP_DIR)["project"]["version"]
+    assert [d for d in deps if not d.startswith("muse-code-msp")] == [
+        d for d in deps if d.startswith("pydantic==")
+    ], "besides the wire types, pydantic (exact pin) is the only runtime dependency"
     assert _pyproject(MSP_DIR)["project"].get("dependencies", []) == []
 
 
 def _run_gate(
-    *args: str, env: dict[str, str] | None = None
+    *args: str, env: dict[str, str] | None = None, script: Path = GATE_SCRIPT
 ) -> subprocess.CompletedProcess[str]:
     # The env is built from scratch — GITHUB_ACTIONS and the OIDC variables
     # are absent unless a test passes them — so the refusal arms below see
-    # exactly the context they assert, wherever the suite itself runs.
+    # exactly the context they assert, wherever the suite itself runs. Every
+    # gate run, the checked-in script or a copied layout's, goes through here,
+    # so each carries the same wall (review 5581715933: an uncapped child wait
+    # would hang the lane instead of failing a named test).
     return subprocess.run(
-        [str(GATE_SCRIPT), *args],
+        [str(script), *args],
         capture_output=True,
         text=True,
         timeout=GATE_WALL_SECONDS,
@@ -359,6 +371,64 @@ def test_the_publish_path_cannot_ship_a_wheel_without_its_row(tmp_path: Path) ->
         "gate is not refusing"
     )
     assert "do not match the derived rows" in result.stderr
+
+
+def _copied_gate_layout(tmp_path: Path) -> Path:
+    # The gate reads its repo root from its own location, so a copy of the
+    # script plus exactly the files its manifest-identity gates read makes a
+    # seedable tree; build-only mode notes a missing anchor and tolerates a
+    # non-git tree, so the run reaches the dependency-posture gate.
+    for source in (
+        "scripts/publish-sdk-pypi.sh",
+        "scripts/check-public-mirror-text.py",
+        "clients/msp-py/pyproject.toml",
+        "clients/msp-py/LICENSE",
+        "clients/msp-py/README.md",
+        "clients/sdk-py/pyproject.toml",
+        "clients/sdk-py/LICENSE",
+        "clients/sdk-py/README.md",
+        "schema/msp/stable/manifest.json",
+    ):
+        target = tmp_path / source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((PROJECT_ROOT / source).read_bytes())
+    script = tmp_path / "scripts" / "publish-sdk-pypi.sh"
+    script.chmod(0o755)
+    return script
+
+
+def _run_copied_gate(script: Path) -> subprocess.CompletedProcess[str]:
+    return _run_gate("--build-only", env={"HOME": os.environ.get("HOME", "/tmp")}, script=script)
+
+
+def test_the_dependency_gate_refuses_a_drifted_or_missing_wire_types_pin(tmp_path: Path) -> None:
+    # The same-version rule: the wire-types pin must equal the facade's own
+    # version. The committed tree can never carry a drift (the pairing test
+    # above), so each fault is seeded into a copied layout and the gate must
+    # die naming the facade's own version, not pass to the build.
+    manifest = PROJECT_ROOT / "clients" / "sdk-py" / "pyproject.toml"
+    own = _pyproject(SDK_DIR)["project"]["version"]
+    for label, seeded in (
+        ("drifted", manifest.read_text().replace('"muse-code-msp==', '"muse-code-msp==1.0.0-never-', 1)),
+        ("missing", re.sub(r',\s*"muse-code-msp==[^"]+"', "", manifest.read_text(), count=1)),
+        # A valid-shape pin at the WRONG version: the shape regex accepts it, only the ==own-version half refuses
+        # it (review 5580868376 P1: without this seed a gate trimmed to the shape check stays green).
+        ("stale", manifest.read_text().replace(f'"muse-code-msp=={own}"', '"muse-code-msp==0.0.1"', 1)),
+    ):
+        root = tmp_path / label
+        script = _copied_gate_layout(root)
+        copy = root / "clients" / "sdk-py" / "pyproject.toml"
+        assert seeded != manifest.read_text(), f"{label}: the fault must change the manifest"
+        copy.write_text(seeded)
+        result = _run_copied_gate(script)
+        assert result.returncode != 0, f"{label}: the gate must refuse:\n{result.stdout}\n{result.stderr}"
+        assert "the facade's own version" in (result.stdout + result.stderr), (
+            f"{label}: the refusal must name the same-version rule:\n{result.stdout}\n{result.stderr}"
+        )
+        if label == "stale":
+            assert "muse-code-msp==0.0.1" in (result.stdout + result.stderr), (
+                f"{label}: the refusal must quote the stale pin it found:\n{result.stdout}\n{result.stderr}"
+            )
 
 
 def test_a_pre_release_version_refuses_the_row_derivation(tmp_path: Path) -> None:

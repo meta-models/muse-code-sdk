@@ -89,6 +89,8 @@ impl MuseClient {
             // selection yet; the session starts under the
             // host's default.
             permission_profile: None,
+            // Not exposed by the facade yet.
+            limits: None,
         };
         let result = match self
             .shared
@@ -190,10 +192,11 @@ impl MuseClient {
         };
         let dropped_snapshot = drop_unreadable_snapshot(&mut raw);
         let result = SessionResumeResult::deserialize(&raw).map_err(invalid_frame)?;
+        let history = resume_history_items(&raw, &result.history.mode);
         let session = Session::from_opening(
             Arc::clone(&self.shared),
             SessionOpening::Resume(Box::new(result)),
-            resume_history_items(&raw),
+            history,
             dropped_snapshot,
         );
         before_handoff(&session);

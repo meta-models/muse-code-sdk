@@ -151,13 +151,12 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       context.startedProviderId = providerId;
       context.startedModelId = modelId;
 
-      // Put ONE real event in the session's view. Setup, not lesson, and the
-      // reason is VACUITY rather than failure: a session that has emitted
-      // nothing has an empty view whose head cursor is `""`, the defined
-      // before-genesis sentinel. The host accepts that cursor and still
-      // answers `none`/`cursorSuffix` for it, so the suffix arm below would go
-      // GREEN while exercising only the degenerate case — it would never test
-      // that a real minted cursor round-trips. Folding one event makes the
+      // Put ONE real event in the session's view. Setup, not lesson: a session
+      // that has emitted nothing has an empty view whose head cursor is `""`,
+      // the defined before-genesis sentinel. The host treats that cursor as
+      // no cursor and answers it with the full history, never
+      // `none`/`cursorSuffix`, so the suffix arm below could never test that a
+      // real minted cursor round-trips. Folding one event makes the
       // cursor a minted one, so the arm proves what it claims. Setting the
       // approval mode is the cheapest state change that folds into the view
       // without a model or credentials.
@@ -323,13 +322,14 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       // rather than client guidance: `start` folded a view event on purpose, so
       // the head cursor must now be a minted one. If it is `""` the fold did
       // not happen — a future host that stops treating the approval-mode
-      // reconfigure as view-visible would land here — and every check below
-      // would then pass on the degenerate before-genesis case while proving
-      // nothing about a real cursor.
+      // reconfigure as view-visible would land here — and the suffix check
+      // below would then fail on a mode mismatch that says nothing about a
+      // real cursor, because the host answers `""` with the full history.
       if (cursor === "") {
         throw new Error(
           "`start` folded one view event, so the resumed head cursor must be past genesis; " +
-            'got the before-genesis sentinel "", which would make the suffix arm vacuous',
+            'got the before-genesis sentinel "", which the host answers with the full history, ' +
+            "so the suffix arm could not test a real cursor",
         );
       }
       // The stub IS checked too, because it is not a cursor at all — it is the
@@ -359,11 +359,11 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       // the cursor is empty.
       //
       // Round-tripping the value unexamined is the whole point of the opacity
-      // rule. It is ALSO why this arm needs `start`'s folded event to mean
-      // anything: the host answers `none`/`cursorSuffix` for the before-genesis
-      // `""` just as readily, so without a minted cursor this segment would be
-      // green and vacuous. The precondition in `pending-and-cursor` is what
-      // keeps that from happening silently.
+      // rule. It is ALSO why this arm needs `start`'s folded event: the host
+      // answers the before-genesis `""` with the full history instead of
+      // `none`/`cursorSuffix`, so without a minted cursor this segment could
+      // not test the round trip. The precondition in `pending-and-cursor`
+      // names that cause instead of leaving a confusing mode mismatch.
       const session = await within(
         "session/resume with the served cursor",
         COMMAND_BUDGET_MS,

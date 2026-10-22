@@ -8,12 +8,12 @@ use serde::Serialize;
 
 /// `userInput/answer` params: answer every question.
 ///
-/// Each answer carries `questionId` then exactly one of `selectedLabel` (single
-/// mode), `selectedLabels` (multiple mode, within min/max bounds), or
+/// Each answer carries `questionId` then exactly one of `selectedLabel`
+/// (single mode), `selectedLabels` (multiple mode, within min/max bounds), or
 /// `freeText` (<=500 chars); plus an optional `note` (<=500). Answers that do
 /// not match the prompt fail -32057 `userInputAnswerInvalid`. Image
-/// `attachments` are a **reserved** field in v1, rejected if sent, because the
-/// blob-upload path they reference is reserved in the protocol spec.
+/// `attachments` are a **reserved** field in v1, rejected if sent, because
+/// the blob-upload path they reference is also reserved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserInputAnswerParams {

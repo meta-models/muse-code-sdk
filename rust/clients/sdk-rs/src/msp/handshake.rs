@@ -90,8 +90,9 @@ pub struct SchemaInfo {
 }
 
 /// The server runtime's platform family; may differ from the client's. Closed:
-/// the protocol spec fixes the value set, so widening it is a deliberate,
-/// gate-visible protocol change rather than a silent addition.
+/// the protocol fixes the value set, so widening it is a deliberate,
+/// gate-visible protocol change rather than a silent addition (a later
+/// `Closed`→`Open` flip is itself additive).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PlatformFamily {
@@ -305,16 +306,16 @@ pub struct InitializeResult {
     pub granted_capabilities: Vec<CapabilityName>,
     /// Echo of the effective negotiated experimental setting.
     pub experimental_api: bool,
-    /// Whether this host persists its sessions. Optional so the addition is
-    /// additive under the protocol spec; a v1 host always sends it, and a
-    /// client reads absent as `durable` because no server that omits it has the
-    /// ephemeral profile.
+    /// Whether this host persists its sessions. Optional so adding it stays
+    /// backward compatible; a v1 host always sends it, and a client reads
+    /// absent as `durable` because no server that omits it has the ephemeral
+    /// profile.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_durability: Option<SessionDurability>,
-    /// Whether this host can enforce the sandbox. Optional so the addition is
-    /// additive under the protocol spec; a v1 host always sends it, and a
-    /// client reads absent as unknown — the host predates the field, so the
-    /// client falls back to its own probe rather than inventing an answer.
+    /// Whether this host can enforce the sandbox. Optional so adding it stays
+    /// backward compatible; a v1 host always sends it, and a client reads
+    /// absent as unknown — the host predates the field, so the client falls
+    /// back to its own probe rather than inventing an answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_availability: Option<SandboxAvailability>,
     /// Why enforcement is impossible. Sent only when `sandbox_availability`
@@ -322,4 +323,10 @@ pub struct InitializeResult {
     /// sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_unavailable_reason: Option<SandboxUnavailableReason>,
+    /// The host's posture ceiling as a five-axis limits object: what a
+    /// connection may choose. **Experimental, same-user socket only**; absent
+    /// means the host has no limits regime, so there is nothing to narrow and
+    /// no read method to serve. Absent is never fabricated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_limits: Option<crate::msp::method::limits::SessionLimits>,
 }

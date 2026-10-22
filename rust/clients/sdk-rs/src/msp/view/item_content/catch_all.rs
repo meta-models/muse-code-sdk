@@ -158,6 +158,8 @@ impl ItemKind {
             Self::MonitorFeed => "monitorFeed",
             Self::DamagedRange => "damagedRange",
             Self::ScheduledFire => "scheduledFire",
+            Self::BackgroundTerminalCompletion => "backgroundTerminalCompletion",
+            Self::OverdueNotice => "overdueNotice",
             Self::Unknown(word) => word,
         }
     }
@@ -189,6 +191,8 @@ impl<'de> Deserialize<'de> for ItemKind {
             "monitorFeed" => Self::MonitorFeed,
             "damagedRange" => Self::DamagedRange,
             "scheduledFire" => Self::ScheduledFire,
+            "backgroundTerminalCompletion" => Self::BackgroundTerminalCompletion,
+            "overdueNotice" => Self::OverdueNotice,
             _ => Self::Unknown(word),
         })
     }

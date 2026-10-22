@@ -10,12 +10,16 @@ use serde::Serialize;
 pub(crate) mod kind;
 pub(crate) mod registry;
 
-/// Approval-stage token carried in the protocol spec params and
-/// stale-requirement errors.
+/// Identifies one requirement of an approval: for a `shell` approval, one
+/// stage. A client sends it back as `requirementId` in `approval/decide`, and a
+/// stale-requirement error names the current one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalRequirementRef {
+    /// The approval this requirement belongs to.
     pub approval_id: String,
+    /// The requirement's index within the approval, counting from 0; an
+    /// approval with a single requirement uses 0.
     pub source_index: usize,
 }
 
@@ -24,8 +28,12 @@ pub struct ApprovalRequirementRef {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ApprovalResolutionSummary {
+    /// The winning decision, as an `approval/resolved` decision value such as
+    /// `approved` or `abort`.
     pub decision: String,
+    /// Who made the winning decision, such as `user`, `policy` or `llmJudge`.
     pub resolved_by: String,
+    /// The view cursor of the winning `approval/resolved` event.
     pub view_cursor: String,
 }
 
@@ -34,7 +42,11 @@ pub struct ApprovalResolutionSummary {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct UserInputSettlementSummary {
+    /// How the prompt settled, as a `userInput/settled` outcome value such as
+    /// `answered` or `timedOut`.
     pub outcome: String,
+    /// The view cursor of the `userInput/settled` event that recorded the
+    /// settlement.
     pub view_cursor: String,
 }
 
@@ -44,9 +56,14 @@ pub struct UserInputSettlementSummary {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct AdmissionResolutionSummary {
+    /// The winning decision, such as `allow_once` or `timedOut`.
     pub decision: String,
+    /// Who made the winning decision; absent when no person decided, for
+    /// example a timeout, an automatic allow, or a cancelled or retired
+    /// request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_by: Option<String>,
+    /// The view cursor of the winning `admission/resolved` event.
     pub view_cursor: String,
 }
 
@@ -75,12 +92,14 @@ pub struct ErrorData {
     /// overrides the error table row's `retryable` default for this code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retryable: Option<bool>,
-    /// the protocol spec descriptor, on `experimentalRequired` errors.
+    /// On `experimentalRequired` errors, the name of the experimental method,
+    /// field or variant the request used, for example
+    /// `turn/start.providerRequestOptions`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub descriptor: Option<String>,
     /// The missing capability, on `capabilityRequired` errors. Typed on the
-    /// grantable registry, so `rawLog` is outside the v1 domain and joins it as
-    /// an additive open-enum extension when the protocol spec un-defers.
+    /// grantable registry, so the experimental-only `rawLog` joins the stable
+    /// domain as an additive open-enum extension when it graduates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capability: Option<CapabilityName>,
     /// The rejected command's identifier, on `commandRejected` errors. The
@@ -193,7 +212,7 @@ pub struct ErrorData {
     /// Candidate retained paths on `sessionAmbiguous`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paths: Option<Vec<String>>,
-    /// Approval identity on the protocol spec errors.
+    /// Approval id on approval errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_id: Option<String>,
     /// Winning resolution on `approvalAlreadyResolved`.
@@ -205,7 +224,7 @@ pub struct ErrorData {
     /// Rejected server-minted choice on `approvalChoiceInvalid`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choice_id: Option<String>,
-    /// User-input prompt identity on the protocol spec errors.
+    /// Prompt identity on user-input errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_input_id: Option<String>,
     /// Winning settlement on `userInputAlreadySettled`.
@@ -251,6 +270,10 @@ pub struct ErrorData {
     /// carries no edit list.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u64>,
+    /// Every too-wide axis with its requested and ceiling values, on
+    /// `limitsAboveMax`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axes: Option<Vec<crate::msp::method::limits::LimitsAboveMaxAxis>>,
 }
 
 impl ErrorData {
@@ -304,6 +327,7 @@ impl ErrorData {
             path: None,
             key_path: None,
             index: None,
+            axes: None,
         }
     }
 }

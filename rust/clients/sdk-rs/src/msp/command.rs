@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// The ack-status vocabulary: `"accepted"` for every admitted command;
-/// `session/compact` alone may answer `"noop"`. Closed: the protocol spec names
+/// `session/compact` alone may answer `"noop"`. Closed: the protocol defines
 /// exactly these two values, so SDK clients get a discriminated type and
 /// validation catches a wrong status — and a client that received a third value
 /// would have been told nothing it can act on, unlike [`TurnStartDisposition`],

@@ -8,8 +8,9 @@ over the Muse Session Protocol (MSP), on your own Tokio runtime.
   the turn's server-authored outcome.
 - Answer tool-approval requests with a handler you register.
 - A client-side fold keeps a live, typed view of the session, with gap
-  recovery after reconnects and safe same-command retry that never
-  double-submits.
+  recovery after reconnects and same-command retry: a host that can still
+  read the earlier submission answers with its first decision instead of
+  running it twice (a restarted host that cannot read it may run it again).
 
 The generated MSP wire types are in `muse_code_sdk::msp`. Rust 1.97+.
 

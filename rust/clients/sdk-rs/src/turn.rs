@@ -235,9 +235,9 @@ impl Turn {
 
     /// Resolves only from a routed terminal, or errors if that source fails.
     ///
-    /// Keep this [`Turn`] alive while awaiting the returned future. Dropping
-    /// the last handle discards the command locally, so an outstanding future
-    /// resolves to [`MuseError::Discarded`].
+    /// Keep this [`Turn`] alive while awaiting the returned future. Once the last handle holding
+    /// the discard of the command that started or queued the turn drops, it resolves to
+    /// [`MuseError::Discarded`] for that command; a handle with none waits for the terminal.
     pub fn completed(&self) -> TurnOutcomeFuture {
         let mut receiver = self.inner.outcome.subscribe();
         let mut discard = self

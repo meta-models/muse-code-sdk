@@ -1,6 +1,7 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 pub use super::item_background::BackgroundInitiator;
+pub use super::item_background_terminal_completion::BackgroundTerminalCompletion;
 pub use super::item_damaged_range::DamagedRange;
 use crate::msp::view::state::TokenUsage;
 use serde::Deserialize;
@@ -293,14 +294,13 @@ pub enum ItemKind {
     /// A skill-read notice: single-shot only, status `completed` — a notice has
     /// no progress. Experimental: stripped per-connection for unopted callers.
     SkillRead,
-    /// A provider-hosted web search call: a plain additive the protocol spec
-    /// open-enum value — never strip-armed, since `kind` is required (the
-    /// `AuthRequired` precedent). Only the seven `webSearch` members are
-    /// experimental-gated.
+    /// A provider-hosted web search call: a plain additive value of this open
+    /// enum — never strip-armed, since `kind` is required (the `AuthRequired`
+    /// precedent). Only the seven `webSearch` members are experimental-gated.
     WebSearch,
-    /// One monitor feed line as one transcript cell: a plain additive the
-    /// protocol spec open-enum value, stable from day one. Single-shot only,
-    /// status `completed`, `turnId` null — arrival is the transcript fact.
+    /// One monitor feed line as one transcript cell: a plain additive value of
+    /// this open enum, stable from day one. Single-shot only, status
+    /// `completed`, `turnId` null — arrival is the transcript fact.
     MonitorFeed,
     /// One damaged range of the session log, at its position. Single-shot only,
     /// status `completed`, `turnId` null. No log record carries it: the fold
@@ -308,11 +308,21 @@ pub enum ItemKind {
     /// decodes it only if its `ItemKind` has a catch-all; the protocol crate's
     /// does not yet.
     DamagedRange,
-    /// A scheduled-task fire notice: a plain additive the protocol spec
-    /// open-enum value, stable from day one — never strip-armed, since `kind`
-    /// is required (the `AuthRequired` precedent). Single-shot only, status
-    /// `completed`, `revision` 1 — a notice has no progress.
+    /// A scheduled-task fire notice: a plain additive value of this open enum,
+    /// stable from day one — never strip-armed, since `kind` is required (the
+    /// `AuthRequired` precedent). Single-shot only, status `completed`,
+    /// `revision` 1 — a notice has no progress.
     ScheduledFire,
+    /// A background-terminal completion marker: a plain additive the protocol
+    /// spec open-enum value, stable from day one — never strip-armed, since
+    /// `kind` is required (the `AuthRequired` precedent). Single-shot only,
+    /// status `completed`, `revision` 1 — a notice has no progress.
+    BackgroundTerminalCompletion,
+    /// One background-overdue drain as one transcript line: a plain additive
+    /// value of this open enum, stable from day one. Single-shot only, status
+    /// `completed` — a notice has no progress. `text` is the gate-off literal
+    /// verbatim; `turnId` is the draining turn.
+    OverdueNotice,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

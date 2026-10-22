@@ -27,7 +27,8 @@ pub enum SessionKind {
     /// A child home under `<parent-session-dir>/subagent/<child-id>/`.
     Subagent,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }
 
@@ -51,17 +52,10 @@ pub struct Session {
     /// The `turnId` of the current foreground turn when `status` is `running`,
     /// and `null` when the session is idle.
     ///
-    /// **Required-nullable, per the owner ruling on a tracked change. Both
-    /// production writers hard-code `"activeTurnId": null` and nothing strips
-    /// it, so this is what the binary emits and what the protocol spec example
-    /// spells. The optional-absent shape published it as plain `string` and
-    /// REJECTED every idle `Session` frame the host sent — the defect class
-    /// this PR exists to close.
-    ///
-    /// The original evidence for optional-absent ("every committed transcript
-    /// shows the omission") was wrong: those transcripts are hand-authored
-    /// fixtures, not host recordings. They are corrected in the same change
-    /// under the ruling's `regenerationJustification`.
+    /// **Required-nullable.** Every served `Session` carries the member: `null`
+    /// when the session is idle or not loaded, the turn id when it is running.
+    /// An optional-absent shape would publish it as plain `string` and reject
+    /// every idle `Session` frame the host sends.
     pub active_turn_id: Option<String>,
     /// RFC3339. For a fork this is the fork session id's UUIDv7 mint instant.
     pub created_at: String,
@@ -167,11 +161,22 @@ pub struct Session {
     /// which never carries a stamp to begin with.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_client: Option<crate::msp::handshake::ClientInfo>,
-    /// a tracked change: the worktree this session runs in — path and origin
-    /// only. **Experimental** (`Session.worktree`; stripped per-connection for
-    /// unopted callers). Omitted when the session runs in no worktree.
+    /// The worktree this session runs in — path and origin only (the branch
+    /// stays in `branch`). **Experimental** (`Session.worktree`; stripped
+    /// per-connection for unopted callers). Omitted when the session runs in no
+    /// worktree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<SessionWorktree>,
+    /// This session's effective limits: the clamp output — the sandbox axes
+    /// read the live ceiling, the trust axis clamps the session's durable
+    /// stored choice (the clamp input) to it. Until a tracked change lands,
+    /// `workspaceTrusted` reports the recorded choice. **Experimental,
+    /// same-user socket only** (`Session.currentLimits`; stripped
+    /// per-connection for unopted callers). Loaded sessions only (`notLoaded`
+    /// rows and hosts with no limits regime omit it) — absent is never
+    /// fabricated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_limits: Option<super::limits::SessionLimits>,
 }
 
 /// `session/listChanged` params: one changed row of the `session/list` shape —
@@ -232,9 +237,8 @@ pub struct EffectiveApprovalModeState {
 #[non_exhaustive]
 pub struct EffectivePermissionState {
     /// The committed profile id; `null` when the committed source is a launch
-    /// override (`LaunchOverrides` pins `id: None`) — the governing rules
-    /// served-site rule; every catalog row and configured/default commit
-    /// carries a non-null id.
+    /// override (`LaunchOverrides` pins `id: None`); every catalog row and
+    /// configured/default commit carries a non-null id.
     pub profile_id: Option<String>,
     /// The committed profile's reviewer authority.
     pub reviewer_authority: ReviewerAuthority,

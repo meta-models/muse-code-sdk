@@ -24,15 +24,11 @@ pub enum CommandStatus {
 /// `invalidParams` — which is what closes [`TurnInputPartType`].
 ///
 /// Modelled as a discriminated flat object rather than a Rust `enum`, the
-/// convention [`crate::msp::view::approval::ApprovalSubject`] already
-/// established for a wire union in this crate: the v1 schema model names no
+/// convention [`crate::msp::view::approval::ApprovalSubject`] already established
+/// for a wire union in this crate: the v1 schema model names no
 /// object-variant union shape and fails closed on one. The serialized JSON is
-/// the protocol spec shape either way; what a flat object cannot express is
-/// "`mediaType` is required exactly when `type` is `image`".
-///
-/// **RULED: the precedent is accepted.** A strict union node kind may be funded
-/// later as a follow-up; if it is, it must cover
-/// [`crate::msp::method::lifecycle::PendingRequestPointer`] too.
+/// the same either way; what a flat object cannot express is "`mediaType` is
+/// required exactly when `type` is `image`".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnInputPart {
@@ -51,7 +47,7 @@ pub struct TurnInputPart {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base64_data: Option<String>,
     /// Pixel width; must be provided together with `height` or not at all.
-    /// Published as a `dependentRequired` pair under a tracked change.
+    /// Published as a `dependentRequired` pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<u64>,
     /// Pixel height; must be provided together with `width` or not at all.
@@ -67,10 +63,11 @@ pub struct TurnInputPart {
     /// what the TUI accepts after the shortcut token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<String>,
-    /// The picked copy's source, optional on a `skill` part: the catalog-row
-    /// `source` values. When present the host resolves the exact `(selector,
-    /// source)` row; when absent the governing rules bare resolution applies
-    /// byte-for-byte. Closed: an unknown value is `invalidParams`, never a
+    /// The picked copy's source, optional on a `skill` part: one of the catalog
+    /// rows' `source` values. When present the host resolves the exact
+    /// `(selector, source)` row; when absent it resolves the selector, bare or
+    /// plugin-qualified, against the session's skill catalog, as the TUI
+    /// shortcut does. Closed: an unknown value is `invalidParams`, never a
     /// fall-through.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::msp::method::skill::SkillInvocationSource>,
@@ -179,9 +176,9 @@ pub struct TurnStartParams {
     /// This turn's token budget in tokens: an integer floor of 1, riding to
     /// workflow-launch admission and inert when no workflow launches. Omitted
     /// means no budget; 0 or a non-integer is invalid params, as is explicit
-    /// `null`. No wire upper bound beyond the integer type. Experimental: the
-    /// governing rules rules names and shape only, v1 membership stays open, so
-    /// the member ships off the stable bundle until a v1 ruling graduates it.
+    /// `null`. No wire upper bound beyond the integer type. Experimental: only
+    /// the name and shape are settled, not v1 membership, so the member ships
+    /// off the stable bundle until it graduates.
     #[serde(
         default,
         deserialize_with = "crate::msp::method::lifecycle::deserialize_non_null_optional",

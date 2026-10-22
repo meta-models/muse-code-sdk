@@ -156,6 +156,7 @@ impl RetiredApprovals {
             protected_write: false,
             judge_escalated: false,
             subagent_origin: update.subagent_origin.clone(),
+            cua_card_facts: None,
         })
     }
 }

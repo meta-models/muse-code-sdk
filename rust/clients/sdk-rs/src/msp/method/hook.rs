@@ -64,28 +64,52 @@ pub enum HookHandlerKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HookEventName {
+    /// `sessionStart`: a session starts, resumes, is cleared, is forked, or
+    /// continues after compaction.
     SessionStart,
+    /// `userPromptSubmit`: the user submits a prompt, before the model sees it.
     UserPromptSubmit,
+    /// `preToolUse`: a tool call has been validated and is about to run.
     PreToolUse,
+    /// `permissionRequest`: a tool call is waiting for approval.
     PermissionRequest,
+    /// `postToolUse`: a tool call finished successfully.
     PostToolUse,
-    /// Explicit rename: the governing rules rules lowercase-first-letter
-    /// (`preLLMCall`), preserving the acronym.
+    /// `preLLMCall`: a model request is about to be sent.
     PreLLMCall,
-    /// Explicit rename: the governing rules rules `postLLMCall`.
+    /// `postLLMCall`: a model response was received.
     PostLLMCall,
+    /// `preCompact`: context compaction is about to run.
     PreCompact,
+    /// `postCompact`: context compaction finished.
     PostCompact,
+    /// `subagentStart`: a child agent session starts during a turn.
     SubagentStart,
+    /// `subagentStop`: a child agent session is about to stop.
     SubagentStop,
+    /// `stop`: the model is about to end the turn.
     Stop,
+    /// `sessionEnd`: the session shuts down. Observation only.
     SessionEnd,
+    /// `notification`: the session is waiting on the user, for example on a
+    /// pending approval or a new question. Observation only.
     Notification,
+    /// `postToolUseFailure`: a tool call failed.
     PostToolUseFailure,
+    /// `stopFailure`: the turn ended because the model call failed. Observation
+    /// only.
     StopFailure,
+    /// `postToolBatch`: one batch of tool results was committed.
     PostToolBatch,
+    /// `interrupt`: a top-level turn was cancelled. Observation only, and never
+    /// sent for a child agent's turn.
     Interrupt,
+    /// `sessionFork`: a fork of the session has completed. The host waits for
+    /// the handler's verdict, which decides how the fork is presented (such
+    /// as its tab label) but cannot block the fork.
     SessionFork,
+    /// `toolUseStart`: an approved tool call is about to start running.
+    /// Observation only.
     ToolUseStart,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.

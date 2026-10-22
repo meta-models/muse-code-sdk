@@ -5,19 +5,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "muse-code-sdk"
-version = "1.4.11"
+version = "1.4.12"
 description = "Muse Code SDK for MSP: asyncio-first facade over the generated wire types (muse-code-msp), with a thin sync wrapper."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-# Exactly ONE runtime dependency, exact-pinned: a deliberate, ruled
-# supply-chain exception. Any second dependency is an owner escalation;
-# bumps are deliberate reviewed PRs.
-# muse-code-msp is deliberately NOT declared: it is not on the registry yet,
-# and promoting it is the owner escalation decided with the first publish
-# (the @muse-code/msp devDependency precedent; test_publish_shape pins this).
-dependencies = ["pydantic==2.13.5"]
+# Two runtime dependencies, both exact-pinned. pydantic is the deliberate,
+# ruled supply-chain exception; bumps are deliberate reviewed PRs.
+# muse-code-msp is the companion wire-types package generated and released
+# from the same tree, so its pin is this package's own version: a plain
+# `pip install muse-code-sdk` must import, and the release bump moves this
+# package's version and its muse-code-msp pin together; pydantic bumps stay
+# reviewed PRs (test_publish_shape pins the pairing).
+dependencies = ["pydantic==2.13.5", "muse-code-msp==1.4.12"]
 classifiers = [
     # Alpha states the withheld promise: publication is permitted, but the
     # stability promise and conformance claim stay withheld — experimental

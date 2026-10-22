@@ -51,8 +51,8 @@ pub struct RecapCancelResult {
     pub status: CommandStatus,
 }
 
-/// `recap/completed` outcome: the terminal vocabulary, camelCase per the
-/// protocol spec. **Open**: a server-produced result vocabulary.
+/// `recap/completed` outcome: the terminal vocabulary, in camelCase. **Open**:
+/// a server-produced result vocabulary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RecapOutcome {

@@ -65,8 +65,8 @@ pub struct SessionReasoningEffortChangedParams {
     pub view_cursor: String,
     /// The durable records this event folded from.
     pub source_range: SourceRange,
-    /// The new session default: the closed eight-string tier vocabulary of the
-    /// protocol spec, spelled identically.
+    /// The new session default: the same closed eight-string tier vocabulary as
+    /// `turn/start`.
     pub reasoning_effort: crate::msp::method::turn::ReasoningEffort,
     /// What drove the change.
     pub source: ReasoningEffortChangeSource,
@@ -125,15 +125,13 @@ pub struct Goal {
     /// Next work description, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_work: Option<String>,
-    /// the governing rules (pick-4): goal creation time, epoch milliseconds,
-    /// verbatim from the durable row. Absent on blocks whose producer never
-    /// carried it (tool-result adoptions, pre-pick-4 logs); absence must never
-    /// render as a fabricated zero.
+    /// Goal creation time, epoch milliseconds, verbatim from the durable row.
+    /// Absent on blocks whose producer never carried it (tool-result adoptions,
+    /// older logs); absence must never render as a fabricated zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at_ms: Option<i64>,
-    /// the governing rules (pick-4): last goal mutation time, epoch
-    /// milliseconds, verbatim from the durable row. Same absence rule as
-    /// `createdAtMs`.
+    /// Last goal mutation time, epoch milliseconds, verbatim from the durable
+    /// row. Same absence rule as `createdAtMs`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at_ms: Option<i64>,
 }

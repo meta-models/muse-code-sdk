@@ -149,9 +149,12 @@ async fn walk(session: Weak<SessionInner>, mut request: ViewPageParams) {
             // `close()` settles the session as `ClientClosed` itself; failing
             // it first would name the wrong cause and abort the approval
             // worker, which may be the handler calling `close()`. A transport
-            // end is the same: its sweep settles the session as transport
-            // ended, the real cause.
-            Err(FacadeError::ClientClosed | FacadeError::TransportEnded) => return,
+            // end is the same, whether clean or a read or write error that
+            // breaks the connection: its sweep settles the session as
+            // transport ended, the real cause.
+            Err(
+                FacadeError::ClientClosed | FacadeError::TransportEnded | FacadeError::Transport(_),
+            ) => return,
             Err(error) => {
                 fail(
                     &live,

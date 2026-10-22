@@ -112,12 +112,16 @@ impl SessionInner {
             return handle.turn_with_keepalive(Arc::clone(self));
         }
         if !state.accepts_turn_notification(turn_id) {
+            // The caller sees this turn fail now, so its approvals get the
+            // settled-turn answer.
+            state.remember_cap_refused(turn_id);
             let handle = TurnHandle::new(turn_id);
             handle.fail(TurnWaitError::EventSourceFailed {
                 message: "too many active turns to retain another notification route".to_owned(),
             });
             return handle.turn_with_keepalive(Arc::clone(self));
         }
+        state.forget_cap_refused(turn_id);
         let handle = self.open_route(state, turn_id).handle.clone();
         handle.turn_with_keepalive(Arc::clone(self))
     }
@@ -128,6 +132,13 @@ impl SessionInner {
     #[cfg(test)]
     pub(crate) fn claim_turn_for_ordering_tests(self: &Arc<Self>, turn_id: &str) -> Turn {
         self.claim_turn(turn_id)
+    }
+
+    /// Whether approvals for `turn_id` already get the rejecting choice, for
+    /// the client's own tests.
+    #[cfg(test)]
+    pub(crate) fn settled_for_approvals_for_tests(&self, turn_id: &str) -> bool {
+        lock(&self.state).settled_for_approvals(turn_id)
     }
 
     pub(super) fn submitted_turn(self: &Arc<Self>, turn_id: &str, command_id: String) -> Turn {

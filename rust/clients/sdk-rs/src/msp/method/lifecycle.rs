@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 pub use session_mcp::SessionConfig;
+pub use session_resume::BlockedPrompt;
 pub use session_resume::HistoryNoneReason;
 pub use session_resume::LastTurn;
 pub use session_resume::PendingRequestPointer;
@@ -19,6 +20,7 @@ pub(crate) mod session_leave;
 pub(crate) mod session_list;
 pub(crate) mod session_mcp;
 pub(crate) mod session_resume;
+pub(crate) mod session_resume_wire_words;
 
 /// `session/start` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,20 +90,28 @@ pub struct SessionStartParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub permission_profile: Option<String>,
-    /// Reserved for per-session overrides owned by a future Configuration
-    /// section. Issue a tracked change admits only its `mcpServers` member.
+    /// Reserved for future per-session overrides; only its `mcpServers` member
+    /// is admitted.
     #[serde(
         default,
         deserialize_with = "deserialize_non_null_optional",
         skip_serializing_if = "Option::is_none"
     )]
     pub config: Option<SessionConfig>,
-    /// a tracked change: ask for a created worktree or attach an existing one.
-    /// **Experimental** (`session/start.worktree`; unopted callers are refused
-    /// `-32602`). Absent means no worktree — the start proceeds exactly as
-    /// today.
+    /// Ask for a created worktree or attach an existing one. **Experimental**
+    /// (`session/start.worktree`; unopted callers are refused `-32602`). Absent
+    /// means no worktree — the start proceeds exactly as today.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeStartRequest>,
+    /// The per-session restriction: the axes this session chooses, each at or
+    /// below the host ceiling. **Experimental, socket-only**
+    /// (`session/start.limits`; unopted callers are refused `-32602`, as are
+    /// opted callers on hosts with no limits regime). Absent means the default
+    /// on every axis — the daemon default for trust, the ceiling for the
+    /// sandbox axes. A choice wider than the ceiling on any axis refuses the
+    /// start `-32028 limitsAboveMax` naming every too-wide axis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limits: Option<super::limits::SessionLimitsChoice>,
 }
 
 pub(crate) fn deserialize_non_null_optional<'de, D, T>(
@@ -253,4 +263,7 @@ pub struct SessionReadResult {
     /// Same member as `session/resume`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<LastTurn>,
+    /// Same member as `session/resume`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_prompt: Option<BlockedPrompt>,
 }

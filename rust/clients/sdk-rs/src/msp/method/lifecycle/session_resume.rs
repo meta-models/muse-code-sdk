@@ -30,9 +30,17 @@ pub struct SessionResumeParams {
     /// The session to load.
     pub session_id: String,
     /// A view cursor previously observed by this client — or an observed
-    /// `summarizedThrough` compaction anchor. When present the server returns
-    /// only the suffix and `history.mode` is `none`. Omitted and explicit
-    /// `null` both mean "no cursor".
+    /// `summarizedThrough` compaction anchor. When it names an event the server
+    /// still holds, the server returns only the suffix and `history.mode` is
+    /// `none`. A cursor the server minted that names no event yet, such as the
+    /// empty start cursor of a session that had no events, is treated as no
+    /// cursor: the server serves what a resume without a cursor would. A cursor
+    /// older than the earliest event the server still holds gets a snapshot, or
+    /// `-32040` `viewTruncated` when none fits. A cursor this session's view
+    /// never minted is refused with `-32011` `notFound`, reason
+    /// `missingAnchor`, and a compaction anchor naming a boundary the server
+    /// has pruned is refused with `-32042` `boundaryPruned`. Omitted and
+    /// explicit `null` both mean "no cursor".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     /// Return only session metadata and live resume state; page history
@@ -100,12 +108,27 @@ pub struct SessionHistory {
     /// Why no history was served — sent exactly when `mode` is `"none"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub none_reason: Option<HistoryNoneReason>,
+    /// The checkpoint-prune boundary: rows for served items at-or-before
+    /// `through_item_id` in served order predate the selected checkpoint.
+    /// Additive-optional; absence is a non-assertion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_boundary: Option<CheckpointBoundary>,
 }
 
-/// Why a result served `history.mode: "none"` — the owning spec typed
-/// unavailability. Open on the client side: an absent (older server) or unknown
-/// (newer server) value decodes conservatively as an unknown reason, and
-/// `viewCursor` text never substitutes for it.
+/// A served checkpoint-prune boundary: `through_item_id` names the last
+/// first-opened item that opened strictly before the boundary checkpoint event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct CheckpointBoundary {
+    /// The last pre-boundary item's id, in served (first-opened) order.
+    pub through_item_id: String,
+}
+
+/// Why a result served `history.mode: "none"`: the server's typed reason for
+/// serving no history. Open on the client side: an absent (older server) or
+/// unknown (newer server) value decodes conservatively as an unknown reason,
+/// and `viewCursor` text never substitutes for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HistoryNoneReason {
@@ -124,7 +147,8 @@ pub enum HistoryNoneReason {
     /// its bounded read cap; page in bounded chunks.
     ProjectionReadLimit,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }
 
@@ -145,7 +169,8 @@ pub enum HistoryMode {
     /// `viewCursor`.
     None,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }
 
@@ -153,18 +178,14 @@ pub enum HistoryMode {
 /// payloads arrive as re-issued server-to-client requests right after a
 /// `session/resume` response; `session/read` never re-issues them.
 ///
-/// **A second instance, RULED: the flat discriminated-object precedent is
-/// accepted for this type too, on the `ApprovalSubject` precedent, with the
-/// serialized JSON unchanged. A strict union node kind may be funded later; if
-/// it is, it must cover both this type and `TurnInputPart`.** the protocol spec
-/// ratifies two kind-discriminated entry shapes (`{kind: "approval",
-/// approvalId, viewCursor}` / `{kind: "userInput", userInputId, viewCursor}`);
-/// this is one flat object with both ids optional, so the published schema
-/// accepts `{"kind":"approval","userInputId":…}` and an entry carrying no id at
-/// all. The v1 model names no object-variant union (the `ApprovalSubject`
-/// precedent, followed for `TurnInputPart`), and this instance differs from
-/// that one in a way the ruling should see: `kind` here is an OPEN enum, where
-/// `TurnInputPart.type` is closed.
+/// The protocol defines two kind-discriminated entry shapes (`{kind:
+/// "approval", approvalId, viewCursor}` / `{kind: "userInput", userInputId,
+/// viewCursor}`). This type is one flat object with both ids optional, as for
+/// `ApprovalSubject` and `TurnInputPart`, because the v1 model names no
+/// object-variant union; the serialized JSON is the same, but the published
+/// schema also accepts `{"kind":"approval","userInputId":…}` and an entry
+/// carrying no id at all. Unlike `TurnInputPart.type`, `kind` here is an OPEN
+/// enum.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -215,6 +236,32 @@ pub struct SessionResumeResult {
     /// non-assertion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<LastTurn>,
+    /// The axes this resume tightened: when the stored choice exceeds the
+    /// restarted host's narrower ceiling, the resume clamps to fit, carries the
+    /// tightened `currentLimits` on the session, and names each tightened axis
+    /// here. **Experimental, same-user socket only**
+    /// (`session/resume.tightenedAxes`; stripped per-connection for unopted
+    /// callers). Absent when nothing tightened — never an empty array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tightened_axes: Option<Vec<String>>,
+    /// The recallable blocked prompt's refill text. **Additive-optional**;
+    /// absence means no blocked prompt to recall (an unblocked session, or a
+    /// pre-feature host). Data only, never a rendered row: clients seed cold
+    /// recall from it (C-p refills `text`) and MUST NOT display it as history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_prompt: Option<BlockedPrompt>,
+}
+
+/// The cold recall seed on `session/resume` and `session/read` results: at most
+/// one, the latest blocked Main prompt — exactly the host's mirror of
+/// `prompt_recovery::replay::ReplayInput`'s choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BlockedPrompt {
+    /// The exact submitted prompt, verbatim — no truncation, no
+    /// normalization; recall fidelity requires exactness.
+    pub text: String,
 }
 
 /// The last `turn/completed` the session-view fold applied, restated on

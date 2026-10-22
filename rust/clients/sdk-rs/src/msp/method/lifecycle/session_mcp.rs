@@ -10,13 +10,12 @@ use std::fmt;
 /// The open configuration extension object shared by `session/start` and
 /// `session/resume`.
 ///
-/// Unknown keys are ignored on the wire, never rejected: the live decoder is
-/// the governing rules tolerant path, and the governing rules keeps every
-/// exported bundle free of `additionalProperties: false`. The Rust typed
-/// model's `deny_unknown_fields` is internal and never exported — the
-/// closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism
-/// stays inert. Recognized `mcpServers` values are typed and validated before
-/// they leave the wire boundary.
+/// Unknown keys are ignored on the wire, never rejected: the live decoder
+/// tolerates them, and no exported bundle carries `additionalProperties:
+/// false`. The Rust typed model's `deny_unknown_fields` is internal and never
+/// exported — the closedness export applies nowhere, and the `x-msp-closed`
+/// opt-in mechanism stays inert. Recognized `mcpServers` values are typed and
+/// validated before they leave the wire boundary.
 #[derive(Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {

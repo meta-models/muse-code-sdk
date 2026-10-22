@@ -46,16 +46,6 @@ pub struct SnapshotAnchor {
 ///
 /// Additive-optional evolution applies exactly as everywhere else; unknown
 /// members MUST be ignored, and preserved if re-serialized.
-///
-/// **One served site does not satisfy this type today, escalated under a
-/// tracked change.** The genesis snapshot rung serves `state: {"items": [...]}`
-/// alone, while the anchored rung serves the full folded state. A
-/// schema-validating client resuming with `{"history": "snapshot"}` against the
-/// real fold therefore sees the other required members missing. The fix is a
-/// serving change in the lane (serialize the `SessionViewState` the genesis
-/// path already folds, as the anchored path does) plus its own RED against the
-/// real fold; it is not a shape change here, because the protocol spec ratifies
-/// this shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -90,11 +80,11 @@ pub struct SnapshotState {
     /// The `cumulative` block of the last `session/tokenUsage` event; zeroes
     /// when none.
     pub token_usage: CumulativeTokenUsage,
-    /// The latest `(windowTokens, usedTokens, pressure)` triple. the protocol
-    /// spec says "`null`/absent" and the protocol spec worked example OMITS the
-    /// member; the binary omits it too, so this is the absent arm — the four
-    /// siblings above are present-null in the same frame. the governing rules
-    /// admits one or the other, never both; escalated under a tracked change.
+    /// The latest `(windowTokens, usedTokens, pressure)` triple. The protocol
+    /// allows "`null`/absent" and its worked example OMITS the member; the
+    /// binary omits it too, so this is the absent arm — the four siblings above
+    /// are present-null in the same frame. A member is published as one or the
+    /// other, never both.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<ContextUsage>,
     /// The latest session-default reasoning effort with its source; ABSENT
@@ -124,7 +114,7 @@ pub struct ReasoningEffortState {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct TurnRef {
-    /// The turn's id, pre-minted per the protocol spec.
+    /// The turn's id, minted at admission.
     pub turn_id: String,
     /// The `commandId` of the submit that minted it.
     pub command_id: String,

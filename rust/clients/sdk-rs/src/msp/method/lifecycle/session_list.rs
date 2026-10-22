@@ -14,8 +14,7 @@ pub struct SessionListParams {
     /// "first page".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
-    /// Page size; default 50, max 200 — the cap is published under a tracked
-    /// change.
+    /// Page size; default 50, max 200 — the schema publishes the cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
     /// Only sessions whose metadata workspace root equals this path.

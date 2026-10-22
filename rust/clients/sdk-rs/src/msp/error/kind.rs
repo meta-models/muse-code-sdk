@@ -4,9 +4,8 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// A stable `error.data.kind` category: camelCase, the value clients branch on.
-/// Open: the protocol spec lanes add kinds additively as their methods land,
-/// and the spec's edge-case rule makes a new `kind` additive only because this
-/// domain is declared open.
+/// Open: new kinds are added as their methods land, and a new `kind` is
+/// additive only because this domain is declared open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -66,6 +65,11 @@ pub enum ErrorKind {
     /// or renamed session directory whose log belongs to a different session.
     /// `data.sessionId` names the requested session.
     SessionStreamMismatch,
+    /// A `session/start` choice is wider than the host ceiling on at least one
+    /// axis; `data.axes` names every too-wide axis with its requested and
+    /// ceiling values and `data.retryable` is `false`. Experimental tier with
+    /// the socket limits surface.
+    LimitsAboveMax,
     /// A worktree action names an untrusted repository; `data.path` names the
     /// subject repo and `data.retryable` is `false`. Experimental tier with the
     /// worktree surface.

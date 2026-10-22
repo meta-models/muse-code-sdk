@@ -264,6 +264,11 @@ async fn a_session_registered_after_the_transport_end_settles_as_source_closed()
     }
 
     client.shared.register(&late, false);
+    if late.is_discarded() || client.is_session_discarded("late-session") {
+        return Err(
+            "a durable client must keep a session registered after the transport end".to_owned(),
+        );
+    }
     if client
         .shared
         .router

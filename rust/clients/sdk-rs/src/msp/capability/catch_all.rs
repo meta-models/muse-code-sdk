@@ -16,6 +16,7 @@ impl CapabilityName {
             Self::SessionRename => "sessionRename",
             Self::PeerMessaging => "peerMessaging",
             Self::RawLog => "rawLog",
+            Self::RawLogPhysical => "rawLogPhysical",
             Self::Unknown(word) => word,
         }
     }
@@ -40,6 +41,7 @@ impl<'de> Deserialize<'de> for CapabilityName {
             "sessionRename" => Self::SessionRename,
             "peerMessaging" => Self::PeerMessaging,
             "rawLog" => Self::RawLog,
+            "rawLogPhysical" => Self::RawLogPhysical,
             _ => Self::Unknown(word),
         })
     }

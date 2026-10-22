@@ -4,8 +4,6 @@ use crate::msp::method::lifecycle::HistoryNoneReason;
 use serde::Deserialize;
 use serde::Serialize;
 
-mod catch_all;
-
 /// `session/viewHealthChanged` params: the named session's live view stream
 /// became unavailable, and why.
 ///
@@ -40,6 +38,7 @@ pub enum SessionViewHealth {
     /// The live view stream is unavailable — see `noneReason`.
     Unavailable,
     /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
     Unknown(String),
 }

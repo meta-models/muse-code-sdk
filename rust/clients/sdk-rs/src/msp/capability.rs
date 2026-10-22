@@ -2,9 +2,9 @@
 
 mod catch_all;
 
-/// A grantable capability name. Open: the reserved `rawLog` entry joins this
-/// domain as an additive open-enum extension when the protocol spec un-defers —
-/// closed would make that a retype.
+/// A grantable capability name. Open: the experimental-only `rawLog` entry
+/// joins the stable domain as an additive open-enum extension when it graduates
+/// — closed would make that a retype.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CapabilityName {
@@ -39,12 +39,17 @@ pub enum CapabilityName {
     /// Experimental-tier only: the per-variant stability strips it from the
     /// stable render, like `rawLog` below.
     PeerMessaging,
-    /// The raw-log altitude: all `log/*` and `projection/*` methods.
+    /// The raw-log altitude: the `log/*` record methods and `projection/*`; the
+    /// `log/physical*` export has its own `rawLogPhysical` grant.
     /// Experimental-tier only: granted solely on connections that opted into
     /// `experimentalApi`; a v1 host never grants it as a stable surface. The
-    /// per-variant stability strips it from the stable render, keeping the
-    /// governing rules "nowhere outside reserved tables" pin green.
+    /// per-variant stability strips it from the stable render, so the stable
+    /// bundle names it only in reserved tables.
     RawLog,
+    /// The physical export: `log/physicalSubscribe`, `log/physicalFiles`,
+    /// `log/physicalUnsubscribe`. Experimental-tier only and independent of
+    /// `rawLog`: either can be withheld alone.
+    RawLogPhysical,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

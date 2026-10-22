@@ -12,7 +12,7 @@
 /// Fingerprint of the stable schema these types were generated from; the
 /// SDK pin test checks it against the committed manifest.
 pub const GENERATED_FINGERPRINT: &str =
-    "sha256:f282ad16e21520d0cda68cb190149b86e2b062eef1dd282749360c05aa3d1082";
+    "sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0";
 
 pub(crate) mod capability;
 pub(crate) mod command;
@@ -105,8 +105,13 @@ pub use self::method::lifecycle::session_mcp::{
 };
 
 pub use self::method::lifecycle::session_resume::{
-    HistoryMode, HistoryNoneReason, HistoryPreference, LastTurn, PendingRequestKind,
-    PendingRequestPointer, SessionHistory, SessionResumeParams, SessionResumeResult,
+    BlockedPrompt, CheckpointBoundary, HistoryMode, HistoryNoneReason, HistoryPreference, LastTurn,
+    PendingRequestKind, PendingRequestPointer, SessionHistory, SessionResumeParams,
+    SessionResumeResult,
+};
+
+pub use self::method::limits::{
+    LimitsAboveMaxAxis, LimitsAxisValue, LimitsNetworkMode, SessionLimits, SessionLimitsChoice,
 };
 
 pub use self::method::media::{MediaUploadParams, MediaUploadResult};
@@ -161,8 +166,8 @@ pub use self::method::snapshot::{
 };
 
 pub use self::method::task::{
-    TaskBackgroundParams, TaskCommandResult, TaskListEntry, TaskListParams, TaskListResult,
-    TaskListStatus, TaskStopAllParams, TaskStopAllResult, TaskStopParams,
+    TaskBackgroundParams, TaskCommandResult, TaskExecutionMode, TaskListEntry, TaskListParams,
+    TaskListResult, TaskListStatus, TaskStopAllParams, TaskStopAllResult, TaskStopParams,
 };
 
 pub use self::method::turn::{
@@ -212,6 +217,10 @@ pub use self::view::approval::decision::{
     ApprovalResolvedBy, ApprovalStageEvidence,
 };
 
+pub use self::view::approval_card_facts::{
+    ApprovalCuaCardFacts, ApprovalCuaPage, ApprovalCuaPoint, ApprovalCuaStep,
+};
+
 pub use self::view::event::{
     ItemCompletedParams, ItemDeltaParams, ItemStartedParams, ItemUpdatedParams, LimitKind,
     QuotaDetail, RetractOutcome, TurnCompletedParams, TurnError, TurnErrorKind,
@@ -230,6 +239,8 @@ pub use self::view::item::object::scheduled_fire::ScheduledFireMembers;
 pub use self::view::item::object::tool_call::ToolCallMembers;
 
 pub use self::view::item_background::{BackgroundInitiator, BackgroundState, BackgroundStatus};
+
+pub use self::view::item_background_terminal_completion::BackgroundTerminalCompletion;
 
 pub use self::view::item_content::{
     CompactionOutcome, CompactionTrigger, HookRunStatus, ItemKind, ItemStatus, MessageAttachment,

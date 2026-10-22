@@ -4,7 +4,7 @@ use super::walk;
 use crate::client::{MuseClient, StartSessionOptions, lock};
 use crate::msp::{SessionDurability, ViewPageParams};
 use crate::session::Session;
-use crate::session::state::tests::StartsOneSession;
+use crate::session::state::tests::{StartsOneSession, StartsThenFailsRead};
 use crate::turn::TurnWaitError;
 
 /// `close()` sets the client's closed flag before it settles each
@@ -172,6 +172,59 @@ async fn a_walk_that_meets_an_ended_transport_leaves_its_session_to_the_sweep() 
     assert!(
         failure.is_none(),
         "a walk that meets an ended transport must leave its session to the sweep: {failure:?}"
+    );
+    Ok(())
+}
+
+/// A connection that breaks with a read error, rather than a clean end, fails
+/// every pending request with that I/O error, and the driver's end then runs
+/// the transport-end sweep. A walk whose `view/page` is pending at that moment
+/// must return and leave its session to that sweep, as it does for a clean
+/// transport end, rather than fail it with the read error.
+#[tokio::test(flavor = "current_thread")]
+async fn a_walk_cut_short_by_a_read_error_leaves_its_session_to_the_sweep() -> Result<(), String> {
+    let client = MuseClient::new(
+        StartsThenFailsRead::new("view/page"),
+        SessionDurability::Durable,
+    );
+    let session = client
+        .start_session(StartSessionOptions::default())
+        .await
+        .map_err(|error| error.to_string())?;
+    // A turn of the registered session, which the sweep reaches.
+    let swept = session.inner.claim_turn_for_ordering_tests("turn-0");
+    // Same client, never registered with its router, so the sweep skips it.
+    let unsettled = Session::from_opening(
+        Arc::clone(&session.inner.client),
+        session.opening().clone(),
+        &[],
+        None,
+    );
+
+    walk(
+        Arc::downgrade(&unsettled.inner),
+        ViewPageParams {
+            session_id: "session-1".to_owned(),
+            cursor: Some("cursor-1".to_owned()),
+            anchor: None,
+            direction: None,
+            limit: 1,
+        },
+    )
+    .await;
+
+    let failure = lock(&unsettled.inner.state).event_source_failure.clone();
+    assert!(
+        failure.is_none(),
+        "a walk cut short by a read error must leave its session to the sweep: {failure:?}"
+    );
+    // antipattern-ok(timeout-wrapper): failure-only cap; success ends when the sweep settles the registered turn
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), swept.completed())
+        .await
+        .map_err(|_| "control: the sweep never settled the registered turn".to_owned())?;
+    assert!(
+        matches!(outcome, Err(crate::client::FacadeError::TransportEnded)),
+        "control: the read error's sweep settles the sessions it reaches as TransportEnded, got {outcome:?}"
     );
     Ok(())
 }
