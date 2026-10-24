@@ -55,12 +55,34 @@ export type ApprovalChoiceScope = "once" | "session" | "localPersistent" | (stri
 
 /** One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`. */
 export interface ApprovalCuaCardFacts {
+  /** The data the call would send that the card must name; a card with any offers only one-shot choices. */
+  data?: ApprovalCuaDataFact[];
   /** For a browser, the host of the window's current page. */
   page?: ApprovalCuaPage;
   /** Only the consequential steps, in call order. */
   steps?: ApprovalCuaStep[];
   /** The target window's title: the app's own text, which a page can set; a client shows it quoted and as plain text, never as markup or a choice, and may cap it. */
   windowTitle?: string;
+}
+
+/** One piece of data the call would send. An open union on `kind` (`secret`, or `other` for a row the host can't word); a client shows `other` and any kind it doesn't know as a generic data row. */
+export interface ApprovalCuaDataFact {
+  /** Open discriminator: `secret` or `other`. */
+  kind: string;
+  /** For `secret`, the parts of it the card may show, never the value. */
+  mask?: ApprovalCuaMask;
+  /** For `secret`, the scanner's open tag (`github_token`, `secret_named_value` and so on); a client words the tags it knows and shows any other as "a secret". */
+  secretKind?: string;
+}
+
+/** A secret's mask: a vendor token's prefix and last 4 characters (`ghp_…3f9a`), a named value's name and length (`password=… (12 chars)`), or the length alone; all absent names the kind only. */
+export interface ApprovalCuaMask {
+  /** The secret's length in characters. */
+  chars?: number;
+  /** A vendor token's last 4 characters. */
+  last4?: string;
+  /** A vendor token's fixed prefix (`ghp_`), or a named value's name and its `=` (`password=`). */
+  prefix?: string;
 }
 
 /** The page's full host, no path or query. */
@@ -1124,6 +1146,8 @@ export interface Item {
   recordedAt?: string;
   /** `reminderChild`: the reminder agent's id. */
   reminderAgentId?: string;
+  /** Monitor `toolCall`: the D26 hint verdict plus anchor (`ReplayHint`); absent means no hint. */
+  replayHint?: ReplayHint;
   /** `subagent`: the result envelope from `ResultReady` (tdd SS4.5.7). */
   result?: SubagentResult;
   /** `workflow`: set on resumed launches. */
@@ -1172,6 +1196,8 @@ export interface Item {
   summary?: string[];
   /** `reminderChild`: the linked task id. */
   taskId?: string;
+  /** Terminal `toolCall`: the item after whose rows the terminal row renders (tdd SS4.5.21, ADR 56496 D2/D3). */
+  terminalRowAfterItemId?: string;
   /** `userMessage`: the prompt text as submitted. `agentMessage`: the accumulated reply, streamed via `item/delta` field `"text"`. `reasoning`: raw committed reasoning text where the provider exposes it (never streamed in v1, tdd SS4.5.4). */
   text?: string;
   /** `workflow`: the run's launch token budget, set from the launch fact (tdd SS4.5.8, #45449); absent when the launch carried none. */
@@ -1196,6 +1222,8 @@ export interface Item {
   usage?: TokenUsage;
   /** `toolCall`/`userShell`: bounded transcript-visible result text (budget per tdd SS4.5.4); streams via `item/delta` field `"output"`. */
   visibleOutput?: string;
+  /** `toolCall`: the task's registered Work ID, verbatim (`work.v2.managed_bash.sha256.…`); present only when the task registered a ManagedBash id, absent otherwise (tdd SS4.5.5, ADR 50041 D20). Stable from day one: no `x-msp-stability` marker. The host serves it at the later of the task terminal and the inbox admission (D21); absence keeps the client's v1 derivation. */
+  workId?: string;
   /** `subagent`/`workflow`: the owning durable workflow run id (opaque string — not a UUID family). */
   workflowRunId?: string;
 }
@@ -1792,6 +1820,18 @@ export interface PluginMarketplaceUpdateParams {
 /** A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3): camelCase of `PluginSourceProvenance`. Open (server-produced result vocabulary, the #22785 enum-openness rule): a future provenance is additive. */
 export type PluginSource = "curated" | "marketplaceUserAdded" | "foreignImport" | "nativeLocal" | (string & {});
 
+/** One input still queued for delivery to a session (tdd SS2.5.5, ADR 63254-queued-inputs-on-read D2): the full message body plus its log record sequence, the delivery-order and re-read dedupe key, plus the run-log record id clients join served entries against record-seeded rows by. */
+export interface QueuedInput {
+  /** The queued record's log sequence: delivery order, and the key clients deduplicate re-reads by. */
+  sequence: number;
+  /** The `SubagentInput` record's model-authored command id: the key wire-twin rows join by in either order (the twin reads the same string from the verbatim wire args). Absent for root own-queue members, which are never `SubagentInput`. */
+  sourceCommandId?: string;
+  /** The run-log record id the served mirror was taken from: the key clients join served entries against record-seeded rows by, so an already-rendered input never mints a second row under diverged sequences. Absent when the host's record carries no mirror metadata (a pre-feature host), which falls back to sequence-key dedup only. */
+  sourceRunRecordId?: string;
+  /** The full message body, verbatim (never truncated, never a summary). */
+  text: string;
+}
+
 /** Typed quota-exhaustion detail (tdd SS4.5.1, ADR 50047 D2): the limit kind plus the provider's reset instant. */
 export interface QuotaDetail {
   /** Which quota was exhausted (open enum; unknown values fall back). */
@@ -1897,6 +1937,12 @@ export type RecoveryObservedMode = "on" | "off" | "unknown" | (string & {});
 
 /** This construction's assessment, never an operation acceptance receipt. */
 export type RecoveryQualification = "qualified" | "unavailable" | "notRequired" | "unknown" | (string & {});
+
+/** The D26 first-tree-transition hint verdict plus anchor (tdd SS4.5.21, ADR 56496 D3): `rowKinds` is the open lowercase row-kind vocabulary the client formats through its shared kind-noun constructor; `afterItemId` is the item id after whose rows the hint renders. Both members always ride when the object does. */
+export interface ReplayHint {
+  afterItemId: string;
+  rowKinds: string[];
+}
 
 /** A request frame, either direction (SS1.2 §2.1). */
 export interface Request {
@@ -2324,6 +2370,8 @@ export interface SessionReadResult {
   lastTurn?: LastTurn;
   /** The same pointer shape as `session/resume`. Because `session/read` never subscribes this is a point-in-time log read only: no requests are re-issued after it (tdd SS2.5.5). */
   pendingRequests: PendingRequestPointer[];
+  /** The inputs still queued for delivery to the read session (tdd SS2.5.5, ADR 63254-queued-inputs-on-read D2). Absent-when-empty: a missing member means nothing queued, never an error. */
+  queuedInputs?: QueuedInput[];
   /** Current local construction only; never inferred from retained history. Absence establishes neither a choice nor supported recovery. */
   recoveryObservation?: RecoveryObservation;
   /** The session as folded point-in-time. */
@@ -2378,7 +2426,7 @@ export interface SessionResumeParams {
   excludeItems?: boolean;
   /** History mode preference, default `auto`. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and `history.mode` reports what was actually served (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it moot. */
   history?: HistoryPreference;
-  /** The launch permission-profile pick (amendment 42624 FR-42624-1, #50054): a profile id the host catalog already admits. Select, never create. Omitted means today's behavior: restore retained authority only, no override. The host restores first, then applies the pick in the same pre-marker step; a pick that fails admission refuses the resume `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte. Explicit `null` is invalid params (the same closed null-tolerant set as at start). */
+  /** The launch permission-profile pick (amendment 42624 FR-42624-1, #50054): a profile id the host catalog already admits. Select, never create. Omitted restores retained authority only, with no override. The host restores first, then applies the pick in the same pre-marker step; over a declared lost record the restore is the never-wider reset, committed before the pick, and where the reset cannot commit the pick is committed alone as that reset (spec 11237 FR-57059-4). A pick that fails admission refuses the resume `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte. Explicit `null` is invalid params (the same closed null-tolerant set as at start). */
   permissionProfile?: string;
   /** Cold-resume replacement choice; omission preserves the retained choice. A warm attach rejects a different or unestablished choice as invalidParams. Explicit null is invalid. */
   recoveryMode?: RecoveryMode;

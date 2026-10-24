@@ -12,7 +12,7 @@
 /// Fingerprint of the stable schema these types were generated from; the
 /// SDK pin test checks it against the committed manifest.
 pub const GENERATED_FINGERPRINT: &str =
-    "sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0";
+    "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b";
 
 pub(crate) mod capability;
 pub(crate) mod command;
@@ -81,8 +81,9 @@ pub use self::method::hook::{
 };
 
 pub use self::method::lifecycle::{
-    ForkCutPoint, SessionForkParams, SessionForkResult, SessionReadParams, SessionReadResult,
-    SessionSideChatParams, SessionSideChatResult, SessionStartParams, SessionStartResult,
+    ForkCutPoint, QueuedInput, SessionForkParams, SessionForkResult, SessionReadParams,
+    SessionReadResult, SessionSideChatParams, SessionSideChatResult, SessionStartParams,
+    SessionStartResult,
 };
 
 pub use self::method::lifecycle::recovery::{
@@ -218,7 +219,8 @@ pub use self::view::approval::decision::{
 };
 
 pub use self::view::approval_card_facts::{
-    ApprovalCuaCardFacts, ApprovalCuaPage, ApprovalCuaPoint, ApprovalCuaStep,
+    ApprovalCuaCardFacts, ApprovalCuaDataFact, ApprovalCuaMask, ApprovalCuaPage, ApprovalCuaPoint,
+    ApprovalCuaStep,
 };
 
 pub use self::view::event::{
@@ -232,7 +234,9 @@ pub use self::view::gap::ViewGapParams;
 
 pub use self::view::health::{SessionViewHealth, SessionViewHealthChangedParams};
 
-pub use self::view::item::object::Item;
+pub use self::view::item::object::item::Item;
+
+pub use self::view::item::object::replay_hint::ReplayHint;
 
 pub use self::view::item::object::scheduled_fire::ScheduledFireMembers;
 

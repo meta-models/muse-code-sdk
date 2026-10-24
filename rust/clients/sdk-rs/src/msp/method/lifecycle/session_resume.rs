@@ -54,10 +54,12 @@ pub struct SessionResumeParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<HistoryPreference>,
     /// The launch permission-profile pick: a profile id the host catalog
-    /// already admits. Select, never create. Omitted means today's behavior:
-    /// restore retained authority only, no override. The host restores first,
-    /// then applies the pick in the same pre-marker step; a pick that fails
-    /// admission refuses the resume `commandRejected` (-32030;
+    /// already admits. Select, never create. Omitted restores retained
+    /// authority only, with no override. The host restores first, then applies
+    /// the pick in the same pre-marker step; over a declared lost record the
+    /// restore is the never-wider reset, committed before the pick, and where
+    /// the reset cannot commit the pick is committed alone as that reset. A
+    /// pick that fails admission refuses the resume `commandRejected` (-32030;
     /// `permission_profile_unknown` / `permission_profile_unavailable`) before
     /// any durable byte. Explicit `null` is invalid params (the same closed
     /// null-tolerant set as at start).

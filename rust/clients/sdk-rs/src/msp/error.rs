@@ -7,6 +7,7 @@ pub use registry::ErrorCode;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub(crate) mod definition;
 pub(crate) mod kind;
 pub(crate) mod registry;
 
@@ -274,6 +275,15 @@ pub struct ErrorData {
     /// `limitsAboveMax`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub axes: Option<Vec<crate::msp::method::limits::LimitsAboveMaxAxis>>,
+    /// How long until the next refresh may mint, on `usageRefreshRateLimited`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
+    /// The mint failure class, on `usageRefreshFailed`: `terminal`, `transient`
+    /// (a 5xx, 429 or network failure; the only class with `retryable: true`),
+    /// `onboarding`, `age_requirement`, `payment_subscription_required` or
+    /// `credential_rejected`. Never credential material.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
 }
 
 impl ErrorData {
@@ -328,6 +338,8 @@ impl ErrorData {
             key_path: None,
             index: None,
             axes: None,
+            retry_after_ms: None,
+            failure_kind: None,
         }
     }
 }

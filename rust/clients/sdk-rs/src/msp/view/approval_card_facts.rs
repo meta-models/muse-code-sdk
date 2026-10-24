@@ -20,6 +20,10 @@ pub struct ApprovalCuaCardFacts {
     /// Only the consequential steps, in call order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<ApprovalCuaStep>,
+    /// The data the call would send that the card must name; a card with any
+    /// offers only one-shot choices.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<ApprovalCuaDataFact>,
 }
 
 /// The page's full host, no path or query.
@@ -71,4 +75,42 @@ pub struct ApprovalCuaStep {
 pub struct ApprovalCuaPoint {
     pub x: u16,
     pub y: u16,
+}
+
+/// One piece of data the call would send. An open union on `kind`
+/// (`secret`, or `other` for a row the host can't word); a client shows
+/// `other` and any kind it doesn't know as a generic data row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ApprovalCuaDataFact {
+    /// Open discriminator: `secret` or `other`.
+    pub kind: String,
+    /// For `secret`, the scanner's open tag (`github_token`,
+    /// `secret_named_value` and so on); a client words the tags it knows and
+    /// shows any other as "a secret".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_kind: Option<String>,
+    /// For `secret`, the parts of it the card may show, never the value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<ApprovalCuaMask>,
+}
+
+/// A secret's mask: a vendor token's prefix and last 4 characters
+/// (`ghp_…3f9a`), a named value's name and length (`password=… (12 chars)`),
+/// or the length alone; all absent names the kind only.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ApprovalCuaMask {
+    /// A vendor token's fixed prefix (`ghp_`), or a named value's name and
+    /// its `=` (`password=`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// A vendor token's last 4 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last4: Option<String>,
+    /// The secret's length in characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chars: Option<u32>,
 }

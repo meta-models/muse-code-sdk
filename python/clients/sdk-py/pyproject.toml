@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "muse-code-sdk"
-version = "1.4.12"
+version = "1.4.13"
 description = "Muse Code SDK for MSP: asyncio-first facade over the generated wire types (muse-code-msp), with a thin sync wrapper."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,7 +18,7 @@ license-files = ["LICENSE"]
 # `pip install muse-code-sdk` must import, and the release bump moves this
 # package's version and its muse-code-msp pin together; pydantic bumps stay
 # reviewed PRs (test_publish_shape pins the pairing).
-dependencies = ["pydantic==2.13.5", "muse-code-msp==1.4.12"]
+dependencies = ["pydantic==2.13.5", "muse-code-msp==1.4.13"]
 classifiers = [
     # Alpha states the withheld promise: publication is permitted, but the
     # stability promise and conformance claim stay withheld — experimental

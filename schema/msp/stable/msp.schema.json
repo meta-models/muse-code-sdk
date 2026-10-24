@@ -117,6 +117,13 @@
     "ApprovalCuaCardFacts": {
       "description": "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`.",
       "properties": {
+        "data": {
+          "description": "The data the call would send that the card must name; a card with any\noffers only one-shot choices.",
+          "items": {
+            "$ref": "#/$defs/ApprovalCuaDataFact"
+          },
+          "type": "array"
+        },
         "page": {
           "$ref": "#/$defs/ApprovalCuaPage",
           "description": "For a browser, the host of the window's current page."
@@ -130,6 +137,45 @@
         },
         "windowTitle": {
           "description": "The target window's title: the app's own text, which a page can set;\na client shows it quoted and as plain text, never as markup or a\nchoice, and may cap it.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ApprovalCuaDataFact": {
+      "description": "One piece of data the call would send. An open union on `kind`\n(`secret`, or `other` for a row the host can't word); a client shows\n`other` and any kind it doesn't know as a generic data row.",
+      "properties": {
+        "kind": {
+          "description": "Open discriminator: `secret` or `other`.",
+          "type": "string"
+        },
+        "mask": {
+          "$ref": "#/$defs/ApprovalCuaMask",
+          "description": "For `secret`, the parts of it the card may show, never the value."
+        },
+        "secretKind": {
+          "description": "For `secret`, the scanner's open tag (`github_token`,\n`secret_named_value` and so on); a client words the tags it knows and\nshows any other as \"a secret\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ApprovalCuaMask": {
+      "description": "A secret's mask: a vendor token's prefix and last 4 characters\n(`ghp_…3f9a`), a named value's name and length (`password=… (12 chars)`),\nor the length alone; all absent names the kind only.",
+      "properties": {
+        "chars": {
+          "description": "The secret's length in characters.",
+          "type": "integer"
+        },
+        "last4": {
+          "description": "A vendor token's last 4 characters.",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "A vendor token's fixed prefix (`ghp_`), or a named value's name and\nits `=` (`password=`).",
           "type": "string"
         }
       },
@@ -2741,6 +2787,10 @@
           "description": "`reminderChild`: the reminder agent's id.",
           "type": "string"
         },
+        "replayHint": {
+          "$ref": "#/$defs/ReplayHint",
+          "description": "Monitor `toolCall`: the D26 hint verdict plus anchor\n(`ReplayHint`); absent means no hint."
+        },
         "result": {
           "$ref": "#/$defs/SubagentResult",
           "description": "`subagent`: the result envelope from `ResultReady` (tdd SS4.5.7)."
@@ -2840,6 +2890,10 @@
           "description": "`reminderChild`: the linked task id.",
           "type": "string"
         },
+        "terminalRowAfterItemId": {
+          "description": "Terminal `toolCall`: the item after whose rows the terminal\nrow renders (tdd SS4.5.21, ADR 56496 D2/D3).",
+          "type": "string"
+        },
         "text": {
           "description": "`userMessage`: the prompt text as submitted. `agentMessage`: the\naccumulated reply, streamed via `item/delta` field `\"text\"`.\n`reasoning`: raw committed reasoning text where the provider exposes\nit (never streamed in v1, tdd SS4.5.4).",
           "type": "string"
@@ -2889,6 +2943,10 @@
         },
         "visibleOutput": {
           "description": "`toolCall`/`userShell`: bounded transcript-visible result text\n(budget per tdd SS4.5.4); streams via `item/delta` field `\"output\"`.",
+          "type": "string"
+        },
+        "workId": {
+          "description": "`toolCall`: the task's registered Work ID, verbatim\n(`work.v2.managed_bash.sha256.…`); present only when the task\nregistered a ManagedBash id, absent otherwise (tdd SS4.5.5,\nADR 50041 D20). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
           "type": "string"
         },
         "workflowRunId": {
@@ -4358,6 +4416,32 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "QueuedInput": {
+      "description": "One input still queued for delivery to a session (tdd SS2.5.5,\nADR 63254-queued-inputs-on-read D2): the full message body plus its\nlog record sequence, the delivery-order and re-read dedupe key, plus\nthe run-log record id clients join served entries against\nrecord-seeded rows by.",
+      "properties": {
+        "sequence": {
+          "description": "The queued record's log sequence: delivery order, and the key\nclients deduplicate re-reads by.",
+          "type": "integer"
+        },
+        "sourceCommandId": {
+          "description": "The `SubagentInput` record's model-authored command id: the key\nwire-twin rows join by in either order (the twin reads the same\nstring from the verbatim wire args). Absent for root own-queue\nmembers, which are never `SubagentInput`.",
+          "type": "string"
+        },
+        "sourceRunRecordId": {
+          "description": "The run-log record id the served mirror was taken from: the key\nclients join served entries against record-seeded rows by, so an\nalready-rendered input never mints a second row under diverged\nsequences. Absent when the host's record carries no mirror\nmetadata (a pre-feature host), which falls back to sequence-key\ndedup only.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The full message body, verbatim (never truncated, never a summary).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "text"
+      ],
+      "type": "object"
+    },
     "QuotaDetail": {
       "description": "Typed quota-exhaustion detail (tdd SS4.5.1, ADR 50047 D2): the limit\nkind plus the provider's reset instant.",
       "properties": {
@@ -4636,6 +4720,25 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "ReplayHint": {
+      "description": "The D26 first-tree-transition hint verdict plus anchor (tdd\nSS4.5.21, ADR 56496 D3): `rowKinds` is the open lowercase row-kind\nvocabulary the client formats through its shared kind-noun\nconstructor; `afterItemId` is the item id after whose rows the\nhint renders. Both members always ride when the object does.",
+      "properties": {
+        "afterItemId": {
+          "type": "string"
+        },
+        "rowKinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "afterItemId",
+        "rowKinds"
+      ],
+      "type": "object"
     },
     "Request": {
       "description": "A request frame, either direction (SS1.2 §2.1).",
@@ -5778,6 +5881,13 @@
           },
           "type": "array"
         },
+        "queuedInputs": {
+          "description": "The inputs still queued for delivery to the read session (tdd\nSS2.5.5, ADR 63254-queued-inputs-on-read D2). Absent-when-empty:\na missing member means nothing queued, never an error.",
+          "items": {
+            "$ref": "#/$defs/QueuedInput"
+          },
+          "type": "array"
+        },
         "recoveryObservation": {
           "$ref": "#/$defs/RecoveryObservation",
           "description": "Current local construction only; never inferred from retained history.\nAbsence establishes neither a choice nor supported recovery."
@@ -5904,7 +6014,7 @@
           "description": "History mode preference, default `auto`. A PREFERENCE, not a budget\noverride: when the requested mode does not fit the history budget the\nserver downgrades it and `history.mode` reports what was actually\nserved (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it\nmoot."
         },
         "permissionProfile": {
-          "description": "The launch permission-profile pick (amendment 42624 FR-42624-1,\n#50054): a profile id the host catalog already admits. Select, never\ncreate. Omitted means today's behavior: restore retained authority\nonly, no override. The host restores first, then applies the pick in\nthe same pre-marker step; a pick that fails admission refuses the\nresume `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte. Explicit\n`null` is invalid params (the same closed null-tolerant set as at\nstart).",
+          "description": "The launch permission-profile pick (amendment 42624 FR-42624-1,\n#50054): a profile id the host catalog already admits. Select, never\ncreate. Omitted restores retained authority only, with no override.\nThe host restores first, then applies the pick in the same pre-marker\nstep; over a declared lost record the restore is the never-wider reset,\ncommitted before the pick, and where the reset cannot commit the pick\nis committed alone as that reset (spec 11237 FR-57059-4). A pick that\nfails admission refuses the\nresume `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte. Explicit\n`null` is invalid params (the same closed null-tolerant set as at\nstart).",
           "type": "string"
         },
         "recoveryMode": {

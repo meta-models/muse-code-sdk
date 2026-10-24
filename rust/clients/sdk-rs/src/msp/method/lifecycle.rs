@@ -266,4 +266,37 @@ pub struct SessionReadResult {
     /// Same member as `session/resume`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_prompt: Option<BlockedPrompt>,
+    /// The inputs still queued for delivery to the read session.
+    /// Absent-when-empty: a missing member means nothing queued, never an
+    /// error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_inputs: Option<Vec<QueuedInput>>,
+}
+
+/// One input still queued for delivery to a session: the full message body plus
+/// its log record sequence, the delivery-order and re-read dedupe key, plus the
+/// run-log record id clients join served entries against record-seeded rows by.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct QueuedInput {
+    /// The full message body, verbatim (never truncated, never a summary).
+    pub text: String,
+    /// The queued record's log sequence: delivery order, and the key
+    /// clients deduplicate re-reads by.
+    pub sequence: u64,
+    /// The run-log record id the served mirror was taken from: the key
+    /// clients join served entries against record-seeded rows by, so an
+    /// already-rendered input never mints a second row under diverged
+    /// sequences. Absent when the host's record carries no mirror
+    /// metadata (a pre-feature host), which falls back to sequence-key
+    /// dedup only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_run_record_id: Option<String>,
+    /// The `SubagentInput` record's model-authored command id: the key
+    /// wire-twin rows join by in either order (the twin reads the same
+    /// string from the verbatim wire args). Absent for root own-queue
+    /// members, which are never `SubagentInput`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_command_id: Option<String>,
 }

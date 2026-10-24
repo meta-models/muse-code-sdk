@@ -1,6 +1,10 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 use super::ErrorKind;
+use super::definition::ErrorCodeDefinition;
+use super::definition::drains;
+use super::definition::fatal;
+use super::definition::preempted;
 
 /// The session-lifecycle wire code for [`ErrorKind::SessionNotLoaded`]: one
 /// shared symbol so producers and test assertions cannot drift on the literal.
@@ -127,69 +131,20 @@ pub enum ErrorCode {
     AdmissionAlreadyResolved,
     /// `-32072` — `choiceId` is not among the current `availableChoices`.
     AdmissionChoiceInvalid,
-}
-
-#[derive(Clone, Copy)]
-struct ErrorCodeDefinition {
-    code: i64,
-    kind: ErrorKind,
-    override_kinds: &'static [ErrorKind],
-    retryable: Option<bool>,
-    experimental: bool,
-}
-
-impl ErrorCodeDefinition {
-    const fn new(
-        code: i64,
-        kind: ErrorKind,
-        override_kinds: &'static [ErrorKind],
-        retryable: Option<bool>,
-    ) -> Self {
-        Self {
-            code,
-            kind,
-            override_kinds,
-            retryable,
-            experimental: false,
-        }
-    }
-
-    /// An experimental-tier row: exported only in the experimental bundle
-    /// render, like the experimental method rows.
-    const fn experimental(code: i64, kind: ErrorKind) -> Self {
-        Self {
-            code,
-            kind,
-            override_kinds: &[],
-            retryable: Some(false),
-            experimental: true,
-        }
-    }
-}
-
-/// A single-kind row a retry cannot fix (`retryable: false`). The column is the
-/// CODE's default; a payload that knows better sets `data.retryable`.
-const fn fatal(code: i64, kind: ErrorKind) -> ErrorCodeDefinition {
-    ErrorCodeDefinition::new(code, kind, &[], Some(false))
-}
-
-/// A single-kind saturation row (`retryable: true`): the queue drains, so the
-/// same request can succeed later.
-const fn drains(code: i64, kind: ErrorKind) -> ErrorCodeDefinition {
-    ErrorCodeDefinition::new(code, kind, &[], Some(true))
-}
-
-/// A single-kind pre-emption row (`retryable` absent): retry is not the
-/// question — the outcome arrives on the view stream.
-const fn preempted(code: i64, kind: ErrorKind) -> ErrorCodeDefinition {
-    ErrorCodeDefinition::new(code, kind, &[], None)
+    /// `-32080` — a `usage/refresh` inside the per-host window.
+    UsageRefreshRateLimited,
+    /// `-32081` — a `usage/refresh` with no Meta-account login.
+    UsageRefreshUnavailable,
+    /// `-32082` — a `usage/refresh` whose mint failed.
+    UsageRefreshFailed,
 }
 
 impl ErrorCode {
     /// Every code enrolled in the public bundle, in registry order: the 37
-    /// stable rows plus 10 experimental rows (5 raw-log, 1 workspace-trust, 1
-    /// limits, 3 admission), which render only in the experimental bundle.
-    pub const ALL: [Self; 47] = [
+    /// stable rows plus 13 experimental rows (5 raw-log, 1 workspace-trust, 1
+    /// limits, 3 admission, 3 usage-refresh), which render only in the
+    /// experimental bundle.
+    pub const ALL: [Self; 50] = [
         Self::ParseError,
         Self::InvalidRequest,
         Self::MethodNotFound,
@@ -237,6 +192,9 @@ impl ErrorCode {
         Self::AdmissionNotFound,
         Self::AdmissionAlreadyResolved,
         Self::AdmissionChoiceInvalid,
+        Self::UsageRefreshRateLimited,
+        Self::UsageRefreshUnavailable,
+        Self::UsageRefreshFailed,
     ];
 
     /// This code's complete registry row. Keeping the row together prevents
@@ -344,6 +302,17 @@ impl ErrorCode {
             }
             Self::AdmissionChoiceInvalid => {
                 ErrorCodeDefinition::experimental(-32072, ErrorKind::AdmissionChoiceInvalid)
+            }
+            Self::UsageRefreshRateLimited => ErrorCodeDefinition::experimental_with_retry(
+                -32080,
+                ErrorKind::UsageRefreshRateLimited,
+                Some(true),
+            ),
+            Self::UsageRefreshUnavailable => {
+                ErrorCodeDefinition::experimental(-32081, ErrorKind::UsageRefreshUnavailable)
+            }
+            Self::UsageRefreshFailed => {
+                ErrorCodeDefinition::experimental(-32082, ErrorKind::UsageRefreshFailed)
             }
         }
     }

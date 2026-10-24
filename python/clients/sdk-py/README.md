@@ -64,6 +64,47 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+To run a session and the child agents it starts without approval prompts,
+start it under the built-in `:unrestricted` permission profile. Current
+releases admit every child of such a session without prompts; a child admitted
+with a narrower authority would stay gated at it.
+
+That profile is described, verbatim, as "No filesystem sandbox or approval
+prompts; local commands have direct network access; project trust is
+unchanged." It also sets the approval reviewer to none. Use it only for a
+trusted workspace and trusted prompts. Never use it where the prompts or the
+sandbox are what protects you.
+
+Start it with that profile, and pass the same profile when you resume it.
+Paste inside `main()` above, indented, before `await client.close()`, with the same client:
+
+```python
+from muse_code import ResumeSessionOptions, StartSessionOptions
+
+session = await client.start_session(StartSessionOptions(
+    workspace_root="/path/to/repo",  # an absolute path
+    permission_profile=":unrestricted",
+))
+saved_session_id = session.session_id
+# ... later, in the same client:
+session = await client.resume_session(ResumeSessionOptions(
+    session_id=saved_session_id,
+    permission_profile=":unrestricted",
+))
+```
+
+On start, `require_permission_profile=True` makes the client prove that the
+pick was applied, and raise `PermissionProfileNotApplied` if it cannot (a
+failed `session/read` read-back raises its own error). A host
+that does not report the committed selection fails that proof even when the
+pick was applied (seen with Muse Code 1.4.12). Resume has no
+`require_permission_profile`, so the client never verifies the pick there.
+
+`approval_mode` alone is not enough: it changes the session's own approval
+mode, but its child agents are capped by the session's permission profile.
+Under a prompting profile (such as `:ask-me`, whose approval is `on_request`),
+the children still ask.
+
 ## Documentation
 
 - Guides, cookbook recipes, and the protocol reference:

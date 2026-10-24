@@ -119,4 +119,12 @@ pub struct ToolCallMembers {
     /// `toolCall`: the tool's own words for this call; absent = none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<Box<crate::msp::view::tool_label::ToolDisplayLabel>>,
+    /// `toolCall`: the task's registered Work ID, verbatim
+    /// (`work.v2.managed_bash.sha256.…`); present only when the task registered
+    /// a ManagedBash id, absent otherwise. Stable from day one: no
+    /// `x-msp-stability` marker. The host serves it at the later of the task
+    /// terminal and the inbox admission; absence keeps the client's v1
+    /// derivation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_id: Option<String>,
 }

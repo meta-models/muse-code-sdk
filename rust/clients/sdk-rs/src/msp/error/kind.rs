@@ -157,6 +157,15 @@ pub enum ErrorKind {
     /// Choice is not among the current `availableChoices`; `data.admissionId`
     /// and `data.choiceId` name the rejected pair. Experimental tier.
     AdmissionChoiceInvalid,
+    /// A `usage/refresh` inside the per-host window; `data.retryAfterMs` is the
+    /// time left, `data.retryable: true`. Experimental tier.
+    UsageRefreshRateLimited,
+    /// A `usage/refresh` on a host with no Meta-account login to mint with.
+    /// Experimental tier.
+    UsageRefreshUnavailable,
+    /// A `usage/refresh` whose mint failed; `data.failureKind` names the class.
+    /// Experimental tier.
+    UsageRefreshFailed,
     /// A value from a newer host. The rest of the message still decodes, but
     /// the word is not kept, and encoding this variant fails. Never construct it.
     #[serde(other, skip_serializing)]

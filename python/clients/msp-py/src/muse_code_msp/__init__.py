@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:cfdb6d2525601b9bac76584ccb0610ab3a5539b5e4f51141f079b99b39fcb4e0"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = False
-REQUIRED_HOST_VERSION: Final[str] = "1.4.12"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.13"
 
 # How long a rule created by an approval decision lasts. The set is open, so newer hosts may send other values.
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
@@ -413,9 +413,29 @@ class ApprovalChoice(_ApprovalChoiceBase, total=False):
 class ApprovalCuaCardFacts(TypedDict, total=False):
     """One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`."""
 
+    data: list[ApprovalCuaDataFact]
     page: ApprovalCuaPage
     steps: list[ApprovalCuaStep]
     windowTitle: str
+
+
+class _ApprovalCuaDataFactBase(TypedDict):
+    kind: str
+
+
+class ApprovalCuaDataFact(_ApprovalCuaDataFactBase, total=False):
+    """One piece of data the call would send. An open union on `kind` (`secret`, or `other` for a row the host can't word); a client shows `other` and any kind it doesn't know as a generic data row."""
+
+    mask: ApprovalCuaMask
+    secretKind: str
+
+
+class ApprovalCuaMask(TypedDict, total=False):
+    """A secret's mask: a vendor token's prefix and last 4 characters (`ghp_…3f9a`), a named value's name and length (`password=… (12 chars)`), or the length alone; all absent names the kind only."""
+
+    chars: int
+    last4: str
+    prefix: str
 
 
 class ApprovalCuaPage(TypedDict):
@@ -1189,6 +1209,7 @@ class Item(_ItemBase, total=False):
     reason: str
     recordedAt: str
     reminderAgentId: str
+    replayHint: ReplayHint
     result: SubagentResult
     resumeFromRunId: str
     retracted: bool
@@ -1211,6 +1232,7 @@ class Item(_ItemBase, total=False):
     summarizedThrough: str
     summary: list[str]
     taskId: str
+    terminalRowAfterItemId: str
     text: str
     tokenBudget: WorkflowTokenBudget
     tokensAfter: int
@@ -1223,6 +1245,7 @@ class Item(_ItemBase, total=False):
     turnId: str | None
     usage: TokenUsage
     visibleOutput: str
+    workId: str
     workflowRunId: str
 
 
@@ -1684,6 +1707,18 @@ class PluginMarketplaceUpdateParams(TypedDict):
     sessionId: str
 
 
+class _QueuedInputBase(TypedDict):
+    sequence: int
+    text: str
+
+
+class QueuedInput(_QueuedInputBase, total=False):
+    """One input still queued for delivery to a session: the full message body plus its log record sequence, the delivery-order and re-read dedupe key, plus the run-log record id clients join served entries against record-seeded rows by."""
+
+    sourceCommandId: str
+    sourceRunRecordId: str
+
+
 class QuotaDetail(TypedDict):
     """Typed quota-exhaustion detail: the limit kind plus the provider's reset instant."""
 
@@ -1756,6 +1791,13 @@ class RecoveryObservation(TypedDict):
     qualification: RecoveryQualification
     requestedMode: RecoveryObservedMode
     sessionId: str
+
+
+class ReplayHint(TypedDict):
+    """The first-tree-transition hint verdict plus anchor: `rowKinds` is the open lowercase row-kind vocabulary the client formats through its shared kind-noun constructor; `afterItemId` is the item id after whose rows the hint renders. Both members always ride when the object does."""
+
+    afterItemId: str
+    rowKinds: list[str]
 
 
 class _RequestBase(TypedDict):
@@ -2090,6 +2132,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
 
     blockedPrompt: BlockedPrompt
     lastTurn: LastTurn
+    queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
 
 

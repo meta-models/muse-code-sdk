@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:c37d9b6db138c4f079e38da665815619a3a4337702568aacee62de7252690fc1"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:92770f6e8883d1479dd33acc1b3687c70057de316980e6f2cd9cef25ea8e30fd"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.12"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.13"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -131,7 +131,7 @@ CONTEXT_PRESSURE_LEVEL_KNOWN_VALUES: Final[tuple[str, ...]] = ("normal", "warnin
 
 # A stable `error.data.kind` category: camelCase, the value clients branch on. Open: new kinds are added as their methods land, and a new `kind` is additive only because this domain is declared open.
 ErrorKind = str  # open enum: unknown values stay representable
-ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "limitsAboveMax", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid",)
+ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "limitsAboveMax", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid", "usageRefreshRateLimited", "usageRefreshUnavailable", "usageRefreshFailed",)
 
 # `feedback/submit` classification: the four TUI classes in camelCase wire spelling. **Closed**: a client-selected param vocabulary.
 FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
@@ -653,9 +653,29 @@ class ApprovalChoice(_ApprovalChoiceBase, total=False):
 class ApprovalCuaCardFacts(TypedDict, total=False):
     """One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`."""
 
+    data: list[ApprovalCuaDataFact]
     page: ApprovalCuaPage
     steps: list[ApprovalCuaStep]
     windowTitle: str
+
+
+class _ApprovalCuaDataFactBase(TypedDict):
+    kind: str
+
+
+class ApprovalCuaDataFact(_ApprovalCuaDataFactBase, total=False):
+    """One piece of data the call would send. An open union on `kind` (`secret`, or `other` for a row the host can't word); a client shows `other` and any kind it doesn't know as a generic data row."""
+
+    mask: ApprovalCuaMask
+    secretKind: str
+
+
+class ApprovalCuaMask(TypedDict, total=False):
+    """A secret's mask: a vendor token's prefix and last 4 characters (`ghp_…3f9a`), a named value's name and length (`password=… (12 chars)`), or the length alone; all absent names the kind only."""
+
+    chars: int
+    last4: str
+    prefix: str
 
 
 class ApprovalCuaPage(TypedDict):
@@ -1193,6 +1213,7 @@ class ErrorData(_ErrorDataBase, total=False):
     descriptor: str
     details: dict[str, Any]
     earliestCursor: str | None
+    failureKind: str
     index: int
     itemId: str
     keyPath: str
@@ -1210,6 +1231,7 @@ class ErrorData(_ErrorDataBase, total=False):
     recoveryObservation: RecoveryObservation
     requestedStream: StreamRef
     resolution: ApprovalResolutionSummary
+    retryAfterMs: int
     retryable: bool
     seedFallbackReason: str
     seedPath: str
@@ -1476,6 +1498,7 @@ class Item(_ItemBase, total=False):
     reason: str
     recordedAt: str
     reminderAgentId: str
+    replayHint: ReplayHint
     result: SubagentResult
     results: list[WebSearchHit]
     resumeFromRunId: str
@@ -1501,6 +1524,7 @@ class Item(_ItemBase, total=False):
     summarizedThrough: str
     summary: list[str]
     taskId: str
+    terminalRowAfterItemId: str
     text: str
     tokenBudget: WorkflowTokenBudget
     tokensAfter: int
@@ -1514,6 +1538,7 @@ class Item(_ItemBase, total=False):
     url: str
     usage: TokenUsage
     visibleOutput: str
+    workId: str
     workflowRunId: str
 
 
@@ -2323,6 +2348,18 @@ class ProjectionReadResult(TypedDict):
     state: dict[str, Any]
 
 
+class _QueuedInputBase(TypedDict):
+    sequence: int
+    text: str
+
+
+class QueuedInput(_QueuedInputBase, total=False):
+    """One input still queued for delivery to a session: the full message body plus its log record sequence, the delivery-order and re-read dedupe key, plus the run-log record id clients join served entries against record-seeded rows by."""
+
+    sourceCommandId: str
+    sourceRunRecordId: str
+
+
 class QuotaDetail(TypedDict):
     """Typed quota-exhaustion detail: the limit kind plus the provider's reset instant."""
 
@@ -2418,6 +2455,13 @@ class RecoveryObservation(TypedDict):
     qualification: RecoveryQualification
     requestedMode: RecoveryObservedMode
     sessionId: str
+
+
+class ReplayHint(TypedDict):
+    """The first-tree-transition hint verdict plus anchor: `rowKinds` is the open lowercase row-kind vocabulary the client formats through its shared kind-noun constructor; `afterItemId` is the item id after whose rows the hint renders. Both members always ride when the object does."""
+
+    afterItemId: str
+    rowKinds: list[str]
 
 
 class _RequestBase(TypedDict):
@@ -2820,6 +2864,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
 
     blockedPrompt: BlockedPrompt
     lastTurn: LastTurn
+    queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
 
 
@@ -3834,6 +3879,14 @@ class UsageReadResult(TypedDict, total=False):
     usage: SubscriptionUsage
 
 
+class UsageRefreshResult(TypedDict, total=False):
+    """`usage/refresh` result: the same `usage` member as `usage/read` after ONE fresh read, plus the mint's tier display name. A sibling method, not a `usage/read` param: a stable method cannot reference an experimental params type, so a param would change the stable surface."""
+
+    subscriptionActive: bool
+    tierName: str
+    usage: SubscriptionUsage
+
+
 class _UserInputAnswerBase(TypedDict):
     questionId: str
 
@@ -4379,6 +4432,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "turn/steer": {"description": "Injects input into the turn the caller names, failing if that turn is no longer active.", "params": "TurnSteerParams", "result": "TurnSteerResult"},
     "turn/unqueue": {"description": "Reclaims a queued submit before it launches; never upgrades into a cancel once the target is running.", "params": "TurnUnqueueParams", "result": "TurnUnqueueResult"},
     "usage/read": {"description": "Reads the host's last-observed subscription usage window (5h-class and weekly percent blocks, tier, arrival stamp) without a model call; the usage member is omitted when nothing has been observed.", "params": None, "result": "UsageReadResult"},
+    "usage/refresh": {"description": "Issues ONE rate-bounded fresh subscription-usage read (a key mint, at most one per host per 60 s), records it in the usage cache when one is composed, and answers the usage/read shape plus the mint's tierName.", "params": None, "result": "UsageRefreshResult"},
     "userInput/answer": {"description": "Answers every question of an open user-input prompt.", "params": "UserInputAnswerParams", "result": "UserInputAnswerResult"},
     "userInput/cancel": {"description": "Declines an open user-input prompt; the tool call resolves with a cancelled result the model sees.", "params": "UserInputCancelParams", "result": "UserInputCancelResult"},
     "userInput/clarify": {"description": "Answers an open user-input prompt with a free-form clarification the model re-decides against.", "params": "UserInputClarifyParams", "result": "UserInputClarifyResult"},
@@ -4499,6 +4553,9 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32070, "kind": "admissionNotFound", "retryable": False, "overrideKinds": ()},
     {"code": -32071, "kind": "admissionAlreadyResolved", "retryable": False, "overrideKinds": ()},
     {"code": -32072, "kind": "admissionChoiceInvalid", "retryable": False, "overrideKinds": ()},
+    {"code": -32080, "kind": "usageRefreshRateLimited", "retryable": True, "overrideKinds": ()},
+    {"code": -32081, "kind": "usageRefreshUnavailable", "retryable": False, "overrideKinds": ()},
+    {"code": -32082, "kind": "usageRefreshFailed", "retryable": False, "overrideKinds": ()},
 )
 
 GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging", "rawLogPhysical",)
