@@ -112,6 +112,11 @@ as <code dir="auto">session/start</code> lands.</p>
 <td>The permission profile pick forwarded as the wire’s <code dir="auto">permissionProfile</code> member: the host restores the retained authority first, then applies the pick. Omitted means no override.</td>
 </tr>
 <tr>
+<td><code dir="auto">model_id</code></td>
+<td><code dir="auto">str | None</code></td>
+<td>The model override forwarded as the wire’s <code dir="auto">modelId</code> member: the host applies it after the warm pick, before enrichments. Omitted means no override.</td>
+</tr>
+<tr>
 <td><code dir="auto">recovery_mode</code></td>
 <td><code dir="auto">RecoveryMode | None</code></td>
 <td>Optional recovery selection (wire <code dir="auto">recoveryMode</code>); omitted means no selection is sent.</td>

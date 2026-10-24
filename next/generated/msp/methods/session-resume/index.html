@@ -123,6 +123,13 @@
 <td>History mode preference, default <code dir="auto">auto</code>. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and <code dir="auto">history.mode</code> reports what was actually served. Ignored when <code dir="auto">cursor</code> or <code dir="auto">excludeItems</code> makes it moot.</td>
 </tr>
 <tr>
+<td><code dir="auto">modelId</code></td>
+<td><code dir="auto">string</code></td>
+<td></td>
+<td>optional</td>
+<td>The explicit MSP model override: a model string the caller supplies at resume time. When present it wins over the retained binding’s recorded origin — over a stamped label and over a stamped pin — and it recovers an otherwise-unresolved label binding by sending the override as the wire model instead of the unresolved refusal. Omitted preserves arm (2): the retained binding resolves by recorded origin exactly as without this member. Explicit <code dir="auto">null</code> is invalid params (the same closed null-tolerant set as at start). The override changes the model within the retained provider; it never names a provider, and it never touches the retained profile.</td>
+</tr>
+<tr>
 <td><code dir="auto">permissionProfile</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
