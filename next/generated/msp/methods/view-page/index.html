@@ -116,6 +116,13 @@
 <td>Maximum events to return, 1–1000. The server MAY return fewer. The 1–1000 range is ratified and <strong>published</strong>: the model carries the bound and the bundle renders <code dir="auto">minimum</code>/<code dir="auto">maximum</code> instead of a bare <code dir="auto">integer</code>.</td>
 </tr>
 <tr>
+<td><code dir="auto">maxBytes</code></td>
+<td><code dir="auto">integer</code></td>
+<td></td>
+<td>optional</td>
+<td>The caller’s page byte cap (kt-dvw5, additive-optional). The page serves under <code dir="auto">min(server budget, maxBytes)</code>, so a Console page stays under its own budget without the server’s frame cap alone deciding. Absent means the server budget governs. <code dir="auto">0</code> is refused typed (<code dir="auto">invalid_params</code>): a 0 cap admits no progress. A single event over the cap is truncated (marked) instead of erroring, except verbatim and fetch-key content (<code dir="auto">item.args</code>, <code dir="auto">structuredData</code>, <code dir="auto">outputRef</code>/ <code dir="auto">patchRef</code>), which is never cut and still answers typed <code dir="auto">PageEventTooLarge</code>.</td>
+</tr>
+<tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
