@@ -144,6 +144,13 @@
 <td>The tool call’s arguments as a string, usually JSON. With <code dir="auto">toolName</code>, it lets a client show a subject whose <code dir="auto">kind</code> it does not recognize.</td>
 </tr>
 <tr>
+<td><code dir="auto">reviewerReason</code></td>
+<td><code dir="auto">string</code></td>
+<td></td>
+<td>optional</td>
+<td>The judge’s escalation reason as one bounded display line (ADR 8609 D3: first sentence, whitespace controls folded, other control and format scalars stripped, 100 extended grapheme clusters max). Present only on a request released by a valid structured <code dir="auto">escalate</code> with a non-blank judge rationale; absent on every other approval. A display hint only, like <code dir="auto">judge_escalated</code>: it never authorizes anything.</td>
+</tr>
+<tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
