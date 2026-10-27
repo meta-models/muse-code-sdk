@@ -158,6 +158,13 @@
 <td>Exact identity for this new root session. When omitted the server mints a UUIDv7. This field never selects an existing session: a retained or reserved id is rejected <code dir="auto">commandRejected</code> with reason <code dir="auto">session_id_conflict</code>.</td>
 </tr>
 <tr>
+<td><code dir="auto">spawnedBy</code></td>
+<td><a href="../../types/sessionspawnedby/">SessionSpawnedBy</a></td>
+<td></td>
+<td>optional</td>
+<td>The session that opens this one, in the <code dir="auto">Session.spawnedBy</code> shape: a spawner that starts a worker session over MSP names its own session here. The host writes it once into the new session’s creation record, as a worker process records its environment hand-over, and <code dir="auto">session/list</code> / <code dir="auto">session/read</code> serve it back as <code dir="auto">Session.spawnedBy</code>; <code dir="auto">session/resume</code> never takes it. <strong>Additive-optional</strong> and <strong>provenance only</strong>. A value the host cannot use (a <code dir="auto">parentSessionId</code> that is not a session id, a malformed member) records nothing and never refuses the start; an unusable <code dir="auto">project</code> or <code dir="auto">thread</code> is dropped on its own. Hosts that predate the member ignore it.</td>
+</tr>
+<tr>
 <td><code dir="auto">workspaceRoot</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
