@@ -291,6 +291,12 @@ pub struct TurnError {
     /// quota class. Clients branch on presence, never by parsing `message`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota: Option<QuotaDetail>,
+    /// `true` when the provider refused this request. Present only on the live
+    /// `turn/completed`: replayed, snapshot-served and `workflow/resume`
+    /// terminals omit it, so absence does not mean the request was not denied.
+    /// Never `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub request_denied: bool,
 }
 
 /// Typed quota-exhaustion detail: the limit kind plus the provider's reset

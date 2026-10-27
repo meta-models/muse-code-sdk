@@ -1,5 +1,6 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::session::RunningElsewhereOrigin;
 use super::session::SessionKind;
 use super::session_events::SessionClosedReason;
 use super::session_events::SessionStatus;
@@ -88,6 +89,7 @@ impl SessionClosedReason {
             Self::Idle => "idle",
             Self::HostShutdown => "hostShutdown",
             Self::Leave => "leave",
+            Self::Vacated => "vacated",
             Self::Unknown(value) => value,
         }
     }
@@ -112,6 +114,44 @@ impl<'de> Deserialize<'de> for SessionClosedReason {
             "idle" => Self::Idle,
             "hostShutdown" => Self::HostShutdown,
             "leave" => Self::Leave,
+            "vacated" => Self::Vacated,
+            _ => Self::Unknown(value),
+        })
+    }
+}
+
+impl RunningElsewhereOrigin {
+    /// The exact wire spelling, including a value from a newer host.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Tui => "tui",
+            Self::Exec => "exec",
+            Self::Serve => "serve",
+            Self::Unknown(value) => value,
+        }
+    }
+}
+
+impl Serialize for RunningElsewhereOrigin {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RunningElsewhereOrigin {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "tui" => Self::Tui,
+            "exec" => Self::Exec,
+            "serve" => Self::Serve,
             _ => Self::Unknown(value),
         })
     }

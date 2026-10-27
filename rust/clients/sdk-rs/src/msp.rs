@@ -12,7 +12,7 @@
 /// Fingerprint of the stable schema these types were generated from; the
 /// SDK pin test checks it against the committed manifest.
 pub const GENERATED_FINGERPRINT: &str =
-    "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b";
+    "sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6";
 
 pub(crate) mod capability;
 pub(crate) mod command;
@@ -91,6 +91,11 @@ pub use self::method::lifecycle::recovery::{
     RecoveryQualification,
 };
 
+pub use self::method::lifecycle::runtime_worktree::{
+    RuntimeWorktree, RuntimeWorktreeCleanupPolicy, RuntimeWorktreeCleanupState,
+    RuntimeWorktreeOwnership,
+};
+
 pub use self::method::lifecycle::session_leave::{
     SessionLeaveCompletedParams, SessionLeaveFailureReason, SessionLeaveOutcome,
     SessionLeaveParams, SessionLeaveResult,
@@ -106,9 +111,9 @@ pub use self::method::lifecycle::session_mcp::{
 };
 
 pub use self::method::lifecycle::session_resume::{
-    BlockedPrompt, CheckpointBoundary, HistoryMode, HistoryNoneReason, HistoryPreference, LastTurn,
-    PendingRequestKind, PendingRequestPointer, SessionHistory, SessionResumeParams,
-    SessionResumeResult,
+    AbnormalEnd, BlockedPrompt, CheckpointBoundary, HistoryMode, HistoryNoneReason,
+    HistoryPreference, LastTurn, PendingRequestKind, PendingRequestPointer, SessionHistory,
+    SessionResumeParams, SessionResumeResult,
 };
 
 pub use self::method::limits::{
@@ -144,14 +149,16 @@ pub use self::method::runtime::model_catalog::{
     UnknownModelReasoningEffortVariants,
 };
 
-pub use self::method::session::{
-    AttentionFlag, EffectiveApprovalModeState, EffectivePermissionState, ForkProvenance, Session,
-    SessionKind, SessionListChangedParams, SideProvenance,
-};
+pub use self::method::session::{RunningElsewhere, RunningElsewhereOrigin, Session, SessionKind};
 
 pub use self::method::session_events::{
     SessionClosedParams, SessionClosedReason, SessionStartedParams, SessionStatus,
     SessionStatusChangedParams,
+};
+
+pub use self::method::session_satellites::{
+    AttentionFlag, EffectiveApprovalModeState, EffectivePermissionState, ForkProvenance,
+    SessionListChangedParams, SessionSpawnedBy, SideProvenance,
 };
 
 pub use self::method::skill::{
@@ -253,6 +260,10 @@ pub use self::view::item_content::{
 };
 
 pub use self::view::item_damaged_range::DamagedRange;
+
+pub use self::view::item_earlier_history::{EarlierHistory, EarlierHistoryMessage};
+
+pub use self::view::item_hold::HeldFor;
 
 pub use self::view::item_status::{
     StatusAttempt, StatusChildren, StatusHealth, StatusHealthLevel, StatusProgress, StatusStep,

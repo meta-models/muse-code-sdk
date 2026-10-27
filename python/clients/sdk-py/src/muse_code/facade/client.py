@@ -80,7 +80,8 @@ class StartSessionOptions:
     """Caller-facing options for ``session/start``.
 
     Composed from the generated ``SessionStartParams``. ``config`` is excluded as well as ``commandId`` until the facade
-    implements the required ``sessionMcp`` grant check and forwarding.
+    implements the required ``sessionMcp`` grant check and forwarding; ``previousSessionId`` is excluded because the
+    facade starts root sessions, and ``spawnedBy`` because the facade does not expose a spawner yet.
 
     Attributes:
         approval_mode: The approval enforcement mode to start under; omitted
@@ -139,6 +140,9 @@ class ResumeSessionOptions:
             wire's ``permissionProfile`` member: the host restores the
             retained authority first, then applies the pick. Omitted means
             no override.
+        model_id: The model override forwarded as the wire's ``modelId``
+            member: the host applies it after the warm pick, before
+            enrichments. Omitted means no override.
         recovery_mode: Optional recovery selection (wire ``recoveryMode``);
             omitted means no selection is sent.
         on_approval: Answers this session's approvals from its first frame,
@@ -158,6 +162,7 @@ class ResumeSessionOptions:
     exclude_items: bool | None = None
     history: Mapping[str, Any] | None = None
     permission_profile: str | None = None
+    model_id: str | None = None
     recovery_mode: RecoveryMode | None = None
     on_approval: ApprovalHandler | None = None
     on_approval_error: ApprovalFailureHandler | None = None
@@ -168,12 +173,15 @@ class ResumeSessionOptions:
 # generated params but not to the options dataclass reds THIS import (and thus
 # every test), so a regenerated member cannot silently fail to reach the wire.
 # The excluded members are the ones the facade owns rather than forwards:
-# `commandId` (the connection is the single minter) and `config`
-# (temporarily withheld until capability-checked forwarding lands). The owned
+# `commandId` (the connection is the single minter), `config`
+# (temporarily withheld until capability-checked forwarding lands) and
+# `previousSessionId` (the facade starts root sessions; the predecessor link
+# belongs to a client that switches sessions) and `spawnedBy` (the facade
+# does not expose a spawner yet). The owned
 # members are options-only posture the wire never carries (client-local
 # `requirePermissionProfile`, the required-selection check): subtracted from
 # the options side, so a regen that adds a same-named wire member reds here.
-_START_EXCLUDED = {"commandId", "config"}
+_START_EXCLUDED = {"commandId", "config", "previousSessionId", "spawnedBy"}
 _START_OWNED = {"requirePermissionProfile"}
 assert (
     {_camel(f.name) for f in fields(StartSessionOptions)} - _START_OWNED
@@ -521,6 +529,8 @@ class MuseClient(Generic[_I]):
             params["excludeItems"] = options.exclude_items
         if options.history is not None:
             params["history"] = options.history
+        if options.model_id is not None:
+            params["modelId"] = options.model_id
         if options.recovery_mode is not None:
             params["recoveryMode"] = options.recovery_mode
         if options.permission_profile is not None:

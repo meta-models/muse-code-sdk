@@ -160,6 +160,7 @@ impl ItemKind {
             Self::ScheduledFire => "scheduledFire",
             Self::BackgroundTerminalCompletion => "backgroundTerminalCompletion",
             Self::OverdueNotice => "overdueNotice",
+            Self::EarlierHistory => "earlierHistory",
             Self::Unknown(word) => word,
         }
     }
@@ -193,6 +194,7 @@ impl<'de> Deserialize<'de> for ItemKind {
             "scheduledFire" => Self::ScheduledFire,
             "backgroundTerminalCompletion" => Self::BackgroundTerminalCompletion,
             "overdueNotice" => Self::OverdueNotice,
+            "earlierHistory" => Self::EarlierHistory,
             _ => Self::Unknown(word),
         })
     }

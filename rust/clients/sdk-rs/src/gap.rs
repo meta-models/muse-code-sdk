@@ -405,6 +405,9 @@ impl<T> GapFill<T> {
             anchor: None,
             direction: Some(ViewPageDirection::Forward),
             limit: PAGE_LIMIT,
+            // The gap-filler pages the full overlap window: no caller
+            // cap, so the server budget alone binds.
+            max_bytes: None,
         }
     }
 

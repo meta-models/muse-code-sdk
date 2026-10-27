@@ -3,6 +3,7 @@
 pub use super::item_background::BackgroundInitiator;
 pub use super::item_background_terminal_completion::BackgroundTerminalCompletion;
 pub use super::item_damaged_range::DamagedRange;
+pub use super::item_earlier_history::EarlierHistory;
 use crate::msp::view::state::TokenUsage;
 use serde::Deserialize;
 use serde::Serialize;
@@ -323,6 +324,12 @@ pub enum ItemKind {
     /// `completed` — a notice has no progress. `text` is the gate-off literal
     /// verbatim; `turnId` is the draining turn.
     OverdueNotice,
+    /// The history before a session's boundary checkpoint, collapsed to the
+    /// checkpoint's transcript tail: the served view's origin. Single-shot
+    /// only, status `completed`, `turnId` null, never pushed live. No log
+    /// record carries it. A build that predates the kind decodes it only if its
+    /// `ItemKind` has a catch-all; the protocol crate's does not yet.
+    EarlierHistory,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

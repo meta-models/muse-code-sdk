@@ -485,6 +485,10 @@
           "description": "The tool call's arguments as a string, usually JSON. With `toolName`, it\nlets a client show a subject whose `kind` it does not recognize.",
           "type": "string"
         },
+        "reviewerReason": {
+          "description": "The judge's escalation reason as one bounded display line (ADR 8609\nD3: first sentence, whitespace controls folded, other control and\nformat scalars stripped, 100 extended grapheme clusters max).\nPresent only on a request released by a valid structured `escalate`\nwith a non-blank judge rationale; absent on every other approval. A\ndisplay hint only, like `judge_escalated`: it never authorizes\nanything.",
+          "type": "string"
+        },
         "sessionId": {
           "description": "The owning session. For a subagent's approval shown on the parent, this\nis the parent session.",
           "type": "string"
@@ -1698,6 +1702,40 @@
       ],
       "type": "object"
     },
+    "EarlierHistory": {
+      "description": "`earlierHistory`: the boundary checkpoint's transcript tail, served in\nplace of every item that opened in its pruned prefix (ADR 71910 D1/D3).\nNo log record carries it; the host derives it from the checkpoint.",
+      "properties": {
+        "messages": {
+          "description": "The tail entries whose source record is in the pruned prefix, in\ntail order (at most 50, spec 6127 INV-002). May be empty.",
+          "items": {
+            "$ref": "#/$defs/EarlierHistoryMessage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "messages"
+      ],
+      "type": "object"
+    },
+    "EarlierHistoryMessage": {
+      "description": "One transcript-tail message of an [`EarlierHistory`] item.",
+      "properties": {
+        "role": {
+          "description": "Open string enum: `\"user\"` or `\"assistant\"`, the only roles a host\nserves; a client skips any other value (spec 6127 FM-004).",
+          "type": "string"
+        },
+        "text": {
+          "description": "The stored tail text verbatim (at most 1,000 characters); clients\napply their own assistant display rules.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "text"
+      ],
+      "type": "object"
+    },
     "EffectiveApprovalModeState": {
       "description": "The effective approval-mode projection (`EffectiveApprovalModeState`,\ntdd SS5.12): the same object `session/setApprovalMode` returns as\n`effectiveMode` and the `Session` object carries as `approvalMode`.",
       "properties": {
@@ -2325,6 +2363,15 @@
       ],
       "type": "object"
     },
+    "HeldFor": {
+      "description": "What holds a tool call before it is admitted to execute (ADR 50063 D6).\nOpen: a client reads an unknown value as held by something it does not\nknow, never as released.",
+      "enum": [
+        "approval",
+        "hook"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "HistoryMode": {
       "description": "What history a lifecycle result actually served (tdd SS2.5.2). Open on the\nclient side: report-what-was-served means a client treats an unknown mode\nas \"page it yourself\".",
       "enum": [
@@ -2664,6 +2711,10 @@
           "description": "`userShell`/`subagent`: observed wall-clock duration. `workflow`: the\nrun's wall time from launch to reconciliation, set only on the\nsettling `item/completed` — never a sum of child durations.\n`toolCall`: the Backgrounded row's duration (ADR 50041 D11) — the\nopen→update record delta in whole ms, served on the\n`backgroundStatus` re-emission and frozen there; absent otherwise.",
           "type": "integer"
         },
+        "earlierHistory": {
+          "$ref": "#/$defs/EarlierHistory",
+          "description": "`earlierHistory`: the boundary checkpoint's transcript tail (ADR\n71910 D3, tdd SS4.5.22)."
+        },
         "entryId": {
           "description": "`workflow`: launched entry identity.",
           "type": "string"
@@ -2700,12 +2751,20 @@
           "description": "`reminderChild`: the reminder generation.",
           "type": "integer"
         },
+        "held": {
+          "description": "`toolCall` (ADR 50063 D4/D6): `true` while the call is held before it\nis admitted to execute. Present on an item started at hold time,\ncleared by the release `item/updated`, absent on calls never held.",
+          "type": "boolean"
+        },
+        "heldFor": {
+          "$ref": "#/$defs/HeldFor",
+          "description": "`toolCall` (ADR 50063 D6): what holds the call; present exactly when\n`held` is."
+        },
         "hookKey": {
           "description": "`hookRun`: the durable `hook_key` (tdd SS4.5.11).",
           "type": "string"
         },
         "itemId": {
-          "description": "Bare UUIDv7; the item's identity across its whole lifecycle. Identity\nrule (tdd SS4.4.1): the task id for task-backed kinds\n(`toolCall`, `subagent`), the pre-minted commit `message_id` for\ndelta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive`\nover the session id and the range's starting sequence number for\n`damagedRange` (no record carries it, SS4.5.16), and the opening\ndurable record's event id for everything else. Opaque to clients.",
+          "description": "Bare UUIDv7; the item's identity across its whole lifecycle. Identity\nrule (tdd SS4.4.1): the task id for task-backed kinds\n(`toolCall`, `subagent`), the pre-minted commit `message_id` for\ndelta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive`\nover the session id and the range's starting sequence number for\n`damagedRange` (no record carries it, SS4.5.16), the same over the\nboundary checkpoint's sequence number for `earlierHistory` (SS4.5.22),\nand the opening durable record's event id for everything else.\nOpaque to clients.",
           "type": "string"
         },
         "jobId": {
@@ -2931,7 +2990,7 @@
           "type": "boolean"
         },
         "turnId": {
-          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` for the kinds outside a turn: `userShell` always\n(tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed`\nalways (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13),\n`damagedRange` always (ADR 60914 D2).",
+          "description": "The owning turn (== the submitting `commandId` for fresh turns, tdd\nSS3.1.4). `null` for the kinds outside a turn: `userShell` always\n(tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed`\nalways (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13),\n`damagedRange` always (ADR 60914 D2), `earlierHistory` always (ADR\n71910 D3).",
           "type": [
             "string",
             "null"
@@ -2944,6 +3003,13 @@
         "visibleOutput": {
           "description": "`toolCall`/`userShell`: bounded transcript-visible result text\n(budget per tdd SS4.5.4); streams via `item/delta` field `\"output\"`.",
           "type": "string"
+        },
+        "wakeSourceDescriptions": {
+          "description": "`agentMessage`: the Monitor source descriptions for the wake\nturn's first answer (ADR 62265 D1, #62265) — stripped,\nbounded, one entry per arming drain in drain order. Absent\n(or empty) means untagged: the row renders the ordinary\nuntagged shape. The client scrubs per part before joining.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "workId": {
           "description": "`toolCall`: the task's registered Work ID, verbatim\n(`work.v2.managed_bash.sha256.…`); present only when the task\nregistered a ManagedBash id, absent otherwise (tdd SS4.5.5,\nADR 50041 D20). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
@@ -3041,7 +3107,8 @@
         "damagedRange",
         "scheduledFire",
         "backgroundTerminalCompletion",
-        "overdueNotice"
+        "overdueNotice",
+        "earlierHistory"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -4793,6 +4860,76 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "RuntimeWorktree": {
+      "description": "The runtime-owned git worktree a child session runs in, mirrored from the\n`subagent.worktree.*` records on its parent's log (tdd SS2.5.5, ADR\n50042-child-worktree-on-read D2). The three enums are open: clients\ntreat an unknown value as unknown.",
+      "properties": {
+        "baseCommit": {
+          "description": "The commit the worktree was created from.",
+          "type": "string"
+        },
+        "cleanupPolicy": {
+          "$ref": "#/$defs/RuntimeWorktreeCleanupPolicy",
+          "description": "How the worktree is cleaned up."
+        },
+        "cleanupState": {
+          "$ref": "#/$defs/RuntimeWorktreeCleanupState",
+          "description": "Where the worktree's cleanup stands."
+        },
+        "headCommit": {
+          "description": "The head commit the active lease recorded.",
+          "type": "string"
+        },
+        "ownership": {
+          "$ref": "#/$defs/RuntimeWorktreeOwnership",
+          "description": "Who owns the worktree."
+        },
+        "parentDirtyExcluded": {
+          "description": "True exactly when the parent's uncommitted changes were recorded as\nexcluded from the checkout.",
+          "type": "boolean"
+        },
+        "worktreeRoot": {
+          "description": "The recorded worktree root, verbatim (recorded history; serving it\nnever probes the path).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseCommit",
+        "cleanupPolicy",
+        "cleanupState",
+        "headCommit",
+        "ownership",
+        "parentDirtyExcluded",
+        "worktreeRoot"
+      ],
+      "type": "object"
+    },
+    "RuntimeWorktreeCleanupPolicy": {
+      "description": "How a session's worktree is cleaned up. The set is open, so newer hosts\nmay send other values.",
+      "enum": [
+        "removeIfClean"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RuntimeWorktreeCleanupState": {
+      "description": "Where a session's worktree cleanup stands. The set is open, so newer\nhosts may send other values.",
+      "enum": [
+        "active",
+        "cleaned",
+        "retained",
+        "cleanupFailed"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "RuntimeWorktreeOwnership": {
+      "description": "Who owns a session's worktree. The set is open, so newer hosts may send\nother values.",
+      "enum": [
+        "runtimeOwned"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
     "SandboxAvailability": {
       "description": "Whether this host can enforce the sandbox (ADR\n50064-startup-report-sandbox-availability D2/D4). A property of the host\nprocess, probed once at construction and identical for every session and\nevery connection it serves — never requested, granted, or negotiated,\nwhich is why it is not a capability. Open: a future enforcement posture\narrives as a new value, read by older clients as unknown.",
       "enum": [
@@ -4881,6 +5018,10 @@
           "$ref": "#/$defs/ClientInfo",
           "description": "The handshake `ClientInfo` recorded when the session was opened\n(FR-003), echoed verbatim — provenance, never an interpretation, and\nnever a visibility gate (INV-005). **Additive-optional**; absence has\nfour indistinguishable causes (INV-004): an in-process open; a\npre-#23124 record; a half stamp where only one of name/version was\nrecorded (FM-005) and `ClientInfo` requires both; and a session with\nno admitting handshake of its own — a fork child or a subagent —\nwhich never carries a stamp to begin with."
         },
+        "driveHolder": {
+          "$ref": "#/$defs/ClientInfo",
+          "description": "The handshake `ClientInfo` of the connection that currently holds\nthis session's drive grant (spec 39851 INV-001; spec 42713\nFR-58706-1, ADR 58706 D2), served on `session/read` only, as `name`\nand `version` (the handshake's\ndisplay `title` is never served, the `createdByClient` rule).\n**Additive-optional, loaded-only, live**:\npresent exactly when a live connection holds the grant and its\nhandshake is known; absent on `notLoaded` rows, once the holder's\nconnection drops (its orphaned turn included), and for a holder with\nno handshake stamp. Provenance only\n(INV-005): whether a client may drive is answered by\n`session/resume` / `turn/start` (`sessionInUse`), never by this\nmember (FR-58706-4)."
+        },
         "firstUserPrompt": {
           "description": "Derived first-user-prompt preview (tdd SS2.14.1, #27598).\n**Additive-optional**, omitted when underivable.",
           "type": "string"
@@ -4900,6 +5041,10 @@
           "description": "The served generated short title (tdd SS2.4/SS2.14.1, #50048; ADR\n50048-generated-name D1). **Additive-optional**, **fold-only**: the\nsnapshot fold derives the latest retained generated pair's short\ntitle from the log; `session/list` rows never carry it. Omitted when\nno pair was ever published — absent reads as unpublished, never\nfabricated, never inferred from the name text. `name` stays the\ncanonical name it always was.",
           "type": "string"
         },
+        "itemCount": {
+          "description": "The published head's ordinal (kt-dvw5): the head reference's own\nordinal — the count of head slots in its sequence, including any\nreserved ones — as of the probe that served this row. A sizing\nhint for a first `view/page`, so the Console can size its page\nwithout folding the log. **Additive-optional**, present only on\nmetadata reads (`session/read` with `excludeItems`), where the\nclient has no items to count; full reads carry the items\nthemselves and omit it. Absent when no head is published (unknown),\nnever fabricated. May lag a live log: the head is a snapshot, and\nappends after its publication are not counted.",
+          "type": "integer"
+        },
         "kind": {
           "$ref": "#/$defs/SessionKind",
           "description": "What kind of session this is (spec 42713 FR-001, ADR 42713 D1/D4).\n**Open enum**, v1 values `\"root\"` and `\"subagent\"`; a client treats an\nunknown value as an unknown-but-present kind and renders it, never\nrejecting the row. **Additive-optional**: absence asserts nothing —\nthe host could not determine the home shape (FM-001), or the value is\nnot yet available to serve (FM-003)."
@@ -4907,6 +5052,10 @@
         "lastActivityAt": {
           "description": "Content-activity recency, RFC3339 (tdd SS2.4, ADR 31983 D5).\n**Additive-optional**: omitted when no content record exists. Never\nadvanced by lifecycle bookkeeping (the resume marker, re-stamps) or\na fork's copied seed-replay records, and never precedes `createdAt`.",
           "type": "string"
+        },
+        "logBytes": {
+          "description": "The durable log's byte length at read time (kt-dvw5): the size hint\npaired with `itemCount`, so the Console can size its first page\nwithout folding the log. **Additive-optional**, present only on\nmetadata reads (`session/read` with `excludeItems`); full reads omit\nit. Absent when the log's length is not known (unknown), never\nfabricated. A live log grows after the read; the value is a snapshot.",
+          "type": "integer"
         },
         "modelId": {
           "description": "The winning metadata fold's model; `null` when that record omits it.",
@@ -4938,6 +5087,10 @@
             "null"
           ]
         },
+        "resumedByClient": {
+          "$ref": "#/$defs/ClientInfo",
+          "description": "The handshake `ClientInfo` of the connection whose wire\n`session/resume` most recently loaded this session (spec 42713\nFR-58706-2, ADR 58706 D2): stamped on the durable `session.resumed`\nmarker, folded into the session index, and served from that column by\nevery carrier; while the session is loaded, the stamp the loading\nresume wrote replaces the column on every carrier (the ack,\n`session/read`, `session/list`, `session/listChanged`), and after the\nnext fold the column serves it. **Additive-optional** and\n**provenance only** (INV-005); a resume with no admitting handshake\n(TUI, exec) stamps nothing, a warm attach to an already-loaded session\nwrites no marker, and a half stamp serves nothing (FR-003a), so\nabsence asserts nothing. `createdByClient` never follows a resume\n(FR-58706-3)."
+        },
         "sessionId": {
           "description": "The session identity.",
           "type": "string"
@@ -4952,6 +5105,10 @@
             }
           ],
           "description": "`null` for root sessions and forks; side provenance otherwise (tdd\nSS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of\n`forkedFrom` and `sideFrom`."
+        },
+        "spawnedBy": {
+          "$ref": "#/$defs/SessionSpawnedBy",
+          "description": "The session that opened this one (spec 42713 FR-69621-6, ADR 69621\nD4), recorded once in this session's creation record and served from\nthe session index. Its `parentSessionId` is the exact spawner, unlike\nthe containing session `parentSessionId` names above; `project` and\n`thread` are opaque labels the spawner may name beside it.\n**Additive-optional** and **provenance only** (INV-005): never a\nvisibility or authority gate. Absence asserts nothing — no recorded\nspawner, a later session of the spawned process, a row folded before\nthe member existed, or a session the index has not folded yet."
         },
         "status": {
           "$ref": "#/$defs/SessionStatus",
@@ -5899,6 +6056,10 @@
         "viewCursor": {
           "description": "The fold head at read time.",
           "type": "string"
+        },
+        "worktree": {
+          "$ref": "#/$defs/RuntimeWorktree",
+          "description": "The facts of the runtime-owned worktree a child read session's\nsubagent runs in (tdd SS2.5.5, ADR 50042-child-worktree-on-read D2).\nA root read serves it absent; absent means no worktree facts, never\nan error."
         }
       },
       "required": [
@@ -6012,6 +6173,10 @@
         "history": {
           "$ref": "#/$defs/HistoryPreference",
           "description": "History mode preference, default `auto`. A PREFERENCE, not a budget\noverride: when the requested mode does not fit the history budget the\nserver downgrades it and `history.mode` reports what was actually\nserved (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it\nmoot."
+        },
+        "modelId": {
+          "description": "The explicit MSP model override (T-51858-304; INV-51858-11 rank 1):\na model string the caller supplies at resume time. When present it\nwins over the retained binding's recorded origin — over a stamped\nlabel and over a stamped pin — and it recovers an\notherwise-unresolved label binding by sending the override as the\nwire model instead of the unresolved refusal. Omitted preserves\narm (2): the retained binding resolves by recorded origin exactly\nas without this member. Explicit `null` is invalid params (the\nsame closed null-tolerant set as at start). The override changes\nthe model within the retained provider; it never names a\nprovider, and it never touches the retained profile.",
+          "type": "string"
         },
         "permissionProfile": {
           "description": "The launch permission-profile pick (amendment 42624 FR-42624-1,\n#50054): a profile id the host catalog already admits. Select, never\ncreate. Omitted restores retained authority only, with no override.\nThe host restores first, then applies the pick in the same pre-marker\nstep; over a declared lost record the restore is the never-wider reset,\ncommitted before the pick, and where the reset cannot commit the pick\nis committed alone as that reset (spec 11237 FR-57059-4). A pick that\nfails admission refuses the\nresume `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte. Explicit\n`null` is invalid params (the same closed null-tolerant set as at\nstart).",
@@ -6253,6 +6418,27 @@
       ],
       "type": "object"
     },
+    "SessionSpawnedBy": {
+      "description": "Who opened a session (`Session.spawnedBy`, spec 42713 FR-69621-6, ADR\n69621 D4).",
+      "properties": {
+        "parentSessionId": {
+          "description": "The exact session that opened this one (ADR 69621 D2).",
+          "type": "string"
+        },
+        "project": {
+          "description": "An opaque project label the spawner named, when it named one.",
+          "type": "string"
+        },
+        "thread": {
+          "description": "An opaque thread label the spawner named, when it named one.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parentSessionId"
+      ],
+      "type": "object"
+    },
     "SessionStartParams": {
       "description": "`session/start` params (tdd SS2.5.1).",
       "properties": {
@@ -6283,6 +6469,10 @@
           "description": "The new session's initial permission profile (amendment 42624\nFR-42624-1, ADR 42197 D2): a profile id the host catalog already\nadmits — the rows `permissionProfile/list` serves without\n`sessionId`. Select, never create. Omitted means today's behavior: the\nhost's configured default under native admission, unchanged. An id\nthe catalog does not carry, or one it serves unavailable, refuses the\nstart `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte, and an\nephemeral host refuses any id (`permission_profile_ephemeral_fixed`).\n`session/fork` does not admit the member; `session/resume` admits it\nas the launch pick (FR-42624-1, #50054). Explicit `null` is invalid\nparams: the set of members that tolerate `null` is\nclosed and excludes this one, exactly as it excludes `workspaceRoots`.",
           "type": "string"
         },
+        "previousSessionId": {
+          "description": "The `/new` predecessor link (spec 207 amendment 50054, FR-50054-1):\nthe outgoing session this start succeeds. Any syntactically valid\nsession UUID; there is no existence check, so a link to a session that\nis gone still commits. Omitted means a true root. Explicit `null` is\ninvalid params.",
+          "type": "string"
+        },
         "providerId": {
           "description": "Initial provider routing; server default when omitted or explicit\n`null` — both spellings select the default (#23468).",
           "type": [
@@ -6297,6 +6487,10 @@
         "sessionId": {
           "description": "Exact identity for this new root session. When omitted the server\nmints a UUIDv7. This field never selects an existing session: a\nretained or reserved id is rejected `commandRejected` with reason\n`session_id_conflict` (tdd SS2.5.1).",
           "type": "string"
+        },
+        "spawnedBy": {
+          "$ref": "#/$defs/SessionSpawnedBy",
+          "description": "The session that opens this one (spec 42713 FR-69621-8, ADR 69621 D7),\nin the `Session.spawnedBy` shape: a spawner that starts a worker\nsession over MSP names its own session here. The host writes it once\ninto the new session's creation record, as a worker process records\nits environment hand-over, and `session/list` / `session/read` serve it\nback as `Session.spawnedBy`; `session/resume` never takes it.\n**Additive-optional** and **provenance only** (INV-005). A value the\nhost cannot use (a `parentSessionId` that is not a session id, a\nmalformed member) records nothing and never refuses the start; an\nunusable `project` or `thread` is dropped on its own. Hosts that\npredate the member ignore it."
         },
         "workspaceRoot": {
           "description": "Absolute path, folded into the first metadata record.",
@@ -8076,6 +8270,10 @@
           "$ref": "#/$defs/QuotaDetail",
           "description": "Typed quota-exhaustion detail (ADR 50047 D2/D3): present iff the\nstopping failure was the quota class. Clients branch on presence,\nnever by parsing `message`."
         },
+        "requestDenied": {
+          "description": "`true` when the provider refused this request. Present only on the\nlive `turn/completed`: replayed, snapshot-served and `workflow/resume`\nterminals omit it, so absence does not mean the request was not\ndenied. Never `false`. (ADR 39289 D2/D3)",
+          "type": "boolean"
+        },
         "retryable": {
           "description": "The server's judgment that resubmitting the same input may succeed.",
           "type": "boolean"
@@ -9406,6 +9604,10 @@
           "description": "Maximum events to return, 1–1000. The server MAY return fewer.\n\nThe 1–1000 range is ratified and **published**: the model carries the\nbound and the bundle renders `minimum`/`maximum` instead of a bare\n`integer`.",
           "maximum": 1000,
           "minimum": 1,
+          "type": "integer"
+        },
+        "maxBytes": {
+          "description": "The caller's page byte cap (kt-dvw5, additive-optional). The page\nserves under `min(server budget, maxBytes)`, so a Console page stays\nunder its own budget without the server's frame cap alone deciding.\nAbsent means the server budget governs. `0` is refused typed\n(`invalid_params`): a 0 cap admits no progress. A single event over\nthe cap is truncated (marked) instead of erroring, except verbatim\nand fetch-key content (`item.args`, `structuredData`, `outputRef`/\n`patchRef`), which is never cut and still answers typed\n`PageEventTooLarge`.",
           "type": "integer"
         },
         "sessionId": {

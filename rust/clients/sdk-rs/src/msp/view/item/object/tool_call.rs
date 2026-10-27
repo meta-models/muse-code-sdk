@@ -5,6 +5,7 @@ use crate::msp::view::item_background::BackgroundStatus;
 use crate::msp::view::item_content::ModelVisibleContent;
 use crate::msp::view::item_content::OutputRef;
 use crate::msp::view::item_content::PatchSummary;
+use crate::msp::view::item_hold::HeldFor;
 use crate::msp::view::item_status::StatusAttempt;
 use crate::msp::view::item_status::StatusChildren;
 use crate::msp::view::item_status::StatusHealth;
@@ -72,6 +73,14 @@ pub struct ToolCallMembers {
     /// view events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_id: Option<String>,
+    /// `toolCall`: `true` while the call is held before it is admitted to
+    /// execute. Present on an item started at hold time, cleared by the release
+    /// `item/updated`, absent on calls never held.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub held: Option<bool>,
+    /// `toolCall`: what holds the call; present exactly when `held` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub held_for: Option<HeldFor>,
     /// `toolCall`: `true` once the task was durably backgrounded; delivered
     /// via `item/updated`.
     #[serde(skip_serializing_if = "Option::is_none")]

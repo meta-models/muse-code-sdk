@@ -69,6 +69,12 @@ pub struct ApprovalRequestParams {
     /// as `false` when it re-issues the request after a restart or on
     /// `session/resume`; a re-send for a later stage keeps it.
     pub judge_escalated: bool,
+    /// The judge's escalation reason as one bounded display line. Present only
+    /// on a request released by a valid structured `escalate` with a non-blank
+    /// judge rationale; absent on every other approval. A display hint only,
+    /// like `judge_escalated`: it never authorizes anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer_reason: Option<String>,
     /// Present only for a child (native subagent) approval projected onto the
     /// parent session's plane; parent-own approvals omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

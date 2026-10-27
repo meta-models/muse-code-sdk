@@ -16,6 +16,8 @@ pub(crate) mod item_background;
 pub(crate) mod item_background_terminal_completion;
 pub(crate) mod item_content;
 pub(crate) mod item_damaged_range;
+pub(crate) mod item_earlier_history;
+pub(crate) mod item_hold;
 pub(crate) mod item_status;
 pub(crate) mod message_phase;
 pub(crate) mod monitor_inbox;

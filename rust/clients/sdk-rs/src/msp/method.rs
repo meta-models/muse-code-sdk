@@ -14,6 +14,7 @@ pub(crate) mod recap;
 pub(crate) mod runtime;
 pub(crate) mod session;
 pub(crate) mod session_events;
+pub(crate) mod session_satellites;
 pub(crate) mod session_wire_words;
 pub(crate) mod skill;
 pub(crate) mod snapshot;

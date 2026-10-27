@@ -1,16 +1,16 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 pub use super::session_events::SessionStatus;
+pub use super::session_satellites::AttentionFlag;
+pub use super::session_satellites::EffectiveApprovalModeState;
+pub use super::session_satellites::EffectivePermissionState;
+pub use super::session_satellites::ForkProvenance;
+pub use super::session_satellites::SessionSpawnedBy;
+pub use super::session_satellites::SideProvenance;
 use crate::msp::method::worktree::SessionWorktree;
-use crate::msp::view::state::ApprovalMode;
-use crate::msp::view::state::ApprovalModeSource;
-use crate::msp::view::state::PermissionAxes;
-use crate::msp::view::state::ReviewerAuthority;
 use crate::msp::view::state::SessionNameOrigin;
 use serde::Deserialize;
 use serde::Serialize;
-
-mod catch_all;
 
 /// What kind of session this is.
 ///
@@ -161,6 +161,40 @@ pub struct Session {
     /// which never carries a stamp to begin with.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_client: Option<crate::msp::handshake::ClientInfo>,
+    /// The handshake `ClientInfo` of the connection whose wire `session/resume`
+    /// most recently loaded this session: stamped on the durable
+    /// `session.resumed` marker, folded into the session index, and served from
+    /// that column by every carrier; while the session is loaded, the stamp the
+    /// loading resume wrote replaces the column on every carrier (the ack,
+    /// `session/read`, `session/list`, `session/listChanged`), and after the
+    /// next fold the column serves it. **Additive-optional** and **provenance
+    /// only**; a resume with no admitting handshake (TUI, exec) stamps nothing,
+    /// a warm attach to an already-loaded session writes no marker, and a half
+    /// stamp serves nothing, so absence asserts nothing. `createdByClient`
+    /// never follows a resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumed_by_client: Option<crate::msp::handshake::ClientInfo>,
+    /// The session that opened this one, recorded once in this session's
+    /// creation record and served from the session index. Its `parentSessionId`
+    /// is the exact spawner, unlike the containing session `parentSessionId`
+    /// names above; `project` and `thread` are opaque labels the spawner may
+    /// name beside it. **Additive-optional** and **provenance only**: never a
+    /// visibility or authority gate. Absence asserts nothing — no recorded
+    /// spawner, a later session of the spawned process, a row folded before the
+    /// member existed, or a session the index has not folded yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spawned_by: Option<SessionSpawnedBy>,
+    /// The handshake `ClientInfo` of the connection that currently holds this
+    /// session's drive grant, served on `session/read` only, as `name` and
+    /// `version` (the handshake's display `title` is never served, the
+    /// `createdByClient` rule). **Additive-optional, loaded-only, live**:
+    /// present exactly when a live connection holds the grant and its handshake
+    /// is known; absent on `notLoaded` rows, once the holder's connection drops
+    /// (its orphaned turn included), and for a holder with no handshake stamp.
+    /// Provenance only: whether a client may drive is answered by
+    /// `session/resume` / `turn/start` (`sessionInUse`), never by this member.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drive_holder: Option<crate::msp::handshake::ClientInfo>,
     /// The worktree this session runs in — path and origin only (the branch
     /// stays in `branch`). **Experimental** (`Session.worktree`; stripped
     /// per-connection for unopted callers). Omitted when the session runs in no
@@ -169,120 +203,79 @@ pub struct Session {
     pub worktree: Option<SessionWorktree>,
     /// This session's effective limits: the clamp output — the sandbox axes
     /// read the live ceiling, the trust axis clamps the session's durable
-    /// stored choice (the clamp input) to it. Until a tracked change lands,
-    /// `workspaceTrusted` reports the recorded choice. **Experimental,
-    /// same-user socket only** (`Session.currentLimits`; stripped
-    /// per-connection for unopted callers). Loaded sessions only (`notLoaded`
-    /// rows and hosts with no limits regime omit it) — absent is never
-    /// fabricated.
+    /// stored choice (the clamp input) to it. `workspaceTrusted` is the trust
+    /// the session runs with. **Experimental, same-user socket only**
+    /// (`Session.currentLimits`; stripped per-connection for unopted callers).
+    /// Loaded sessions only (`notLoaded` rows and hosts with no limits regime
+    /// omit it) — absent is never fabricated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_limits: Option<super::limits::SessionLimits>,
-}
-
-/// `session/listChanged` params: one changed row of the `session/list` shape —
-/// the full Session object as the answering host's list face serves it at
-/// emission, a replace, never a delta. Emitted only on connections that
-/// negotiated the `sessionListStream` capability at `initialize`; row birth
-/// stays on `session/started`, unload pairs with `session/closed`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct SessionListChangedParams {
-    /// The served list row for the changed session.
-    pub session: Session,
-}
-
-/// One attention flag: a pending server-initiated request class parked on the
-/// session. Open on the wire — clients MUST ignore unknown values; future
-/// attention kinds are additive.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::enum_variant_names)]
-#[non_exhaustive]
-pub enum AttentionFlag {
-    /// At least one approval request is open and unresolved.
-    ApprovalPending,
-    /// At least one user-input request is open.
-    InputPending,
-    /// At least one peer-admission request is open. Experimental: stripped
-    /// per-connection for unopted callers.
-    AdmissionPending,
-    /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
-    Unknown(String),
-}
-
-/// The effective approval-mode projection: the same object
-/// `session/setApprovalMode` returns as `effectiveMode` and the `Session`
-/// object carries as `approvalMode`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct EffectiveApprovalModeState {
-    /// The mode in effect.
-    pub mode: ApprovalMode,
-    /// How the mode took effect.
-    pub source: ApprovalModeSource,
-    /// The command that last set it; `null` when no command did.
-    pub last_command_id: Option<String>,
-}
-
-/// The effective permission-state projection: the committed native permission
-/// snapshot (profile identity, reviewer authority) plus the live per-session
-/// runtime's attachment evidence. The same object
-/// `session/setPermissionProfile` returns and the `Session` object carries as
-/// `permissionState`. Served values must be coherent: a read never combines an
-/// old profile with a newer runtime's attachment claim.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct EffectivePermissionState {
-    /// The committed profile id; `null` when the committed source is a launch
-    /// override (`LaunchOverrides` pins `id: None`); every catalog row and
-    /// configured/default commit carries a non-null id.
-    pub profile_id: Option<String>,
-    /// The committed profile's reviewer authority.
-    pub reviewer_authority: ReviewerAuthority,
-    /// Whether an executable reviewer is currently installed for this loaded
-    /// session (live runtime evidence).
-    pub reviewer_attached: bool,
-    /// The committed profile's effective four axis values: the resolved
-    /// filesystem, network, approval, and reviewer the YOLO predicate reads.
-    /// Omitted when unknown — an older host, the no-profile state, or the
-    /// commit-receipt fallback arm that reports without a re-inspect — and a
-    /// client MUST fall back to the served id there, never infer equivalence it
-    /// cannot see.
+    /// That another live process on this machine runs this session, and which
+    /// kind of process when the host can tell. **Experimental**
+    /// (`Session.runningElsewhere`; stripped per-connection for unopted
+    /// callers), on `session/list` rows and the `session/listChanged` frames
+    /// built from the same row. No frame is pushed when only this member
+    /// changes; a client sees the change on its next `session/list` or on a
+    /// frame sent for another reason. Present exactly when the answering host
+    /// does not hold the session loaded and another live process on this
+    /// machine does (it holds the session's writer lease, or a live local
+    /// session registry record names the session), so only `notLoaded` rows
+    /// carry it. Absence asserts only that the host saw no other holder when it
+    /// built the row. Provenance only: whether a client may drive is answered
+    /// by `session/resume` / `turn/start` (`sessionInUse`), never by this
+    /// member.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub axes: Option<PermissionAxes>,
+    pub running_elsewhere: Option<RunningElsewhere>,
+    /// The published head's ordinal (kt-dvw5): the head reference's own
+    /// ordinal — the count of head slots in its sequence, including any
+    /// reserved ones — as of the probe that served this row. A sizing
+    /// hint for a first `view/page`, so the Console can size its page
+    /// without folding the log. **Additive-optional**, present only on
+    /// metadata reads (`session/read` with `excludeItems`), where the
+    /// client has no items to count; full reads carry the items
+    /// themselves and omit it. Absent when no head is published (unknown),
+    /// never fabricated. May lag a live log: the head is a snapshot, and
+    /// appends after its publication are not counted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_count: Option<u64>,
+    /// The durable log's byte length at read time (kt-dvw5): the size hint
+    /// paired with `itemCount`, so the Console can size its first page
+    /// without folding the log. **Additive-optional**, present only on
+    /// metadata reads (`session/read` with `excludeItems`); full reads omit
+    /// it. Absent when the log's length is not known (unknown), never
+    /// fabricated. A live log grows after the read; the value is a snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_bytes: Option<u64>,
 }
 
-/// Fork provenance folded from the durable `session.fork.created` record.
+/// The `runningElsewhere` member of a `Session`: another live process on this
+/// machine runs the session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
-pub struct ForkProvenance {
-    /// The source session this fork was cut from.
-    pub session_id: String,
-    /// An **opaque provenance string** preserved verbatim from the durable
-    /// record. Display-only — not one of the cursor families: clients MUST NOT
-    /// parse it and no method accepts it.
-    pub cut_cursor: String,
-    /// Whether the fork named an explicit cut point.
-    pub cut_explicit: bool,
-    /// The `commandId` of the `session/fork` that created it.
-    pub command_id: String,
+pub struct RunningElsewhere {
+    /// Which kind of process runs it, taken only from facts the host already
+    /// reads; omitted when unknown, never guessed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<RunningElsewhereOrigin>,
 }
 
-/// Side provenance folded from the durable side provenance.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Which kind of process runs a session elsewhere on this machine.
+///
+/// **Open**: a new origin is additive evolution, and a client MUST treat an
+/// unknown value as an unknown-but-present origin rather than rejecting the
+/// row.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SideProvenance {
-    /// The source main session this side was opened from.
-    pub session_id: String,
-    /// An **opaque provenance string** preserved verbatim from the durable side
-    /// provenance (`source_cut_cursor`). Display-only — not one of the cursor
-    /// families: clients MUST NOT parse it and no method accepts it.
-    pub cut_cursor: String,
-    /// The `commandId` of the `session/sideChat` that created it.
-    pub command_id: String,
+pub enum RunningElsewhereOrigin {
+    /// A TUI runs it.
+    Tui,
+    /// `muse exec` runs it.
+    Exec,
+    /// Another `muse serve` host runs it.
+    Serve,
+    /// A value from a newer host, kept verbatim so an older client decodes the
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
+    Unknown(String),
 }

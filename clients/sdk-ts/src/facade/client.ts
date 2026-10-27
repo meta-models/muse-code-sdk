@@ -77,7 +77,10 @@ type ViewFrame = { readonly method: string; readonly params?: unknown };
 /**
  * Every `StartParams` member `startSession` forwards. `config` is temporarily
  * excluded until the facade can pair forwarding with the required
- * `sessionMcp` grant check.
+ * `sessionMcp` grant check, `previousSessionId` is excluded because the
+ * facade starts root sessions (the predecessor link belongs to a client that
+ * switches sessions), and `spawnedBy` because the facade does not expose a
+ * spawner yet.
  */
 const START_FORWARDED = [
   "approvalMode",
@@ -90,14 +93,14 @@ const START_FORWARDED = [
   "recoveryMode",
 ] as const;
 type _StartIsExhaustive = AssertNever<
-  Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config">
+  Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config" | "previousSessionId" | "spawnedBy">
 >;
 
 /**
  * Every `ResumeParams` member `resumeSession` forwards. `config` has the same
  * temporary capability-check boundary as the start facade above.
  */
-const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "permissionProfile", "recoveryMode"] as const;
+const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "modelId", "permissionProfile", "recoveryMode"] as const;
 type _ResumeIsExhaustive = AssertNever<
   Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number] | "config">
 >;
@@ -121,10 +124,12 @@ function committedProfileId(snapshot: unknown): string | null {
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
  * `config` is excluded as well as `commandId` until the facade implements the
- * required `sessionMcp` grant check and forwarding.
+ * required `sessionMcp` grant check and forwarding; `previousSessionId` is
+ * excluded because the facade starts root sessions, and `spawnedBy` because
+ * the facade does not expose a spawner yet.
  */
 export type StartSessionOptions = Readonly<
-  Omit<SessionStartParams, "commandId" | "config"> & {
+  Omit<SessionStartParams, "commandId" | "config" | "previousSessionId" | "spawnedBy"> & {
     /**
      * Require the `permissionProfile` selection (TEST-42624-10): when set,
      * the client proves the committed selection equals the requested id —
@@ -482,6 +487,7 @@ export class MuseClient {
     if (options.cursor != null) params.cursor = options.cursor;
     if (options.excludeItems != null) params.excludeItems = options.excludeItems;
     if (options.history != null) params.history = options.history;
+    if (options.modelId != null) params.modelId = options.modelId;
     if (options.recoveryMode != null) params.recoveryMode = options.recoveryMode;
     if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
     return this.#open(

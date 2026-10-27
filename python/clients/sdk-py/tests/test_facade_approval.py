@@ -735,6 +735,38 @@ async def test_a_stage_advance_keeps_the_requests_cua_card_facts(facts: Any) -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["pipes a downloaded script into sh", None])
+async def test_a_stage_advance_keeps_the_requests_reviewer_reason(reason: Any) -> None:
+    # `reviewerReason` belongs to the call and `approval/updated` doesn't
+    # carry it, so the refreshed stage-2 request keeps the original request's
+    # reason, and a request without one stays without the key.
+    transport, session, minted = wired()
+    seen: List[Params] = []
+
+    def handler(request: Any) -> ApprovalDecisionInput:
+        seen.append(dict(request))
+        return ApprovalDecisionInput(choice_id="allow_once")
+
+    session.on_approval(handler)
+    overrides: Params = {} if reason is None else {"reviewerReason": reason}
+    first = session.apply(approval_requested(**overrides))
+    await wait_for_writes(transport, 1)
+    answer(transport, 0, {**decide_result("mint-0"), "terminal": False})
+    await settled_io(first.io)
+
+    updated = session.apply(stage_resolved(2, CHOICES))
+    await wait_for_writes(transport, 2)
+    assert minted == ["mint-0", "mint-1"]
+    assert len(seen) == 2
+    if reason is None:
+        assert "reviewerReason" not in seen[1]
+    else:
+        assert seen[1]["reviewerReason"] == reason
+    answer(transport, 1, decide_result("mint-1"))
+    await settled_io(updated.io)
+
+
+@pytest.mark.asyncio
 async def test_an_approval_updated_naming_the_decided_stage_asks_nothing() -> None:
     # The per-stage latch: an update that still names the stage this client
     # already decided (here a policy-persistence report on stage 0) is not a

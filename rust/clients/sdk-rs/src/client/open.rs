@@ -82,6 +82,8 @@ impl MuseClient {
             provider_id: options.provider_id,
             approval_mode: options.approval_mode,
             config: options.config,
+            // The facade does not expose a spawner yet.
+            spawned_by: None,
             // The SDK starts plain sessions; worktree starts stay
             // an explicit experimental spelling the caller does not send.
             worktree: None,
@@ -91,6 +93,8 @@ impl MuseClient {
             permission_profile: None,
             // Not exposed by the facade yet.
             limits: None,
+            // The SDK starts plain sessions, with no predecessor.
+            previous_session_id: None,
         };
         let result = match self
             .shared
@@ -175,6 +179,9 @@ impl MuseClient {
             // pick yet (same as the start selection
             // above); the resume restores retained authority only.
             permission_profile: None,
+            // The Rust SDK does not expose the resume-time model
+            // override yet; the resume resolves by recorded origin.
+            model_id: None,
         };
         // Kept raw too: the fold seeds history from the raw item objects.
         let mut raw = match self

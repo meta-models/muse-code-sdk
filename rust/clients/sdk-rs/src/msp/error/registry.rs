@@ -20,6 +20,12 @@ pub const SESSION_STREAM_MISMATCH_CODE: i64 = -32025;
 /// drift on the literal.
 pub const LIMITS_ABOVE_MAX_CODE: i64 = -32028;
 
+/// The wire code for [`ErrorKind::DaemonDraining`]: the command-plane block's
+/// free tail — the session block is full (`-32026`/`-32027` are the spool
+/// rows). One shared symbol so the draining-daemon refusal producer and test
+/// assertions cannot drift on the literal.
+pub const DAEMON_DRAINING_CODE: i64 = -32039;
+
 /// The v1 error codes enrolled in the public bundle.
 ///
 /// Enrolment tracks what the BINARY can emit, not what the bundle's method
@@ -66,6 +72,10 @@ pub enum ErrorCode {
     /// `-32025` — the store's own stream id is not the requested session
     /// (a moved or renamed session directory).
     SessionStreamMismatch,
+    /// `-32039` — a drive-taking verb refused because this daemon is draining
+    /// on the binary-change upgrade path; `data.paths` names the canonical
+    /// socket to retry against.
+    DaemonDraining,
     /// `-32028` — a `session/start` choice is wider than the host ceiling on at
     /// least one axis.
     LimitsAboveMax,
@@ -141,10 +151,10 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Every code enrolled in the public bundle, in registry order: the 37
-    /// stable rows plus 13 experimental rows (5 raw-log, 1 workspace-trust, 1
-    /// limits, 3 admission, 3 usage-refresh), which render only in the
-    /// experimental bundle.
-    pub const ALL: [Self; 50] = [
+    /// stable rows plus 14 experimental rows (5 raw-log, 1 workspace-trust, 1
+    /// limits, 1 draining-daemon refusal, 3 admission, 3 usage-refresh), which
+    /// render only in the experimental bundle.
+    pub const ALL: [Self; 51] = [
         Self::ParseError,
         Self::InvalidRequest,
         Self::MethodNotFound,
@@ -162,6 +172,7 @@ impl ErrorCode {
         Self::ForkBoundaryInvalid,
         Self::SessionNotLoaded,
         Self::SessionStreamMismatch,
+        Self::DaemonDraining,
         Self::LimitsAboveMax,
         Self::WorkspaceNotTrusted,
         Self::CommandRejected,
@@ -247,6 +258,11 @@ impl ErrorCode {
             Self::SessionStreamMismatch => fatal(
                 SESSION_STREAM_MISMATCH_CODE,
                 ErrorKind::SessionStreamMismatch,
+            ),
+            Self::DaemonDraining => ErrorCodeDefinition::experimental_with_retry(
+                DAEMON_DRAINING_CODE,
+                ErrorKind::DaemonDraining,
+                Some(true),
             ),
             Self::LimitsAboveMax => {
                 ErrorCodeDefinition::experimental(LIMITS_ABOVE_MAX_CODE, ErrorKind::LimitsAboveMax)

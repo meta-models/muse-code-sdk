@@ -207,6 +207,8 @@ export interface ApprovalRequestParams {
   protectedWrite: boolean;
   /** The tool call's arguments as a string, usually JSON. With `toolName`, it lets a client show a subject whose `kind` it does not recognize. */
   rawArgs: string;
+  /** The judge's escalation reason as one bounded display line (ADR 8609 D3: first sentence, whitespace controls folded, other control and format scalars stripped, 100 extended grapheme clusters max). Present only on a request released by a valid structured `escalate` with a non-blank judge rationale; absent on every other approval. A display hint only, like `judge_escalated`: it never authorizes anything. */
+  reviewerReason?: string;
   /** The owning session. For a subagent's approval shown on the parent, this is the parent session. */
   sessionId: string;
   /** The stored records this event was folded from: an opaque token clients must not interpret. */
@@ -708,6 +710,20 @@ export interface DamagedRange {
   unreadableLines: number;
 }
 
+/** `earlierHistory`: the boundary checkpoint's transcript tail, served in place of every item that opened in its pruned prefix (ADR 71910 D1/D3). No log record carries it; the host derives it from the checkpoint. */
+export interface EarlierHistory {
+  /** The tail entries whose source record is in the pruned prefix, in tail order (at most 50, spec 6127 INV-002). May be empty. */
+  messages: EarlierHistoryMessage[];
+}
+
+/** One transcript-tail message of an [`EarlierHistory`] item. */
+export interface EarlierHistoryMessage {
+  /** Open string enum: `"user"` or `"assistant"`, the only roles a host serves; a client skips any other value (spec 6127 FM-004). */
+  role: string;
+  /** The stored tail text verbatim (at most 1,000 characters); clients apply their own assistant display rules. */
+  text: string;
+}
+
 /** The effective approval-mode projection (`EffectiveApprovalModeState`, tdd SS5.12): the same object `session/setApprovalMode` returns as `effectiveMode` and the `Session` object carries as `approvalMode`. */
 export interface EffectiveApprovalModeState {
   /** The command that last set it; `null` when no command did. */
@@ -957,6 +973,9 @@ export interface GoalSetParams {
   sessionId: string;
 }
 
+/** What holds a tool call before it is admitted to execute (ADR 50063 D6). Open: a client reads an unknown value as held by something it does not know, never as released. */
+export type HeldFor = "approval" | "hook" | (string & {});
+
 /** What history a lifecycle result actually served (tdd SS2.5.2). Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself". */
 export type HistoryMode = "anchoredSnapshot" | "inline" | "snapshot" | "none" | (string & {});
 
@@ -1086,6 +1105,8 @@ export interface Item {
   displayText?: string;
   /** `userShell`/`subagent`: observed wall-clock duration. `workflow`: the run's wall time from launch to reconciliation, set only on the settling `item/completed` — never a sum of child durations. `toolCall`: the Backgrounded row's duration (ADR 50041 D11) — the open→update record delta in whole ms, served on the `backgroundStatus` re-emission and frozen there; absent otherwise. */
   durationMs?: number;
+  /** `earlierHistory`: the boundary checkpoint's transcript tail (ADR 71910 D3, tdd SS4.5.22). */
+  earlierHistory?: EarlierHistory;
   /** `workflow`: launched entry identity. */
   entryId?: string;
   /** `hookRun`: the hook event in Q2 camelCase vocabulary (tdd SS4.5.11). */
@@ -1104,9 +1125,13 @@ export interface Item {
   finalSummary?: string;
   /** `reminderChild`: the reminder generation. */
   generationId?: number;
+  /** `toolCall` (ADR 50063 D4/D6): `true` while the call is held before it is admitted to execute. Present on an item started at hold time, cleared by the release `item/updated`, absent on calls never held. */
+  held?: boolean;
+  /** `toolCall` (ADR 50063 D6): what holds the call; present exactly when `held` is. */
+  heldFor?: HeldFor;
   /** `hookRun`: the durable `hook_key` (tdd SS4.5.11). */
   hookKey?: string;
-  /** Bare UUIDv7; the item's identity across its whole lifecycle. Identity rule (tdd SS4.4.1): the task id for task-backed kinds (`toolCall`, `subagent`), the pre-minted commit `message_id` for delta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive` over the session id and the range's starting sequence number for `damagedRange` (no record carries it, SS4.5.16), and the opening durable record's event id for everything else. Opaque to clients. */
+  /** Bare UUIDv7; the item's identity across its whole lifecycle. Identity rule (tdd SS4.4.1): the task id for task-backed kinds (`toolCall`, `subagent`), the pre-minted commit `message_id` for delta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive` over the session id and the range's starting sequence number for `damagedRange` (no record carries it, SS4.5.16), the same over the boundary checkpoint's sequence number for `earlierHistory` (SS4.5.22), and the opening durable record's event id for everything else. Opaque to clients. */
   itemId: string;
   /** `scheduledFire`: the cron job id that fired (tdd SS4.5.17; ADR 45446 D2, spec 13929 amendment #62595 FR-62595-1). */
   jobId?: string;
@@ -1216,12 +1241,14 @@ export interface Item {
   triggerSource?: string;
   /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`), cut a `subagent` surface (`objective`, `fallbackText`, `result.summary`, `result.text`), or cut a `monitorFeed` surface (`text`, `fallbackText`, `monitorDescription`) (ADR 50058-monitor-feed-wire D3). On a `subagent` item the flag is item-level and never cleared: once any of those four is cut, every later update keeps it, even when `result.text` arrives whole (ADR 35691 D9). The durable full text remains in the log (tdd SS4.5.4). */
   truncated?: boolean;
-  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` for the kinds outside a turn: `userShell` always (tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed` always (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13), `damagedRange` always (ADR 60914 D2). */
+  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` for the kinds outside a turn: `userShell` always (tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed` always (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13), `damagedRange` always (ADR 60914 D2), `earlierHistory` always (ADR 71910 D3). */
   turnId?: string | null;
   /** `subagent`: **transitive** observed usage — the child and its own descendants; updated in place, absent until first observation; never folded into `session/tokenUsage.cumulative` (tdd SS4.6.5). */
   usage?: TokenUsage;
   /** `toolCall`/`userShell`: bounded transcript-visible result text (budget per tdd SS4.5.4); streams via `item/delta` field `"output"`. */
   visibleOutput?: string;
+  /** `agentMessage`: the Monitor source descriptions for the wake turn's first answer (ADR 62265 D1, #62265) — stripped, bounded, one entry per arming drain in drain order. Absent (or empty) means untagged: the row renders the ordinary untagged shape. The client scrubs per part before joining. */
+  wakeSourceDescriptions?: string[];
   /** `toolCall`: the task's registered Work ID, verbatim (`work.v2.managed_bash.sha256.…`); present only when the task registered a ManagedBash id, absent otherwise (tdd SS4.5.5, ADR 50041 D20). Stable from day one: no `x-msp-stability` marker. The host serves it at the later of the task terminal and the inbox admission (D21); absence keeps the client's v1 derivation. */
   workId?: string;
   /** `subagent`/`workflow`: the owning durable workflow run id (opaque string — not a UUID family). */
@@ -1255,7 +1282,7 @@ export interface ItemDeltaParams {
 }
 
 /** The eleven v1 item kinds (tdd SS4.5.2–4.5.13) plus post-v1 kinds (tdd SS4.5.14+). Open: a new kind is additive evolution, and clients MUST render unknown kinds generically (tdd SS4.10). */
-export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | "monitorFeed" | "damagedRange" | "scheduledFire" | "backgroundTerminalCompletion" | "overdueNotice" | (string & {});
+export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | "monitorFeed" | "damagedRange" | "scheduledFire" | "backgroundTerminalCompletion" | "overdueNotice" | "earlierHistory" | (string & {});
 
 /** The `item/readOutput` content encoding (tdd SS4.7.4). Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract. */
 export type ItemReadOutputEncoding = "utf8" | "base64";
@@ -1968,6 +1995,33 @@ export interface RequestReceipt {
 /** A `turn/retracted` settlement outcome (tdd SS4.5.1, ADR 50074 D1). Open enum (D-033): decode is tolerant — a value outside the list reads as `Accepted` (the event's historical meaning — pre-feature hosts emit it only for accepted retracts), never fails. The bundle keeps enumerating the known values for codegen and docs. */
 export type RetractOutcome = "accepted" | "declined" | (string & {});
 
+/** The runtime-owned git worktree a child session runs in, mirrored from the `subagent.worktree.*` records on its parent's log (tdd SS2.5.5, ADR 50042-child-worktree-on-read D2). The three enums are open: clients treat an unknown value as unknown. */
+export interface RuntimeWorktree {
+  /** The commit the worktree was created from. */
+  baseCommit: string;
+  /** How the worktree is cleaned up. */
+  cleanupPolicy: RuntimeWorktreeCleanupPolicy;
+  /** Where the worktree's cleanup stands. */
+  cleanupState: RuntimeWorktreeCleanupState;
+  /** The head commit the active lease recorded. */
+  headCommit: string;
+  /** Who owns the worktree. */
+  ownership: RuntimeWorktreeOwnership;
+  /** True exactly when the parent's uncommitted changes were recorded as excluded from the checkout. */
+  parentDirtyExcluded: boolean;
+  /** The recorded worktree root, verbatim (recorded history; serving it never probes the path). */
+  worktreeRoot: string;
+}
+
+/** How a session's worktree is cleaned up. The set is open, so newer hosts may send other values. */
+export type RuntimeWorktreeCleanupPolicy = "removeIfClean" | (string & {});
+
+/** Where a session's worktree cleanup stands. The set is open, so newer hosts may send other values. */
+export type RuntimeWorktreeCleanupState = "active" | "cleaned" | "retained" | "cleanupFailed" | (string & {});
+
+/** Who owns a session's worktree. The set is open, so newer hosts may send other values. */
+export type RuntimeWorktreeOwnership = "runtimeOwned" | (string & {});
+
 /** Whether this host can enforce the sandbox (ADR 50064-startup-report-sandbox-availability D2/D4). A property of the host process, probed once at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: a future enforcement posture arrives as a new value, read by older clients as unknown. */
 export type SandboxAvailability = "available" | "unavailable" | (string & {});
 
@@ -2004,16 +2058,22 @@ export interface Session {
   createdAt: string;
   /** The handshake `ClientInfo` recorded when the session was opened (FR-003), echoed verbatim — provenance, never an interpretation, and never a visibility gate (INV-005). **Additive-optional**; absence has four indistinguishable causes (INV-004): an in-process open; a pre-#23124 record; a half stamp where only one of name/version was recorded (FM-005) and `ClientInfo` requires both; and a session with no admitting handshake of its own — a fork child or a subagent — which never carries a stamp to begin with. */
   createdByClient?: ClientInfo;
+  /** The handshake `ClientInfo` of the connection that currently holds this session's drive grant (spec 39851 INV-001; spec 42713 FR-58706-1, ADR 58706 D2), served on `session/read` only, as `name` and `version` (the handshake's display `title` is never served, the `createdByClient` rule). **Additive-optional, loaded-only, live**: present exactly when a live connection holds the grant and its handshake is known; absent on `notLoaded` rows, once the holder's connection drops (its orphaned turn included), and for a holder with no handshake stamp. Provenance only (INV-005): whether a client may drive is answered by `session/resume` / `turn/start` (`sessionInUse`), never by this member (FR-58706-4). */
+  driveHolder?: ClientInfo;
   /** Derived first-user-prompt preview (tdd SS2.14.1, #27598). **Additive-optional**, omitted when underivable. */
   firstUserPrompt?: string;
   /** `null` for root sessions; fork provenance otherwise (tdd SS2.4). */
   forkedFrom: ForkProvenance | null;
   /** The served generated short title (tdd SS2.4/SS2.14.1, #50048; ADR 50048-generated-name D1). **Additive-optional**, **fold-only**: the snapshot fold derives the latest retained generated pair's short title from the log; `session/list` rows never carry it. Omitted when no pair was ever published — absent reads as unpublished, never fabricated, never inferred from the name text. `name` stays the canonical name it always was. */
   generatedName?: string;
+  /** The published head's ordinal (kt-dvw5): the head reference's own ordinal — the count of head slots in its sequence, including any reserved ones — as of the probe that served this row. A sizing hint for a first `view/page`, so the Console can size its page without folding the log. **Additive-optional**, present only on metadata reads (`session/read` with `excludeItems`), where the client has no items to count; full reads carry the items themselves and omit it. Absent when no head is published (unknown), never fabricated. May lag a live log: the head is a snapshot, and appends after its publication are not counted. */
+  itemCount?: number;
   /** What kind of session this is (spec 42713 FR-001, ADR 42713 D1/D4). **Open enum**, v1 values `"root"` and `"subagent"`; a client treats an unknown value as an unknown-but-present kind and renders it, never rejecting the row. **Additive-optional**: absence asserts nothing — the host could not determine the home shape (FM-001), or the value is not yet available to serve (FM-003). */
   kind?: SessionKind;
   /** Content-activity recency, RFC3339 (tdd SS2.4, ADR 31983 D5). **Additive-optional**: omitted when no content record exists. Never advanced by lifecycle bookkeeping (the resume marker, re-stamps) or a fork's copied seed-replay records, and never precedes `createdAt`. */
   lastActivityAt?: string;
+  /** The durable log's byte length at read time (kt-dvw5): the size hint paired with `itemCount`, so the Console can size its first page without folding the log. **Additive-optional**, present only on metadata reads (`session/read` with `excludeItems`); full reads omit it. Absent when the log's length is not known (unknown), never fabricated. A live log grows after the read; the value is a snapshot. */
+  logBytes?: number;
   /** The winning metadata fold's model; `null` when that record omits it. */
   modelId: string | null;
   /** The durable allocated session name (tdd SS2.4/SS2.14.1, #27598; ADR 27598 D2/D4). **Additive-optional**: present when the serving path holds an allocated name, omitted otherwise — absent is never fabricated. Authoritative and renameable via `session/rename`. */
@@ -2026,10 +2086,14 @@ export interface Session {
   path: string;
   /** The winning metadata fold's provider; `null` when that record omits it. */
   providerId: string | null;
+  /** The handshake `ClientInfo` of the connection whose wire `session/resume` most recently loaded this session (spec 42713 FR-58706-2, ADR 58706 D2): stamped on the durable `session.resumed` marker, folded into the session index, and served from that column by every carrier; while the session is loaded, the stamp the loading resume wrote replaces the column on every carrier (the ack, `session/read`, `session/list`, `session/listChanged`), and after the next fold the column serves it. **Additive-optional** and **provenance only** (INV-005); a resume with no admitting handshake (TUI, exec) stamps nothing, a warm attach to an already-loaded session writes no marker, and a half stamp serves nothing (FR-003a), so absence asserts nothing. `createdByClient` never follows a resume (FR-58706-3). */
+  resumedByClient?: ClientInfo;
   /** The session identity. */
   sessionId: string;
   /** `null` for root sessions and forks; side provenance otherwise (tdd SS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of `forkedFrom` and `sideFrom`. */
   sideFrom?: SideProvenance | null;
+  /** The session that opened this one (spec 42713 FR-69621-6, ADR 69621 D4), recorded once in this session's creation record and served from the session index. Its `parentSessionId` is the exact spawner, unlike the containing session `parentSessionId` names above; `project` and `thread` are opaque labels the spawner may name beside it. **Additive-optional** and **provenance only** (INV-005): never a visibility or authority gate. Absence asserts nothing — no recorded spawner, a later session of the spawned process, a row folded before the member existed, or a session the index has not folded yet. */
+  spawnedBy?: SessionSpawnedBy;
   /** Load state as this host knows it; `session/list` reports `notLoaded` for sessions loaded by *other* hosts (tdd SS2.4). */
   status: SessionStatus;
   /** Derived display title (tdd SS2.14.1, #27598): a heuristic that may evolve — its carriage, not its derivation, is the contract. **Additive-optional**, omitted when underivable. */
@@ -2378,6 +2442,8 @@ export interface SessionReadResult {
   session: Session;
   /** The fold head at read time. */
   viewCursor: string;
+  /** The facts of the runtime-owned worktree a child read session's subagent runs in (tdd SS2.5.5, ADR 50042-child-worktree-on-read D2). A root read serves it absent; absent means no worktree facts, never an error. */
+  worktree?: RuntimeWorktree;
 }
 
 /** `session/reasoningEffortChanged` params (tdd SS4.6.9, ADR 31255 D1): a durable reasoning-effort reconfigure record landed (tdd SS3.21). Replace wholesale, latest wins; the snapshot carries the latest value (SS4.9.1). */
@@ -2426,6 +2492,8 @@ export interface SessionResumeParams {
   excludeItems?: boolean;
   /** History mode preference, default `auto`. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and `history.mode` reports what was actually served (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it moot. */
   history?: HistoryPreference;
+  /** The explicit MSP model override (T-51858-304; INV-51858-11 rank 1): a model string the caller supplies at resume time. When present it wins over the retained binding's recorded origin — over a stamped label and over a stamped pin — and it recovers an otherwise-unresolved label binding by sending the override as the wire model instead of the unresolved refusal. Omitted preserves arm (2): the retained binding resolves by recorded origin exactly as without this member. Explicit `null` is invalid params (the same closed null-tolerant set as at start). The override changes the model within the retained provider; it never names a provider, and it never touches the retained profile. */
+  modelId?: string;
   /** The launch permission-profile pick (amendment 42624 FR-42624-1, #50054): a profile id the host catalog already admits. Select, never create. Omitted restores retained authority only, with no override. The host restores first, then applies the pick in the same pre-marker step; over a declared lost record the restore is the never-wider reset, committed before the pick, and where the reset cannot commit the pick is committed alone as that reset (spec 11237 FR-57059-4). A pick that fails admission refuses the resume `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte. Explicit `null` is invalid params (the same closed null-tolerant set as at start). */
   permissionProfile?: string;
   /** Cold-resume replacement choice; omission preserves the retained choice. A warm attach rejects a different or unestablished choice as invalidParams. Explicit null is invalid. */
@@ -2528,6 +2596,16 @@ export interface SessionSideChatResult {
   viewCursor: string;
 }
 
+/** Who opened a session (`Session.spawnedBy`, spec 42713 FR-69621-6, ADR 69621 D4). */
+export interface SessionSpawnedBy {
+  /** The exact session that opened this one (ADR 69621 D2). */
+  parentSessionId: string;
+  /** An opaque project label the spawner named, when it named one. */
+  project?: string;
+  /** An opaque thread label the spawner named, when it named one. */
+  thread?: string;
+}
+
 /** `session/start` params (tdd SS2.5.1). */
 export interface SessionStartParams {
   /** The session's starting approval mode; server default when omitted or explicit `null` — both spellings select the default (#23468). Select, never create — the value names a mode the host's configuration already defines (tdd SS2.5.1, SS5.12). This is the only surface that declares a non-interactive run's policy (tdd SS5.11, D-008). */
@@ -2540,12 +2618,16 @@ export interface SessionStartParams {
   modelId?: string;
   /** The new session's initial permission profile (amendment 42624 FR-42624-1, ADR 42197 D2): a profile id the host catalog already admits — the rows `permissionProfile/list` serves without `sessionId`. Select, never create. Omitted means today's behavior: the host's configured default under native admission, unchanged. An id the catalog does not carry, or one it serves unavailable, refuses the start `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte, and an ephemeral host refuses any id (`permission_profile_ephemeral_fixed`). `session/fork` does not admit the member; `session/resume` admits it as the launch pick (FR-42624-1, #50054). Explicit `null` is invalid params: the set of members that tolerate `null` is closed and excludes this one, exactly as it excludes `workspaceRoots`. */
   permissionProfile?: string;
+  /** The `/new` predecessor link (spec 207 amendment 50054, FR-50054-1): the outgoing session this start succeeds. Any syntactically valid session UUID; there is no existence check, so a link to a session that is gone still commits. Omitted means a true root. Explicit `null` is invalid params. */
+  previousSessionId?: string;
   /** Initial provider routing; server default when omitted or explicit `null` — both spellings select the default (#23468). */
   providerId?: string | null;
   /** Recovery choice for this construction; omission keeps legacy behavior. Explicit null is invalid. */
   recoveryMode?: RecoveryMode;
   /** Exact identity for this new root session. When omitted the server mints a UUIDv7. This field never selects an existing session: a retained or reserved id is rejected `commandRejected` with reason `session_id_conflict` (tdd SS2.5.1). */
   sessionId?: string;
+  /** The session that opens this one (spec 42713 FR-69621-8, ADR 69621 D7), in the `Session.spawnedBy` shape: a spawner that starts a worker session over MSP names its own session here. The host writes it once into the new session's creation record, as a worker process records its environment hand-over, and `session/list` / `session/read` serve it back as `Session.spawnedBy`; `session/resume` never takes it. **Additive-optional** and **provenance only** (INV-005). A value the host cannot use (a `parentSessionId` that is not a session id, a malformed member) records nothing and never refuses the start; an unusable `project` or `thread` is dropped on its own. Hosts that predate the member ignore it. */
+  spawnedBy?: SessionSpawnedBy;
   /** Absolute path, folded into the first metadata record. */
   workspaceRoot?: string;
   /** The session's initial runtime workspace-root set: ordered absolute canonical existing directory paths; the first root is the CWD and plays the primary-root role; every root receives the ADR 11237 `:workspace_roots` rules; extra roots grant no Project Trust. When `workspaceRoot` is also present the two must name the same folder, compared on canonical forms (the raw `workspaceRoot` is canonicalized first; ADR 37313 D9), or the request is invalid params, and so is explicit `null` (the D-049 null-tolerant set is closed and excludes this member). Omitted preserves single-root behavior (tdd SS2.5.1, ADR 37313, #37313). */
@@ -3230,6 +3312,8 @@ export interface TurnError {
   message: string;
   /** Typed quota-exhaustion detail (ADR 50047 D2/D3): present iff the stopping failure was the quota class. Clients branch on presence, never by parsing `message`. */
   quota?: QuotaDetail;
+  /** `true` when the provider refused this request. Present only on the live `turn/completed`: replayed, snapshot-served and `workflow/resume` terminals omit it, so absence does not mean the request was not denied. Never `false`. (ADR 39289 D2/D3) */
+  requestDenied?: boolean;
   /** The server's judgment that resubmitting the same input may succeed. */
   retryable: boolean;
 }
@@ -3778,6 +3862,8 @@ export interface ViewPageParams {
   direction?: ViewPageDirection;
   /** Maximum events to return, 1–1000. The server MAY return fewer.  The 1–1000 range is ratified and **published**: the model carries the bound and the bundle renders `minimum`/`maximum` instead of a bare `integer`. Range 1–1000 inclusive. */
   limit: number;
+  /** The caller's page byte cap (kt-dvw5, additive-optional). The page serves under `min(server budget, maxBytes)`, so a Console page stays under its own budget without the server's frame cap alone deciding. Absent means the server budget governs. `0` is refused typed (`invalid_params`): a 0 cap admits no progress. A single event over the cap is truncated (marked) instead of erroring, except verbatim and fetch-key content (`item.args`, `structuredData`, `outputRef`/ `patchRef`), which is never cut and still answers typed `PageEventTooLarge`. */
+  maxBytes?: number;
   /** The session to page. */
   sessionId: string;
 }

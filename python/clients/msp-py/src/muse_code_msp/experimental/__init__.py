@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:92770f6e8883d1479dd33acc1b3687c70057de316980e6f2cd9cef25ea8e30fd"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:159e01dd32c37f5ad711225aa1840dbca653e346fd83bed7f3b2b9ea49b40aa7"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = True
-REQUIRED_HOST_VERSION: Final[str] = "1.4.13"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.14"
 
 # How a login flow ended. Server-produced, so the vocabulary is open per the E2 rule — a future flow may end in a new way additively.
 AccountLoginOutcome = str  # open enum: unknown values stay representable
@@ -76,7 +76,7 @@ BACKGROUND_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("backgrounded",)
 
 # A grantable capability name. Open: the experimental-only `rawLog` entry joins the stable domain as an additive open-enum extension when it graduates — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog", "rawLogPhysical",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog", "rawLogPhysical", "daemonVacate",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -129,9 +129,21 @@ COMPUTER_USE_SETUP_PHASE_KNOWN_VALUES: Final[tuple[str, ...]] = ("dormant", "inP
 ContextPressureLevel = str  # open enum: unknown values stay representable
 CONTEXT_PRESSURE_LEVEL_KNOWN_VALUES: Final[tuple[str, ...]] = ("normal", "warning", "blocked",)
 
+# Why a session's drive holder changed. **Open**: a newer host may add a reason; a client keeps an unknown word and treats the frame as a holder change. No `started`: every `session/start`, `fork` and `sideChat` already broadcasts `session/started`, and the starter drives by construction.
+DriveChangedReason = str  # open enum: unknown values stay representable
+DRIVE_CHANGED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("requested", "released", "resumed", "lapsed",)
+
+# The answer to a drive release. **Open**: a newer host may add a status; a client keeps an unknown word and treats it as "not released".
+DriveReleaseStatus = str  # open enum: unknown values stay representable
+DRIVE_RELEASE_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("released", "busy",)
+
+# The answer to a drive request. **Open**: a newer host may add a status; a client keeps an unknown word and treats it as "not granted".
+DriveRequestStatus = str  # open enum: unknown values stay representable
+DRIVE_REQUEST_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("granted", "busy",)
+
 # A stable `error.data.kind` category: camelCase, the value clients branch on. Open: new kinds are added as their methods land, and a new `kind` is additive only because this domain is declared open.
 ErrorKind = str  # open enum: unknown values stay representable
-ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "limitsAboveMax", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid", "usageRefreshRateLimited", "usageRefreshUnavailable", "usageRefreshFailed",)
+ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("parseError", "invalidRequest", "notInitialized", "alreadyInitialized", "methodNotFound", "invalidParams", "experimentalRequired", "internal", "pageEventTooLarge", "outputResultTooLarge", "overloaded", "inputTooLarge", "capabilityRequired", "notFound", "interrupted", "cancelled", "sessionNotFound", "sessionInUse", "sessionAmbiguous", "forkBoundaryInvalid", "sessionNotLoaded", "sessionStreamMismatch", "commandRejected", "backpressured", "skillNotFound", "computerUseUnavailable", "marketplaceNotFound", "pluginNotFound", "marketplaceAlreadyExists", "pluginMutationsDisabled", "uploadNotFound", "viewTruncated", "outputUnavailable", "boundaryPruned", "boundaryUnusable", "noBoundary", "approvalNotFound", "approvalAlreadyResolved", "approvalChoiceInvalid", "approvalRequirementStale", "approvalReviewerUnavailable", "userInputNotFound", "userInputAlreadySettled", "userInputAnswerInvalid", "daemonDraining", "limitsAboveMax", "workspaceNotTrusted", "missingAnchor", "prunedPrefix", "wrongStream", "unknownStream", "unknownProjection", "admissionNotFound", "admissionAlreadyResolved", "admissionChoiceInvalid", "usageRefreshRateLimited", "usageRefreshUnavailable", "usageRefreshFailed",)
 
 # `feedback/submit` classification: the four TUI classes in camelCase wire spelling. **Closed**: a client-selected param vocabulary.
 FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
@@ -139,6 +151,10 @@ FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
 # `feedback/submit` result `outcome`: how one confirmed submit resolved, mirroring the TUI `FeedbackSubmitOutcome` taxonomy. **Open**: a server-produced result vocabulary — an older client reading a newer value it does not know follows the open-enum tolerance rule instead of rejecting it.
 FeedbackSubmitOutcome = str  # open enum: unknown values stay representable
 FEEDBACK_SUBMIT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("uploaded", "recorded", "acceptedWithoutReceipt", "trackingFailed", "trackingUncertain", "dark", "disabled", "noCredential", "authRejected", "rateLimited", "failed",)
+
+# What holds a tool call before it is admitted to execute. Open: a client reads an unknown value as held by something it does not know, never as released.
+HeldFor = str  # open enum: unknown values stay representable
+HELD_FOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("approval", "hook",)
 
 # What history a lifecycle result actually served. Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself".
 HistoryMode = str  # open enum: unknown values stay representable
@@ -168,7 +184,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "skillRead",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory", "skillRead",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -226,6 +242,28 @@ MODEL_CHANGE_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "default", "
 # Whether a stored output's bytes are servable. Open — durable runtime vocabulary may grow additively.
 OutputRefAvailability = str  # open enum: unknown values stay representable
 OUTPUT_REF_AVAILABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("available", "missing", "unsupported", "accessFailed",)
+
+# Whether the owning lane is alive. **Open**: a newer host's state decodes to `Unknown`.
+PeerMessageOwnerState = str  # open enum: unknown values stay representable
+PEER_MESSAGE_OWNER_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("owned", "gone",)
+
+# How the sender generation's code identity was established. **Open**: a newer host's identity decodes to `Unknown`.
+PeerOriginCodeIdentity = str  # open enum: unknown values stay representable
+PEER_ORIGIN_CODE_IDENTITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("verifiedMacosCli", "unverifiedKernelPeer",)
+
+# The sender generation's platform. **Open**: a newer host's platform decodes to `Unknown`.
+PeerOriginPlatform = str  # open enum: unknown values stay representable
+PEER_ORIGIN_PLATFORM_KNOWN_VALUES: Final[tuple[str, ...]] = ("linux", "macos",)
+
+# A connected-sender decision kind, spelled with the decision ids that `admission/resolved` uses for the same decisions. **Open**: a server-produced result vocabulary, so a word this build does not know decodes to `Unknown` instead of failing the page.
+PeerSettlementDecisionKind = str  # open enum: unknown values stay representable
+PEER_SETTLEMENT_DECISION_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("allow_connected", "reject_once", "block_connected",)
+
+# Which kind of sender origin a settlement belongs to. **Closed**: the receiver timeline keys on exactly these two.
+PeerSettlementOriginKind = Literal["authenticated", "nonCoalescing"]
+
+# Which kind of released message an outcome shows. **Closed**: the receiver timeline renders exactly these two.
+PeerSettlementOutcomeKind = Literal["normal", "allow_once"]
 
 # `peer/list` row `status`: the `LocalSessionStatus` vocabulary. **Open**: a server-produced result vocabulary.
 PeerStatus = str  # open enum: unknown values stay representable
@@ -320,6 +358,22 @@ RETRACT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("accepted", "declined",)
 ReviewerAuthority = str  # open enum: unknown values stay representable
 REVIEWER_AUTHORITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("autoReview", "human", "none",)
 
+# Which kind of process runs a session elsewhere on this machine. **Open**: a new origin is additive evolution, and a client MUST treat an unknown value as an unknown-but-present origin rather than rejecting the row.
+RunningElsewhereOrigin = str  # open enum: unknown values stay representable
+RUNNING_ELSEWHERE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("tui", "exec", "serve",)
+
+# How a session's worktree is cleaned up. The set is open, so newer hosts may send other values.
+RuntimeWorktreeCleanupPolicy = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_CLEANUP_POLICY_KNOWN_VALUES: Final[tuple[str, ...]] = ("removeIfClean",)
+
+# Where a session's worktree cleanup stands. The set is open, so newer hosts may send other values.
+RuntimeWorktreeCleanupState = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_CLEANUP_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("active", "cleaned", "retained", "cleanupFailed",)
+
+# Who owns a session's worktree. The set is open, so newer hosts may send other values.
+RuntimeWorktreeOwnership = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_OWNERSHIP_KNOWN_VALUES: Final[tuple[str, ...]] = ("runtimeOwned",)
+
 # Whether this host can enforce the sandbox. A property of the host process, probed once at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: a future enforcement posture arrives as a new value, read by older clients as unknown.
 SandboxAvailability = str  # open enum: unknown values stay representable
 SANDBOX_AVAILABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("available", "unavailable",)
@@ -330,7 +384,7 @@ SANDBOX_UNAVAILABLE_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("userNamespac
 
 # The closed-reason vocabulary. Server-produced and published OPEN by owner ruling — the menu-B pick, which settles that this notification reason enum publishes open rather than resting on E2's result-vocabulary rule by analogy. A crash is deliberately not a reason, because a crash emits no notification at all.
 SessionClosedReason = str  # open enum: unknown values stay representable
-SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown", "leave",)
+SESSION_CLOSED_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("idle", "hostShutdown", "leave", "vacated",)
 
 # Whether this host writes its sessions to disk. A property of the host process, fixed at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: the unrepresented degraded state has candidate resolutions that add a third value here, so closed would make that a breaking change.
 SessionDurability = str  # open enum: unknown values stay representable
@@ -467,6 +521,12 @@ LimitsAxisValue = bool | LimitsNetworkMode
 
 # A complete ordered effort set, or an explicit unknown capability.
 ModelReasoningEffortVariants = list[ReasoningEffort] | UnknownModelReasoningEffortVariants
+
+class AbnormalEnd(TypedDict, total=False):
+    """`abnormalEnd` on `session/resume`: the load found the session's latest serve segment without a clean end and recorded (or had already recorded) the `crash_inferred` backstop."""
+
+    lastActivityAt: str
+
 
 class AccountLoginCancelResult(TypedDict):
     """`account/loginCancel` result: exactly `{cancelled}` — `true` iff a pending flow existed and was cancelled."""
@@ -777,6 +837,7 @@ class ApprovalRequestParams(_ApprovalRequestParamsBase, total=False):
     """Full params shared by `approval/request` and `approval/requested`."""
 
     cuaCardFacts: ApprovalCuaCardFacts
+    reviewerReason: str
     subagentOrigin: ApprovalSubagentOrigin
 
 
@@ -1161,6 +1222,19 @@ class DamagedRange(_DamagedRangeBase, total=False):
     readableBeforeAt: str
 
 
+class EarlierHistory(TypedDict):
+    """`earlierHistory`: the boundary checkpoint's transcript tail, served in place of every item that opened in its pruned prefix. No log record carries it; the host derives it from the checkpoint."""
+
+    messages: list[EarlierHistoryMessage]
+
+
+class EarlierHistoryMessage(TypedDict):
+    """One transcript-tail message of an [`EarlierHistory`] item."""
+
+    role: str
+    text: str
+
+
 class EffectiveApprovalModeState(TypedDict):
     """The effective approval-mode projection: the same object `session/setApprovalMode` returns as `effectiveMode` and the `Session` object carries as `approvalMode`."""
 
@@ -1466,6 +1540,7 @@ class Item(_ItemBase, total=False):
     displayLabel: ToolDisplayLabel
     displayText: str
     durationMs: int
+    earlierHistory: EarlierHistory
     entryId: str
     event: HookEventName
     exitCode: int
@@ -1475,6 +1550,9 @@ class Item(_ItemBase, total=False):
     fallbackText: str
     finalSummary: str
     generationId: int
+    held: bool
+    heldFor: HeldFor
+    historyUnreadable: bool
     hookKey: str
     jobId: str
     label: str
@@ -1538,6 +1616,7 @@ class Item(_ItemBase, total=False):
     url: str
     usage: TokenUsage
     visibleOutput: str
+    wakeSourceDescriptions: list[str]
     workId: str
     workflowRunId: str
 
@@ -2056,6 +2135,38 @@ class PeerListResult(TypedDict):
     sessionId: str
 
 
+class PeerMessageDisplayContext(TypedDict, total=False):
+    """The connector presentation facts of a forwarded message, every member optional."""
+
+    conversationKey: str
+    inbox: str
+    lane: str
+    mailboxId: str
+    owner: PeerMessageOwner
+    relayContext: dict[str, Any]
+    senderDisplayName: str
+    transport: str
+    transportMessageId: str
+
+
+class PeerMessageOwner(TypedDict):
+    """Which coordinator lane owns the forwarded conversation."""
+
+    laneSession: str
+    state: PeerMessageOwnerState
+
+
+class PeerOriginGeneration(TypedDict):
+    """An authenticated sender process generation."""
+
+    bootInstance: str
+    codeIdentity: PeerOriginCodeIdentity
+    pid: int
+    platform: PeerOriginPlatform
+    processInstance: str
+    uid: int
+
+
 class PeerRow(TypedDict):
     """One `peer/list` row: local rows only — no `discoverySource`, no mailbox rows, no `host`."""
 
@@ -2065,6 +2176,93 @@ class PeerRow(TypedDict):
     sessionId: str
     sessionName: str | None
     status: PeerStatus
+
+
+class _PeerSettlementBase(TypedDict):
+    outcomes: list[PeerSettlementOutcome | None]
+    position: PeerSettlementPosition
+
+
+class PeerSettlement(_PeerSettlementBase, total=False):
+    """One settlement: an optional admission decision plus the outcome of each message the settlement released, in order."""
+
+    decision: PeerSettlementDecision
+
+
+class _PeerSettlementDecisionBase(TypedDict):
+    decisionId: str
+    kind: PeerSettlementDecisionKind
+    origin: PeerSettlementOrigin
+    senderLabel: str
+
+
+class PeerSettlementDecision(_PeerSettlementDecisionBase, total=False):
+    """The admission decision a settlement records."""
+
+    senderSessionId: str
+
+
+class _PeerSettlementOriginBase(TypedDict):
+    kind: PeerSettlementOriginKind
+
+
+class PeerSettlementOrigin(_PeerSettlementOriginBase, total=False):
+    """The sender origin a settlement belongs to. Rows with the same authenticated generation coalesce on the timeline; a non-coalescing origin never coalesces with another. A flat object rather than a tagged union so the experimental gate can key every member."""
+
+    generation: PeerOriginGeneration
+    value: str
+
+
+class _PeerSettlementOutcomeBase(TypedDict):
+    body: str
+    itemId: str
+    kind: PeerSettlementOutcomeKind
+    messageId: str
+    origin: PeerSettlementOrigin
+    senderLabel: str
+
+
+class PeerSettlementOutcome(_PeerSettlementOutcomeBase, total=False):
+    """What one released message shows on the receiver timeline. A flat object rather than a tagged union so the experimental gate can key every member."""
+
+    decisionId: str
+    displayContext: PeerMessageDisplayContext
+    senderSessionId: str
+    settledAtUs: int
+
+
+class PeerSettlementPosition(TypedDict):
+    """A settlement's position in the receiving session's log: the settlement record's id and its stream sequence. Clients treat it as an opaque cursor that orders by `sequence`."""
+
+    id: str
+    sequence: int
+
+
+class PeerSettlementsChangedParams(TypedDict):
+    """`peer/settlementsChanged` params: a non-view notification to the receiving session's connections. `revision` grows by at least one per committed settlement batch; it is a wake hint, not a cursor, and the client reads `peer/settlements` from its own cursor."""
+
+    revision: int
+    sessionId: str
+
+
+class _PeerSettlementsParamsBase(TypedDict):
+    sessionId: str
+
+
+class PeerSettlementsParams(_PeerSettlementsParamsBase, total=False):
+    """`peer/settlements` params. Unknown fields are `invalidParams`."""
+
+    after: PeerSettlementPosition
+    limit: int
+
+
+class PeerSettlementsResult(TypedDict):
+    """`peer/settlements` result: one page, ascending by position."""
+
+    requestedAfter: PeerSettlementPosition | None
+    sessionId: str
+    settlements: list[PeerSettlement]
+    through: PeerSettlementPosition | None
 
 
 class _PendingApprovalPointerBase(TypedDict):
@@ -2483,6 +2681,24 @@ class RequestReceipt(TypedDict):
     pass
 
 
+class RunningElsewhere(TypedDict, total=False):
+    """The `runningElsewhere` member of a `Session`: another live process on this machine runs the session."""
+
+    origin: RunningElsewhereOrigin
+
+
+class RuntimeWorktree(TypedDict):
+    """The runtime-owned git worktree a child session runs in, mirrored from the `subagent.worktree.*` records on its parent's log. The three enums are open: clients treat an unknown value as unknown."""
+
+    baseCommit: str
+    cleanupPolicy: RuntimeWorktreeCleanupPolicy
+    cleanupState: RuntimeWorktreeCleanupState
+    headCommit: str
+    ownership: RuntimeWorktreeOwnership
+    parentDirtyExcluded: bool
+    worktreeRoot: str
+
+
 class SchemaInfo(TypedDict):
     """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
 
@@ -2519,15 +2735,21 @@ class Session(_SessionBase, total=False):
     branch: str
     createdByClient: ClientInfo
     currentLimits: SessionLimits
+    driveHolder: ClientInfo
     firstUserPrompt: str
     generatedName: str
+    itemCount: int
     kind: SessionKind
     lastActivityAt: str
+    logBytes: int
     name: str
     nameOrigin: SessionNameOrigin
     parentSessionId: str
     permissionState: EffectivePermissionState
+    resumedByClient: ClientInfo
+    runningElsewhere: RunningElsewhere
     sideFrom: SideProvenance | None
+    spawnedBy: SessionSpawnedBy
     title: str
     worktree: SessionWorktree
 
@@ -2606,6 +2828,19 @@ class SessionContextUsageParams(_SessionContextUsageParamsBase, total=False):
     """`session/contextUsage` params: context-window pressure — the counted-once occupancy at the latest provider-reported durable fact, joined with the host's pressure basis. Replace wholesale; emitted only when the `(windowTokens, usedTokens, pressure)` triple changes value (identical adoptions emit nothing)."""
 
     windowTokens: int
+
+
+class _SessionDriveChangedParamsBase(TypedDict):
+    reason: DriveChangedReason
+    sessionId: str
+    youDrive: bool
+
+
+class SessionDriveChangedParams(_SessionDriveChangedParamsBase, total=False):
+    """`session/driveChanged` params: the session's drive holder changed. A command-plane broadcast on the `session/statusChanged` pattern — delivered to every connection on the host, subscribed or not; a connection's `optOutNotificationMethods` suppresses it — so the previous holder and every observer learn who drives now. Not a view event: no `viewCursor`, no `sourceRange` (it reflects live registry state, no durable record). The embedded single-connection host never emits it. **Experimental tier**."""
+
+    driveHolder: ClientInfo
+    previousDriveHolder: ClientInfo
 
 
 class _SessionForkParamsBase(TypedDict):
@@ -2866,6 +3101,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
     lastTurn: LastTurn
     queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
+    worktree: RuntimeWorktree
 
 
 class SessionReasoningEffortChangedParams(TypedDict):
@@ -2876,6 +3112,18 @@ class SessionReasoningEffortChangedParams(TypedDict):
     source: ReasoningEffortChangeSource
     sourceRange: SourceRange
     viewCursor: str
+
+
+class SessionReleaseDriveParams(TypedDict):
+    """`session/releaseDrive` params."""
+
+    sessionId: str
+
+
+class SessionReleaseDriveResult(TypedDict):
+    """`session/releaseDrive` result: `released` left the session loaded with nobody driving (a duplicate release or a holderless session answers it too, with no notice), `busy` changed nothing because a turn runs, or the session is idle with a launch still queued or its launch count unreadable (no `turn/completed` is promised on that arm). No holder member: after a release nobody holds. The two typed refusals (`sessionNotLoaded`, `sessionInUse`) are errors, not results."""
+
+    status: DriveReleaseStatus
 
 
 class SessionRenameParams(TypedDict):
@@ -2923,6 +3171,22 @@ class SessionReportStartupPhasesResult(TypedDict):
     recorded: bool
 
 
+class SessionRequestDriveParams(TypedDict):
+    """`session/requestDrive` params."""
+
+    sessionId: str
+
+
+class _SessionRequestDriveResultBase(TypedDict):
+    status: DriveRequestStatus
+
+
+class SessionRequestDriveResult(_SessionRequestDriveResultBase, total=False):
+    """`session/requestDrive` result: `granted` moved the drive to the caller (or the caller already held it) and stopped nothing — no turn ran, or another connection's turn runs or its input waits and now runs on under the caller; `busy` left everything as it was — the caller's own turn runs or its input waits, the live holder is idle and its queue cannot be read, or the live holder is not quiet and has not opted into `experimentalApi`, so it could not hear that it lost the drive; nothing is parked, and the caller asks again later (after `turn/completed` when a turn runs; a runtime that cannot report its queue promises none). An unloaded session is the typed resume-first refusal, not a result."""
+
+    driveHolder: ClientInfo
+
+
 class _SessionResumeParamsBase(TypedDict):
     commandId: str
     sessionId: str
@@ -2935,6 +3199,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     cursor: str | None
     excludeItems: bool
     history: HistoryPreference
+    modelId: str
     permissionProfile: str
     recoveryMode: RecoveryMode
 
@@ -2949,6 +3214,7 @@ class _SessionResumeResultBase(TypedDict):
 class SessionResumeResult(_SessionResumeResultBase, total=False):
     """`session/resume` result."""
 
+    abnormalEnd: AbnormalEnd
     blockedPrompt: BlockedPrompt
     lastTurn: LastTurn
     tightenedAxes: list[str]
@@ -3034,6 +3300,17 @@ class SessionSideChatResult(TypedDict):
     viewCursor: str
 
 
+class _SessionSpawnedByBase(TypedDict):
+    parentSessionId: str
+
+
+class SessionSpawnedBy(_SessionSpawnedByBase, total=False):
+    """Who opened a session."""
+
+    project: str
+    thread: str
+
+
 class _SessionStartParamsBase(TypedDict):
     commandId: str
 
@@ -3046,9 +3323,11 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     limits: SessionLimitsChoice
     modelId: str
     permissionProfile: str
+    previousSessionId: str
     providerId: str | None
     recoveryMode: RecoveryMode
     sessionId: str
+    spawnedBy: SessionSpawnedBy
     workspaceRoot: str
     workspaceRoots: list[str]
     worktree: WorktreeStartRequest
@@ -3652,6 +3931,7 @@ class TurnError(_TurnErrorBase, total=False):
     """The settled turn-failure object: `{kind, message, retryable}`."""
 
     quota: QuotaDetail
+    requestDenied: bool
 
 
 class TurnForegroundCompletedParams(TypedDict):
@@ -4086,6 +4366,7 @@ class ViewPageParams(_ViewPageParamsBase, total=False):
     anchor: ViewPageAnchor
     cursor: str
     direction: ViewPageDirection
+    maxBytes: int
 
 
 class ViewPageResolvedAnchor(TypedDict):
@@ -4380,6 +4661,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "media/upload": {"description": "Moves one video chunk into the session's video store; answers the `uploadId` receipt on every chunk.", "params": "MediaUploadParams", "result": "MediaUploadResult"},
     "model/list": {"description": "Reads the catalog of models the host will accept in `session/setModel`; a query, not a command.", "params": "ModelListParams", "result": "ModelListResult"},
     "peer/list": {"description": "Lists the viewing session's live local peers from the registry snapshot, minus the viewer, ordered by session id — one row per live entry with its authority-joined name, label, status, age, and eligibility.", "params": "PeerListParams", "result": "PeerListResult"},
+    "peer/settlements": {"description": "Reads one page of the receiving session's peer-admission settlements after a cursor, ascending, in the shape the receiver timeline folds.", "params": "PeerSettlementsParams", "result": "PeerSettlementsResult"},
     "permissionProfile/list": {"description": "Reads the selectable permission profiles for a session; a lease-free read.", "params": "PermissionProfileListParams", "result": "PermissionProfileListResult"},
     "plugin/install": {"description": "Install one plugin from a marketplace pair or a host local path with scope (per-session, `commandId`-idempotent, hold-open; answers the installed receipt).", "params": "PluginInstallParams", "result": "PluginInstallResult"},
     "plugin/list": {"description": "Reads the installed plugin records — one row per installed plugin; a query, not a command.", "params": "PluginListParams", "result": "PluginListResult"},
@@ -4397,8 +4679,10 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/promptHint": {"description": "Picks one feature-tip table id over the client-supplied candidates; display-only, nothing is logged.", "params": "SessionPromptHintParams", "result": "SessionPromptHintResult"},
     "session/read": {"description": "Reads one stored session without attaching: no lease, no load, no subscription, no resume record.", "params": "SessionReadParams", "result": "SessionReadResult"},
     "session/readLimits": {"description": "Reads one session's effective limits — experimental, same-user socket only.", "params": "SessionReadLimitsParams", "result": "SessionReadLimitsResult"},
+    "session/releaseDrive": {"description": "The holder gives a loaded session's drive back without ending the load: `released` (nobody drives until a request or resume takes it; `session/driveChanged` tells every connection), `busy` while a turn runs, or the session is idle with a launch still queued or its launch count unreadable (no `turn/completed` is promised on that arm).", "params": "SessionReleaseDriveParams", "result": "SessionReleaseDriveResult"},
     "session/rename": {"description": "Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile.", "params": "SessionRenameParams", "result": "SessionRenameResult"},
     "session/reportStartupPhases": {"description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer.", "params": "SessionReportStartupPhasesParams", "result": "SessionReportStartupPhasesResult"},
+    "session/requestDrive": {"description": "Asks for a loaded session's drive: `granted` at once and stopping nothing — when no turn runs, and to another connection while a turn runs or input waits, which run on under the caller (the drive moves and `session/driveChanged` tells every connection); `busy` while the caller's own turn runs or its input waits, while a live holder is idle and its queue cannot be read (no `turn/completed` is promised then), or for a live holder not opted into `experimentalApi` while it is not quiet (a result; nothing parked; ask again later, after `turn/completed` when a turn runs).", "params": "SessionRequestDriveParams", "result": "SessionRequestDriveResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},
     "session/setApprovalMode": {"description": "Selects a preconfigured approval enforcement mode mid-session; select, never create.", "params": "SessionSetApprovalModeParams", "result": "SessionSetApprovalModeResult"},
     "session/setModel": {"description": "Reconfigures the session's model; the selection is durable and applies to subsequent model calls.", "params": "SessionSetModelParams", "result": "SessionSetModelResult"},
@@ -4470,6 +4754,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "monitor/inboxItemAdmitted": {"description": "One monitor inbox admission: the fold keys gate-off consumes.", "params": "MonitorInboxItemAdmittedParams"},
     "monitor/inboxItemDrained": {"description": "One monitor inbox drain with its recorded stamp, the drain-side operand of latest-wins.", "params": "MonitorInboxItemDrainedParams"},
     "monitor/inboxItemVoided": {"description": "One wake-missed void with its recorded stamp; count-only, no transcript row.", "params": "MonitorInboxItemVoidedParams"},
+    "peer/settlementsChanged": {"description": "A peer-admission settlement committed in the receiving session; read `peer/settlements` from your cursor.", "params": "PeerSettlementsChangedParams"},
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
     "recap/completed": {"description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream.", "params": "RecapCompletedParams"},
@@ -4477,6 +4762,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "session/branchChanged": {"description": "A durable workspace-branch observation landed; null branch is a detached-HEAD fact.", "params": "SessionBranchChangedParams"},
     "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},
     "session/contextUsage": {"description": "A provider-reported context-occupancy fact folded to a changed (windowTokens, usedTokens, pressure) triple.", "params": "SessionContextUsageParams"},
+    "session/driveChanged": {"description": "A session's drive holder changed; command-plane broadcast to every connection, not cursor-stamped, not subscription-gated, `youDrive` per recipient.", "params": "SessionDriveChangedParams"},
     "session/goalChanged": {"description": "The session's goal block changed value; replace wholesale, an explicit null clears.", "params": "SessionGoalChangedParams"},
     "session/leaveCompleted": {"description": "Protected correlated terminal for an admitted session/leave.", "params": "SessionLeaveCompletedParams"},
     "session/listChanged": {"description": "The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated.", "params": "SessionListChangedParams"},
@@ -4523,6 +4809,7 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32023, "kind": "forkBoundaryInvalid", "retryable": False, "overrideKinds": ()},
     {"code": -32024, "kind": "sessionNotLoaded", "retryable": False, "overrideKinds": ()},
     {"code": -32025, "kind": "sessionStreamMismatch", "retryable": False, "overrideKinds": ()},
+    {"code": -32039, "kind": "daemonDraining", "retryable": True, "overrideKinds": ()},
     {"code": -32028, "kind": "limitsAboveMax", "retryable": False, "overrideKinds": ()},
     {"code": -32029, "kind": "workspaceNotTrusted", "retryable": False, "overrideKinds": ()},
     {"code": -32030, "kind": "commandRejected", "retryable": False, "overrideKinds": ()},
@@ -4558,4 +4845,4 @@ ERRORS: Final[tuple[ErrorSpec, ...]] = (
     {"code": -32082, "kind": "usageRefreshFailed", "retryable": False, "overrideKinds": ()},
 )
 
-GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging", "rawLogPhysical",)
+GRANTABLE_CAPABILITIES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "rawLog", "peerMessaging", "rawLogPhysical", "daemonVacate",)

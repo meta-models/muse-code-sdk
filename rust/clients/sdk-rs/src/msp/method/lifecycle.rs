@@ -5,6 +5,7 @@ use crate::msp::method::worktree::WorktreeStartRequest;
 use crate::msp::view::state::ApprovalMode;
 pub use recovery::RecoveryMode;
 pub use recovery::RecoveryObservation;
+pub use runtime_worktree::RuntimeWorktree;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
@@ -16,6 +17,8 @@ pub use session_resume::PendingRequestPointer;
 pub use session_resume::SessionHistory;
 
 pub(crate) mod recovery;
+pub(crate) mod runtime_worktree;
+pub(crate) mod runtime_worktree_wire_words;
 pub(crate) mod session_leave;
 pub(crate) mod session_list;
 pub(crate) mod session_mcp;
@@ -98,6 +101,18 @@ pub struct SessionStartParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub config: Option<SessionConfig>,
+    /// The session that opens this one, in the `Session.spawnedBy` shape: a
+    /// spawner that starts a worker session over MSP names its own session
+    /// here. The host writes it once into the new session's creation record, as
+    /// a worker process records its environment hand-over, and `session/list` /
+    /// `session/read` serve it back as `Session.spawnedBy`; `session/resume`
+    /// never takes it. **Additive-optional** and **provenance only**. A value
+    /// the host cannot use (a `parentSessionId` that is not a session id, a
+    /// malformed member) records nothing and never refuses the start; an
+    /// unusable `project` or `thread` is dropped on its own. Hosts that predate
+    /// the member ignore it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spawned_by: Option<super::session::SessionSpawnedBy>,
     /// Ask for a created worktree or attach an existing one. **Experimental**
     /// (`session/start.worktree`; unopted callers are refused `-32602`). Absent
     /// means no worktree — the start proceeds exactly as today.
@@ -112,6 +127,16 @@ pub struct SessionStartParams {
     /// start `-32028 limitsAboveMax` naming every too-wide axis.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limits: Option<super::limits::SessionLimitsChoice>,
+    /// The `/new` predecessor link: the outgoing session this start succeeds.
+    /// Any syntactically valid session UUID; there is no existence check, so a
+    /// link to a session that is gone still commits. Omitted means a true root.
+    /// Explicit `null` is invalid params.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub previous_session_id: Option<String>,
 }
 
 pub(crate) fn deserialize_non_null_optional<'de, D, T>(
@@ -271,6 +296,11 @@ pub struct SessionReadResult {
     /// error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_inputs: Option<Vec<QueuedInput>>,
+    /// The facts of the runtime-owned worktree a child read session's subagent
+    /// runs in. A root read serves it absent; absent means no worktree facts,
+    /// never an error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<RuntimeWorktree>,
 }
 
 /// One input still queued for delivery to a session: the full message body plus

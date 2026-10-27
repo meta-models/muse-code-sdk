@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Final, Literal, TypedDict
 
-SCHEMA_FINGERPRINT: Final[str] = "sha256:7fddaf646dbc317e5fcac0785e135eb04df14fbb0db1863089dfd6da21730e5b"
+SCHEMA_FINGERPRINT: Final[str] = "sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6"
 SCHEMA_VERSION: Final[int] = 1
 EXPERIMENTAL: Final[bool] = False
-REQUIRED_HOST_VERSION: Final[str] = "1.4.13"
+REQUIRED_HOST_VERSION: Final[str] = "1.4.14"
 
 # How long a rule created by an approval decision lasts. The set is open, so newer hosts may send other values.
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
@@ -121,6 +121,10 @@ FeedbackClassification = Literal["bug", "badResult", "goodResult", "other"]
 FeedbackSubmitOutcome = str  # open enum: unknown values stay representable
 FEEDBACK_SUBMIT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("uploaded", "recorded", "acceptedWithoutReceipt", "trackingFailed", "trackingUncertain", "dark", "disabled", "noCredential", "authRejected", "rateLimited", "failed",)
 
+# What holds a tool call before it is admitted to execute. Open: a client reads an unknown value as held by something it does not know, never as released.
+HeldFor = str  # open enum: unknown values stay representable
+HELD_FOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("approval", "hook",)
+
 # What history a lifecycle result actually served. Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself".
 HistoryMode = str  # open enum: unknown values stay representable
 HISTORY_MODE_KNOWN_VALUES: Final[tuple[str, ...]] = ("anchoredSnapshot", "inline", "snapshot", "none",)
@@ -149,7 +153,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -237,6 +241,18 @@ RequestId = int | str
 # A `turn/retracted` settlement outcome. Open enum: decode is tolerant — a value outside the list reads as `Accepted` (the event's historical meaning — pre-feature hosts emit it only for accepted retracts), never fails. The bundle keeps enumerating the known values for codegen and docs.
 RetractOutcome = str  # open enum: unknown values stay representable
 RETRACT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("accepted", "declined",)
+
+# How a session's worktree is cleaned up. The set is open, so newer hosts may send other values.
+RuntimeWorktreeCleanupPolicy = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_CLEANUP_POLICY_KNOWN_VALUES: Final[tuple[str, ...]] = ("removeIfClean",)
+
+# Where a session's worktree cleanup stands. The set is open, so newer hosts may send other values.
+RuntimeWorktreeCleanupState = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_CLEANUP_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("active", "cleaned", "retained", "cleanupFailed",)
+
+# Who owns a session's worktree. The set is open, so newer hosts may send other values.
+RuntimeWorktreeOwnership = str  # open enum: unknown values stay representable
+RUNTIME_WORKTREE_OWNERSHIP_KNOWN_VALUES: Final[tuple[str, ...]] = ("runtimeOwned",)
 
 # Whether this host can enforce the sandbox. A property of the host process, probed once at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: a future enforcement posture arrives as a new value, read by older clients as unknown.
 SandboxAvailability = str  # open enum: unknown values stay representable
@@ -537,6 +553,7 @@ class ApprovalRequestParams(_ApprovalRequestParamsBase, total=False):
     """Full params shared by `approval/request` and `approval/requested`."""
 
     cuaCardFacts: ApprovalCuaCardFacts
+    reviewerReason: str
     subagentOrigin: ApprovalSubagentOrigin
 
 
@@ -911,6 +928,19 @@ class DamagedRange(_DamagedRangeBase, total=False):
     readableBeforeAt: str
 
 
+class EarlierHistory(TypedDict):
+    """`earlierHistory`: the boundary checkpoint's transcript tail, served in place of every item that opened in its pruned prefix. No log record carries it; the host derives it from the checkpoint."""
+
+    messages: list[EarlierHistoryMessage]
+
+
+class EarlierHistoryMessage(TypedDict):
+    """One transcript-tail message of an [`EarlierHistory`] item."""
+
+    role: str
+    text: str
+
+
 class EffectiveApprovalModeState(TypedDict):
     """The effective approval-mode projection: the same object `session/setApprovalMode` returns as `effectiveMode` and the `Session` object carries as `approvalMode`."""
 
@@ -1181,6 +1211,7 @@ class Item(_ItemBase, total=False):
     displayLabel: ToolDisplayLabel
     displayText: str
     durationMs: int
+    earlierHistory: EarlierHistory
     entryId: str
     event: HookEventName
     exitCode: int
@@ -1190,6 +1221,8 @@ class Item(_ItemBase, total=False):
     fallbackText: str
     finalSummary: str
     generationId: int
+    held: bool
+    heldFor: HeldFor
     hookKey: str
     jobId: str
     label: str
@@ -1245,6 +1278,7 @@ class Item(_ItemBase, total=False):
     turnId: str | None
     usage: TokenUsage
     visibleOutput: str
+    wakeSourceDescriptions: list[str]
     workId: str
     workflowRunId: str
 
@@ -1819,6 +1853,18 @@ class RequestReceipt(TypedDict):
     pass
 
 
+class RuntimeWorktree(TypedDict):
+    """The runtime-owned git worktree a child session runs in, mirrored from the `subagent.worktree.*` records on its parent's log. The three enums are open: clients treat an unknown value as unknown."""
+
+    baseCommit: str
+    cleanupPolicy: RuntimeWorktreeCleanupPolicy
+    cleanupState: RuntimeWorktreeCleanupState
+    headCommit: str
+    ownership: RuntimeWorktreeOwnership
+    parentDirtyExcluded: bool
+    worktreeRoot: str
+
+
 class SchemaInfo(TypedDict):
     """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
 
@@ -1854,14 +1900,19 @@ class Session(_SessionBase, total=False):
     attention: list[AttentionFlag]
     branch: str
     createdByClient: ClientInfo
+    driveHolder: ClientInfo
     firstUserPrompt: str
     generatedName: str
+    itemCount: int
     kind: SessionKind
     lastActivityAt: str
+    logBytes: int
     name: str
     nameOrigin: SessionNameOrigin
     parentSessionId: str
+    resumedByClient: ClientInfo
     sideFrom: SideProvenance | None
+    spawnedBy: SessionSpawnedBy
     title: str
 
 
@@ -2134,6 +2185,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
     lastTurn: LastTurn
     queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
+    worktree: RuntimeWorktree
 
 
 class SessionReasoningEffortChangedParams(TypedDict):
@@ -2177,6 +2229,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     cursor: str | None
     excludeItems: bool
     history: HistoryPreference
+    modelId: str
     permissionProfile: str
     recoveryMode: RecoveryMode
 
@@ -2258,6 +2311,17 @@ class SessionSideChatResult(TypedDict):
     viewCursor: str
 
 
+class _SessionSpawnedByBase(TypedDict):
+    parentSessionId: str
+
+
+class SessionSpawnedBy(_SessionSpawnedByBase, total=False):
+    """Who opened a session."""
+
+    project: str
+    thread: str
+
+
 class _SessionStartParamsBase(TypedDict):
     commandId: str
 
@@ -2269,9 +2333,11 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     config: SessionConfig
     modelId: str
     permissionProfile: str
+    previousSessionId: str
     providerId: str | None
     recoveryMode: RecoveryMode
     sessionId: str
+    spawnedBy: SessionSpawnedBy
     workspaceRoot: str
     workspaceRoots: list[str]
 
@@ -2812,6 +2878,7 @@ class TurnError(_TurnErrorBase, total=False):
     """The settled turn-failure object: `{kind, message, retryable}`."""
 
     quota: QuotaDetail
+    requestDenied: bool
 
 
 class TurnForegroundCompletedParams(TypedDict):
@@ -3236,6 +3303,7 @@ class ViewPageParams(_ViewPageParamsBase, total=False):
     anchor: ViewPageAnchor
     cursor: str
     direction: ViewPageDirection
+    maxBytes: int
 
 
 class ViewPageResolvedAnchor(TypedDict):

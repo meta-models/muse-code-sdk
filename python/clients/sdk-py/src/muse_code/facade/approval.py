@@ -66,6 +66,7 @@ _REFRESH_FROM_REQUEST = frozenset(
         "judgeEscalated",
         "protectedWrite",
         "rawArgs",
+        "reviewerReason",
         "taskId",
         "toolCallId",
         "toolName",
@@ -302,6 +303,10 @@ class ApprovalRouter:
         # the retained request across stages.
         if "cuaCardFacts" in requested:
             refreshed["cuaCardFacts"] = requested["cuaCardFacts"]
+        # The escalation reason belongs to the call, so it stays with the
+        # retained request across stages.
+        if "reviewerReason" in requested:
+            refreshed["reviewerReason"] = requested["reviewerReason"]
         acked = self._in_flight.get(requested["approvalId"])
         if acked is not None:
             return self._after_ack(acked, refreshed)

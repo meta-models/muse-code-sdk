@@ -8,6 +8,7 @@ use crate::msp::view::item_content::BackgroundTerminalCompletion;
 use crate::msp::view::item_content::CompactionOutcome;
 use crate::msp::view::item_content::CompactionTrigger;
 use crate::msp::view::item_content::DamagedRange;
+use crate::msp::view::item_content::EarlierHistory;
 use crate::msp::view::item_content::HookRunStatus;
 use crate::msp::view::item_content::ItemKind;
 use crate::msp::view::item_content::ItemStatus;
@@ -35,15 +36,16 @@ pub struct Item {
     /// rule: the task id for task-backed kinds (`toolCall`, `subagent`), the
     /// pre-minted commit `message_id` for delta-streamed kinds (`agentMessage`,
     /// `reasoning`), `EventId::derive` over the session id and the range's
-    /// starting sequence number for `damagedRange`, and the opening durable
-    /// record's event id for everything else. Opaque to clients.
+    /// starting sequence number for `damagedRange`, the same over the boundary
+    /// checkpoint's sequence number for `earlierHistory`, and the opening
+    /// durable record's event id for everything else. Opaque to clients.
     pub item_id: String,
     /// The item kind (open enum): clients MUST render unknown kinds generically
     /// — kind name plus `status` plus `fallbackText`.
     pub kind: ItemKind,
     /// The owning turn. `null` for the kinds outside a turn: `userShell`
     /// always, `hookRun` for session-boundary runs, `monitorFeed` always,
-    /// `sideChat` always, `damagedRange` always.
+    /// `sideChat` always, `damagedRange` always, `earlierHistory` always.
     pub turn_id: Option<String>,
     /// Integer >= 1, strictly monotonic per item; apply rule is
     /// replace-iff-higher. `item/delta` never bumps it.
@@ -100,6 +102,12 @@ pub struct Item {
     #[serde(default, deserialize_with = "lenient_message_phase")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_phase: Option<MessagePhase>,
+    /// `agentMessage`: the Monitor source descriptions for the wake turn's
+    /// first answer — stripped, bounded, one entry per arming drain in drain
+    /// order. Absent (or empty) means untagged: the row renders the ordinary
+    /// untagged shape. The client scrubs per part before joining.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake_source_descriptions: Option<Vec<String>>,
     /// `agentMessage`: `true` when the provider stream died mid-reply and the
     /// run failed with this partial text committed — the wire mark for the
     /// gate-off "incomplete response" rule. Absent otherwise; never cleared
@@ -178,6 +186,12 @@ pub struct Item {
     /// `subagent`: the result envelope from `ResultReady`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<SubagentResult>,
+    /// `subagent`: the host could not read this live child's run records when
+    /// the parent resumed; a client says so once. A resume-time observation:
+    /// present only as `true`, absent otherwise, never `false`, and never
+    /// carried by a live notification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_unreadable: Option<bool>,
 
     /// `workflow`: launched entry identity.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -350,6 +364,9 @@ pub struct Item {
     /// renders.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_terminal_completion: Option<BackgroundTerminalCompletion>,
+    /// `earlierHistory`: the boundary checkpoint's transcript tail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub earlier_history: Option<EarlierHistory>,
     /// `scheduledFire` members, flattened beside the other optional members.
     #[serde(flatten)]
     pub scheduled_fire: ScheduledFireMembers,

@@ -75,6 +75,17 @@ pub struct ViewPageParams {
     /// bound and the bundle renders `minimum`/`maximum` instead of a bare
     /// `integer`.
     pub limit: u32,
+    /// The caller's page byte cap (kt-dvw5, additive-optional). The page
+    /// serves under `min(server budget, maxBytes)`, so a Console page stays
+    /// under its own budget without the server's frame cap alone deciding.
+    /// Absent means the server budget governs. `0` is refused typed
+    /// (`invalid_params`): a 0 cap admits no progress. A single event over
+    /// the cap is truncated (marked) instead of erroring, except verbatim
+    /// and fetch-key content (`item.args`, `structuredData`, `outputRef`/
+    /// `patchRef`), which is never cut and still answers typed
+    /// `PageEventTooLarge`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
 }
 
 /// The `view/page` request-mode anchor. Declared **open**: the protocol spells

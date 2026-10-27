@@ -155,6 +155,7 @@ impl RetiredApprovals {
             available_choices: update.available_choices.clone(),
             protected_write: false,
             judge_escalated: false,
+            reviewer_reason: None,
             subagent_origin: update.subagent_origin.clone(),
             cua_card_facts: None,
         })

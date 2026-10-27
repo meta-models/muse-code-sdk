@@ -72,6 +72,7 @@ const REFRESH_FROM_REQUEST = [
   "judgeEscalated",
   "protectedWrite",
   "rawArgs",
+  "reviewerReason",
   "taskId",
   "toolCallId",
   "toolName",
@@ -273,6 +274,11 @@ export class ApprovalRouter {
     // retained request across stages; omitted when absent.
     if (requested.cuaCardFacts !== undefined) {
       refreshed.cuaCardFacts = requested.cuaCardFacts as ApprovalRequestParams["cuaCardFacts"];
+    }
+    // The escalation reason belongs to the call, so it stays with the
+    // retained request across stages; omitted when absent.
+    if (requested.reviewerReason !== undefined) {
+      refreshed.reviewerReason = requested.reviewerReason as ApprovalRequestParams["reviewerReason"];
     }
     const acked = this.#inFlight.get(requested.approvalId);
     if (acked !== undefined) return this.#afterAck(acked, refreshed);

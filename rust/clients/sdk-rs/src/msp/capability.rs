@@ -50,6 +50,13 @@ pub enum CapabilityName {
     /// `log/physicalUnsubscribe`. Experimental-tier only and independent of
     /// `rawLog`: either can be withheld alone.
     RawLogPhysical,
+    /// The socket daemon's vacate contract, revision 1: a client that requests
+    /// it re-resumes its sessions on the canonical socket after `vacated`, and
+    /// a granted connection counts as one that follows a vacate.
+    /// Experimental-tier only, because the contract's own words are; only the
+    /// socket daemon acts on it. A later revision of the contract takes a new
+    /// name.
+    DaemonVacate,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

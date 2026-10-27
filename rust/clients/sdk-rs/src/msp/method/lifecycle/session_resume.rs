@@ -69,6 +69,22 @@ pub struct SessionResumeParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub permission_profile: Option<String>,
+    /// The explicit MSP model override: a model string the caller supplies at
+    /// resume time. When present it wins over the retained binding's recorded
+    /// origin — over a stamped label and over a stamped pin — and it recovers
+    /// an otherwise-unresolved label binding by sending the override as the
+    /// wire model instead of the unresolved refusal. Omitted preserves arm (2):
+    /// the retained binding resolves by recorded origin exactly as without this
+    /// member. Explicit `null` is invalid params (the same closed null-tolerant
+    /// set as at start). The override changes the model within the retained
+    /// provider; it never names a provider, and it never touches the retained
+    /// profile.
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_id: Option<String>,
     /// The same open construction-time extension object as `session/start`.
     #[serde(
         default,
@@ -252,6 +268,26 @@ pub struct SessionResumeResult {
     /// recall from it (C-p refills `text`) and MUST NOT display it as history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_prompt: Option<BlockedPrompt>,
+    /// The previous run's abnormal end this resume's own load adopted.
+    /// **Experimental** (`session/resume.abnormalEnd`; stripped for unopted
+    /// connections); absence asserts nothing (an attach to a loaded session, a
+    /// clean prior end, or an older host). Clients may show a one-time notice
+    /// from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abnormal_end: Option<AbnormalEnd>,
+}
+
+/// `abnormalEnd` on `session/resume`: the load found the session's latest serve
+/// segment without a clean end and recorded (or had already recorded) the
+/// `crash_inferred` backstop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AbnormalEnd {
+    /// RFC 3339 time of the session's latest serve activity (the time the
+    /// gate-off notice shows); absent when the log has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<String>,
 }
 
 /// The cold recall seed on `session/resume` and `session/read` results: at most

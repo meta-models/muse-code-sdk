@@ -743,6 +743,56 @@ for (const withFacts of [true, false]) {
   );
 }
 
+for (const withReason of [true, false]) {
+  test(
+    `#49908: a stage advance keeps the request's reviewerReason (${withReason ? "with" : "without"} reason)`,
+    { timeout: ARM_TIMEOUT },
+    async () => {
+      // `reviewerReason` belongs to the call and `approval/updated` doesn't
+      // carry it, so the refreshed stage-2 request keeps the original
+      // request's reason, and a request without one stays without the key.
+      const REASON = "pipes a downloaded script into sh";
+      const { minted, session, transport } = wired();
+      const seen: ApprovalRequestParams[] = [];
+      session.onApproval((request) => {
+        seen.push(request);
+        return { choiceId: "allow_once" };
+      });
+      const first = session.apply(approvalRequested(withReason ? { reviewerReason: REASON } : {}));
+      await waitForWrites(transport, 1);
+      answer(transport, 0, { approvalId: "a-1", commandId: "mint-0", status: "accepted", terminal: false });
+      await first.io;
+
+      const update = {
+        approvalId: "a-1",
+        availableChoices: CHOICES,
+        change: {
+          choiceId: "allow_once",
+          decision: "approved",
+          kind: "stageResolved",
+          requirementId: { approvalId: "a-1", sourceIndex: 0 },
+        },
+        currentRequirementId: { approvalId: "a-1", sourceIndex: 2 },
+        sessionId: SESSION,
+        sourceRange: SOURCE,
+        subject: { kind: "shell", command: "echo two > b.txt" },
+        viewCursor: "v:3",
+      } as unknown as ApprovalUpdatedParams;
+      const updated = session.apply({ method: "approval/updated", params: update });
+      await waitForWrites(transport, 2);
+      assert.deepEqual(minted, ["mint-0", "mint-1"]);
+      assert.equal(seen.length, 2);
+      if (withReason) {
+        assert.equal(seen[1]?.reviewerReason, REASON);
+      } else {
+        assert.equal("reviewerReason" in (seen[1] ?? {}), false);
+      }
+      answer(transport, 1, { approvalId: "a-1", commandId: "mint-1", status: "accepted", terminal: true });
+      await updated.io;
+    },
+  );
+}
+
 test(
   "T031/TEST-013 #50244: a stageResolved update read in the SAME chunk as a terminal decide ack asks nothing and writes nothing",
   { timeout: ARM_TIMEOUT },

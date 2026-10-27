@@ -65,6 +65,11 @@ pub enum ErrorKind {
     /// or renamed session directory whose log belongs to a different session.
     /// `data.sessionId` names the requested session.
     SessionStreamMismatch,
+    /// A drive-taking verb refused because this daemon is draining on the
+    /// binary-change upgrade path; `data.paths` names the canonical socket to
+    /// retry against and `data.retryable` is `true`. Experimental tier with the
+    /// socket surface.
+    DaemonDraining,
     /// A `session/start` choice is wider than the host ceiling on at least one
     /// axis; `data.axes` names every too-wide axis with its requested and
     /// ceiling values and `data.retryable` is `false`. Experimental tier with

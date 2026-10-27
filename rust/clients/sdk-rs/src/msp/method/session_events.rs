@@ -119,6 +119,12 @@ pub enum SessionClosedReason {
     /// Emitted before its paired `session/statusChanged` and the
     /// `session/leaveCompleted` terminal.
     Leave,
+    /// A draining daemon unloaded this session on the upgrade path and released
+    /// its lease. The successor on the canonical socket reloads it at the next
+    /// resume. Socket-only, experimental tier. A connection that did not opt in
+    /// receives the `hostShutdown` fallback for this value; opted-in
+    /// connections decode `vacated`.
+    Vacated,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.

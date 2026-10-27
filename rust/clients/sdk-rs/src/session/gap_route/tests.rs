@@ -44,6 +44,7 @@ async fn a_walk_that_meets_a_closing_client_leaves_its_session_to_close() -> Res
             anchor: None,
             direction: None,
             limit: 1,
+            max_bytes: None,
         },
     )
     .await;
@@ -164,6 +165,7 @@ async fn a_walk_that_meets_an_ended_transport_leaves_its_session_to_the_sweep() 
             anchor: None,
             direction: None,
             limit: 1,
+            max_bytes: None,
         },
     )
     .await;
@@ -209,6 +211,7 @@ async fn a_walk_cut_short_by_a_read_error_leaves_its_session_to_the_sweep() -> R
             anchor: None,
             direction: None,
             limit: 1,
+            max_bytes: None,
         },
     )
     .await;
