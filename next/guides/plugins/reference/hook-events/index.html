@@ -398,7 +398,7 @@ that output is applied.</p>
 <td><code dir="auto">systemMessage</code></td>
 <td>string</td>
 <td>Every event</td>
-<td>Shown to the user, not to the model. Control characters other than newline are replaced by spaces; at most 1000 characters are kept.</td>
+<td>Shown to the user, not to the model: a handler that completes (exit 0, no block or stop decision) with a <code dir="auto">systemMessage</code> adds one persistent <code dir="auto">Hook · &lt;label&gt; · &lt;text&gt;</code> line to the transcript at the hook’s position (in every session state, startup and end-of-turn hooks included), plus a brief status notice; every such completion adds its own line, and a blocking handler keeps only its block notice. Control characters other than newline are replaced by spaces; at most 1000 characters are kept.</td>
 </tr>
 <tr>
 <td><code dir="auto">suppressOutput</code></td>
