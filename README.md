@@ -16,9 +16,12 @@ Requires Node.js 20 or newer. The package has **zero runtime dependencies**
 and ships its own TypeScript declarations. Start with the
 [quickstart](https://meta-models.github.io/muse-code-sdk/latest/guides/quickstart/).
 
-The SDK is a **Developer Preview**: it is published pre-1.0 and carries no
-stability promise yet — minor releases may change APIs while the surface
-settles.
+The SDK is a **Developer Preview** in status, and it **versions in lockstep
+with Muse Code**: `@muse-code/sdk X.Y.Z` pairs with Muse Code `X.Y.Z`. The
+stable MSP surface follows the product's compatibility posture — evolution is
+additive, and a breaking change follows a documented deprecation and changelog
+path. Surfaces marked experimental (`x-msp-openness`) may change or be removed
+with a changelog entry and no deprecation window.
 
 ## What is in this repository
 
