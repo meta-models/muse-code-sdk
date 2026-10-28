@@ -171,6 +171,8 @@ says why.</strong> It means the host is not serving history for this session, an
 carries a <code dir="auto">noneReason</code> member naming which producer omitted the history —
 an open enum whose current values are <code dir="auto">"excluded"</code>, <code dir="auto">"cursorSuffix"</code>,
 <code dir="auto">"historyBudget"</code>, <code dir="auto">"projectionUnavailable"</code>, and <code dir="auto">"projectionReadLimit"</code>.
+(The same enum also has <code dir="auto">"projectionRebuildFailed"</code>, which is push-only: it
+arrives on <code dir="auto">session/viewHealthChanged</code>, never on <code dir="auto">mode: "none"</code>.)
 Treat it as open: render unknown values generically. The values split by
 recovery: <code dir="auto">historyBudget</code> and <code dir="auto">projectionReadLimit</code> mean the history still
 exists — page it in via <a href="../generated/msp/methods/view-page/"><code dir="auto">view/page</code></a>;
