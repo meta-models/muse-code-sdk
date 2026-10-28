@@ -41,16 +41,41 @@ schema/msp/             the committed protocol declarations, stable manifest and
 Requires Node.js 20 or newer (CI uses 22). From the repository root:
 
 ```sh
-npm install     # links the workspace packages; installs the pinned TypeScript
+npm ci          # links the workspace packages; installs the pinned TypeScript
 npm run build   # tsc --build
 npm test        # builds, then runs the node:test suites
 ```
 
-The suite passes in a standalone checkout except for the arms in
-`clients/sdk-ts/test/muse-serve-child.test.ts` and
-`clients/sdk-ts/test/spawn-handshake.test.ts`, which spawn a real `muse` host
-binary that is not part of this repository. Those fail by design without one —
-anything else is a genuine failure, so please report it.
+Use `npm ci`, not `npm install`. `npm install` currently rewrites
+`package-lock.json` — the root workspace lists `clients/acp`, which this mirror
+does not carry — and that lockfile is one of the carried closure files that
+`scripts/publish-sdk-npm.sh` hashes, so the rewrite fails the publish gate and
+takes the `publish-script.test.ts` arms that require a clean anchor down with
+it. `npm ci` installs from the lockfile without editing it.
+
+**A standalone checkout's `npm test` is not green, by design.** Build and
+typecheck are standalone; the full test run is not. Several suites exercise the
+producing repository, the host crate, or the documentation source tree, none of
+which this mirror carries:
+
+- `clients/sdk-ts/test/muse-serve-child.test.ts` and
+  `clients/sdk-ts/test/spawn-handshake.test.ts` spawn the Rust conformance host,
+  which is built from `crates/`;
+- `clients/sdk-ts/test/npm-publication.test.ts` reads the host version from
+  `crates/cli/Cargo.toml`;
+- `clients/sdk-ts/test/facade-permission-state.test.ts` reads
+  `schema/msp/experimental/msp.schema.json`;
+- `clients/sdk-ts/test/sdk-source-closure.test.ts` checks the producing
+  repository's Python and Rust closure paths, which this mirror carries under
+  `python/` and `rust/` instead;
+- `clients/sdk-ts/test/publish-script.test.ts` has one arm for an upstream
+  publish that exports no `HOST_VERSION_CARRIER`; the mirror's script falls back
+  to `host_version` in `publish-anchor.json`, so that upstream case cannot arise
+  here; and
+- the `clients/sdk-cookbook` runner reads the `developer-docs/` source tree.
+
+Run `npm test` and compare the failures with that list: a failure outside it is
+a genuine one, so please report it.
 
 To typecheck the committed protocol declarations on their own:
 
