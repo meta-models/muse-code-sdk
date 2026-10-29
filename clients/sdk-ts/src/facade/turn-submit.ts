@@ -23,7 +23,7 @@ import type {
   ReplayAnswer,
 } from "../pending/pending-command-set.js";
 
-import type { TurnStartParams, TurnStartResult } from "@muse-code/msp";
+import type { TurnInputPart, TurnStartParams, TurnStartResult } from "@muse-code/msp";
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;
@@ -87,6 +87,86 @@ export function commandErrorResponse(error: unknown): CommandErrorResponse | und
   };
 }
 
+/** Well-known image media types whose signatures are sniffed locally (#117). */
+const SNIFFED_IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Decode only the leading bytes a signature check needs, ignoring whitespace. */
+function decodeBase64Prefix(data: string, maxBytes: number): Uint8Array {
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const char of data) {
+    if (char === "=") break;
+    const value = BASE64_ALPHABET.indexOf(char);
+    if (value < 0) continue;
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+      buffer &= bits === 0 ? 0 : (1 << bits) - 1;
+      if (bytes.length >= maxBytes) break;
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+function asciiAt(bytes: Uint8Array, offset: number, text: string): boolean {
+  if (bytes.length < offset + text.length) return false;
+  for (let i = 0; i < text.length; i += 1) {
+    if (bytes[offset + i] !== text.charCodeAt(i)) return false;
+  }
+  return true;
+}
+
+/** The well-known type a byte prefix actually is, or `undefined` if unrecognised. */
+function sniffImageMediaType(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (asciiAt(bytes, 0, "GIF87a") || asciiAt(bytes, 0, "GIF89a")) return "image/gif";
+  if (asciiAt(bytes, 0, "RIFF") && asciiAt(bytes, 8, "WEBP")) return "image/webp";
+  return undefined;
+}
+
+function canonicalSniffedType(mediaType: string): string | undefined {
+  const base = (mediaType.split(";", 1)[0] ?? "").trim().toLowerCase();
+  if (base === "image/jpg") return "image/jpeg";
+  return SNIFFED_IMAGE_TYPES.has(base) ? base : undefined;
+}
+
+/**
+ * Refuse an image part whose bytes provably contradict its declared
+ * `mediaType` (#117). Only the well-known signatures above are judged: an
+ * unrecognised declaration, missing payload, or unrecognised byte prefix
+ * passes through unchanged for the host to judge.
+ */
+function validateImageParts(input: readonly TurnInputPart[]): void {
+  if (!Array.isArray(input)) return;
+  for (const [index, part] of input.entries()) {
+    if (part == null || part.type !== "image") continue;
+    if (typeof part.mediaType !== "string" || typeof part.base64Data !== "string") continue;
+    if (part.base64Data.length === 0) continue;
+    const declared = canonicalSniffedType(part.mediaType);
+    if (declared === undefined) continue;
+    const detected = sniffImageMediaType(decodeBase64Prefix(part.base64Data, 12));
+    if (detected !== undefined && detected !== declared) {
+      throw new Error(
+        `image part ${index} media type mismatch: declared "${part.mediaType}" but the image bytes match "${detected}"; refusing to submit`,
+      );
+    }
+  }
+}
+
 export class TurnSubmitter<I> {
   readonly #sessionId: string;
   readonly #connection: Connection | undefined;
@@ -131,6 +211,9 @@ export class TurnSubmitter<I> {
     options: SendUserTurnOptions<I>,
     anchorAfterItemId: string | null,
   ): Promise<PendingCommandAck> {
+    // Local #117 refusal first: no mint, no pending entry, no frame, so a
+    // mislabelled image leaves the session exactly as it was.
+    validateImageParts(options.input);
     const connection = this.requireConnection("sendUserTurn");
     // Delegated, not re-implemented: the connection owns the single mint, so
     // INV-013's single-minter property survives this verb needing the id early.
