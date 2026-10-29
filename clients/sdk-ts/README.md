@@ -113,9 +113,53 @@ if (prompt !== undefined && question !== undefined) {
 }
 ```
 
-Status: developer preview. The facade — spawn, session open/resume, turns,
-approvals, questions, and recovery after dropped deliveries — is complete and covered by
-the conformance suites in the source repository.
+The facade — spawn, session open/resume, turns, approvals, questions, and
+recovery after dropped deliveries — is complete and covered by the
+conformance suites in the source repository. It follows the stability
+posture above: evolution is additive, and a breaking change follows a
+documented deprecation and changelog path.
+
+## Capabilities: `userShell`
+
+Some operations need a capability the host grants during the handshake.
+Request `userShell` when you spawn the client, then check
+`client.initializeResult.grantedCapabilities` before passing `userShell`
+to `session.sendUserTurn`; do not send it when the capability is not listed:
+
+```ts
+import { MuseClient, MspError } from "@muse-code/sdk";
+
+const client = await MuseClient.spawn({
+  museBin: "muse",
+  args: ["serve"],
+  clientInfo: { name: "my-app", version: "1.0.0" },
+  capabilities: { requestedCapabilities: ["userShell"] },
+});
+
+const canUseUserShell =
+  client.initializeResult.grantedCapabilities.includes("userShell");
+```
+
+If `userShell` is sent without that grant, the server refuses the call;
+branch on the typed error kind rather than the message text. Server
+refusals arrive as `MspError`, and a missing `userShell` capability
+reports `error.kind === "capabilityRequired"` (the capability is also on
+`error.data.capability`):
+
+```ts
+try {
+  await session.sendUserTurn({
+    input: [{ type: "text", text: "Check the working tree." }],
+    userShell: { commandText: "git status" },
+  });
+} catch (error) {
+  if (error instanceof MspError && error.kind === "capabilityRequired") {
+    // userShell was not granted for this connection; continue without it.
+  } else {
+    throw error;
+  }
+}
+```
 
 ## Not yet available
 

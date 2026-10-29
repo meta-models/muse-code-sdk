@@ -39,8 +39,11 @@ lands.
 
 ## Nothing is published
 
-This package is not published during 0.x. `private: true` is the
-enforcement. Only `@muse-code/sdk` may publish at 0.x: this package is
+This package is not published. `private: true` is the enforcement. Only
+`@muse-code/sdk` is published to npm, versioned in lockstep with Muse
+Code: its stable surface evolves additively, and a breaking change
+follows a documented deprecation and changelog path, while surfaces
+marked experimental may change with a changelog entry. This package is
 types-only and re-exports a declaration file from outside its own root, so
 publishing it would ship a dangling type reference. The SDK tarball
 carries the declarations it needs instead.
