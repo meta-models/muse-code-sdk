@@ -45,5 +45,5 @@ body:
         **One known non-bug:** in a standalone checkout, four test arms in
         `clients/sdk-ts/test/muse-serve-child.test.ts` and
         `clients/sdk-ts/test/spawn-handshake.test.ts` fail with `could not find Cargo.toml`.
-        They spawn the `muse serve` host, which is not part of this repository, and
+        They build and spawn the `muse serve` host from Rust sources, which are not part of this repository, and
         they are expected to fail here. Any *other* failure is a genuine one — please report it.

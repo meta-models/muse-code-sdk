@@ -19,7 +19,7 @@ wrapper for scripts and notebooks.
   same-command retry that can never double-submit.
 - `SyncMuseClient` mirrors the same surface with blocking verbs.
 
-Status: stable 1.x. This package versions in lockstep with Muse Code:
+This package versions in lockstep with Muse Code:
 `muse-code-sdk X.Y.Z` pairs with Muse Code `X.Y.Z`. The stable surface
 evolves additively, and a breaking change follows a documented
 deprecation and changelog path. Surfaces marked experimental may change

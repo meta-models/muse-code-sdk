@@ -49,6 +49,7 @@ from muse_code_msp import (
     TurnUnqueuedParams,
     UserInputAnswer,
     UserInputAnswerResult,
+    WorkflowControlResult,
     WorkflowResumeResult,
 )
 
@@ -946,13 +947,13 @@ class Session(Generic[_I]):
         )
         return cast(HookListResult, ack)
 
-    async def pause_workflow(self, workflow_run_id: str) -> RecapRequestResult:
+    async def pause_workflow(self, workflow_run_id: str) -> WorkflowControlResult:
         """Pause a live workflow run (``workflow/pause``)."""
         ack = await self._require_live_connection("pause_workflow").command(
             "workflow/pause",
             {"sessionId": self.session_id, "workflowRunId": workflow_run_id},
         )
-        return cast(RecapRequestResult, ack)
+        return cast(WorkflowControlResult, ack)
 
     async def resume_workflow(self, workflow_run_id: str) -> WorkflowResumeResult:
         """Resume a paused workflow run (``workflow/resume``)."""

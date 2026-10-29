@@ -69,6 +69,7 @@ import type {
   TaskListResult,
   UserInputAnswer,
   UserInputAnswerResult,
+  WorkflowControlResult,
   WorkflowResumeResult,
 } from "@muse-code/msp";
 
@@ -894,12 +895,12 @@ export class Session<I = unknown> {
   }
 
   /** Pause a live workflow run (`workflow/pause`). */
-  async pauseWorkflow(workflowRunId: string): Promise<RecapRequestResult> {
+  async pauseWorkflow(workflowRunId: string): Promise<WorkflowControlResult> {
     const ack = await this.#requireLiveConnection("pauseWorkflow").command("workflow/pause", {
       sessionId: this.sessionId,
       workflowRunId,
     });
-    return ack as unknown as RecapRequestResult;
+    return ack as unknown as WorkflowControlResult;
   }
 
   /** Resume a paused workflow run (`workflow/resume`). */
