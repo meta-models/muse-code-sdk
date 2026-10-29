@@ -14,7 +14,7 @@ body:
     attributes:
       label: Where is the problem?
       options:
-        - "@muse/sdk — the TypeScript SDK (clients/sdk-ts)"
+        - "@muse-code/sdk — the TypeScript SDK (clients/sdk-ts)"
         - "The MSP protocol declarations or schema (schema/msp)"
         - "The documentation site"
         - "Something else / not sure"
@@ -42,8 +42,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        **One known non-bug:** in a standalone checkout, four test arms in
-        `clients/sdk-ts/test/muse-serve-child.test.ts` and
-        `clients/sdk-ts/test/spawn-handshake.test.ts` fail with `could not find Cargo.toml`.
-        They spawn the Rust `tbh serve` host, which is not part of this repository, and
-        they are expected to fail here. Any *other* failure is a genuine one — please report it.
+        **Expected failures:** a standalone checkout's `npm test` is not green —
+        several suites need the host crate, the experimental schema, or the
+        documentation source tree the public mirror does not carry. The README
+        lists them under
+        [Build from source](https://github.com/meta-models/muse-code-sdk#build-from-source).
+        Compare your failures with that list; anything outside it is a genuine
+        failure, so please report it.
