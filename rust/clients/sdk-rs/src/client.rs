@@ -1,6 +1,7 @@
 //! Client lifecycle and command-id minting.
 
 mod host;
+mod list;
 mod open;
 mod shared;
 
@@ -31,6 +32,7 @@ pub use crate::errors::MuseError as FacadeError;
 /// The result type of the client and session calls.
 pub type FacadeResult<T> = Result<T, FacadeError>;
 
+pub use list::ListSessionsOptions;
 pub use open::{ResumeSessionOptions, StartSessionOptions};
 
 /// A client connected to one host over MSP.
