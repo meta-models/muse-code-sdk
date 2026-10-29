@@ -317,7 +317,11 @@ usage meter (context use, and cost when it is known) and the session title
 update as they change.</li>
 <li><strong>Queue and cancel.</strong> A prompt that you send while a turn runs waits until
 that turn ends. Cancel stops the running turn and the prompts already
-waiting behind it. A prompt that you send after the cancel still runs.</li>
+waiting behind it. You can send a new prompt after the cancel.
+If you cancel <code dir="auto">/compact</code>, its request gets a <code dir="auto">cancelled</code> reply at once,
+but compaction continues in Muse Code. A prompt sent before compaction
+finishes can fail with <code dir="auto">turn/start command … rejected: runtime_busy</code>.
+If that happens, wait for compaction to finish. Then send that prompt again.</li>
 <li><strong>MCP servers from your editor.</strong> When the editor passes its MCP servers to
 the agent, Muse Code starts the stdio and HTTP servers for the session. If
 one of them fails to start, the session still opens.</li>
