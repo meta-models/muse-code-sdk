@@ -51,6 +51,7 @@ import type {
   SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
+  SessionViewHealthChangedParams,
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
@@ -85,6 +86,21 @@ export type SessionStateParams =
   | SessionReasoningEffortChangedParams
   | SessionTodoListChangedParams
   | SessionTokenUsageParams;
+
+/** Options for constructing a {@link SessionFold}. */
+export interface SessionFoldOptions {
+  /**
+   * Opt in to surfacing `session/viewHealthChanged` from `apply`.
+   *
+   * When `true`, that frame returns a `viewHealthChanged` outcome
+   * carrying its params verbatim, following the notice shape used for
+   * `modelRouteUnserved`: it seeds no store and moves no currency.
+   * When absent or `false` (the default), the frame keeps its current
+   * `ignoredUnrecognizedMethod` answer, so existing consumers observe
+   * no change.
+   */
+  readonly surfaceViewHealth?: boolean;
+}
 
 /** A view notification, paired with the generated params object it carries. */
 export type ViewEvent =
@@ -191,8 +207,12 @@ export type ViewEvent =
  * - `session/viewHealthChanged` (#32557, ADR 32557) is a COMMAND-PLANE
  *   health push, not a view-fold event: it reports that the live view
  *   stream stopped, so it carries no cursor and folds into no transcript
- *   state. A consumer handles it out of band (mark the session view
- *   unhealthy), never through this fold.
+ *   state. It therefore stays out of `ViewEvent` — adding it there would
+ *   force every exhaustive `ViewEvent` switch to handle a frame that
+ *   folds nothing. A consumer that opts in with `surfaceViewHealth`
+ *   on {@link SessionFoldOptions} instead receives it as a
+ *   `viewHealthChanged` notice from `apply`; without that opt-in the
+ *   frame keeps its current `ignoredUnrecognizedMethod` answer.
  * - `usage/changed` (ADR 32563 D3, tdd SS3.23) is a live HOST-STATE push
  *   outside the view altitude: no `viewCursor`, no `sourceRange`, nothing
  *   seeded into either store; it reaches consumers through the ordinary
@@ -436,6 +456,18 @@ export type FoldOutcome =
    */
   | { readonly kind: "modelRouteUnserved"; readonly params: SessionModelRouteUnservedParams }
   /**
+   * A `session/viewHealthChanged` push, surfaced only when the fold was
+   * built with `surfaceViewHealth` (see {@link SessionFoldOptions}): a
+   * NOTICE like `modelRouteUnserved`, so the params ride the outcome
+   * verbatim for the consumer to act on once. Fresh wire objects, never
+   * store handles, so no sealing applies. Consumers that did not opt in
+   * never receive this arm.
+   */
+  | {
+      readonly kind: "viewHealthChanged";
+      readonly params: SessionViewHealthChangedParams;
+    }
+  /**
    * One monitor-inbox trio fact, surfaced verbatim (see the `ViewEvent`
    * arms above): the method names which of the three arrived, and the
    * params carry that event's fact members for the consumer's own fold.
@@ -582,6 +614,11 @@ export interface FoldSessionState {
 export class SessionFold {
   readonly #itemStore = new ItemStore<Item>();
   readonly #sessionStateStore = new SessionStateStore<SessionStateParams>();
+  readonly #surfaceViewHealth: boolean;
+
+  constructor(options: SessionFoldOptions = {}) {
+    this.#surfaceViewHealth = options.surfaceViewHealth === true;
+  }
 
   /** Items, snapshot-only: the mutators are `apply()`'s, not the consumer's. */
   get items(): FoldItems {
@@ -724,6 +761,19 @@ export class SessionFold {
     // and `Session.apply` inherit it from one place.
     if (event.params === null || typeof event.params !== "object" || Array.isArray(event.params)) {
       return { kind: "ignoredMissingParams", method: event.method };
+    }
+    // The command-plane health push is not a `ViewEvent` (see the
+    // exclusions above), so it is answered here rather than in the
+    // switch: only an opted-in fold surfaces it, as a notice carrying
+    // its params verbatim; every other fold keeps the current drop.
+    if (event.method === "session/viewHealthChanged") {
+      if (!this.#surfaceViewHealth) {
+        return { kind: "ignoredUnrecognizedMethod", method: event.method };
+      }
+      return {
+        kind: "viewHealthChanged",
+        params: event.params as SessionViewHealthChangedParams,
+      };
     }
     const typed = event as ViewEvent;
     switch (typed.method) {

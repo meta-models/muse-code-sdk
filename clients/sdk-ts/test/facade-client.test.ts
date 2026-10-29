@@ -802,3 +802,104 @@ test(
     );
   },
 );
+
+// ---- #94: opt-in view-health surfacing -------------------------------------
+
+test(
+  "#94: onViewHealthChanged observes a view-unavailable push for an opened session",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const transport = new FakeDuplex();
+    const client = new MuseClient(new Connection(transport), DURABLE);
+    const seen: unknown[] = [];
+    client.onViewHealthChanged((params) => seen.push(params));
+
+    const opening = client.startSession();
+    await exchange(transport, startResult("s-1"));
+    await opening;
+
+    transport.chunks.push(
+      frame({
+        jsonrpc: "2.0",
+        method: "session/viewHealthChanged",
+        params: {
+          health: "unavailable",
+          noneReason: "projectionUnavailable",
+          sessionId: "s-1",
+        },
+      }),
+    );
+    await settleMicrotasks();
+
+    assert.deepEqual(seen, [
+      {
+        health: "unavailable",
+        noneReason: "projectionUnavailable",
+        sessionId: "s-1",
+      },
+    ]);
+    await client.close();
+  },
+);
+
+test(
+  "#94: a view-health push is not observed when no handler is registered",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const transport = new FakeDuplex();
+    const client = new MuseClient(new Connection(transport), DURABLE);
+
+    const opening = client.startSession();
+    await exchange(transport, startResult("s-1"));
+    const session = await opening;
+
+    transport.chunks.push(
+      frame({
+        jsonrpc: "2.0",
+        method: "session/viewHealthChanged",
+        params: {
+          health: "unavailable",
+          noneReason: "projectionUnavailable",
+          sessionId: "s-1",
+        },
+      }),
+    );
+    await settleMicrotasks();
+
+    // Default behaviour is unchanged: the frame folds as before and no
+    // session state is seeded by the push.
+    assert.equal(session.fold.current, true);
+    assert.equal(session.fold.pendingGap, undefined);
+    await client.close();
+  },
+);
+
+test(
+  "#94: onViewHealthChanged replaces the previous handler",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const transport = new FakeDuplex();
+    const client = new MuseClient(new Connection(transport), DURABLE);
+    const first: unknown[] = [];
+    const second: unknown[] = [];
+    client.onViewHealthChanged((params) => first.push(params));
+    client.onViewHealthChanged((params) => second.push(params));
+
+    const opening = client.startSession();
+    await exchange(transport, startResult("s-1"));
+    await opening;
+
+    transport.chunks.push(
+      frame({
+        jsonrpc: "2.0",
+        method: "session/viewHealthChanged",
+        params: { health: "unavailable", sessionId: "s-1" },
+      }),
+    );
+    await settleMicrotasks();
+
+    assert.deepEqual(first, []);
+    assert.deepEqual(second, [{ health: "unavailable", sessionId: "s-1" }]);
+    await client.close();
+  },
+);

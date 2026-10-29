@@ -61,7 +61,20 @@ import type {
   SessionResumeResult,
   SessionStartParams,
   SessionStartResult,
+  SessionViewHealthChangedParams,
 } from "@muse-code/msp";
+
+/**
+ * Observes a `session/viewHealthChanged` push: the named session's live
+ * view became unavailable, and why. The params ride verbatim, so an
+ * unrecognized `health` value stays visible for the consumer to ignore
+ * rather than being mistaken for `unavailable`. Registered with
+ * {@link MuseClient.onViewHealthChanged}; without a registration the
+ * push keeps its current folded answer and nothing observes it.
+ */
+export type ViewHealthChangedHandler = (
+  params: SessionViewHealthChangedParams,
+) => void;
 
 /**
  * The params this module builds. `commandId` is excluded because
@@ -243,6 +256,8 @@ export class MuseClient {
   #closing = false;
   /** Latched by an abnormal EOF, so a later `resumeSession` can be withheld. */
   #hostDied = false;
+  /** The opt-in view-health observer; see `onViewHealthChanged`. */
+  #viewHealthHandler: ViewHealthChangedHandler | undefined;
 
   constructor(connection: Connection, options: MuseClientOptions) {
     this.#connection = connection;
@@ -303,6 +318,7 @@ export class MuseClient {
    * held for `#openSession` to fold, or for `#open` to clear.
    */
   #route(notification: ViewFrame): void {
+    this.#notifyViewHealth(notification);
     const named = (notification.params as { sessionId?: unknown } | undefined)?.sessionId;
     if (typeof named !== "string") return;
     let delivered = false;
@@ -316,6 +332,24 @@ export class MuseClient {
     const held = this.#held.get(named);
     if (held === undefined) this.#held.set(named, [notification]);
     else held.push(notification);
+  }
+
+  /**
+   * Hand a view-health push to the registered observer, if any.
+   *
+   * Answered here rather than in the fold because the push is a
+   * command-plane health note, not view state: the session still
+   * receives the frame exactly as before, and this only adds the
+   * opt-in observation beside that delivery. A frame with no params
+   * object carries nothing to observe and is not handed on.
+   */
+  #notifyViewHealth(notification: ViewFrame): void {
+    if (notification.method !== "session/viewHealthChanged") return;
+    const handler = this.#viewHealthHandler;
+    if (handler === undefined) return;
+    const params = notification.params;
+    if (params === null || typeof params !== "object" || Array.isArray(params)) return;
+    handler(params as SessionViewHealthChangedParams);
   }
 
   /**
@@ -408,6 +442,21 @@ export class MuseClient {
   /** The durability profile every session this client opens inherits. */
   get durability(): SessionDurabilityProfile {
     return this.#durability;
+  }
+
+  /**
+   * Observe `session/viewHealthChanged` pushes for sessions this
+   * client routes (opt-in, #94).
+   *
+   * REPLACES any previous handler rather than adding to a list, for
+   * the same reason `Session.onApproval` replaces: one observer owns
+   * the reaction, so two competing reactions cannot both run. Register
+   * before opening a session to observe a push that arrives while that
+   * open is in flight. With no handler registered, the push keeps its
+   * current folded answer and nothing observes it.
+   */
+  onViewHealthChanged(handler: ViewHealthChangedHandler): void {
+    this.#viewHealthHandler = handler;
   }
 
   /** Open a new root session (tdd SS2.5.1). */

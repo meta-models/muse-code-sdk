@@ -41,6 +41,7 @@ import type {
   SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
+  SessionViewHealthChangedParams,
   SourceRange,
   TurnCompletedParams,
   TurnError,
@@ -1289,6 +1290,67 @@ test("a session lifecycle broadcast keeps its pre-enrollment drop until #33102 f
   assert.equal(fold.items.size, 0, "a lifecycle broadcast seeds no item");
   assert.deepEqual(fold.sessionState.families(), [], "and no state family");
   assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
+});
+
+function viewHealthChanged(
+  health: string,
+  noneReason?: string,
+): { readonly method: string; readonly params: SessionViewHealthChangedParams } {
+  const params: SessionViewHealthChangedParams = {
+    health,
+    sessionId: SESSION,
+    ...(noneReason !== undefined ? { noneReason } : {}),
+  };
+  return { method: "session/viewHealthChanged", params };
+}
+
+test("session/viewHealthChanged keeps its default drop when view-health surfacing is not opted in (#94)", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+
+  const outcome = fold.apply(viewHealthChanged("unavailable", "projectionUnavailable"));
+
+  assert.deepEqual(outcome, {
+    kind: "ignoredUnrecognizedMethod",
+    method: "session/viewHealthChanged",
+  });
+  assert.equal(fold.current, true, "a health push is not a delivery gap");
+  assert.equal(fold.pendingGap, undefined);
+  assert.equal(fold.items.size, 0, "a health push seeds no item");
+  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
+  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
+});
+
+test("an opted-in fold surfaces session/viewHealthChanged verbatim and folds no state (#94)", () => {
+  const fold = new SessionFold({ surfaceViewHealth: true });
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+
+  const outcome = fold.apply(viewHealthChanged("unavailable", "projectionUnavailable"));
+
+  assert.deepEqual(outcome, {
+    kind: "viewHealthChanged",
+    params: {
+      health: "unavailable",
+      noneReason: "projectionUnavailable",
+      sessionId: SESSION,
+    },
+  });
+  assert.equal(fold.current, true, "a health push is not a delivery gap");
+  assert.equal(fold.pendingGap, undefined);
+  assert.equal(fold.items.size, 0, "a health push seeds no item");
+  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
+  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
+});
+
+test("an opted-in fold surfaces an unrecognized health value verbatim (#94)", () => {
+  const fold = new SessionFold({ surfaceViewHealth: true });
+
+  const outcome = fold.apply(viewHealthChanged("degradedFuture"));
+
+  assert.deepEqual(outcome, {
+    kind: "viewHealthChanged",
+    params: { health: "degradedFuture", sessionId: SESSION },
+  });
 });
 
 test("a real view/gap frame moves the fold's CURRENCY and no store (T032 flips D-24021-1's drop)", () => {
