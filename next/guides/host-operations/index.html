@@ -252,7 +252,9 @@ partitioned by date:</p>
 back from this log. <code dir="auto">.session.lock</code> is the writer lease. Every
 <a href="../../generated/msp/types/session/">session object</a> reports its log’s exact
 location as <code dir="auto">path</code>; on an ephemeral host that is the empty string, because no
-log exists.</p>
+log exists. The folder layout above is current implementation detail and may
+change: a program finds a session’s log through its reported <code dir="auto">path</code> and the
+data directory through <code dir="auto">museHome</code>, never by building the path itself.</p>
 <div class="sl-heading-wrapper level-h3"><h3 id="retention">Retention</h3><a class="sl-anchor-link" href="#retention"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Retention”</span></a></div>
 <p>No protocol method deletes a session. Two housekeeping rules remove sessions
 on their own:</p>
@@ -277,7 +279,8 @@ ephemeral host writes no session files at all.</p>
 <code dir="auto">&lt;data directory&gt;/local-tracing/</code>: one file per process, readable only by your
 user, rotated as it grows. Each process deletes diagnostic files older than
 eight days when it starts. These files are for diagnosis, not a format to
-parse.</p>
+parse, and their folder, names and rotation are current implementation detail
+that may change; a program that needs the data directory reads <code dir="auto">museHome</code>.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="security-model">Security model</h2><a class="sl-anchor-link" href="#security-model"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Security model”</span></a></div>
 <p><strong>The spawn boundary.</strong> The host has no authentication, by design. Only the
 process that spawned it — or one that process handed the pipes to — can talk
