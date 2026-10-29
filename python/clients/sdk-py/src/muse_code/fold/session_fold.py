@@ -925,6 +925,14 @@ class SessionFold:
         # Symmetric with `_approval_requested`: a settled prompt stays settled.
         if user_input_id in self._settled_user_inputs:
             return IgnoredStaleFrame("userInput/requested", user_input_id)
+        # A prompt for a turn this fold has already seen leave `running` is
+        # an orphan: no answer can settle it, so listing it would pend
+        # forever. Guarded to KNOWN dead turns only — a prompt naming a
+        # turn the fold has never seen (a fresh resume re-sending a
+        # still-open question) still lists.
+        turn = self._turns.get(str(params.get("turnId", "")))
+        if turn is not None and turn.state != "running":
+            return IgnoredStaleFrame("userInput/requested", user_input_id)
         self._pending_user_inputs[user_input_id] = params
         return UserInputPending(user_input_id)
 

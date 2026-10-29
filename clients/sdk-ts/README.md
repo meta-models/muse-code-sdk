@@ -117,6 +117,13 @@ Status: developer preview. The facade — spawn, session open/resume, turns,
 approvals, questions, and recovery after dropped deliveries — is complete and covered by
 the conformance suites in the source repository.
 
+## Not yet available
+
+`@muse-code/acp` is not published on npm and is not part of this public
+repository. There is no supported ACP adapter to install today; please do not
+depend on that package name. If an ACP adapter ships, it will be announced in
+a public release.
+
 ## Documentation
 
 - Guides, cookbook recipes, and the protocol reference:
