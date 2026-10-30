@@ -968,64 +968,6 @@ test("userInput/requested after userInput/settled never resurrects the prompt", 
   );
 });
 
-test("userInput/requested for a turn that already settled is stale and never listed", () => {
-  const fold = new SessionFold();
-  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
-  fold.apply(turnCompleted("turn-1", "completed", "v:s:2"));
-  const outcome = fold.apply(userInputRequested("u-1", "v:s:3"));
-
-  assert.deepEqual(outcome, {
-    kind: "ignoredStaleFrame",
-    method: "userInput/requested",
-    id: "u-1",
-  });
-  assert.equal(fold.pendingUserInputs().length, 0, "the orphaned prompt is not listed");
-});
-
-test("userInput/requested for a retracted or unqueued turn is stale and never listed", () => {
-  for (const end of ["retracted", "unqueued"] as const) {
-    const fold = new SessionFold();
-    fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
-    fold.apply(
-      end === "retracted"
-        ? turnRetracted("turn-1", "cmd-1", "v:s:2")
-        : turnUnqueued("turn-1", "cmd-1", "v:s:2"),
-    );
-    const outcome = fold.apply(userInputRequested("u-1", "v:s:3"));
-    assert.deepEqual(outcome, {
-      kind: "ignoredStaleFrame",
-      method: "userInput/requested",
-      id: "u-1",
-    });
-    assert.equal(fold.pendingUserInputs().length, 0, `the ${end}-turn prompt is not listed`);
-  }
-});
-
-test("userInput/requested for a running turn is listed, and for an unseen turn still lists", () => {
-  const running = new SessionFold();
-  running.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
-  assert.deepEqual(running.apply(userInputRequested("u-1", "v:s:2")), {
-    kind: "userInputPending",
-    userInputId: "u-1",
-  });
-  assert.deepEqual(
-    running.pendingUserInputs().map((u) => u.userInputId),
-    ["u-1"],
-  );
-
-  // Fresh-resume arm: this fold never saw the turn, so it cannot prove the
-  // turn dead — a re-sent still-open question must not be dropped blindly.
-  const fresh = new SessionFold();
-  assert.deepEqual(fresh.apply(userInputRequested("u-1", "v:s:1")), {
-    kind: "userInputPending",
-    userInputId: "u-1",
-  });
-  assert.deepEqual(
-    fresh.pendingUserInputs().map((u) => u.userInputId),
-    ["u-1"],
-  );
-});
-
 test("approval/resolved retires the pending approval and records the terminal", () => {
   const fold = new SessionFold();
   fold.apply(approvalRequested("a-1", "v:s:1"));

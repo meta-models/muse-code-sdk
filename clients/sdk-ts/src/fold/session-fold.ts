@@ -478,8 +478,6 @@ export type FoldOutcome =
        * requested (or whose entry a resolution already deleted); or a
        * redelivered `approval/requested` / `userInput/requested` for an
        * approval/prompt that already has its durable terminal; or a
-       * `userInput/requested` for a turn already known to have left
-       * `running`; or a
        * `view/gap` whose `next` an earlier frame already named while the
        * hole is open (`id` is that `next`, #62032). Truthful by
        * contract: a "pending" kind here would make a renderer show an entry
@@ -1088,16 +1086,6 @@ export class SessionFold {
   #userInputRequested(params: UserInputRequestParams): FoldOutcome {
     // Symmetric with `#approvalRequested`: a settled prompt stays settled.
     if (this.#settledUserInputs.has(params.userInputId)) {
-      return { kind: "ignoredStaleFrame", method: "userInput/requested", id: params.userInputId };
-    }
-    // A prompt for a turn this fold has already seen leave `running` is an
-    // orphan: no answer can settle it, so listing it would pend forever and
-    // an answer attempt would only bounce off the host. Guarded to KNOWN
-    // dead turns only — a prompt naming a turn the fold has never seen
-    // (a fresh resume re-sending a still-open question) still lists, since
-    // this fold cannot prove that turn dead.
-    const turn = this.#turns.get(params.turnId);
-    if (turn !== undefined && turn.state !== "running") {
       return { kind: "ignoredStaleFrame", method: "userInput/requested", id: params.userInputId };
     }
     this.#pendingUserInputs.set(params.userInputId, params);

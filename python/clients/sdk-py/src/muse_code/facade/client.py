@@ -543,18 +543,6 @@ class MuseClient(Generic[_I]):
             options.on_approval_error,
         )
 
-    async def list_sessions(
-        self, options: Any = None
-    ) -> Any:
-        """List stored sessions (``session/list``), including text search."""
-        params: dict[str, Any] = {}
-        if options:
-            for key in ("cursor", "filter", "limit", "updatedAfter", "workspaceRoot"):
-                value = options.get(key) if isinstance(options, Mapping) else getattr(options, key, None)
-                if value is not None:
-                    params[key] = value
-        return await self._connection.command("session/list", params)
-
     async def close(self) -> None:
         """Shut the host down in an orderly way.
 

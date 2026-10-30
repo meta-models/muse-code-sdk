@@ -55,8 +55,6 @@ import type { SessionOpening } from "./session.js";
 import type {
   InitializeParams,
   InitializeResult,
-  SessionListParams,
-  SessionListResult,
   SessionResumeParams,
   SessionResumeResult,
   SessionStartParams,
@@ -501,18 +499,6 @@ export class MuseClient {
       }),
       { onApproval: options.onApproval, onApprovalError: options.onApprovalError },
     );
-  }
-
-  /** List stored sessions (`session/list`), including text search via `filter.text`. */
-  async listSessions(options: SessionListParams = {}): Promise<SessionListResult> {
-    const params: Record<string, unknown> = {};
-    if (options.cursor != null) params["cursor"] = options.cursor;
-    if (options.filter != null) params["filter"] = options.filter;
-    if (options.limit != null) params["limit"] = options.limit;
-    if (options.updatedAfter != null) params["updatedAfter"] = options.updatedAfter;
-    if (options.workspaceRoot != null) params["workspaceRoot"] = options.workspaceRoot;
-    const ack = await this.#connection.command("session/list", params);
-    return ack as unknown as SessionListResult;
   }
 
   /**

@@ -1,12 +1,13 @@
 {
   "name": "@muse-code/workspace",
   "private": true,
-  "description": "TypeScript workspace for the MSP client tier. Only @muse-code/sdk is published to npm, versioned in lockstep with Muse Code (the stable surface evolves additively; experimental surfaces may change with a changelog entry); every other package here is repo-build-only and private.",
+  "description": "TypeScript workspace for the MSP client tier. Only @muse-code/sdk is published to npm, at 0.x with no stability promise; every other package here is repo-build-only and private.",
   "workspaces": [
     "clients/msp-ts",
     "clients/sdk-ts",
     "clients/sdk-cookbook",
-    "clients/sdk-quickstart"
+    "clients/sdk-quickstart",
+    "clients/acp"
   ],
   "engines": {
     "node": ">=20"

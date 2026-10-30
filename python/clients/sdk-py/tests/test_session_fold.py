@@ -820,29 +820,6 @@ def test_user_input_requested_after_user_input_settled_never_resurrects_the_prom
     assert [s["outcome"] for s in fold.settled_user_inputs()] == ["answered"]
 
 
-def test_user_input_requested_for_a_turn_that_already_settled_is_stale() -> None:
-    fold = SessionFold()
-    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
-    fold.apply(turn_completed("turn-1", "completed", "v:s:2"))
-    outcome = fold.apply(user_input_requested("u-1", "v:s:3"))
-
-    assert outcome == IgnoredStaleFrame("userInput/requested", "u-1")
-    assert fold.pending_user_inputs() == [], "the orphaned prompt is not listed"
-
-
-def test_user_input_requested_for_a_running_or_unseen_turn_still_lists() -> None:
-    running = SessionFold()
-    running.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
-    running.apply(user_input_requested("u-1", "v:s:2"))
-    assert [u["userInputId"] for u in running.pending_user_inputs()] == ["u-1"]
-
-    # Fresh-resume arm: this fold never saw the turn, so it cannot prove
-    # the turn dead — a re-sent still-open question must still list.
-    fresh = SessionFold()
-    fresh.apply(user_input_requested("u-1", "v:s:1"))
-    assert [u["userInputId"] for u in fresh.pending_user_inputs()] == ["u-1"]
-
-
 def test_approval_resolved_retires_the_pending_approval_and_records_the_terminal() -> None:
     fold = SessionFold()
     fold.apply(approval_requested("a-1", "v:s:1"))
