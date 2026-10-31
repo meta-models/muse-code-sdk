@@ -58,6 +58,7 @@ export type {
   FoldOutcome,
   FoldSessionState,
   PendingApproval,
+  SessionFoldOptions,
   SessionStateMethod,
   SessionStateParams,
   StaleDroppableMethod,
@@ -111,6 +112,7 @@ export type {
   MuseClientSpawnOptions,
   ResumeSessionOptions,
   StartSessionOptions,
+  ViewHealthChangedHandler,
 } from "./facade/client.js";
 
 export type {
