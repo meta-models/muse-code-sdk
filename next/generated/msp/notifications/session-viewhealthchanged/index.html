@@ -76,7 +76,9 @@
 <div class="sl-heading-wrapper level-h2"><h2 id="parameters">Parameters</h2><a class="sl-anchor-link" href="#parameters"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Parameters”</span></a></div>
 <p>Type: <a href="../../types/sessionviewhealthchangedparams/">SessionViewHealthChangedParams</a></p>
 <p><code dir="auto">session/viewHealthChanged</code> params: the named
-session’s live view stream became unavailable, and why.</p>
+session’s live view stream became unavailable, and why, or (ADR 32557 D5)
+it is back after the host re-loaded the view, so the client re-reads and
+re-subscribes.</p>
 <p>Best-effort: ordered after already-queued view frames and may be dropped
 (for example when the connection is closing), so a client MUST NOT assume a
 guaranteed push and still reads <code dir="auto">history.noneReason</code> on its next
@@ -97,14 +99,14 @@ resume/read.</p>
 <td><a href="../../types/sessionviewhealth/">SessionViewHealth</a></td>
 <td></td>
 <td>required</td>
-<td>The new view-health state. In v1 the host emits only <code dir="auto">Unavailable</code>.</td>
+<td>The new view-health state: <code dir="auto">Unavailable</code>, or <code dir="auto">Healthy</code> once the host re-loaded a failed view.</td>
 </tr>
 <tr>
 <td><code dir="auto">noneReason</code></td>
 <td><a href="../../types/historynonereason/">HistoryNoneReason</a></td>
 <td></td>
 <td>optional</td>
-<td>Why the view is unavailable — the SAME typed <code dir="auto">HistoryNoneReason</code> vocabulary the pull path stamps on <code dir="auto">history.noneReason</code>, so a client reuses one handler for push and pull. <code dir="auto">projectionUnavailable</code> in v1; present only when <code dir="auto">health</code> is <code dir="auto">Unavailable</code>. Open on the client side: an unknown reason decodes conservatively and renders generically.</td>
+<td>Why the view is unavailable — the SAME typed <code dir="auto">HistoryNoneReason</code> vocabulary the pull path stamps on <code dir="auto">history.noneReason</code>, so a client reuses one handler for push and pull. <code dir="auto">projectionUnavailable</code> when the view fails, then <code dir="auto">projectionRebuildFailed</code>, which the pull path never stamps: it rides only a <code dir="auto">session/viewHealthChanged</code> notification, after the host’s one re-load of a failed live view fails or right after a fork child’s live fail-close; present only when <code dir="auto">health</code> is <code dir="auto">Unavailable</code>. Open on the client side: an unknown reason decodes conservatively and renders generically.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
