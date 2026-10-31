@@ -140,6 +140,11 @@ const canUseUserShell =
   client.initializeResult.grantedCapabilities.includes("userShell");
 ```
 
+A grant does not guarantee the command runs: with shell execution
+disabled the host can still grant `userShell` and accept the turn,
+and the `userShell` item then ends `failed`, so check the item's
+status.
+
 If `userShell` is sent without that grant, the server refuses the call;
 branch on the typed error kind rather than the message text. Server
 refusals arrive as `MspError`, and a missing `userShell` capability
@@ -149,7 +154,7 @@ reports `error.kind === "capabilityRequired"` (the capability is also on
 ```ts
 try {
   await session.sendUserTurn({
-    input: [{ type: "text", text: "Check the working tree." }],
+    input: [],
     userShell: { commandText: "git status" },
   });
 } catch (error) {
