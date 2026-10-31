@@ -820,29 +820,6 @@ def test_user_input_requested_after_user_input_settled_never_resurrects_the_prom
     assert [s["outcome"] for s in fold.settled_user_inputs()] == ["answered"]
 
 
-def test_user_input_requested_for_a_turn_that_already_settled_is_stale() -> None:
-    fold = SessionFold()
-    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
-    fold.apply(turn_completed("turn-1", "completed", "v:s:2"))
-    outcome = fold.apply(user_input_requested("u-1", "v:s:3"))
-
-    assert outcome == IgnoredStaleFrame("userInput/requested", "u-1")
-    assert fold.pending_user_inputs() == [], "the orphaned prompt is not listed"
-
-
-def test_user_input_requested_for_a_running_or_unseen_turn_still_lists() -> None:
-    running = SessionFold()
-    running.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
-    running.apply(user_input_requested("u-1", "v:s:2"))
-    assert [u["userInputId"] for u in running.pending_user_inputs()] == ["u-1"]
-
-    # Fresh-resume arm: this fold never saw the turn, so it cannot prove
-    # the turn dead — a re-sent still-open question must still list.
-    fresh = SessionFold()
-    fresh.apply(user_input_requested("u-1", "v:s:1"))
-    assert [u["userInputId"] for u in fresh.pending_user_inputs()] == ["u-1"]
-
-
 def test_approval_resolved_retires_the_pending_approval_and_records_the_terminal() -> None:
     fold = SessionFold()
     fold.apply(approval_requested("a-1", "v:s:1"))
@@ -1607,3 +1584,29 @@ def test_mark_ephemeral_host_death_routes_through_the_fold_level_mutator() -> No
     assert fold.items.is_terminal_unknown("open") is True
     assert fold.items.is_terminal_unknown("done") is False
     assert fold.items.ephemeral_session_discarded is True
+
+
+def test_fold_surfaces_agent_message_message_phase_verbatim() -> None:
+    fold = SessionFold()
+
+    def _item_event(item_id: str, kind: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "method": "item/completed",
+            "params": {
+                "sessionId": SESSION,
+                "turnId": "turn-1",
+                "item": {
+                    "itemId": item_id,
+                    "kind": kind,
+                    "revision": 1,
+                    "status": "completed",
+                    **extra,
+                },
+            },
+        }
+
+    fold.apply(_item_event("m-1", "agentMessage", messagePhase="commentary", text="working"))
+    fold.apply(_item_event("tc-1", "toolCall"))
+    fold.apply(_item_event("m-2", "agentMessage", messagePhase="finalAnswer", text="done"))
+    commentary = next(i for i in fold.items.list() if i["itemId"] == "m-1")
+    assert commentary["messagePhase"] == "commentary"

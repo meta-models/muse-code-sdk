@@ -244,23 +244,7 @@ impl SessionFold {
                     }
                 })
             }
-            // A prompt for a turn this fold has already seen leave
-            // `Running` is an orphan: no answer can settle it, so listing
-            // it would pend forever. Guarded to KNOWN dead turns only — a
-            // prompt naming a turn the fold has never seen (a fresh resume
-            // re-sending a still-open question) still lists.
-            "userInput/requested" => {
-                let dead = string(params, "turnId").is_some_and(|turn_id| {
-                    self.turns
-                        .get(turn_id)
-                        .is_some_and(|turn| turn.state() != TurnState::Running)
-                });
-                if dead {
-                    FoldOutcome::Ignored
-                } else {
-                    request(&mut self.user_inputs, params, "userInputId")
-                }
-            }
+            "userInput/requested" => request(&mut self.user_inputs, params, "userInputId"),
             "userInput/settled" => resolve(&mut self.user_inputs, params, "userInputId"),
             "view/gap" => self.delivery_gap(params),
             family if is_state_family(family) => {
@@ -523,31 +507,6 @@ mod tests {
         );
         assert_eq!(fold.pending_user_inputs().len(), 1);
         assert!(fold.items().is_empty());
-    }
-
-    #[test]
-    fn a_question_for_a_known_dead_turn_is_not_listed_but_an_unseen_turn_still_lists() {
-        let question = |id: &str| {
-            event(
-                "userInput/requested",
-                json!({"sessionId": "session-1", "userInputId": id, "turnId": "turn-1"}),
-            )
-        };
-        let mut fold = SessionFold::new("session-1");
-        fold.apply(&event(
-            "turn/started",
-            json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1"}),
-        ));
-        fold.apply(&event(
-            "turn/completed",
-            json!({"sessionId": "session-1", "turnId": "turn-1", "terminal": "completed"}),
-        ));
-        assert_eq!(fold.apply(&question("input-dead")), FoldOutcome::Ignored);
-        assert!(fold.pending_user_inputs().is_empty());
-
-        let mut fresh = SessionFold::new("session-1");
-        assert_ne!(fresh.apply(&question("input-fresh")), FoldOutcome::Ignored);
-        assert_eq!(fresh.pending_user_inputs().len(), 1);
     }
 
     /// A re-opened fold keeps applying question

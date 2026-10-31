@@ -9,6 +9,7 @@ mod state;
 mod submit;
 mod turn_route;
 mod user_input;
+mod wire;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -36,6 +37,7 @@ use state::{PendingCommandGuard, SessionState};
 
 pub use reconnect::{PendingTurn, ReconnectResolution, Reconnected};
 pub use submit::SendUserTurnOptions;
+pub use wire::SubmitFeedbackOptions;
 
 const MAX_SETTLED_TURN_ALIASES: usize = 128;
 pub(crate) const MAX_RETIRED_TURNS: usize = 256;
