@@ -14,6 +14,7 @@
  */
 
 import { MspError } from "../connection/connection.js";
+import { MuseImageMediaTypeError } from "../errors.js";
 import type { Connection } from "../connection/connection.js";
 import type { PendingCommandSet } from "../pending/pending-command-set.js";
 import type {
@@ -160,9 +161,7 @@ function validateImageParts(input: readonly TurnInputPart[]): void {
     if (declared === undefined) continue;
     const detected = sniffImageMediaType(decodeBase64Prefix(part.base64Data, 12));
     if (detected !== undefined && detected !== declared) {
-      throw new Error(
-        `image part ${index} media type mismatch: declared "${part.mediaType}" but the image bytes match "${detected}"; refusing to submit`,
-      );
+      throw new MuseImageMediaTypeError(part.mediaType, detected, index);
     }
   }
 }

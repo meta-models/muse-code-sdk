@@ -29,6 +29,28 @@ export class MuseForeignSessionError extends Error {
 }
 
 /**
+ * An image part whose bytes provably match a different well-known media
+ * type than the one declared (#117). Thrown locally by `sendUserTurn`
+ * before anything is submitted; only PNG/JPEG/GIF/WebP signatures are
+ * judged, anything else passes through for the host to judge.
+ */
+export class MuseImageMediaTypeError extends Error {
+  readonly declared: string;
+  readonly detected: string;
+  readonly partIndex: number;
+
+  constructor(declared: string, detected: string, partIndex: number) {
+    super(
+      `image part ${partIndex} media type mismatch: declared "${declared}" but the image bytes match "${detected}"; refusing to submit`,
+    );
+    this.name = "MuseImageMediaTypeError";
+    this.declared = declared;
+    this.detected = detected;
+    this.partIndex = partIndex;
+  }
+}
+
+/**
  * Why one SS4.8 splice-fill did not complete. Each arm names a different owner
  * (this SDK's own composition, the transport, the host), because the repair
  * differs:

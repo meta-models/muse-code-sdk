@@ -29,6 +29,7 @@ import {
   COMMAND_REJECTED_CODE,
   COMMAND_REJECTED_KIND,
   DiscardedSessions,
+  MuseImageMediaTypeError,
   MuseSessionDiscardedError,
   Session,
 } from "../src/index.js";
@@ -419,10 +420,10 @@ test(
         ],
       }),
       (error: unknown) => {
-        assert.ok(error instanceof Error);
-        assert.match(error.message, /image\/png/);
-        assert.match(error.message, /image\/jpeg/);
-        assert.match(error.message, /mismatch/i);
+        assert.ok(error instanceof MuseImageMediaTypeError);
+        assert.equal(error.declared, "image/png");
+        assert.equal(error.detected, "image/jpeg");
+        assert.equal(error.partIndex, 1);
         return true;
       },
     );
@@ -482,6 +483,44 @@ test(
       const unknown = Buffer.from("not a known image signature", "utf8");
       const pending = session.sendUserTurn({
         input: [{ type: "image", mediaType: "image/png", base64Data: b64(unknown) }],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+  },
+);
+
+test(
+  "#117: decoder arms — wrapped base64, jpg alias, media-type parameters, uploadId-only",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // Newline-wrapped base64 of a JPEG declared as PNG is still refused.
+    {
+      const { session } = wired();
+      const wrapped = b64(JPEG_BYTES).replace(/(.{4})/g, "$1\n");
+      await assert.rejects(
+        session.sendUserTurn({
+          input: [{ type: "image", mediaType: "image/png", base64Data: wrapped }],
+        }),
+        MuseImageMediaTypeError,
+      );
+    }
+    // image/jpg alias and a parameterised media type judge as their base type.
+    for (const mediaType of ["image/jpg", "IMAGE/JPEG; q=1"]) {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType, base64Data: b64(JPEG_BYTES) }],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+    // An uploadId-only part carries no local bytes and passes through.
+    {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType: "image/png", uploadId: "up-1" } as never],
       });
       await waitForWrites(transport, 1);
       answer(transport, 0, turnAck());
