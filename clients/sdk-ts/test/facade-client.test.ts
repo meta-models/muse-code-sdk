@@ -875,6 +875,41 @@ test(
 );
 
 test(
+  "#94: a throwing view-health handler cannot stall delivery",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const transport = new FakeDuplex();
+    const client = new MuseClient(new Connection(transport), DURABLE);
+    let calls = 0;
+    client.onViewHealthChanged(() => {
+      calls += 1;
+      if (calls === 1) throw new Error("observer bug");
+    });
+
+    const opening = client.startSession();
+    await exchange(transport, startResult("s-1"));
+    await opening;
+
+    const push = () =>
+      transport.chunks.push(
+        frame({
+          jsonrpc: "2.0",
+          method: "session/viewHealthChanged",
+          params: { health: "unavailable", sessionId: "s-1" },
+        }),
+      );
+    push();
+    await settleMicrotasks();
+    push();
+    await settleMicrotasks();
+
+    // The second push still arrived: the read pump survived the throw.
+    assert.equal(calls, 2);
+    await client.close();
+  },
+);
+
+test(
   "#94: onViewHealthChanged replaces the previous handler",
   { timeout: ARM_TIMEOUT },
   async () => {

@@ -318,20 +318,24 @@ export class MuseClient {
    * held for `#openSession` to fold, or for `#open` to clear.
    */
   #route(notification: ViewFrame): void {
-    this.#notifyViewHealth(notification);
     const named = (notification.params as { sessionId?: unknown } | undefined)?.sessionId;
-    if (typeof named !== "string") return;
-    let delivered = false;
-    for (const session of this.#sessions) {
-      if (session.sessionId === named) {
-        session.apply(notification);
-        delivered = true;
+    if (typeof named === "string") {
+      let delivered = false;
+      for (const session of this.#sessions) {
+        if (session.sessionId === named) {
+          session.apply(notification);
+          delivered = true;
+        }
+      }
+      if (!delivered && this.#opening !== 0) {
+        const held = this.#held.get(named);
+        if (held === undefined) this.#held.set(named, [notification]);
+        else held.push(notification);
       }
     }
-    if (delivered || this.#opening === 0) return;
-    const held = this.#held.get(named);
-    if (held === undefined) this.#held.set(named, [notification]);
-    else held.push(notification);
+    // Observed only after session delivery: a faulty observer must never
+    // stall the read pump or starve the session the frame names.
+    this.#notifyViewHealth(notification);
   }
 
   /**
@@ -349,7 +353,12 @@ export class MuseClient {
     if (handler === undefined) return;
     const params = notification.params;
     if (params === null || typeof params !== "object" || Array.isArray(params)) return;
-    handler(params as SessionViewHealthChangedParams);
+    try {
+      handler(params as SessionViewHealthChangedParams);
+    } catch {
+      // Observation is best-effort: a throwing handler is swallowed so it
+      // can never take down delivery for every session on this client.
+    }
   }
 
   /**
