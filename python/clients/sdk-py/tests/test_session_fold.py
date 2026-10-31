@@ -1607,3 +1607,29 @@ def test_mark_ephemeral_host_death_routes_through_the_fold_level_mutator() -> No
     assert fold.items.is_terminal_unknown("open") is True
     assert fold.items.is_terminal_unknown("done") is False
     assert fold.items.ephemeral_session_discarded is True
+
+
+def test_fold_surfaces_agent_message_message_phase_verbatim() -> None:
+    fold = SessionFold()
+
+    def _item_event(item_id: str, kind: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "method": "item/completed",
+            "params": {
+                "sessionId": SESSION,
+                "turnId": "turn-1",
+                "item": {
+                    "itemId": item_id,
+                    "kind": kind,
+                    "revision": 1,
+                    "status": "completed",
+                    **extra,
+                },
+            },
+        }
+
+    fold.apply(_item_event("m-1", "agentMessage", messagePhase="commentary", text="working"))
+    fold.apply(_item_event("tc-1", "toolCall"))
+    fold.apply(_item_event("m-2", "agentMessage", messagePhase="finalAnswer", text="done"))
+    commentary = next(i for i in fold.items.list() if i["itemId"] == "m-1")
+    assert commentary["messagePhase"] == "commentary"

@@ -4,7 +4,7 @@ The wire-present query and command facades on the public ``Session`` /
 ``MuseClient`` over the in-memory ``FakeDuplex``: ``task/list``,
 ``skill/list``, ``hook/list``, ``workflow/pause``, ``workflow/resume``,
 ``recap/request``, ``feedback/submit``, ``session/sideChat``, and
-``session/list`` search, plus the fold ``messagePhase`` pin.
+``session/list`` search. The fold ``messagePhase`` pin lives in ``test_session_fold.py``.
 """
 
 from __future__ import annotations
@@ -14,8 +14,16 @@ from typing import Any
 
 import pytest
 
-from muse_code import MuseClient, MuseClientOptions, Session, read_session_durability
+from muse_code import (
+    DiscardedSessions,
+    MuseClient,
+    MuseClientOptions,
+    MuseSessionDiscardedError,
+    Session,
+    read_session_durability,
+)
 from muse_code.connection import Connection
+from muse_code.connection.spawn import ExitClassification
 
 from helpers_connection import FakeDuplex, answer, sent_frame, sent_params, wait_for_writes
 
@@ -119,8 +127,30 @@ async def test_pause_workflow_resume_workflow_request_recap_submit_feedback_open
         echoed = {**result_payload, "commandId": sent_params(transport, 0)["commandId"]}
         answer(transport, 0, echoed)
         assert sent["method"] == method
-        assert sent_params(transport, 0)["sessionId"] == "s-1"
+        params = sent_params(transport, 0)
+        assert params["sessionId"] == "s-1"
+        if method in ("workflow/pause", "workflow/resume"):
+            assert params["workflowRunId"] == "run-1"
+        if method == "feedback/submit":
+            assert params["classification"] == "bug"
+            assert params["note"] == "n"
+            assert params["withFiles"] is False
         await pending
+
+
+@pytest.mark.asyncio
+async def test_discharged_session_refuses_wire_queries() -> None:
+    shared = DiscardedSessions()
+    ephemeral = read_session_durability({"sessionDurability": "ephemeral"})
+    session: Session[Any] = Session(SESSION, ephemeral, discarded=shared)
+    session.pending.submitted("c-1", "x")
+    session.host_exited(
+        ExitClassification(
+            kind="crash", exit_code=77, exit_signal=None, stderr_tail=("panicked",)
+        )
+    )
+    with pytest.raises(MuseSessionDiscardedError):
+        await session.list_tasks()
 
 
 @pytest.mark.asyncio
@@ -152,35 +182,3 @@ async def test_muse_client_list_sessions_sends_session_list_with_text_filter() -
     await client.close()
 
 
-def test_fold_surfaces_agent_message_message_phase_verbatim() -> None:
-    session: Session[Any] = Session(SESSION, _durability())
-
-    def _item_event(
-        item_id: str, kind: str, extra: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        extra = extra or {}
-        return {
-            "method": "item/completed",
-            "params": {
-                "sessionId": "s-1",
-                "turnId": "turn-1",
-                "item": {
-                    "itemId": item_id,
-                    "kind": kind,
-                    "revision": 1,
-                    "status": "completed",
-                    **extra,
-                },
-            },
-        }
-
-    session.apply(
-        _item_event("m-1", "agentMessage", {"messagePhase": "commentary", "text": "working"})
-    )
-    session.apply(_item_event("tc-1", "toolCall"))
-    session.apply(
-        _item_event("m-2", "agentMessage", {"messagePhase": "finalAnswer", "text": "done"})
-    )
-    items = session.fold.items.list()
-    commentary = next(i for i in items if i["itemId"] == "m-1")
-    assert commentary["messagePhase"] == "commentary"
