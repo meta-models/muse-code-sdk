@@ -29,6 +29,7 @@ import {
   COMMAND_REJECTED_CODE,
   COMMAND_REJECTED_KIND,
   DiscardedSessions,
+  MuseImageMediaTypeError,
   MuseSessionDiscardedError,
   Session,
 } from "../src/index.js";
@@ -391,6 +392,140 @@ test(
       session.sendUserTurn({ input: [{ type: "text", text: "hi" }] }),
       /connection/i,
     );
+  },
+);
+
+// ---- #117 image media-type sniffing ---------------------------------------
+
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+const GIF_BYTES = Buffer.from("GIF89a\x01\x00\x01\x00", "binary");
+const WEBP_BYTES = Buffer.from("RIFF\x1a\x00\x00\x00WEBPVP8 ", "binary");
+
+function b64(bytes: Buffer): string {
+  return bytes.toString("base64");
+}
+
+test(
+  "#117: a mislabelled image is refused locally before any frame or pending entry",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const { minted, session, transport } = wired();
+
+    await assert.rejects(
+      session.sendUserTurn({
+        input: [
+          { type: "text", text: "look" },
+          { type: "image", mediaType: "image/png", base64Data: b64(JPEG_BYTES) },
+        ],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MuseImageMediaTypeError);
+        assert.equal(error.declared, "image/png");
+        assert.equal(error.detected, "image/jpeg");
+        assert.equal(error.partIndex, 1);
+        return true;
+      },
+    );
+
+    await settleMicrotasks();
+    assert.equal(transport.writes.length, 0, "no turn/start frame may be written");
+    assert.equal(session.pending.size, 0, "the session must be unaffected");
+    assert.deepEqual(minted, [], "no commandId may be minted for a local refusal");
+  },
+);
+
+test(
+  "#117: an image whose bytes match its declared media type is submitted",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    const cases = [
+      { mediaType: "image/png", bytes: PNG_BYTES },
+      { mediaType: "image/jpeg", bytes: JPEG_BYTES },
+      { mediaType: "image/gif", bytes: GIF_BYTES },
+      { mediaType: "image/webp", bytes: WEBP_BYTES },
+    ] as const;
+    for (const { mediaType, bytes } of cases) {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType, base64Data: b64(bytes) }],
+      });
+      await waitForWrites(transport, 1);
+      assert.equal(sentFrame(transport, 0)["method"], "turn/start");
+      assert.deepEqual(sentParams(transport, 0)["input"], [
+        { type: "image", mediaType, base64Data: b64(bytes) },
+      ]);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+  },
+);
+
+test(
+  "#117: unknown and exotic image formats pass through unchanged",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // A declared type outside the well-known set is never second-guessed,
+    // even when its bytes happen to carry a well-known signature.
+    {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType: "image/tiff", base64Data: b64(PNG_BYTES) }],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+    // A well-known declaration whose bytes match no known signature cannot
+    // be judged locally, so it also passes through.
+    {
+      const { session, transport } = wired();
+      const unknown = Buffer.from("not a known image signature", "utf8");
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType: "image/png", base64Data: b64(unknown) }],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+  },
+);
+
+test(
+  "#117: decoder arms — wrapped base64, jpg alias, media-type parameters, uploadId-only",
+  { timeout: ARM_TIMEOUT },
+  async () => {
+    // Newline-wrapped base64 of a JPEG declared as PNG is still refused.
+    {
+      const { session } = wired();
+      const wrapped = b64(JPEG_BYTES).replace(/(.{4})/g, "$1\n");
+      await assert.rejects(
+        session.sendUserTurn({
+          input: [{ type: "image", mediaType: "image/png", base64Data: wrapped }],
+        }),
+        MuseImageMediaTypeError,
+      );
+    }
+    // image/jpg alias and a parameterised media type judge as their base type.
+    for (const mediaType of ["image/jpg", "IMAGE/JPEG; q=1"]) {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType, base64Data: b64(JPEG_BYTES) }],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
+    // An uploadId-only part carries no local bytes and passes through.
+    {
+      const { session, transport } = wired();
+      const pending = session.sendUserTurn({
+        input: [{ type: "image", mediaType: "image/png", uploadId: "up-1" } as never],
+      });
+      await waitForWrites(transport, 1);
+      answer(transport, 0, turnAck());
+      await pending;
+    }
   },
 );
 

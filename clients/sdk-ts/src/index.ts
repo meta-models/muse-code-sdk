@@ -130,6 +130,7 @@ export { DiscardedSessions } from "./facade/discarded.js";
 export {
   MuseForeignSessionError,
   MuseGapFillError,
+  MuseImageMediaTypeError,
   MuseSessionDiscardedError,
   PermissionProfileNotApplied,
 } from "./errors.js";
