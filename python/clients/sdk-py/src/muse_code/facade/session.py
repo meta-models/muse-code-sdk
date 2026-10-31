@@ -36,12 +36,21 @@ from muse_code_msp import (
     ITEM_KIND_KNOWN_VALUES,
     ApprovalRequestParams,
     ApprovalUpdatedParams,
+    FeedbackSubmitParams,
+    FeedbackSubmitResult,
+    HookListResult,
     Item,
     ItemDeltaParams,
+    RecapRequestResult,
+    WorkflowControlResult,
+    SessionSideChatResult,
+    SkillListResult,
+    TaskListResult,
     TurnCompletedParams,
     TurnUnqueuedParams,
     UserInputAnswer,
     UserInputAnswerResult,
+    WorkflowResumeResult,
 )
 
 from ..connection.connection import Connection, ProtocolError
@@ -904,6 +913,78 @@ class Session(Generic[_I]):
                 f"question {ack.get('userInputId')}, expected question {user_input_id}"
             )
         return cast(UserInputAnswerResult, ack)
+
+    # ---- wire-present query and command facades -----------------------------------
+
+    def _require_live_connection(self, verb: str) -> Connection:
+        if self._discharge is not None and self._discharge.kind == "discharged":
+            from ..errors import MuseSessionDiscardedError
+
+            raise MuseSessionDiscardedError(
+                f"session {self.session_id} was discarded after an ephemeral host "
+                f"death; it cannot {verb}"
+            )
+        return self._submit.require_connection(verb)
+
+    async def list_tasks(self) -> TaskListResult:
+        """List this session's live tasks (``task/list``)."""
+        ack = await self._require_live_connection("list_tasks").command(
+            "task/list", {"sessionId": self.session_id}
+        )
+        return cast(TaskListResult, ack)
+
+    async def list_skills(self) -> SkillListResult:
+        """List this session's user-invocable skills (``skill/list``)."""
+        ack = await self._require_live_connection("list_skills").command(
+            "skill/list", {"sessionId": self.session_id}
+        )
+        return cast(SkillListResult, ack)
+
+    async def list_hooks(self) -> HookListResult:
+        """List this session's installed hook rows (``hook/list``)."""
+        ack = await self._require_live_connection("list_hooks").command(
+            "hook/list", {"sessionId": self.session_id}
+        )
+        return cast(HookListResult, ack)
+
+    async def pause_workflow(self, workflow_run_id: str) -> WorkflowControlResult:
+        """Pause a live workflow run (``workflow/pause``)."""
+        ack = await self._require_live_connection("pause_workflow").command(
+            "workflow/pause",
+            {"sessionId": self.session_id, "workflowRunId": workflow_run_id},
+        )
+        return cast(WorkflowControlResult, ack)
+
+    async def resume_workflow(self, workflow_run_id: str) -> WorkflowResumeResult:
+        """Resume a paused workflow run (``workflow/resume``)."""
+        ack = await self._require_live_connection("resume_workflow").command(
+            "workflow/resume",
+            {"sessionId": self.session_id, "workflowRunId": workflow_run_id},
+        )
+        return cast(WorkflowResumeResult, ack)
+
+    async def request_recap(self) -> RecapRequestResult:
+        """Request a recap of this session (``recap/request``); admission only."""
+        ack = await self._require_live_connection("request_recap").command(
+            "recap/request", {"sessionId": self.session_id}
+        )
+        return cast(RecapRequestResult, ack)
+
+    async def submit_feedback(
+        self, input: FeedbackSubmitParams
+    ) -> FeedbackSubmitResult:
+        """Submit feedback about this session (``feedback/submit``)."""
+        ack = await self._require_live_connection("submit_feedback").command(
+            "feedback/submit", {**input, "sessionId": self.session_id}
+        )
+        return cast(FeedbackSubmitResult, ack)
+
+    async def open_side_chat(self) -> SessionSideChatResult:
+        """Open a side chat from this session (``session/sideChat``)."""
+        ack = await self._require_live_connection("open_side_chat").command(
+            "session/sideChat", {"sessionId": self.session_id}
+        )
+        return cast(SessionSideChatResult, ack)
 
     # ---- consumer-driven pending-retirement verbs ---------------------------------
 
