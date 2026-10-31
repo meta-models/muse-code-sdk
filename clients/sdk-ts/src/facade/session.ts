@@ -55,13 +55,22 @@ import type { FoldedItem, Turn } from "./turn-handle.js";
 import type {
   ApprovalRequestParams,
   ApprovalUpdatedParams,
+  FeedbackSubmitParams,
+  FeedbackSubmitResult,
+  HookListResult,
   Item,
   ItemDeltaParams,
   ItemKind,
+  RecapRequestResult,
+  WorkflowControlResult,
   SessionResumeResult,
+  SessionSideChatResult,
   SessionStartResult,
+  SkillListResult,
+  TaskListResult,
   UserInputAnswer,
   UserInputAnswerResult,
+  WorkflowResumeResult,
 } from "@muse-code/msp";
 
 /**
@@ -848,6 +857,90 @@ export class Session<I = unknown> {
       );
     }
     return ack as unknown as UserInputAnswerResult;
+  }
+
+  // ---- wire-present query and command facades -----------------------------
+
+  #requireLiveConnection(verb: string): Connection {
+    if (this.#discharge?.kind === "discharged") {
+      throw new MuseSessionDiscardedError(
+        `session ${this.sessionId} was discarded after an ephemeral host death; it cannot ${verb}`,
+      );
+    }
+    return this.#submit.requireConnection(verb);
+  }
+
+  /** List this session's live background and foreground tasks (`task/list`). */
+  async listTasks(): Promise<TaskListResult> {
+    const ack = await this.#requireLiveConnection("listTasks").command("task/list", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as TaskListResult;
+  }
+
+  /** List this session's user-invocable skills (`skill/list`). */
+  async listSkills(): Promise<SkillListResult> {
+    const ack = await this.#requireLiveConnection("listSkills").command("skill/list", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as SkillListResult;
+  }
+
+  /** List this session's installed hook rows (`hook/list`). */
+  async listHooks(): Promise<HookListResult> {
+    const ack = await this.#requireLiveConnection("listHooks").command("hook/list", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as HookListResult;
+  }
+
+  /** Pause a live workflow run (`workflow/pause`). */
+  async pauseWorkflow(workflowRunId: string): Promise<WorkflowControlResult> {
+    const ack = await this.#requireLiveConnection("pauseWorkflow").command("workflow/pause", {
+      sessionId: this.sessionId,
+      workflowRunId,
+    });
+    return ack as unknown as WorkflowControlResult;
+  }
+
+  /** Resume a paused workflow run (`workflow/resume`). */
+  async resumeWorkflow(workflowRunId: string): Promise<WorkflowResumeResult> {
+    const ack = await this.#requireLiveConnection("resumeWorkflow").command("workflow/resume", {
+      sessionId: this.sessionId,
+      workflowRunId,
+    });
+    return ack as unknown as WorkflowResumeResult;
+  }
+
+  /** Request a recap of this session (`recap/request`); admission only. */
+  async requestRecap(): Promise<RecapRequestResult> {
+    const ack = await this.#requireLiveConnection("requestRecap").command("recap/request", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as RecapRequestResult;
+  }
+
+  /** Submit feedback about this session (`feedback/submit`). */
+  async submitFeedback(
+    input: Omit<FeedbackSubmitParams, "sessionId">,
+  ): Promise<FeedbackSubmitResult> {
+    const ack = await this.#requireLiveConnection("submitFeedback").command("feedback/submit", {
+      ...input,
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as FeedbackSubmitResult;
+  }
+
+  /**
+   * Open a side chat from this session (`session/sideChat`). Returns the wire
+   * result; opening a wired `Session` for the new side session is the
+   * caller's composition, as with a directly built `Session`.
+   */
+  async openSideChat(): Promise<SessionSideChatResult> {
+    const ack = await this.#requireLiveConnection("openSideChat").command("session/sideChat", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as SessionSideChatResult;
   }
 
   // ---- consumer-driven SS4.13 retirement verbs ----------------------------
