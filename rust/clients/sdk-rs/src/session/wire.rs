@@ -16,7 +16,16 @@ use super::submit::require_accepted;
 
 /// What one `feedback/submit` sends, apart from the session it is about:
 /// [`Session::submit_feedback`] supplies that from the session itself.
+///
+/// `#[non_exhaustive]`: new wire members must be addable without breaking
+/// callers, so build one with [`SubmitFeedbackOptions::new`] and set the
+/// optional members on the result. Divergence note: unlike the TS/Python
+/// helpers, the Rust workflow/feedback commands reject a non-`accepted`
+/// ack status and a `commandId` echo mismatch (the crate's existing
+/// `require_accepted` pattern), and send no minted `commandId` on the
+/// list queries, matching the generated params.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SubmitFeedbackOptions {
     /// The report class.
     pub classification: FeedbackClassification,
@@ -28,6 +37,23 @@ pub struct SubmitFeedbackOptions {
     pub attach_session_record: bool,
     /// An absolute same-host path to a client-packed bundle.
     pub client_artifacts_path: Option<String>,
+}
+
+impl SubmitFeedbackOptions {
+    /// The required members; optional members default off/absent.
+    pub fn new(
+        classification: FeedbackClassification,
+        note: impl Into<String>,
+        with_files: bool,
+    ) -> Self {
+        Self {
+            classification,
+            note: note.into(),
+            with_files,
+            attach_session_record: false,
+            client_artifacts_path: None,
+        }
+    }
 }
 
 impl Session {
