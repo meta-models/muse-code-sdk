@@ -92,7 +92,7 @@
 <tr>
 <td><code dir="auto">retirement</code></td>
 <td><code dir="auto">PendingRetirement[_I] | None</code></td>
-<td><code dir="auto">None</code> when this session holds no queued entry for the turn (another client’s submit, say). Also <code dir="auto">None</code> when <code dir="auto">turn/unqueued</code> was already folded through <code dir="auto">apply</code>, which returned the retirement there — restore the composer from either place.</td>
+<td>On a session <code dir="auto">MuseClient</code> opened, set for this session’s own accepted reclaim whatever order the ack and <code dir="auto">turn/unqueued</code> arrive in. <code dir="auto">None</code> when this session holds no queued entry for the turn (another client’s submit, say). On a <code dir="auto">Session</code> you feed through <code dir="auto">apply</code> yourself, also <code dir="auto">None</code> when <code dir="auto">turn/unqueued</code> folded first: that <code dir="auto">apply</code> returned the retirement, so restore the composer from whichever of the two returned it. Either way it is handed out once.</td>
 </tr>
 </tbody>
 </table>
