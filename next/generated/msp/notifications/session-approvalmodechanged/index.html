@@ -97,6 +97,13 @@ writes one; a mode flip without an audit fact is a runtime bug by design.</p>
 <td>The requesting client’s <code dir="auto">clientInfo.name</code>, recorded on the audit fact.</td>
 </tr>
 <tr>
+<td><code dir="auto">clientVersion</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The requesting client’s <code dir="auto">clientInfo.version</code>, beside <code dir="auto">clientName</code> (ADR 73001 D4): absent when unrecorded and on older logs.</td>
+</tr>
+<tr>
 <td><code dir="auto">commandId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>

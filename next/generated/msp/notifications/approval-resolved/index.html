@@ -102,6 +102,13 @@
 <td>The approval that was decided.</td>
 </tr>
 <tr>
+<td><code dir="auto">byClient</code></td>
+<td><a href="../../types/clientinfo/">ClientInfo</a></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The client whose <code dir="auto">approval/decide</code> won (ADR 73001 D4): absent on policy, judge and interrupt terminals, for a connection with no recorded handshake, and on older logs.</td>
+</tr>
+<tr>
 <td><code dir="auto">decidedAt</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
