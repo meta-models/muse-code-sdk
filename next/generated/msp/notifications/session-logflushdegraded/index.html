@@ -81,7 +81,7 @@ turn-end session-log flush on the host left records failed or waiting for
 retry, or failed itself. Outside the view stream, like
 <code dir="auto">session/eventLogDegraded</code>: no <code dir="auto">viewCursor</code> and no <code dir="auto">sourceRange</code>. Either
 the counts (with an optional <code dir="auto">cause</code>) or, exactly when the flush itself
-failed, only <code dir="auto">error</code>; the constructors build the two shapes.</p>
+failed, only <code dir="auto">error</code>.</p>
 <table>
 <thead>
 <tr>
@@ -112,7 +112,7 @@ failed, only <code dir="auto">error</code>; the constructors build the two shape
 <td><code dir="auto">integer</code></td>
 <td>Experimental</td>
 <td>optional</td>
-<td>Records the flush could not write. Absent when the flush failed.</td>
+<td>Records the flush could not write, summed over the session’s run, task and approval logs. Absent when the flush failed.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
@@ -126,7 +126,7 @@ failed, only <code dir="auto">error</code>; the constructors build the two shape
 <td><code dir="auto">integer</code></td>
 <td>Experimental</td>
 <td>optional</td>
-<td>Records still waiting for a retry. Absent when the flush failed.</td>
+<td>Records still waiting for a retry, summed the same way. Absent when the flush failed.</td>
 </tr>
 </tbody>
 </table>
