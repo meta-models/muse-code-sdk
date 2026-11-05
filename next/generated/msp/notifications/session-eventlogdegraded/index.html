@@ -76,12 +76,13 @@
 <p>A loaded session’s durable event log took a degraded write (today: the disk was full): pushed to the session’s live connections when the degraded record commits and restated to a client whose session/resume serves item history; outside the view stream, no viewCursor (ADR 72648 D1).</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="parameters">Parameters</h2><a class="sl-anchor-link" href="#parameters"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Parameters”</span></a></div>
 <p>Type: <a href="../../types/sessioneventlogdegradedparams/">SessionEventLogDegradedParams</a></p>
-<p><code dir="auto">session/eventLogDegraded</code> params (ADR 72648 D1, experimental): a loaded
-session’s durable event log took a degraded write, so a record may be
-missing from it. Outside the view stream, like <code dir="auto">session/viewHealthChanged</code>:
-no <code dir="auto">viewCursor</code> and no <code dir="auto">sourceRange</code>, so it never takes a view position.
-Pushed to the session’s live connections when the degraded record commits,
-and restated to a client whose <code dir="auto">session/resume</code> serves item history.</p>
+<p><code dir="auto">session/eventLogDegraded</code> params (ADR 72648 D1, D2, experimental): a
+loaded session’s durable event log took a degraded write, so a record may
+be missing from it. Outside the view stream, like
+<code dir="auto">session/viewHealthChanged</code>: no <code dir="auto">viewCursor</code> and no <code dir="auto">sourceRange</code>, so it
+never takes a view position. Pushed to the session’s live connections when
+the degraded record commits, and restated to a client whose
+<code dir="auto">session/resume</code> serves item history.</p>
 <table>
 <thead>
 <tr>
@@ -99,6 +100,13 @@ and restated to a client whose <code dir="auto">session/resume</code> serves ite
 <td>Experimental</td>
 <td>required</td>
 <td>Why the log degraded.</td>
+</tr>
+<tr>
+<td><code dir="auto">sequence</code></td>
+<td><code dir="auto">integer</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The degraded record’s log sequence (ADR 72648 D2): the live push and a resume’s restatement of one record carry the same value, the key a client draws each record once by. Absent from a host that predates D2; a client then draws every frame.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
