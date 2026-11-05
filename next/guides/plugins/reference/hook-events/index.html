@@ -398,7 +398,7 @@ that output is applied.</p>
 <td><code dir="auto">systemMessage</code></td>
 <td>string</td>
 <td>Every event</td>
-<td>Shown to the user as a brief status notice while a turn is running, not to the model; a hook that completes while no turn runs (for example <code dir="auto">SessionStart</code>) shows nothing. Control characters other than newline are replaced by spaces; at most 1000 characters are kept.</td>
+<td>Shown to the user as a brief status notice while a turn is running, not to the model; a hook that completes while no turn runs (for example <code dir="auto">SessionStart</code>) shows nothing, and so does a message that arrives while a blocked, failed or timed-out hook notice is still showing (that notice keeps the slot for its five seconds). Control characters other than newline are replaced by spaces; at most 1000 characters are kept.</td>
 </tr>
 <tr>
 <td><code dir="auto">suppressOutput</code></td>
