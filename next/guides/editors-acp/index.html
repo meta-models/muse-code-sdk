@@ -379,8 +379,7 @@ process, such as the terminal UI.</li>
 <li><code dir="auto">muse acp</code> accepts a project folder that does not exist, or a path that
 names a file. Some error messages name internal protocol methods.</li>
 <li>A prompt that is larger than the context window of the model can break the
-session, so that every later turn fails. Open a new thread if this happens.
-A very large prompt can hang.</li>
+session, so that every later turn fails. Open a new thread if this happens.</li>
 <li>A prompt with an image can drop out of what the model sees:
 <ul>
 <li>If Muse Code compacts a long thread automatically while it works on that
@@ -397,6 +396,9 @@ after the last turn in the session does not run at its time. It runs only
 when you send your next prompt. This can also happen to a job that runs
 every 30 minutes, because each run of a repeating job can start up to half
 its interval late. To run scheduled prompts on time, use the terminal UI.</li>
+<li>The editor shows only the first 64 KiB (about 65,000 characters of
+English text) of a reply. A longer reply ends with a note that says that the rest is saved
+in the session.</li>
 <li>A reply can take a few seconds to start, and a few seconds to end after the
 last text.</li>
 <li><code dir="auto">/compact</code> reports <code dir="auto">Manual context compaction is not available.</code> when
