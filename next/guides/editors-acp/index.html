@@ -356,15 +356,16 @@ one of them fails to start, the session still opens.</li>
 <div class="sl-heading-wrapper level-h2"><h2 id="known-limits">Known limits</h2><a class="sl-anchor-link" href="#known-limits"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Known limits”</span></a></div>
 <div class="sl-heading-wrapper level-h3"><h3 id="not-supported">Not supported</h3><a class="sl-anchor-link" href="#not-supported"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Not supported”</span></a></div>
 <ul>
-<li>Closing or deleting a session from the editor, and logging out from the
-editor. Run <code dir="auto">muse logout</code> in a terminal to log out.</li>
+<li>Closing or deleting a session from the editor. This is not supported yet,
+and support is planned.</li>
+<li>Logging out from the editor. Run <code dir="auto">muse logout</code> in a terminal to log out.</li>
 <li>Audio in prompts.</li>
 <li>MCP servers that use SSE. Only stdio and HTTP servers start.</li>
 <li>The file and terminal access of the editor. The agent reads and writes
 files on disk and runs commands in its own shell. It does not see changes
 that you did not save, so save your files before you send a prompt.</li>
-<li>Read-only and plan modes. The mode selector offers only the four approval
-modes.</li>
+<li>Read-only and plan modes. These are not supported yet, and support is
+planned. The mode selector offers only the four approval modes.</li>
 <li>ACP versions other than version 1.</li>
 <li>One session open at the same time in the editor and in another Muse Code
 process, such as the terminal UI.</li>
@@ -374,8 +375,6 @@ process, such as the terminal UI.</li>
 <div class="sl-heading-wrapper level-h3"><h3 id="open-issues">Open issues</h3><a class="sl-anchor-link" href="#open-issues"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Open issues”</span></a></div>
 <p>These are known problems in the current version:</p>
 <ul>
-<li>The title of a tool row can be the whole command, multi-line scripts
-included.</li>
 <li>Some rows show raw JSON: the last update of a shell command, the to-do list
 tool, and questions.</li>
 <li>To-do list updates show as edit rows, and they repeat the plan that the
@@ -386,6 +385,22 @@ names a file. Some error messages name internal protocol methods.</li>
 <li>A prompt that is larger than the context window of the model can break the
 session, so that every later turn fails. Open a new thread if this happens.
 A very large prompt can hang.</li>
+<li>A prompt with an image can drop out of what the model sees:
+<ul>
+<li>If Muse Code compacts a long thread automatically while it works on that
+prompt, the model loses the prompt and answers your previous message.
+Send the prompt again.</li>
+<li>If you reopen a compacted thread and send a prompt with an image, the
+model loses that turn when you reopen the thread again, and <code dir="auto">/compact</code>
+fails in that thread from then on. Open a new thread for work with
+images.</li>
+</ul>
+</li>
+<li>A scheduled prompt (a cron job, or <code dir="auto">/loop</code>) that is due 30 minutes or more
+after the last turn in the session does not run at its time. It runs only
+when you send your next prompt. This can also happen to a job that runs
+every 30 minutes, because each run of a repeating job can start up to half
+its interval late. To run scheduled prompts on time, use the terminal UI.</li>
 <li>A reply can take a few seconds to start, and a few seconds to end after the
 last text.</li>
 <li><code dir="auto">/compact</code> reports <code dir="auto">Manual context compaction is not available.</code> when
