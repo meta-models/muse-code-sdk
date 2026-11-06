@@ -131,6 +131,13 @@
 <td></td>
 </tr>
 <tr>
+<td><code dir="auto">sourceGeneration</code></td>
+<td><code dir="auto">integer</code></td>
+<td>Experimental</td>
+<td>required</td>
+<td>The source generation the store answered in <code dir="auto">journal/admissionContext</code> (D117 amendment, ADR 61595 D3.3). The store raises its generation each time it discards and recreates the source, so a commit prepared before that carries the old one; the store refuses a mismatch with the conditions error before any other check, exact retries included.</td>
+</tr>
+<tr>
 <td><code dir="auto">writeId</code></td>
 <td><code dir="auto">string</code></td>
 <td>Experimental</td>
