@@ -96,9 +96,10 @@ promise: its behavior can change, or the command can go away, in any release.</p
 it, set <code dir="auto">MUSE_EXPERIMENTAL_ACP=on</code> in the environment that starts <code dir="auto">muse acp</code>.
 The editor setups below put it in the agent’s <code dir="auto">env</code> block. The values <code dir="auto">true</code>
 and <code dir="auto">1</code> work too, in any letter case.</p>
-<p>Only that start-up environment opens the gate. Settings files and remote
-configuration cannot open it. <code dir="auto">MUSE_EXPERIMENTAL_SDK_ENABLED=off</code> closes it
-again.</p>
+<p>Remote configuration can open the gate too. A set <code dir="auto">MUSE_EXPERIMENTAL_ACP</code>
+whose value is not one of the on values, an empty value included, closes the
+gate over remote configuration. <code dir="auto">MUSE_EXPERIMENTAL_SDK_ENABLED=off</code> closes it
+as well.</p>
 <p>While the gate is closed, every <code dir="auto">muse acp</code> command, <code dir="auto">--help</code> included, prints
 <code dir="auto">muse acp is not available in this build</code> to stderr and exits with code 5.
 <code dir="auto">muse --help</code> lists <code dir="auto">acp</code> only while the gate is open.</p>
