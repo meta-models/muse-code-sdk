@@ -378,8 +378,13 @@ process, such as the terminal UI.</li>
 <ul>
 <li><code dir="auto">muse acp</code> accepts a project folder that does not exist, or a path that
 names a file. Some error messages name internal protocol methods.</li>
-<li>A prompt that is larger than the context window of the model can break the
-session, so that every later turn fails. Open a new thread if this happens.</li>
+<li>A prompt can be too large for the context window of the model, together
+with the tools and instructions. The automatic retry can then cut the
+longest text in the prompt to its first half. The model answers without the
+rest, and you see no error. If the shorter prompt still does not fit, the
+turn fails with a model error. A turn that goes over the context window can
+also fail when the agent runs a tool in it. Open a new thread if this
+happens.</li>
 <li>A prompt with an image can drop out of what the model sees:
 <ul>
 <li>If Muse Code compacts a long thread automatically while it works on that
