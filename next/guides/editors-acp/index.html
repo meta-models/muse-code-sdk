@@ -396,12 +396,6 @@ fails in that thread from then on. Open a new thread for work with
 images.</li>
 </ul>
 </li>
-<li>A scheduled prompt (a cron job, or <code dir="auto">/loop</code>) that is due 30 minutes or more
-after the last turn in the session does not run at its time. It runs only
-when you send your next prompt. This can also happen to a job that runs
-every 30 minutes, because each run of a repeating job can start up to half
-its interval late, but never more than 30 minutes late. To run scheduled
-prompts on time, use the terminal UI.</li>
 <li>The editor shows only the first 64 KiB (about 65,000 characters of
 English text) of a reply. A longer reply ends with a note that says that the rest is saved
 in the session.</li>
