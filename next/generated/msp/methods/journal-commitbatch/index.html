@@ -89,6 +89,13 @@
 </thead>
 <tbody>
 <tr>
+<td><code dir="auto">closesJournal</code></td>
+<td><code dir="auto">boolean</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The transaction carries a child run’s terminal record, so the store marks the child’s journal closed once the transaction qualifies (ADR 61595 D5). The host decides it from its own records; the store never parses them. A later qualified commit (a successor attempt, an owed abort) reopens the journal. Absent, never false, otherwise, so other commits’ bytes are unchanged.</td>
+</tr>
+<tr>
 <td><code dir="auto">conditions</code></td>
 <td><a href="../../types/journalcommitconditions/">JournalCommitConditions</a></td>
 <td>Experimental</td>
