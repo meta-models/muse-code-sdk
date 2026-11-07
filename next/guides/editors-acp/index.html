@@ -387,15 +387,13 @@ rest, and you see no error. If the shorter prompt still does not fit, the
 turn fails with a model error. A turn that goes over the context window can
 also fail when the agent runs a tool in it. Open a new thread if this
 happens.</li>
-<li>A prompt with an image can drop out of what the model sees:
+<li>A prompt with an image has these open problems:
 <ul>
 <li>If Muse Code compacts a long thread automatically while it works on that
 prompt, the model loses the prompt and answers your previous message.
 Send the prompt again.</li>
-<li>If you reopen a compacted thread and send a prompt with an image, the
-model loses that turn when you reopen the thread again, and <code dir="auto">/compact</code>
-fails in that thread from then on. Open a new thread for work with
-images.</li>
+<li>If you reopen a compacted thread and send a prompt with an image, you
+cannot yet rewind to that turn or fork from it.</li>
 </ul>
 </li>
 <li>A reply can take a few seconds to start, and a few seconds to end after the
