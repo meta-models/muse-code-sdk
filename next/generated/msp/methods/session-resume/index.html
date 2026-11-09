@@ -95,6 +95,13 @@
 <td>Client-supplied shell prefix allow-rules override: omitted reinstalls the session’s rules from the audit fact, present replaces with that set (an explicit empty array clears). Explicit <code dir="auto">null</code> is invalid params. Until the served-handler slice, a host refuses any spelled <code dir="auto">approvalRules</code> on <code dir="auto">session/start</code>/<code dir="auto">fork</code>/<code dir="auto">resume</code> with <code dir="auto">-32602</code>; clients omit it. <strong>Experimental</strong> (<code dir="auto">session/resume.approvalRules</code>).</td>
 </tr>
 <tr>
+<td><code dir="auto">autoRecover</code></td>
+<td><code dir="auto">boolean</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>This resume’s auto-recover choice (amendment 26387/68619, owner decision G-37): omitted or <code dir="auto">true</code> follows the host’s <code dir="auto">resume_auto_recover</code> gate, which stays the master switch; <code dir="auto">false</code> holds a crash resume under ADR 58330 D8 and reports <code dir="auto">autoRecovery</code> <code dir="auto">refused</code> with reason <code dir="auto">optedOut</code>. Decided for this resume only: it is not saved. Only the resume that loads the session reads it; an attach ignores it. Explicit <code dir="auto">null</code> is invalid params. <strong>Experimental</strong> (<code dir="auto">session/resume.autoRecover</code>).</td>
+</tr>
+<tr>
 <td><code dir="auto">commandId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
