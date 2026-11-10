@@ -185,6 +185,20 @@
 <td>required</td>
 <td>The session to load.</td>
 </tr>
+<tr>
+<td><code dir="auto">workspaceRoot</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>Relocate the resumed session to this folder. Same rules as <code dir="auto">session/start.workspaceRoot</code>: absolute, existing, and when <code dir="auto">workspaceRoots</code> is also present it names the same folder as <code dir="auto">workspaceRoots[0]</code> (canonical forms). The session’s durable identity does not change; Project Trust is evaluated for the relocated folder. Omitted: the recorded root, as today. <strong>Experimental</strong> (<code dir="auto">session/resume.workspaceRoot</code>).</td>
+</tr>
+<tr>
+<td><code dir="auto">workspaceRoots</code></td>
+<td><code dir="auto">string</code>[]</td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The resumed session’s runtime workspace-root set, with <code dir="auto">session/start.workspaceRoots</code>’s rules (the first root is the working directory; explicit <code dir="auto">null</code> is invalid params). Present, it relocates the session and later resumes keep it; omitted, the latest recorded set (ADR 37313 D4). <strong>Experimental</strong> (<code dir="auto">session/resume.workspaceRoots</code>).</td>
+</tr>
 </tbody>
 </table>
 <details>
