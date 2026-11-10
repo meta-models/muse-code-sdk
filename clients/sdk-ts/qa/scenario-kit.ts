@@ -29,8 +29,6 @@ export interface ScenarioOutcome {
   readonly runs: readonly ObservedRun[];
   /** What the public API actually reported, as a comparable string. */
   readonly observed: string;
-  /** What the contract says it should have been. */
-  readonly expected: string;
   /**
    * Expect-blocked scenarios only. ONE field carries the one-of union, so an
    * outcome that both refuses the verdict and reports a bite cannot be
@@ -49,6 +47,12 @@ export interface QaScenario {
   readonly vein: string;
   readonly defectClass?: DefectClass;
   readonly expectBlocked?: ExpectedBlock;
+  /**
+   * What the contract says the run should report. Declared on the scenario,
+   * not passed into a run, so a host-free test reads the same value the
+   * runner judges `observed` against (#27399).
+   */
+  readonly expected: string;
   run(museBin: string): Promise<ScenarioOutcome>;
 }
 
@@ -60,7 +64,6 @@ export interface DrivenOnceOptions {
   /** Every post-handshake call, in order. Reused verbatim by the replay. */
   drive(host: RecordedHost): Promise<void>;
   observe(run: ObservedRun): string;
-  readonly expected: string;
   /** Select a provider in this scenario's home before the host starts (#23537). */
   readonly configureProvider?: "echo";
 }
@@ -96,7 +99,6 @@ export async function drivenOnce(options: DrivenOnceOptions): Promise<ScenarioOu
     return {
       runs: [run],
       observed: options.observe(run),
-      expected: options.expected,
       attributeWith: { run, observe: options.observe, drive: options.drive },
     };
   } finally {
@@ -113,7 +115,6 @@ export interface DrivenAcrossRestartOptions<T> {
   /** Steps on the SECOND host. Attribution replays exactly this. */
   driveWith(seeded: T): (host: RecordedHost) => Promise<void>;
   observe(run: ObservedRun): string;
-  readonly expected: string;
 }
 
 /**
@@ -153,7 +154,6 @@ export async function drivenAcrossRestart<T>(
     return {
       runs: [firstRun, secondRun],
       observed: options.observe(secondRun),
-      expected: options.expected,
       attributeWith: { run: secondRun, observe: options.observe, drive },
     };
   } finally {

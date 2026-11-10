@@ -40,7 +40,7 @@ function body(finding: OracleFinding, tail: string): string {
     finding.summary,
     "",
     `- **indicts:** \`${finding.indicts}\` — file this against ${
-      finding.indicts === "facade" ? "`@muse-code/sdk` (clients/sdk-ts)" : "the `tbh` binary"
+      finding.indicts === "facade" ? "`@muse-code/sdk` (clients/sdk-ts)" : "the `muse` binary"
     }`,
     `- **public API said:** ${finding.apiSaid}`,
     `- **wire said:** ${finding.wireSaid}`,

@@ -19,10 +19,15 @@ from __future__ import annotations
 
 from typing import Final
 
+import muse_code_msp
+
 from .errors import (
     GapFillFailureReason,
+    MuseCapabilityNotGrantedError,
+    MuseFacadeOwnedMethodError,
     MuseForeignSessionError,
     MuseGapFillError,
+    MuseHostDiscoveryError,
     MuseSessionDiscardedError,
     PermissionProfileNotApplied,
 )
@@ -42,18 +47,22 @@ __all__ = [
     "HostDeathDischarge",
     "HostDeathNotification",
     "ItemStore",
+    "MuseCapabilityNotGrantedError",
     "MuseClient",
     "MuseClientOptions",
     "MuseClientSpawnOptions",
+    "MuseFacadeOwnedMethodError",
     "MuseForeignSessionError",
     "MuseGapFillError",
     "MuseHostDiedError",
+    "MuseHostDiscoveryError",
     "MuseHostStartError",
     "MuseSessionDiscardedError",
     "PendingCommandSet",
     "PendingCommandView",
     "PermissionProfileNotApplied",
     "ResumeSessionOptions",
+    "RunResult",
     "SendUserTurnOptions",
     "Session",
     "SessionApplyOutcome",
@@ -64,6 +73,7 @@ __all__ = [
     "SessionGapOverlap",
     "SessionStateStore",
     "StartSessionOptions",
+    "SteerTurnOptions",
     "SyncMuseClient",
     "SyncSession",
     "SyncTurn",
@@ -71,6 +81,7 @@ __all__ = [
     "TransportEof",
     "Turn",
     "TurnOutcome",
+    "TurnUnqueueOutcome",
     "is_abnormal_host_death",
     "is_launch_failure",
     "load_transcript",
@@ -79,20 +90,20 @@ __all__ = [
     "transcript_dirs",
 ]
 
-EXPECTED_SCHEMA_FINGERPRINT: Final[str] = (
-    "sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6"
-)
+EXPECTED_SCHEMA_FINGERPRINT: Final[str] = muse_code_msp.SCHEMA_FINGERPRINT
 """The stable schema-bundle fingerprint this SDK was built against.
 
-The one deliberately duplicated fact: ``clients/sdk-py/tests/test_manifests.py`` binds it to
-``schema/msp/stable/manifest.json``, so a schema advance that forgets the
-Python SDK reds this lane instead of drifting silently.
+No second port and no second copy: this is the generated package's stable
+``SCHEMA_FINGERPRINT``, derived at import from the schema bytes. The
+manifests suite binds it to the value derived from the stable bundle, so a
+drift between the port the package vendors and the shared derivation reds
+that lane instead of passing silently.
 """
 
 # The lockstep rule: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
 # time.
-__version__: Final[str] = "1.4.14"
+__version__: Final[str] = "1.4.15"
 
 # The facade is imported last so the constants above are already bound: the
 # spawn path reads ``EXPECTED_SCHEMA_FINGERPRINT`` (lazily, at initialize
@@ -114,6 +125,7 @@ from .facade import (  # noqa: E402
     MuseHostStartError,
     PendingCommandView,
     ResumeSessionOptions,
+    RunResult,
     SendUserTurnOptions,
     Session,
     SessionApplyOutcome,
@@ -122,9 +134,11 @@ from .facade import (  # noqa: E402
     SessionGapBuffered,
     SessionGapOverlap,
     StartSessionOptions,
+    SteerTurnOptions,
     TransportEof,
     Turn,
     TurnOutcome,
+    TurnUnqueueOutcome,
     is_abnormal_host_death,
     is_launch_failure,
     read_session_durability,

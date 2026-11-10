@@ -22,12 +22,16 @@ export class Changes {
   readonly #waiters = new Set<() => void>();
   notify(): void { for (const wake of this.#waiters) wake(); }
 
-  async waitFor<T>(description: string, probe: () => T | undefined | Promise<T | undefined>): Promise<T> {
+  async waitFor<T>(
+    description: string,
+    probe: () => T | undefined | Promise<T | undefined>,
+    capMs = 60_000,
+  ): Promise<T> {
     let stopped = false;
     let timer: NodeJS.Timeout | undefined;
     // Failure-only cap; notifications, never elapsed time, advance the test.
     const failed = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`failure-only cap: ${description}`)), 60_000);
+      timer = setTimeout(() => reject(new Error(`failure-only cap: ${description}`)), capMs);
     });
     const observe = async (): Promise<T> => {
       while (!stopped) {

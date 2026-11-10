@@ -58,7 +58,6 @@ export type {
   FoldOutcome,
   FoldSessionState,
   PendingApproval,
-  SessionFoldOptions,
   SessionStateMethod,
   SessionStateParams,
   StaleDroppableMethod,
@@ -112,7 +111,6 @@ export type {
   MuseClientSpawnOptions,
   ResumeSessionOptions,
   StartSessionOptions,
-  ViewHealthChangedHandler,
 } from "./facade/client.js";
 
 export type {
@@ -130,9 +128,11 @@ export type {
 export { DiscardedSessions } from "./facade/discarded.js";
 
 export {
+  MuseCapabilityNotGrantedError,
+  MuseFacadeOwnedMethodError,
   MuseForeignSessionError,
   MuseGapFillError,
-  MuseImageMediaTypeError,
+  MuseHostDiscoveryError,
   MuseSessionDiscardedError,
   PermissionProfileNotApplied,
 } from "./errors.js";
@@ -172,6 +172,7 @@ export type {
   SessionGapOverlap,
   SessionOpening,
   SessionOptions,
+  SubagentReasonOptions,
 } from "./facade/session.js";
 
 // The two submit-side modules `Session` composes. `ApprovalRouter` and
@@ -185,9 +186,16 @@ export type {
   ApprovalFailureHandler,
   ApprovalHandler,
 } from "./facade/approval.js";
-export type { SendUserTurnOptions } from "./facade/turn-submit.js";
+export type { SendUserTurnOptions, SteerTurnOptions } from "./facade/turn-submit.js";
+export type { RunOptions, RunResult } from "./facade/run.js";
 
 // `Turn` (the narrow consumer view), not `TurnHandle`: the concrete class's
 // Session-fed mutators would let an embedder fabricate a terminal (INV-006).
 export { isLaunchFailure } from "./facade/turn-handle.js";
-export type { FoldedItem, Turn, TurnOutcome } from "./facade/turn-handle.js";
+export type {
+  FoldedItem,
+  InterruptTurnOptions,
+  Turn,
+  TurnOutcome,
+  TurnUnqueueOutcome,
+} from "./facade/turn-handle.js";

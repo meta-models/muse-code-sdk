@@ -1,6 +1,6 @@
 {
   "name": "@muse-code/sdk",
-  "version": "1.4.14",
+  "version": "1.4.15",
   "description": "TypeScript SDK for the Muse Session Protocol (MSP): connect to a Muse Code session, drive turns, and fold the event stream. Zero runtime dependencies.",
   "license": "MIT",
   "homepage": "https://github.com/meta-models/muse-code-sdk",
@@ -25,7 +25,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "prebuild": "node scripts/msp-fingerprint.mjs --stamp",
     "build": "tsc --build",
+    "precheck": "node scripts/msp-fingerprint.mjs --stamp",
     "check": "tsc --build",
     "prepack": "npm run build && node scripts/bundle-msp-types.mjs",
     "test": "npm run build && node --test --test-timeout=300000 \"dist/test/**/*.test.js\"",

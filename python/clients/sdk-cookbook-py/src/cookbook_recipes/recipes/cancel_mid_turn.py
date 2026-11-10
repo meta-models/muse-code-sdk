@@ -3,10 +3,15 @@
 Runs against ``muse-conformance serve-fixture`` playing the committed golden
 transcript ``schema/msp/transcripts/cancel-mid-turn``.
 
-What it teaches: ``turn/cancel`` is a REQUEST, not an outcome — the ack says
-the host will try; the turn is over only when ``turn/completed`` arrives with
+What it teaches: ``turn.cancel()`` is a REQUEST, not an outcome — its ack says
+the host will try; the turn is over only when ``turn.completed`` settles with
 the terminal ``"cancelled"``. And a cancelled turn keeps a balanced history:
 the in-flight toolCall item is completed as ``"cancelled"``, never dropped.
+
+Fixture mechanics: serve-fixture replays recorded server lines byte-exactly,
+so acks echo the RECORDED commandId and the SDK verifies that echo. The
+connection's one commandId minter is therefore scripted with the transcript's
+ids in send order; everything else goes through the ``MuseClient`` facade.
 """
 
 from __future__ import annotations
@@ -14,17 +19,27 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, Sequence
+
+from muse_code import (
+    MuseClient,
+    MuseClientOptions,
+    SendUserTurnOptions,
+    Session,
+    StartSessionOptions,
+    Turn,
+    read_session_durability,
+)
+from muse_code.connection.spawn import spawn_msp_connection
 
 from ..kit import (
     equals,
-    Host,
+    HOST_DRAIN_WINDOW_MS,
     JourneyReport,
-    object_at,
-    require_host,
+    pinned_to,
+    recorded_fingerprint,
     run_journey,
     Segment,
-    spawn_fixture_host,
-    string_at,
     within,
 )
 from ..runner import Recipe, RecipeHosts
@@ -47,102 +62,147 @@ class Context:
 
     conformance_bin: str
     transcript: str
-    host: Host | None = None
-    session_id: str | None = None
-    turn_id: str | None = None
+    client: "MuseClient[str] | None" = None
+    session: "Session[str] | None" = None
+    turn: "Turn[str] | None" = None
+    # The toolCall that was running when we asked for the cancel.
+    tool_call_id: str | None = None
+
+
+def _scripted_command_ids(ids: Sequence[str]) -> Callable[[], str]:
+    """Hand out the transcript's commandIds in send order. Harness-only: a real
+    client keeps the SDK's default minter, which is what makes ids unique."""
+    queue = list(ids)
+
+    def mint() -> str:
+        if not queue:
+            raise RuntimeError("the recipe sent more commands than the transcript records")
+        return queue.pop(0)
+
+    return mint
 
 
 async def _spawn_fixture(context: Context) -> None:
-    context.host = await spawn_fixture_host(
-        conformance_bin=context.conformance_bin,
-        transcript_dir=Path(context.transcript),
+    transcript_dir = Path(context.transcript)
+    stderr: list[str] = []
+    # Built by hand rather than with ``MuseClient.spawn``: spawn asks for an
+    # extra capability the recorded ``initialize`` line does not carry.
+    handshake = await spawn_msp_connection(
+        context.conformance_bin,
+        args=("serve-fixture", "--transcript", str(transcript_dir)),
         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
-        client_info={"name": "conformance", "version": "0.0.0"},
-        budget_ms=HANDSHAKE_BUDGET_MS,
+        on_stderr=stderr.append,
+        shutdown_timeout_ms=HOST_DRAIN_WINDOW_MS,
+        connection_options={
+            "mint_command_id": _scripted_command_ids(
+                (SESSION_START_COMMAND_ID, TURN_START_COMMAND_ID, TURN_CANCEL_COMMAND_ID)
+            )
+        },
+    )
+    # The strict fingerprint gate, retargeted to the bundle the transcript was
+    # recorded against (the kit's ``spawn_fixture_host`` does the same).
+    with pinned_to(recorded_fingerprint(transcript_dir)):
+        try:
+            spawned = await within(
+                "the MSP handshake",
+                HANDSHAKE_BUDGET_MS,
+                handshake.initialize({"clientInfo": {"name": "conformance", "version": "0.0.0"}}),
+            )
+        except BaseException as error:
+            # A failed initialize has already closed the host it spawned.
+            raise RuntimeError(f"handshake failed; stderr: {''.join(stderr)}") from error
+    context.client = MuseClient(
+        spawned.connection,
+        MuseClientOptions(
+            durability=read_session_durability(spawned.initialize_result), host=spawned
+        ),
     )
 
 
 async def _session(context: Context) -> None:
-    host = require_host(context.host, "spawn-fixture")
-    result = await within("the session/start ack", COMMAND_BUDGET_MS, host.connection.command(
-        "session/start",
-        {"workspaceRoot": WORKSPACE_ROOT},
-        max_attempts=1,
-        command_id=SESSION_START_COMMAND_ID,
-    ))
-    session = object_at(result, "session", "session/start result")
-    equals(session.get("status"), "idle", "a fresh session's status")
-    context.session_id = string_at(session, "sessionId", "session/start session")
+    if context.client is None:
+        raise RuntimeError("`spawn-fixture` did not finish")
+    session = await within(
+        "the session/start result",
+        COMMAND_BUDGET_MS,
+        context.client.start_session(StartSessionOptions(workspace_root=WORKSPACE_ROOT)),
+    )
+    opening = session.opening
+    equals(opening.verb if opening is not None else None, "session/start", "how the session was opened")
+    if opening is not None:
+        equals(opening.result["session"].get("status"), "idle", "a fresh session's status")
+    context.session = session
+
+
+async def _first_running_tool_call(turn: "Turn[str]") -> str:
+    # ``items()`` replays what the fold already holds, then tails, so a fast
+    # host cannot slip the running tool call past us.
+    async for item in turn.items():
+        if item.get("kind") == "toolCall" and item.get("status") == "inProgress":
+            return str(item.get("itemId"))
+    raise AssertionError("the turn ended without a running toolCall")
 
 
 async def _turn_start(context: Context) -> None:
-    host = require_host(context.host, "spawn-fixture")
-    session_id = context.session_id
-    if session_id is None:
+    session = context.session
+    if session is None:
         raise RuntimeError("`session` did not finish")
-    ack = await within("the turn/start ack", COMMAND_BUDGET_MS, host.connection.command(
-        "turn/start",
-        {"sessionId": session_id, "input": [{"type": "text", "text": PROMPT}]},
-        max_attempts=1,
-        command_id=TURN_START_COMMAND_ID,
-    ))
-    equals(ack.get("status"), "accepted", "turn/start ack status")
-    equals(ack.get("disposition"), "started", "turn/start ack disposition")
-    turn_id = string_at(ack, "turnId", "turn/start ack")
-    await host.wait_for(
-        "the turn/started notification",
+    turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/started" and n.params.get("turnId") == turn_id,
+        session.send_user_turn(SendUserTurnOptions(input=[{"type": "text", "text": PROMPT}])),
     )
-    # The turn is genuinely mid-work when output is still streaming: the
-    # fixture's toolCall item is emitting item/delta frames.
-    await host.wait_for(
-        "a streamed item/delta while the turn runs",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "item/delta",
+    tool_call_id = await within(
+        "a running toolCall item", COMMAND_BUDGET_MS, _first_running_tool_call(turn)
     )
-    context.turn_id = turn_id
+    # The turn is genuinely mid-work when output is still streaming. Open the
+    # live feed and read the fold in the same step: the first chunk is in one.
+    live: Any = turn.deltas()
+    try:
+        output = session.fold.items.accumulated(tool_call_id, "output")
+        if output is None:
+            delta = await within("a streamed output chunk", COMMAND_BUDGET_MS, live.__anext__())
+            output = delta.get("delta")
+        if not output:
+            raise AssertionError("the running toolCall streamed no output")
+    finally:
+        await live.aclose()
+    context.turn = turn
+    context.tool_call_id = tool_call_id
 
 
 async def _cancel(context: Context) -> None:
-    host = require_host(context.host, "spawn-fixture")
-    session_id = context.session_id
-    turn_id = context.turn_id
-    if session_id is None or turn_id is None:
+    session = context.session
+    turn = context.turn
+    tool_call_id = context.tool_call_id
+    if session is None or turn is None or tool_call_id is None:
         raise RuntimeError("`turn-start` did not finish")
-    ack = await within("the turn/cancel ack", COMMAND_BUDGET_MS, host.connection.command(
-        "turn/cancel",
-        {"sessionId": session_id, "turnId": turn_id},
-        max_attempts=1,
-        command_id=TURN_CANCEL_COMMAND_ID,
-    ))
+    ack = await within("the turn/cancel ack", COMMAND_BUDGET_MS, turn.cancel())
     equals(ack.get("status"), "accepted", "turn/cancel ack status")
     # The ack is a promise to try, not the outcome. The outcome is the turn's
     # terminal.
-    completed = await host.wait_for(
-        "the cancelled turn/completed notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == turn_id,
-    )
-    equals(completed.params.get("terminal"), "cancelled", "the turn's terminal")
+    outcome = await within("the cancelled turn's outcome", COMMAND_BUDGET_MS, turn.completed)
+    if outcome.kind != "completed":
+        raise AssertionError(f"the cancelled turn should complete; got {outcome!r}")
+    equals(outcome.params.get("terminal"), "cancelled", "the turn's terminal")
     # Balanced history: the in-flight toolCall was completed as cancelled, not
     # dropped on the floor.
-    for notification in host.notifications():
-        if notification.method != "item/completed":
-            continue
-        item = notification.params.get("item")
-        if isinstance(item, dict) and item.get("status") == "cancelled":
-            return
-    raise AssertionError(
-        'the cancelled turn left no item/completed with status "cancelled"'
+    tool_call = session.fold.items.get(tool_call_id)
+    equals(
+        tool_call.get("status") if tool_call is not None else None,
+        "cancelled",
+        "the toolCall's final status",
     )
 
 
 async def _drain(context: Context) -> None:
-    host = require_host(context.host, "spawn-fixture")
-    exit_ = await host.close(CLOSE_BUDGET_MS)
-    equals(exit_.code, 0, "the fixture host's exit code after stdin EOF")
-    context.host = None
+    client = context.client
+    if client is None:
+        raise RuntimeError("`spawn-fixture` did not finish")
+    await within("the fixture host's orderly drain and exit", CLOSE_BUDGET_MS, client.close())
+    classification = await client.exit
+    equals(classification.kind, "cleanShutdown", "the fixture host's exit classification")
+    context.client = None
 
 
 SEGMENTS: tuple[Segment[Context], ...] = (
@@ -165,8 +225,14 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
     )
 
     async def teardown(owned: Context) -> None:
-        if owned.host is not None:
-            await owned.host.abandon(CLOSE_BUDGET_MS)
+        client = owned.client
+        if client is not None:
+            try:
+                await within("the fixture host's teardown drain", CLOSE_BUDGET_MS, client.close())
+            except Exception as error:  # noqa: BLE001 - warned, never raised
+                import sys
+
+                print(f"teardown: the fixture host did not drain cleanly: {error}", file=sys.stderr)
 
     return await run_journey(SEGMENTS, context, teardown)
 

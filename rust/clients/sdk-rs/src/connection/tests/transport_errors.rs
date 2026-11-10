@@ -292,7 +292,7 @@ async fn malformed_recovery_observation_keeps_msp_error_and_connection_usable() 
                 .await
                 .ok_or("read stayed pending")?
                 .map_err(|error| error.to_string())?;
-            let read: crate::msp::method::lifecycle::SessionReadResult =
+            let read: crate::msp::method::lifecycle::session_read::SessionReadResult =
                 serde_json::from_value(json!(result)).map_err(|error| error.to_string())?;
             assert_eq!(read.session.session_id, session_id);
             assert!(read.recovery_observation.is_none());

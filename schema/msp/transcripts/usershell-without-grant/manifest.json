@@ -3,7 +3,6 @@
   "schemaVersion": 1,
   "scenario": "usershell-without-grant",
   "provenance": "host-generated",
-  "fingerprint": "sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6",
   "viewSchemaVersion": 1,
   "serverConfig": {
     "frameLimitBytes": 10485760
@@ -23,7 +22,7 @@
   "regenerationJustification": {
     "cite": "specs/210-msp-conformance-testkit/DECISIONS.md 2026-08-17 (owner session 01a011b2-e2d4-7492-8c4a-7e69dd737637); tdd SS1.6 and SS7.5",
     "rationale": "The seeded live host is authoritative for JSON member order; the compared error value is unchanged.",
-    "trackingIssue": "https://github.com/par-msl/tbh/issues/210"
+    "trackingIssue": "the producing repository's #210"
   },
   "source": [
     {

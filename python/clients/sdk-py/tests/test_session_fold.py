@@ -118,6 +118,18 @@ def retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     }
 
 
+def model_attempt_started(turn_id: str, view_cursor: str) -> dict[str, Any]:
+    return {
+        "method": "turn/modelAttemptStarted",
+        "params": {
+            "sessionId": SESSION,
+            "sourceRange": SOURCE,
+            "turnId": turn_id,
+            "viewCursor": view_cursor,
+        },
+    }
+
+
 def model_retry_scheduled(turn_id: str, view_cursor: str) -> dict[str, Any]:
     return {
         "method": "turn/modelRetryScheduled",
@@ -232,7 +244,9 @@ def approval_resolved(approval_id: str, decision: str, view_cursor: str) -> dict
     }
 
 
-def user_input_requested(user_input_id: str, view_cursor: str) -> dict[str, Any]:
+def user_input_requested(
+    user_input_id: str, view_cursor: str, turn_id: str = "turn-1"
+) -> dict[str, Any]:
     return {
         "method": "userInput/requested",
         "params": {
@@ -241,7 +255,7 @@ def user_input_requested(user_input_id: str, view_cursor: str) -> dict[str, Any]
             "sessionId": SESSION,
             "toolCallId": "call-2",
             "toolName": "ask",
-            "turnId": "turn-1",
+            "turnId": turn_id,
             "userInputId": user_input_id,
             "viewCursor": view_cursor,
         },
@@ -652,6 +666,58 @@ def test_a_replayed_page_never_re_plants_the_backoff_hint_on_a_turn_that_left_ru
     assert fold.apply(backoff) == IgnoredStaleFrame("turn/modelRetryScheduled", "turn-1")
 
 
+def test_turn_model_attempt_started_is_non_terminal_the_turn_keeps_running() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(model_attempt_started("turn-1", "v:s:2"))
+
+    assert fold.active_turn_id == "turn-1", "a starting attempt never settles a turn"
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "running"
+    assert held.model_attempt_started is not None
+    assert held.model_attempt_started["turnId"] == "turn-1"
+
+
+def test_turn_completed_clears_the_model_attempt_hint() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(model_attempt_started("turn-1", "v:s:2"))
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_attempt_started is not None, (
+        "the hint is set while the turn runs"
+    )
+
+    fold.apply(turn_completed("turn-1", "completed", "v:s:3"))
+
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_attempt_started is None
+
+
+def test_a_replayed_page_never_re_plants_the_attempt_hint_on_a_turn_that_left_running() -> None:
+    fold = SessionFold()
+    attempt = model_attempt_started("turn-1", "v:s:2")
+    page = [
+        turn_started("turn-1", "cmd-1", "v:s:1"),
+        attempt,
+        turn_completed("turn-1", "cancelled", "v:s:3"),
+        turn_retracted("turn-1", "cmd-1", "v:s:4"),
+    ]
+    for event in page:
+        fold.apply(event)
+    held = fold.turn("turn-1")
+    assert held is not None and held.model_attempt_started is None, "in-order delivery is clean"
+
+    for event in page:
+        fold.apply(event)
+
+    held = fold.turn("turn-1")
+    assert held is not None
+    assert held.state == "retracted"
+    assert held.model_attempt_started is None, "the replayed hint is dropped"
+    assert fold.apply(attempt) == IgnoredStaleFrame("turn/modelAttemptStarted", "turn-1")
+
+
 def test_turn_completed_clears_the_foreground_hint() -> None:
     fold = SessionFold()
     fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
@@ -818,6 +884,90 @@ def test_user_input_requested_after_user_input_settled_never_resurrects_the_prom
     assert outcome == IgnoredStaleFrame("userInput/requested", "u-1")
     assert fold.pending_user_inputs() == [], "the settled prompt stays settled"
     assert [s["outcome"] for s in fold.settled_user_inputs()] == ["answered"]
+
+
+def test_user_input_requested_for_a_turn_that_already_settled_is_stale() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(turn_completed("turn-1", "completed", "v:s:2"))
+    outcome = fold.apply(user_input_requested("u-1", "v:s:3"))
+
+    assert outcome == IgnoredStaleFrame("userInput/requested", "u-1")
+    assert fold.pending_user_inputs() == [], "the orphaned prompt is not listed"
+
+
+def test_user_input_requested_for_a_retracted_or_unqueued_turn_is_stale() -> None:
+    for end in ("retracted", "unqueued"):
+        fold = SessionFold()
+        fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+        fold.apply(
+            turn_retracted("turn-1", "cmd-1", "v:s:2")
+            if end == "retracted"
+            else turn_unqueued("turn-1", "cmd-1", "v:s:2")
+        )
+        outcome = fold.apply(user_input_requested("u-1", "v:s:3"))
+        assert outcome == IgnoredStaleFrame("userInput/requested", "u-1")
+        assert fold.pending_user_inputs() == [], f"the {end}-turn prompt is not listed"
+
+
+def test_a_listed_prompt_retires_when_its_turn_leaves_running() -> None:
+    ends = {
+        "completed": turn_completed("turn-1", "completed", "v:s:3"),
+        "retracted": turn_retracted("turn-1", "cmd-1", "v:s:3"),
+        "unqueued": turn_unqueued("turn-1", "cmd-1", "v:s:3"),
+    }
+    for end, frame in ends.items():
+        fold = SessionFold()
+        fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+        fold.apply(user_input_requested("u-1", "v:s:2"))
+        assert [u["userInputId"] for u in fold.pending_user_inputs()] == ["u-1"]
+        fold.apply(frame)
+        assert fold.pending_user_inputs() == [], (
+            f"the {end} turn's prompt no longer lists"
+        )
+        # Retiring is not a settlement: no settled entry is recorded.
+        assert fold.settled_user_inputs() == []
+
+
+def test_a_declined_retract_keeps_its_turns_prompt() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(user_input_requested("u-1", "v:s:2"))
+    fold.apply(turn_retracted("turn-1", "cmd-1", "v:s:3", "declined"))
+    assert [u["userInputId"] for u in fold.pending_user_inputs()] == ["u-1"]
+
+
+def test_another_turn_ending_retires_only_its_own_prompts() -> None:
+    fold = SessionFold()
+    fold.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    fold.apply(turn_started("turn-2", "cmd-2", "v:s:2"))
+    fold.apply(user_input_requested("u-1", "v:s:3"))
+    fold.apply(user_input_requested("u-2", "v:s:4", "turn-2"))
+    fold.apply(turn_completed("turn-2", "completed", "v:s:5"))
+    assert [u["userInputId"] for u in fold.pending_user_inputs()] == ["u-1"]
+
+
+def test_a_prompt_for_an_unseen_turn_lists_then_retires_at_its_end_frame() -> None:
+    fold = SessionFold()
+    fold.apply(user_input_requested("u-1", "v:s:1"))
+    assert [u["userInputId"] for u in fold.pending_user_inputs()] == ["u-1"]
+    fold.apply(turn_completed("turn-1", "completed", "v:s:2"))
+    assert fold.pending_user_inputs() == []
+    # Retiring is not a settlement: no settled entry is recorded.
+    assert fold.settled_user_inputs() == []
+
+
+def test_user_input_requested_for_a_running_or_unseen_turn_still_lists() -> None:
+    running = SessionFold()
+    running.apply(turn_started("turn-1", "cmd-1", "v:s:1"))
+    running.apply(user_input_requested("u-1", "v:s:2"))
+    assert [u["userInputId"] for u in running.pending_user_inputs()] == ["u-1"]
+
+    # Fresh-resume arm: this fold never saw the turn, so it cannot prove
+    # the turn dead — a re-sent still-open question must still list.
+    fresh = SessionFold()
+    fresh.apply(user_input_requested("u-1", "v:s:1"))
+    assert [u["userInputId"] for u in fresh.pending_user_inputs()] == ["u-1"]
 
 
 def test_approval_resolved_retires_the_pending_approval_and_records_the_terminal() -> None:
@@ -1288,13 +1438,14 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
     # command terminal with no view envelope or fold state.
     # `recap/completed` is a command-plane settlement to the requesting
     # connection only — no `viewCursor`, no `sourceRange`, nothing durable
-    # to fold.
+    # to fold. `model/completed` settles a `model/complete` call the same way.
     non_fold_notifications = {
         "initialized",
         "session/viewHealthChanged",
         "userInput/engaged",
         "session/leaveCompleted",
         "recap/completed",
+        "model/completed",
     }
     # Session lifecycle broadcasts (a session was loaded or unloaded on the
     # host) are control-plane notifications, not view events — they carry no
@@ -1356,6 +1507,7 @@ def test_every_generated_view_notification_is_routed_never_the_default() -> None
         "turn/retracted": turn_retracted("turn-t2", "cmd-t2", "v:t:7"),
         "turn/retryScheduled": retry_scheduled("turn-t3", "v:t:8"),
         "turn/modelRetryScheduled": model_retry_scheduled("turn-t3", "v:t:8b"),
+        "turn/modelAttemptStarted": model_attempt_started("turn-t3", "v:t:8c"),
         "turn/foregroundCompleted": foreground_completed("turn-t5", "v:t:23"),
         "turn/unqueued": turn_unqueued("turn-t4", "cmd-t4", "v:t:9"),
         "approval/requested": approval_requested("a-t", "v:t:10"),
@@ -1584,29 +1736,3 @@ def test_mark_ephemeral_host_death_routes_through_the_fold_level_mutator() -> No
     assert fold.items.is_terminal_unknown("open") is True
     assert fold.items.is_terminal_unknown("done") is False
     assert fold.items.ephemeral_session_discarded is True
-
-
-def test_fold_surfaces_agent_message_message_phase_verbatim() -> None:
-    fold = SessionFold()
-
-    def _item_event(item_id: str, kind: str, **extra: Any) -> dict[str, Any]:
-        return {
-            "method": "item/completed",
-            "params": {
-                "sessionId": SESSION,
-                "turnId": "turn-1",
-                "item": {
-                    "itemId": item_id,
-                    "kind": kind,
-                    "revision": 1,
-                    "status": "completed",
-                    **extra,
-                },
-            },
-        }
-
-    fold.apply(_item_event("m-1", "agentMessage", messagePhase="commentary", text="working"))
-    fold.apply(_item_event("tc-1", "toolCall"))
-    fold.apply(_item_event("m-2", "agentMessage", messagePhase="finalAnswer", text="done"))
-    commentary = next(i for i in fold.items.list() if i["itemId"] == "m-1")
-    assert commentary["messagePhase"] == "commentary"

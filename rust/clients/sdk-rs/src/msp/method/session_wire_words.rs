@@ -1,5 +1,6 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::session::ProbeDegradedReason;
 use super::session::RunningElsewhereOrigin;
 use super::session::SessionKind;
 use super::session_events::SessionClosedReason;
@@ -154,5 +155,51 @@ impl<'de> Deserialize<'de> for RunningElsewhereOrigin {
             "serve" => Self::Serve,
             _ => Self::Unknown(value),
         })
+    }
+}
+
+impl ProbeDegradedReason {
+    /// The exact wire spelling, including a value from a newer host.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::SkippedUntrusted => "skippedUntrusted",
+            Self::SkippedSandboxUnavailable => "skippedSandboxUnavailable",
+            Self::ProbeFailed => "probeFailed",
+            Self::Unknown(value) => value,
+        }
+    }
+
+    /// Parse one wire word without a serde round-trip: the picker renders every
+    /// row through this instead of `serde_json::from_value`, so an unknown word
+    /// costs a match, not a parse. Total — an unknown word becomes `Unknown`,
+    /// like the `Deserialize` impl below, which delegates here.
+    #[must_use]
+    pub fn from_wire(word: &str) -> Self {
+        match word {
+            "skippedUntrusted" => Self::SkippedUntrusted,
+            "skippedSandboxUnavailable" => Self::SkippedSandboxUnavailable,
+            "probeFailed" => Self::ProbeFailed,
+            _ => Self::Unknown(word.to_owned()),
+        }
+    }
+}
+
+impl Serialize for ProbeDegradedReason {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ProbeDegradedReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::from_wire(&value))
     }
 }

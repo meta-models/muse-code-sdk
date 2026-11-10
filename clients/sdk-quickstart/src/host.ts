@@ -1,20 +1,20 @@
 /**
- * The owned-host spawn and notification recorder now live in the shared
- * cookbook kit (`clients/sdk-cookbook/src/kit/host.ts`, issue #24225) so the
- * quickstart journey and every cookbook recipe spawn and observe hosts the
- * same way. This module re-exports it unchanged: `Host.start` still launches
- * `muse serve` with the same environment, budgets, and failure text.
+ * The harness helpers the journey shares with every cookbook recipe live in
+ * the shared cookbook kit (`clients/sdk-cookbook/src/kit/host.ts`, issue
+ * #24225): the isolated host environment, the owned drain window, bounded
+ * waits, and the typed readers for untyped result members. The journey talks
+ * to the host through the SDK's own `MuseClient`, so it needs none of the
+ * kit's raw-connection `Host` recorder.
  */
 
 export {
-  Host,
-  SDK_GATE_ENV,
+  HOST_DRAIN_WINDOW_MS,
   STUB_VIEW_CURSOR,
-  TimeoutError,
   arrayAt,
+  drainQuietly,
   equals,
+  isolatedHostEnv,
   objectAt,
   stringAt,
   within,
 } from "@muse-code/sdk-cookbook/kit";
-export type { HostOptions, RecordedNotification } from "@muse-code/sdk-cookbook/kit";

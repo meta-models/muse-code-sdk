@@ -350,11 +350,11 @@ test("QA-TEST-015b (evidence): a refused expect-block still files its capture's 
     title: "refused",
     vein: "turn lifecycle over stdio",
     expectBlocked: { blocker: "#19535", because: "no turn ever runs" },
+    expected: "e",
     async run(): Promise<Awaited<ReturnType<QaScenario["run"]>>> {
       return {
         runs: [rejectedSubjectRun],
         observed: "o",
-        expected: "e",
         blockedVerdict: { refused: "B04 was rejected before reaching #19535: subject `steer` …" },
       };
     },
@@ -389,11 +389,11 @@ test("QA-TEST-015c: the report identifies the tested binary from the handshake",
     id: "F01",
     title: "fake",
     vein: "fake",
+    expected: "o",
     async run(): Promise<Awaited<ReturnType<QaScenario["run"]>>> {
       return {
         runs: [{ api: [handshake], wire: EMPTY_WIRE, requestedMethods: [] }],
         observed: "o",
-        expected: "o",
       };
     },
   };

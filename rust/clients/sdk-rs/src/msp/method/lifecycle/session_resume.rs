@@ -1,15 +1,22 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 use super::session_mcp::SessionConfig;
+use super::session_resume_members::AbnormalEnd;
+use super::session_resume_members::AutoRecovery;
+use super::session_resume_members::BlockedPrompt;
+use super::session_resume_members::CronQuarantine;
+use super::session_resume_members::LastTurn;
+use super::session_resume_members::MissingPredecessor;
+use super::session_resume_members::ModelIdRefusal;
+use super::session_resume_members::PendingRequestPointer;
 use crate::msp::method::session::Session;
 use crate::msp::method::snapshot::ViewSnapshot;
-use crate::msp::view::event::TurnError;
-use crate::msp::view::event::TurnTerminal;
 use crate::msp::view::item::Item;
+pub use attachments::RestartReceipt;
 use serde::Deserialize;
 use serde::Serialize;
 
-mod catch_all;
+pub(crate) mod attachments;
 
 /// `session/resume` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,8 +84,14 @@ pub struct SessionResumeParams {
     /// the retained binding resolves by recorded origin exactly as without this
     /// member. Explicit `null` is invalid params (the same closed null-tolerant
     /// set as at start). The override changes the model within the retained
-    /// provider; it never names a provider, and it never touches the retained
-    /// profile.
+    /// provider; it never names a provider. A resume that loads the session
+    /// records it as a resume `--model` records: nothing when it already is the
+    /// session's model, else one durable selection with the provider's profile
+    /// for that model. A resume that attaches to a loaded session switches the
+    /// model live. A model the host refuses, a blank one included, leaves the
+    /// session on its recorded model, which `session.modelId` reports; a
+    /// connection that opted into `experimentalApi` also gets the reason in
+    /// `modelIdRefusal`.
     #[serde(
         default,
         deserialize_with = "super::deserialize_non_null_optional",
@@ -92,11 +105,73 @@ pub struct SessionResumeParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub config: Option<SessionConfig>,
+    /// the governing rules optional actor-bound explicit continuation object:
+    /// the explicit user Resume action supplies it for a loaded paused source;
+    /// absent or null keeps current resume behavior and does not release this
+    /// feature's loaded-source hold. Nullable. Standalone DTO (T-50280-074):
+    /// the real effect is T-50280-084's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continue_paused_source: Option<ContinuePausedSource>,
+    /// Client-supplied shell prefix allow-rules override: omitted reinstalls
+    /// the session's rules from the audit fact, present replaces with that set
+    /// (an explicit empty array clears). Explicit `null` is invalid params.
+    /// Until the served-handler slice, a host refuses any spelled
+    /// `approvalRules` on `session/start`/`fork`/`resume` with `-32602`;
+    /// clients omit it. **Experimental** (`session/resume.approvalRules`).
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub approval_rules: Option<Vec<super::super::approval::ClientApprovalRule>>,
+    /// What a cold load does with a retained input image whose file is missing
+    /// or corrupt. Omitted means `fail`; explicit `null` is invalid params.
+    /// Only the resume that loads the session reads it; an attach ignores it.
+    /// **Experimental** (`session/resume.missingInputAssets`).
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub missing_input_assets: Option<super::MissingInputAssets>,
+    /// The trust ask for the session this resume loads:
+    /// `session/start.limits`'s shape, of which a resume names only
+    /// `workspaceTrusted`. Naming another axis is invalid params: a resumed
+    /// session keeps its stored sandbox, write and shell limits. The ask takes
+    /// the place of the session's stored trust choice, made or not, and the
+    /// load records it as the session's choice; the host's ceiling bounds it as
+    /// it bounds a stored one (`tightenedAxes` names a clamp). Only the resume
+    /// that loads the session reads it; an attach ignores it. **Experimental,
+    /// served only by the per-run host a TUI run starts**
+    /// (`session/resume.limits`; unopted callers are refused `-32602`, as are
+    /// opted callers on every other host, where a session resumes with its
+    /// saved trust choice, which an earlier ask on a TUI run's host may have
+    /// replaced, a fork or side-chat child included). Explicit `null` is
+    /// invalid params.
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub limits: Option<crate::msp::method::limits::SessionLimitsChoice>,
+}
+
+/// the governing rules explicit continuation object on `session/resume`:
+/// requests explicit continuation of the named loaded actor, subject to
+/// ordinary drive authorization and actual successful acceptance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinuePausedSource {
+    /// The loaded source actor to continue.
+    pub source_instance_id: String,
 }
 
 /// The `history` request preference of `session/resume`. The forced values
 /// downgrade `anchored` → `inline` → `snapshot` → `none`; under `auto` the full
-/// rung order is anchoredSnapshot → inline → snapshot → elided snapshot → none.
+/// rung order is anchoredSnapshot → anchored pending cut → inline → snapshot →
+/// pending cut → elided snapshot → elided pending cut → none, a pending cut
+/// being the snapshot with its `monitorInbox` cut to the entries still awaiting
+/// delivery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HistoryPreference {
@@ -143,10 +218,13 @@ pub struct CheckpointBoundary {
     pub through_item_id: String,
 }
 
-/// Why a result served `history.mode: "none"`: the server's typed reason for
-/// serving no history. Open on the client side: an absent (older server) or
-/// unknown (newer server) value decodes conservatively as an unknown reason,
-/// and `viewCursor` text never substitutes for it.
+/// Why a result served `history.mode: "none"` — the server's typed reason for
+/// serving no history, with one push-only exception: `projectionRebuildFailed`
+/// rides only a `session/viewHealthChanged` notification; no resume or read
+/// result carries it (see its variant doc). Open on the client side: an
+/// absent (older server) or unknown (newer server) value decodes
+/// conservatively as an unknown reason, and `viewCursor` text never
+/// substitutes for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HistoryNoneReason {
@@ -156,7 +234,7 @@ pub enum HistoryNoneReason {
     /// A retained cursor was supplied; the streamed suffix carries the
     /// history.
     CursorSuffix,
-    /// Every rung through the elided snapshot exceeded the history budget;
+    /// Every rung through the elided pending cut exceeded the history budget;
     /// page via `view/page` from the result's `viewCursor`.
     HistoryBudget,
     /// No trustworthy materialized projection exists; paging cannot recover it.
@@ -164,6 +242,12 @@ pub enum HistoryNoneReason {
     /// The projection exists but the aggregate materialized read exceeded
     /// its bounded read cap; page in bounded chunks.
     ProjectionReadLimit,
+    /// One value is push-only: `projectionRebuildFailed` rides only a
+    /// `session/viewHealthChanged` notification, after the host's one re-load
+    /// of a failed live view fails or right after a fork child's live
+    /// fail-close; no resume or read result carries it. The view stays
+    /// unavailable for this load; never followed by `healthy`.
+    ProjectionRebuildFailed,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.
@@ -189,48 +273,6 @@ pub enum HistoryMode {
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.
-    Unknown(String),
-}
-
-/// A late-joiner pointer at an unsettled server-initiated request. The full
-/// payloads arrive as re-issued server-to-client requests right after a
-/// `session/resume` response; `session/read` never re-issues them.
-///
-/// The protocol defines two kind-discriminated entry shapes (`{kind:
-/// "approval", approvalId, viewCursor}` / `{kind: "userInput", userInputId,
-/// viewCursor}`). This type is one flat object with both ids optional, as for
-/// `ApprovalSubject` and `TurnInputPart`, because the v1 model names no
-/// object-variant union; the serialized JSON is the same, but the published
-/// schema also accepts `{"kind":"approval","userInputId":…}` and an entry
-/// carrying no id at all. Unlike `TurnInputPart.type`, `kind` here is an OPEN
-/// enum.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct PendingRequestPointer {
-    /// The discriminator; v1 values `approval` and `userInput`.
-    pub kind: PendingRequestKind,
-    /// Present on an `approval` entry.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub approval_id: Option<String>,
-    /// Present on a `userInput` entry.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_input_id: Option<String>,
-    /// The cursor the request opened at.
-    pub view_cursor: String,
-}
-
-/// The `pendingRequests` discriminator. Open enum, v1 values `approval` and
-/// `userInput`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PendingRequestKind {
-    /// An unsettled approval.
-    Approval,
-    /// An unsettled user-input prompt.
-    UserInput,
-    /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Never construct it with a known word.
     Unknown(String),
 }
 
@@ -275,52 +317,54 @@ pub struct SessionResumeResult {
     /// from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abnormal_end: Option<AbnormalEnd>,
-}
-
-/// `abnormalEnd` on `session/resume`: the load found the session's latest serve
-/// segment without a clean end and recorded (or had already recorded) the
-/// `crash_inferred` backstop.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct AbnormalEnd {
-    /// RFC 3339 time of the session's latest serve activity (the time the
-    /// gate-off notice shows); absent when the log has none.
+    /// One short record per child session the checkpoint boundary pruned.
+    /// **Additive-optional**, like `queuedInputs` on the read:
+    /// absent-when-empty, never stripped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_activity_at: Option<String>,
-}
-
-/// The cold recall seed on `session/resume` and `session/read` results: at most
-/// one, the latest blocked Main prompt — exactly the host's mirror of
-/// `prompt_recovery::replay::ReplayInput`'s choice.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct BlockedPrompt {
-    /// The exact submitted prompt, verbatim — no truncation, no
-    /// normalization; recall fidelity requires exactness.
-    pub text: String,
-}
-
-/// The last `turn/completed` the session-view fold applied, restated on
-/// `session/resume` and `session/read` so a reopened session can report a
-/// failed last turn.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct LastTurn {
-    /// The turn's id, as on its `turn/completed`; clients deduplicate a live
-    /// `turn/completed` against this member by it.
-    pub turn_id: String,
-    /// The turn's terminal.
-    pub terminal: TurnTerminal,
-    /// Copied when the `turn/completed` carried it; a synthesized host-death
-    /// `failed` terminal carries only this (`crash`, `crash_inferred`, or
-    /// `incomplete`). Free display text: clients never branch on it.
+    pub pruned_subagents: Option<Vec<super::PrunedSubagent>>,
+    /// The cron quarantine this resume's own load adopted. **Experimental**
+    /// (`session/resume.cronQuarantine`; stripped for unopted connections);
+    /// absence asserts nothing (an attach to a loaded session, a healthy or
+    /// missing store, or an older host). Clients show the gate-off warning row
+    /// once from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    /// Copied when the `turn/completed` carried it: runtime `failed` terminals
-    /// do, host-death `failed` terminals do not.
+    pub cron_quarantine: Option<CronQuarantine>,
+    /// The manual-compaction restart receipts this resume's own load scanned.
+    /// **Experimental** (`session/resume.restartReceipts`); absence asserts
+    /// nothing (an attach to a loaded session, no unserved restart arm, or an
+    /// older host). Absent when the scan found none — never an empty array.
+    /// Each entry mirrors the runtime `ManualCompactionReceipt`; clients apply
+    /// them through the shared receipt path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<TurnError>,
+    pub restart_receipts: Option<Vec<RestartReceipt>>,
+    /// The retained input images this resume's own `report` load replaced with
+    /// a marker, one entry per distinct digest (a provisional owner ruling) at
+    /// its first occurrence: runs in the log position of their accepted User
+    /// Intent record (a run with none at its first run record), then images by
+    /// position in the run. **Experimental**
+    /// (`session/resume.unavailableInputAssets`; stripped for unopted
+    /// connections); absent when nothing was replaced, never an empty array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_input_assets: Option<Vec<super::UnavailableInputAsset>>,
+    /// The declared predecessor whose retained log this resume's own load found
+    /// missing. **Experimental** (`session/resume.missingPredecessor`; stripped
+    /// for unopted connections); absence asserts nothing (an attach to a loaded
+    /// session, a root session, a present predecessor, or an older host).
+    /// Clients show the gate-off missing-predecessor notice once from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_predecessor: Option<MissingPredecessor>,
+    /// The `modelId` this resume carried and the host refused: the session
+    /// opened on its recorded model, which `session` reports. **Experimental**
+    /// (`session/resume.modelIdRefusal`; stripped for unopted connections);
+    /// absent when the resume carried no `modelId` or the host recorded or kept
+    /// it. Clients show the model kept and the reason once from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id_refusal: Option<ModelIdRefusal>,
+    /// The auto-recover outcome of this resume's own load (amendment
+    /// 26387/68619, G-23). **Experimental** (`session/resume.autoRecovery`;
+    /// stripped for unopted connections); absent unless the load ran with
+    /// the `resume_auto_recover` gate on and an effective `recoveryMode` of
+    /// ON, so a gate-off host's result is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_recovery: Option<AutoRecovery>,
 }

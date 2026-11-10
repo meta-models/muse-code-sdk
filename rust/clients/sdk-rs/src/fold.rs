@@ -1,6 +1,6 @@
 //! Ephemeral fold. Params stay as JSON so newer open values survive verbatim.
 
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
@@ -8,6 +8,8 @@ use crate::msp::{Notification, ViewGapParams};
 
 mod approvals;
 mod items;
+mod requests;
+mod turns;
 mod types;
 
 pub use approvals::PendingApproval;
@@ -15,55 +17,7 @@ pub use items::{ItemOutcome, Items};
 pub use types::{DeliveryGap, FoldOutcome, SessionState, Turn, TurnState};
 
 use approvals::Approvals;
-
-/// Request params keyed by id; each entry keeps the sequence at which it
-/// entered its set, so pending entries list in first-request order and resolved
-/// entries in first-resolution order, as the TS/Py folds do.
-#[derive(Debug, Default)]
-struct Requests {
-    observed: u64,
-    pending: HashMap<String, (u64, Value)>,
-    resolved: HashMap<String, (u64, Value)>,
-}
-
-impl Requests {
-    fn request(&mut self, id: &str, params: &Map<String, Value>) -> bool {
-        if self.resolved.contains_key(id) {
-            return false;
-        }
-        let params = Value::Object(params.clone());
-        match self.pending.entry(id.to_owned()) {
-            Entry::Occupied(mut slot) => slot.get_mut().1 = params,
-            Entry::Vacant(slot) => {
-                slot.insert((self.observed, params));
-                self.observed += 1;
-            }
-        }
-        true
-    }
-
-    fn resolve(&mut self, id: &str, params: &Map<String, Value>) -> bool {
-        self.pending.remove(id);
-        match self.resolved.entry(id.to_owned()) {
-            Entry::Vacant(slot) => {
-                slot.insert((self.observed, Value::Object(params.clone())));
-                self.observed += 1;
-                true
-            }
-            Entry::Occupied(_) => false,
-        }
-    }
-}
-
-fn params_of(entry: Option<&(u64, Value)>) -> Option<&Value> {
-    entry.map(|(_, params)| params)
-}
-
-fn in_observed_order(entries: &HashMap<String, (u64, Value)>) -> Vec<&Value> {
-    let mut ordered: Vec<_> = entries.values().collect();
-    ordered.sort_unstable_by_key(|(observed, _)| *observed);
-    ordered.into_iter().map(|(_, params)| params).collect()
-}
+use requests::{Requests, in_observed_order, params_of, request, resolve};
 
 /// A fold must be bound to one server session at construction.
 ///
@@ -244,7 +198,23 @@ impl SessionFold {
                     }
                 })
             }
-            "userInput/requested" => request(&mut self.user_inputs, params, "userInputId"),
+            // A prompt for a turn this fold has already seen leave
+            // `Running` is an orphan: no answer can settle it, so listing
+            // it would pend forever. Guarded to KNOWN dead turns only — a
+            // prompt naming a turn the fold has never seen (a fresh resume
+            // re-sending a still-open question) still lists.
+            "userInput/requested" => {
+                let dead = string(params, "turnId").is_some_and(|turn_id| {
+                    self.turns
+                        .get(turn_id)
+                        .is_some_and(|turn| turn.state() != TurnState::Running)
+                });
+                if dead {
+                    FoldOutcome::Ignored
+                } else {
+                    request(&mut self.user_inputs, params, "userInputId")
+                }
+            }
             "userInput/settled" => resolve(&mut self.user_inputs, params, "userInputId"),
             "view/gap" => self.delivery_gap(params),
             family if is_state_family(family) => {
@@ -313,99 +283,6 @@ impl SessionFold {
         }
     }
 
-    fn turn_event(&mut self, method: &str, params: &Map<String, Value>) -> FoldOutcome {
-        let Some(id) = string(params, "turnId") else {
-            return FoldOutcome::Ignored;
-        };
-        let command_id = match method {
-            "turn/started" | "turn/retracted" | "turn/unqueued" => {
-                let Some(command_id) = string(params, "commandId") else {
-                    return FoldOutcome::Ignored;
-                };
-                Some(command_id)
-            }
-            _ => None,
-        };
-        let terminal = if method == "turn/completed" {
-            let Some(terminal) = string(params, "terminal") else {
-                return FoldOutcome::Ignored;
-            };
-            Some(terminal)
-        } else {
-            None
-        };
-        // A declined retract means the submission stood, so the
-        // fold keeps the turn's prior state, as the TypeScript and Python folds
-        // do: a running turn stays running and its `turn/completed` still
-        // settles it. On a turn it holds, the fold records the standing
-        // submission's command id. A declined retract carries no lifecycle
-        // fact, so for a turn the fold has not seen it adds no entry. Only an
-        // explicit "declined" counts; any other outcome reads as accepted.
-        if method == "turn/retracted" && string(params, "outcome") == Some("declined") {
-            let Some(turn) = self.turns.get_mut(id) else {
-                return FoldOutcome::Ignored;
-            };
-            turn.command_id = command_id.map(str::to_owned);
-            return FoldOutcome::Applied;
-        }
-        let turn = match self.turns.entry(id.to_owned()) {
-            Entry::Occupied(slot) => slot.into_mut(),
-            Entry::Vacant(slot) => {
-                self.turn_order.push(id.to_owned());
-                slot.insert(Turn {
-                    state: TurnState::Running,
-                    command_id: None,
-                    terminal: None,
-                    completion: None,
-                })
-            }
-        };
-        match method {
-            "turn/started" if turn.state == TurnState::Running => {
-                let Some(command_id) = command_id else {
-                    return FoldOutcome::Ignored;
-                };
-                turn.command_id = Some(command_id.to_owned());
-                self.active_turn = Some(id.to_owned());
-            }
-            "turn/completed"
-                if turn.terminal.is_none()
-                    && !matches!(turn.state, TurnState::Retracted | TurnState::Unqueued) =>
-            {
-                let Some(terminal) = terminal else {
-                    return FoldOutcome::Ignored;
-                };
-                turn.state = TurnState::Settled;
-                turn.terminal = Some(terminal.to_owned());
-                turn.completion = Some(Value::Object(params.clone()));
-                if self.active_turn.as_deref() == Some(id) {
-                    self.active_turn = None;
-                }
-            }
-            // As in the TypeScript and Python folds, an accepted retract or a
-            // reclaim applies from any state: on the wire, a turn that ran and
-            // was then retracted settles first and the accepted retract follows.
-            // Neither is a terminal, so a terminal the turn already carries stays
-            // as sent. A declined retract never reaches this arm (above).
-            "turn/retracted" | "turn/unqueued" => {
-                let Some(command_id) = command_id else {
-                    return FoldOutcome::Ignored;
-                };
-                turn.command_id = Some(command_id.to_owned());
-                turn.state = if method == "turn/retracted" {
-                    TurnState::Retracted
-                } else {
-                    TurnState::Unqueued
-                };
-                if self.active_turn.as_deref() == Some(id) {
-                    self.active_turn = None;
-                }
-            }
-            _ => return FoldOutcome::Ignored,
-        }
-        FoldOutcome::Applied
-    }
-
     fn delivery_gap(&mut self, params: &Map<String, Value>) -> FoldOutcome {
         let (Some(after), Some(next)) = (string(params, "after"), string(params, "next")) else {
             return FoldOutcome::Ignored;
@@ -432,14 +309,6 @@ impl SessionFold {
             Some(_) => FoldOutcome::Ignored,
         }
     }
-}
-fn request(store: &mut Requests, params: &Map<String, Value>, key: &str) -> FoldOutcome {
-    applied(string(params, key).is_some_and(|id| store.request(id, params)))
-}
-fn resolve(store: &mut Requests, params: &Map<String, Value>, key: &str) -> FoldOutcome {
-    string(params, key).map_or(FoldOutcome::Ignored, |id| FoldOutcome::Resolution {
-        first: store.resolve(id, params),
-    })
 }
 const fn applied(applied: bool) -> FoldOutcome {
     if applied {
@@ -507,6 +376,129 @@ mod tests {
         );
         assert_eq!(fold.pending_user_inputs().len(), 1);
         assert!(fold.items().is_empty());
+    }
+
+    #[test]
+    fn a_question_for_a_known_dead_turn_is_not_listed_but_an_unseen_turn_still_lists() {
+        let question = |id: &str| {
+            event(
+                "userInput/requested",
+                json!({"sessionId": "session-1", "userInputId": id, "turnId": "turn-1"}),
+            )
+        };
+        let mut fold = SessionFold::new("session-1");
+        fold.apply(&event(
+            "turn/started",
+            json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1"}),
+        ));
+        fold.apply(&event(
+            "turn/completed",
+            json!({"sessionId": "session-1", "turnId": "turn-1", "terminal": "completed"}),
+        ));
+        assert_eq!(fold.apply(&question("input-dead")), FoldOutcome::Ignored);
+        assert!(fold.pending_user_inputs().is_empty());
+
+        let mut fresh = SessionFold::new("session-1");
+        assert_ne!(fresh.apply(&question("input-fresh")), FoldOutcome::Ignored);
+        assert_eq!(fresh.pending_user_inputs().len(), 1);
+    }
+
+    #[test]
+    fn dead_turn_questions_and_listed_prompt_retirement_cover_every_turn_end() {
+        let question = |id: &str| {
+            event(
+                "userInput/requested",
+                json!({"sessionId": "session-1", "userInputId": id, "turnId": "turn-1"}),
+            )
+        };
+        let started = || {
+            event(
+                "turn/started",
+                json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1"}),
+            )
+        };
+        let ends: [(&str, Notification); 3] = [
+            (
+                "completed",
+                event(
+                    "turn/completed",
+                    json!({"sessionId": "session-1", "turnId": "turn-1", "terminal": "completed"}),
+                ),
+            ),
+            (
+                "retracted",
+                event(
+                    "turn/retracted",
+                    json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1"}),
+                ),
+            ),
+            (
+                "unqueued",
+                event(
+                    "turn/unqueued",
+                    json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1"}),
+                ),
+            ),
+        ];
+        for (_, end) in &ends {
+            // Arrival guard: a question first seen after the end never lists.
+            let mut fold = SessionFold::new("session-1");
+            fold.apply(&started());
+            fold.apply(end);
+            assert_eq!(fold.apply(&question("input-late")), FoldOutcome::Ignored);
+            assert!(fold.pending_user_inputs().is_empty());
+
+            // Reported order: listed while running, retired by the end,
+            // with no settlement recorded.
+            let mut fold = SessionFold::new("session-1");
+            fold.apply(&started());
+            assert_ne!(fold.apply(&question("input-1")), FoldOutcome::Ignored);
+            assert_eq!(fold.pending_user_inputs().len(), 1);
+            fold.apply(end);
+            assert!(fold.pending_user_inputs().is_empty());
+            assert!(fold.settled_user_inputs().is_empty());
+        }
+
+        // A declined retract leaves the turn running, so its prompt stays.
+        let mut fold = SessionFold::new("session-1");
+        fold.apply(&started());
+        fold.apply(&question("input-1"));
+        fold.apply(&event(
+            "turn/retracted",
+            json!({"sessionId": "session-1", "turnId": "turn-1", "commandId": "cmd-1", "outcome": "declined"}),
+        ));
+        assert_eq!(fold.pending_user_inputs().len(), 1);
+
+        // Another turn ending retires only its own prompts.
+        let question2 = event(
+            "userInput/requested",
+            json!({"sessionId": "session-1", "userInputId": "input-2", "turnId": "turn-2"}),
+        );
+        let mut fold = SessionFold::new("session-1");
+        fold.apply(&started());
+        fold.apply(&event(
+            "turn/started",
+            json!({"sessionId": "session-1", "turnId": "turn-2", "commandId": "cmd-2"}),
+        ));
+        fold.apply(&question("input-1"));
+        fold.apply(&question2);
+        fold.apply(&event(
+            "turn/completed",
+            json!({"sessionId": "session-1", "turnId": "turn-2", "terminal": "completed"}),
+        ));
+        assert_eq!(fold.pending_user_inputs().len(), 1);
+
+        // Unseen turn: the prompt lists, then its end frame retires it
+        // with no settlement recorded.
+        let mut fold = SessionFold::new("session-1");
+        fold.apply(&question("input-1"));
+        assert_eq!(fold.pending_user_inputs().len(), 1);
+        fold.apply(&event(
+            "turn/completed",
+            json!({"sessionId": "session-1", "turnId": "turn-1", "terminal": "completed"}),
+        ));
+        assert!(fold.pending_user_inputs().is_empty());
+        assert!(fold.settled_user_inputs().is_empty());
     }
 
     /// A re-opened fold keeps applying question

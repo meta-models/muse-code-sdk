@@ -1,5 +1,8 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::NoticeOrigin;
+use super::NoticeSeverity;
+use super::NoticeSubject;
 use super::ReplayHint;
 use super::ScheduledFireMembers;
 use super::ToolCallMembers;
@@ -14,8 +17,11 @@ use crate::msp::view::item_content::ItemKind;
 use crate::msp::view::item_content::ItemStatus;
 use crate::msp::view::item_content::MessageAttachment;
 use crate::msp::view::item_content::OutputRef;
+use crate::msp::view::item_content::PeerMessage;
 use crate::msp::view::item_content::SubagentControlStatus;
+use crate::msp::view::item_content::SubagentInputPhase;
 use crate::msp::view::item_content::SubagentResult;
+use crate::msp::view::item_content::SubagentResultStatus;
 use crate::msp::view::item_content::WebSearchHit;
 use crate::msp::view::item_content::WorkflowChild;
 use crate::msp::view::item_content::WorkflowTokenBudget;
@@ -45,7 +51,8 @@ pub struct Item {
     pub kind: ItemKind,
     /// The owning turn. `null` for the kinds outside a turn: `userShell`
     /// always, `hookRun` for session-boundary runs, `monitorFeed` always,
-    /// `sideChat` always, `damagedRange` always, `earlierHistory` always.
+    /// `sideChat` always, `damagedRange` always, `earlierHistory` always,
+    /// `systemNotice` when produced outside a turn.
     pub turn_id: Option<String>,
     /// Integer >= 1, strictly monotonic per item; apply rule is
     /// replace-iff-higher. `item/delta` never bumps it.
@@ -75,6 +82,10 @@ pub struct Item {
     /// de-duplicate their local echo on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_id: Option<String>,
+    /// `userMessage`: the client that sent the message or steer; absent when
+    /// unrecorded and on older logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_client: Option<crate::msp::handshake::ClientInfo>,
     /// `userMessage`: `true` when injected mid-turn via `turn/steer` or
     /// `ifBusy: "steer"`; absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,13 +103,13 @@ pub struct Item {
     /// `toolCall.visibleOutput`, `userShell.visibleOutput`), cut a `subagent`
     /// surface (`objective`, `fallbackText`, `result.summary`, `result.text`),
     /// or cut a `monitorFeed` surface (`text`, `fallbackText`,
-    /// `monitorDescription`). On a `subagent` item the flag is item-level and
-    /// never cleared: once any of those four is cut, every later update keeps
-    /// it, even when `result.text` arrives whole. The durable full text remains
-    /// in the log.
+    /// `monitorDescription`), or cut a `systemNotice` surface. On a `subagent`
+    /// item the flag is item-level and never cleared: once any of those four is
+    /// cut, every later update keeps it, even when `result.text` arrives whole.
+    /// The durable full text remains in the log.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<bool>,
-    /// `agentMessage`: the phase the model declared on the commit; see [`MessagePhase`].
+    /// `agentMessage`: the phase the model declared; see [`MessagePhase`].
     #[serde(default, deserialize_with = "lenient_message_phase")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_phase: Option<MessagePhase>,
@@ -170,6 +181,13 @@ pub struct Item {
     /// second protocol.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_session_id: Option<String>,
+    /// `subagent`: the `subagentId` of the subagent whose own session spawned
+    /// this child, by `subagent/list`'s `parentSubagentId` rule.
+    /// **Additive-optional**: absent for a child of the view's own session, or
+    /// when no open `subagent` item in this view owns the spawning session;
+    /// never guessed, never derived from `agentPath`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_subagent_id: Option<String>,
     /// `subagent`: camelCased `SubagentControlStatus` (open enum); `status`
     /// stays the generic item vocabulary.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -261,12 +279,10 @@ pub struct Item {
     /// `reminderAgentId`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocking: Option<bool>,
-
     /// `sideChat`: the side's own session id, readable via
     /// `session/read`/`view/page` — drill-down without a second protocol.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub side_session_id: Option<String>,
-
     /// `skillRead`: the read skill's catalog selector (matches the `skill/list`
     /// row; the raw observed id when the read resolved to no catalog row). Set
     /// on every `skillRead` item; old clients render it beside the kind name.
@@ -318,6 +334,25 @@ pub struct Item {
     /// `hookRun`: capped display label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+
+    /// `systemNotice`: the notice's level — `info` | `warning` | `error`, open.
+    /// Absent means the server classified no level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice_severity: Option<NoticeSeverity>,
+    /// `systemNotice`: an optional open machine code for what happened, minted
+    /// per origin by the slice that adds its producer; omitted for `monitor`
+    /// and for `hook`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice_kind: Option<String>,
+    /// `systemNotice`: the producing family, so a client routes a notice
+    /// without parsing its text. Absent means the server named no origin:
+    /// render generically, never infer one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice_origin: Option<NoticeOrigin>,
+    /// `systemNotice`: the durable thing the notice is about — for `hook`, the
+    /// hook run's item id and its bounded label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice_subject: Option<NoticeSubject>,
     /// `webSearch`: the search action as an open-enum string — `search` |
     /// `openPage` | `findInPage`, else tolerated unknown. Absent while the call
     /// is open (the action is not final until the item completes).
@@ -367,15 +402,32 @@ pub struct Item {
     /// `earlierHistory`: the boundary checkpoint's transcript tail.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub earlier_history: Option<EarlierHistory>,
+    /// `peerMessage`: the four facts the consumed card renders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_message: Option<PeerMessage>,
     /// `scheduledFire` members, flattened beside the other optional members.
     #[serde(flatten)]
     pub scheduled_fire: ScheduledFireMembers,
 
-    /// Terminal `toolCall`: the item after whose rows the terminal row renders.
+    /// Terminal `toolCall`, or a `subagent` whose result drained: the item
+    /// after whose rows the terminal row renders.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_row_after_item_id: Option<String>,
     /// Monitor `toolCall`: the hint verdict plus anchor (`ReplayHint`); absent
     /// means no hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replay_hint: Option<ReplayHint>,
+    /// `subagentInput`: the record the item stands for; see
+    /// [`SubagentInputPhase`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_phase: Option<SubagentInputPhase>,
+    /// `subagentInput` (`delivered`): `true` when the drain landed on its turn
+    /// before that turn's terminal, which ends the turn's final answer as
+    /// gate-off's drain record does; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_before_turn_end: Option<bool>,
+    /// `subagentResult`: the consumed attempt's outcome; absent if unseen at
+    /// the drain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_status: Option<SubagentResultStatus>,
 }

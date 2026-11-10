@@ -21,6 +21,11 @@
  * the promotion was a deletion and not a rewrite: no assertion had been bent
  * to match the blocked behavior, so there was nothing to unbend.
  *
+ * It is written against the SDK facade an application uses — `MuseClient.spawn`,
+ * `startSession`, `session.run`, `sendUserTurn` with `items()`, `onApproval`,
+ * `turn.cancel()`, `resumeSession`, `close` — never the raw connection, so the
+ * first program a reader copies teaches that layer (#81640).
+ *
  * The journey has two modes. {@link runConfiguredJourney} is the ACCEPTANCE
  * mode: it seeds `JourneyOptions.home` with a HOME pointing at a loopback fake
  * first-party endpoint (`provider.ts`), so the host really runs a model and
@@ -35,24 +40,27 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { EXPECTED_SCHEMA_FINGERPRINT, MspError } from "@muse-code/sdk";
+import { EXPECTED_SCHEMA_FINGERPRINT, MspError, MuseClient } from "@muse-code/sdk";
+import type { ApprovalFailure, FoldedItem, Session, TurnOutcome } from "@muse-code/sdk";
 
 import {
-  Host,
+  HOST_DRAIN_WINDOW_MS,
   STUB_VIEW_CURSOR,
   arrayAt,
+  drainQuietly,
   equals,
+  isolatedHostEnv,
   objectAt,
   stringAt,
+  within,
 } from "./host.js";
-import type { RecordedNotification } from "./host.js";
 import { startConfiguredProvider } from "./provider.js";
 import { runJourney as runKitJourney } from "./segments.js";
 import type { JourneyReport, Segment } from "./segments.js";
 
 /**
  * How this journey identifies itself to the host's session/audit attribution.
- * Named at both spawn sites rather than defaulted in the kit, so a cookbook
+ * Named at the spawn site rather than defaulted in the kit, so a cookbook
  * recipe can never inherit the quickstart's identity by omission (T-24225-6).
  */
 const QUICKSTART_CLIENT_INFO = { name: "muse_sdk_quickstart", version: "0.0.0" };
@@ -96,12 +104,13 @@ interface Context {
   readonly museBin: string;
   readonly home: string;
   readonly workspaceRoot: string;
+  /** The client segments 1-7 share; closed before the resume segments. */
+  client?: MuseClient;
   /** The session started by `session-new` and resumed later. */
+  session?: Session;
   sessionId?: string;
-  /** The live host segments 1-4 share; closed before the resume segments. */
-  host?: Host;
-  /** The resume host, opened by `resume` and closed by `terminate`. */
-  resumeHost?: Host;
+  /** The resume client, opened by `resume` and closed by `terminate`. */
+  resumeClient?: MuseClient;
   /** The `session/resume` result the resume segments all read. */
   resumed?: Record<string, unknown>;
 }
@@ -112,42 +121,41 @@ interface Context {
  * (the host declares it; an absent or unknown phase reads as a final
  * answer). */
 interface CompletedAgentMessage {
+  readonly itemId: string;
   readonly text: string;
   readonly messagePhase: string;
 }
 
 /**
- * Every completed `agentMessage` a turn served, in arrival order. A turn
+ * Every completed `agentMessage` a turn served, in first-opened order. A turn
  * holds several — commentary before and between tool calls, then the final
  * answer — and no position is special: the LAST one is not "the answer"
  * (the phase labels a message, its position does not). Show them all,
- * each with its phase, once
- * `turn/completed` has arrived.
+ * each with its phase, once the turn has ended.
  */
-function completedAgentMessages(
-  notifications: readonly RecordedNotification[],
-): CompletedAgentMessage[] {
+function completedAgentMessages(items: readonly FoldedItem[]): CompletedAgentMessage[] {
   const messages: CompletedAgentMessage[] = [];
-  for (const notification of notifications) {
-    if (notification.method !== "item/completed") continue;
-    const item = notification.params["item"];
-    if (item === null || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (record["kind"] !== "agentMessage" || record["status"] !== "completed") continue;
-    const text = typeof record["text"] === "string" ? record["text"] : "";
-    const phase = record["messagePhase"];
+  for (const item of items) {
+    if (item.kind !== "agentMessage" || item.status !== "completed") continue;
     messages.push({
-      text,
-      messagePhase: phase === "commentary" ? "commentary" : "finalAnswer",
+      itemId: item.itemId,
+      text: item.text ?? "",
+      messagePhase: item.messagePhase === "commentary" ? "commentary" : "finalAnswer",
     });
   }
   return messages;
 }
 
-function requireHost(context: Context): Host {
-  const host = context.host;
-  if (host === undefined) throw new Error("no live host: an earlier segment did not finish");
-  return host;
+function requireClient(context: Context): MuseClient {
+  const client = context.client;
+  if (client === undefined) throw new Error("no live client: an earlier segment did not finish");
+  return client;
+}
+
+function requireSession(context: Context): Session {
+  const session = context.session;
+  if (session === undefined) throw new Error("no session: `session-new` did not finish");
+  return session;
 }
 
 function requireSessionId(context: Context): string {
@@ -157,48 +165,31 @@ function requireSessionId(context: Context): string {
 }
 
 /**
- * Runs one complete turn on the given host and returns the `turn/completed`
- * notification. Shared by the turn, approval and cancel segments so all three
- * observe the same streaming contract.
+ * Spawn `muse serve` and complete the handshake in one call. The first two
+ * options are all an application needs; the rest are what this journey adds
+ * because it tests one specific build in a throwaway HOME.
  */
-async function startTurn(
-  host: Host,
-  sessionId: string,
-  prompt: string,
-): Promise<{ turnId: string }> {
-  const ack = await host.msp.connection.command(
-    "turn/start",
-    { sessionId, input: [{ type: "text", text: prompt }] },
-    { maxAttempts: 1 },
-  );
-  equals(ack["status"], "accepted", "turn/start ack status");
-  // `started` and `queued` are BOTH correct answers, so pinning `started` was a
-  // real-bug detector that also fired on legal behavior. When `turn/start` lands
-  // after the previous turn completed but before the session settles to idle,
-  // the host mints a queued turn instead of a fresh one — the ack then says
-  // `queued` with `startedNewTurn: false`, and its `turnId` names the queued
-  // stream, never the running turn (`turn_start_ack_disposition`, tdd SS3.1.4).
-  // Either way the turn is admitted and `turn/started` still fires for that id,
-  // so the journey's contract holds. `steered` is deliberately NOT accepted: it
-  // merges into a RUNNING turn, which is not what any segment here asks for.
-  const disposition = ack["disposition"];
-  if (disposition !== "started" && disposition !== "queued") {
-    throw new Error(
-      `turn/start ack disposition: expected "started" or "queued", got ${JSON.stringify(disposition)}`,
-    );
-  }
-  equals(ack["startedNewTurn"], disposition === "started", "turn/start ack startedNewTurn");
-  return { turnId: stringAt(ack, "turnId", "turn/start ack") };
+async function spawnClient(context: Context): Promise<MuseClient> {
+  return await MuseClient.spawn({
+    args: ["serve"],
+    clientInfo: QUICKSTART_CLIENT_INFO,
+    // Omit `museBin` and the SDK runs the first `muse` on your PATH; the
+    // journey names the binary under test instead.
+    museBin: context.museBin,
+    cwd: context.workspaceRoot,
+    env: isolatedHostEnv(context.home),
+    shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
+  });
 }
 
-/** Fails with the host's own reason text when a turn ends non-`completed`. */
-function requireTerminal(
-  completed: RecordedNotification,
-  expected: string,
-): void {
-  const terminal = completed.params["terminal"];
+/** Fails with the host's own reason text when a turn ends any other way. */
+function requireTerminal(outcome: TurnOutcome, expected: string): void {
+  if (outcome.kind !== "completed") {
+    throw new Error(`the turn ended ${JSON.stringify(outcome.kind)}, expected terminal ${JSON.stringify(expected)}`);
+  }
+  const terminal = outcome.params.terminal;
   if (terminal !== expected) {
-    const reason = completed.params["reason"];
+    const reason = outcome.params.reason;
     throw new Error(
       `turn/completed terminal was ${JSON.stringify(terminal)}, expected ${JSON.stringify(expected)}` +
         (typeof reason === "string" ? `; host reason: ${reason}` : ""),
@@ -211,18 +202,14 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "spawn",
     title: "Spawn the release-built host and keep it alive",
     async run(context) {
-      // Host.start spawns and handshakes in one step, which is what a
-      // consumer writes. Spawn is proven by the handshake answering at all:
-      // a host that dies on launch (closed SDK gate = exit 5, bad config =
-      // exit 3) surfaces its classified exit here instead of a hang.
-      context.host = await Host.start(
-        {
-          museBin: context.museBin,
-          home: context.home,
-          workspaceRoot: context.workspaceRoot,
-          clientInfo: QUICKSTART_CLIENT_INFO,
-        },
+      // `MuseClient.spawn` spawns and handshakes in one step. Spawn is proven
+      // by the handshake answering at all: a host that dies on launch (closed
+      // SDK gate = exit 5, bad config = exit 3) rejects here with
+      // `MuseHostStartError`, carrying its exit and stderr, instead of a hang.
+      context.client = await within(
+        "the host's spawn and handshake",
         HANDSHAKE_BUDGET_MS,
+        spawnClient(context),
       );
     },
   },
@@ -230,68 +217,55 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "handshake",
     title: "The handshake result describes the host and matches the SDK's schema pin",
     async run(context) {
-      const host = requireHost(context);
-      const result = host.msp.initializeResult as unknown as Record<string, unknown>;
+      const client = requireClient(context);
+      const result = client.initializeResult as unknown as Record<string, unknown>;
       const serverInfo = objectAt(result, "serverInfo", "initialize result");
       stringAt(serverInfo, "name", "initialize serverInfo");
       stringAt(serverInfo, "version", "initialize serverInfo");
       stringAt(result, "museHome", "initialize result");
       stringAt(result, "sessionDurability", "initialize result");
       const schema = objectAt(result, "schema", "initialize result");
+      // A mismatch is a warning, never an error (tdd SS1.4.1), so this
+      // equality is what binds the served schema to the one the SDK pins.
       equals(
         stringAt(schema, "fingerprint", "initialize schema"),
         EXPECTED_SCHEMA_FINGERPRINT,
         "the served schema fingerprint vs the fingerprint @muse-code/sdk pins",
       );
-      // A mismatch is a warning, never an error (tdd SS1.4.1) — so the
-      // equality above is what actually binds, and this asserts the SDK drew
-      // the same conclusion.
-      equals(host.msp.fingerprintWarning, undefined, "SDK fingerprint warning");
     },
   },
   {
     id: "session-new",
     title: "Start a new session in the workspace",
     async run(context) {
-      const host = requireHost(context);
-      const result = await host.msp.connection.command(
-        "session/start",
-        { workspaceRoot: context.workspaceRoot },
-        { maxAttempts: 1 },
+      const client = requireClient(context);
+      const session = await within(
+        "the session/start reply",
+        COMMAND_BUDGET_MS,
+        client.startSession({ workspaceRoot: context.workspaceRoot }),
       );
-      const session = objectAt(result, "session", "session/start result");
-      const sessionId = stringAt(session, "sessionId", "session/start session");
-      equals(session["status"], "idle", "a fresh session's status");
+      const opening = session.opening;
+      if (opening?.verb !== "session/start") {
+        throw new Error("the session did not open through session/start");
+      }
+      const result = opening.result as unknown as Record<string, unknown>;
+      const summary = objectAt(result, "session", "session/start result");
+      equals(summary["sessionId"], session.sessionId, "the started session id");
+      equals(summary["status"], "idle", "a fresh session's status");
       equals(
-        session["workspaceRoot"],
+        summary["workspaceRoot"],
         context.workspaceRoot,
         "the session's workspace root",
       );
       // A DEFAULT start writes no durable fact, so the served fold has no
       // view events yet and the cursor is pinned to exactly the before-genesis
-      // `""` (tdd SS2.5.1/SS4.1 as amended by #24240; D-044) — the same pin
-      // the serve assembly asserts. `stringAt`'s non-empty read predated the
-      // amendment and rejected the legitimate `""` (#26057); the exact pin
+      // `""` (tdd SS2.5.1/SS4.1 as amended by #24240; D-044). The exact pin
       // also rejects the pre-Seam-C stub sentinel and any wrongly-minted
-      // non-empty cursor.
-      const cursor = result["viewCursor"];
-      equals(cursor, "", "a default start's before-genesis view cursor");
-      // The push side of the same fact: the host announces the session it
-      // just created, and it is the same session.
-      const started = await host.waitFor(
-        "the session/started notification",
-        COMMAND_BUDGET_MS,
-        (notification) => notification.method === "session/started",
-      );
-      const announced = objectAt(started.params, "session", "session/started params");
-      equals(announced["sessionId"], sessionId, "the announced session id");
+      // non-empty cursor (#26057).
+      equals(result["viewCursor"], "", "a default start's before-genesis view cursor");
 
-      context.sessionId = sessionId;
-      // NOTE: the committed golden `schema/msp/transcripts/session-start`
-      // also carries `approvalMode` in this result; the release host omits it
-      // here and pushes `session/approvalModeChanged` instead. That deviation
-      // has no owning issue yet, so it is reported rather than asserted — see
-      // the #21932 PR body.
+      context.session = session;
+      context.sessionId = session.sessionId;
     },
   },
   {
@@ -300,15 +274,11 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     // No `expectBlock`: #19806 landed, an MSP session carries its effective
     // model, and the anchored journey requires it (#24410 clause 4).
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = requireSessionId(context);
-      const read = await host.msp.connection.request("session/read", {
-        sessionId,
-        excludeItems: true,
-      });
-      const session = objectAt(read, "session", "session/read result");
-      stringAt(session, "providerId", "session/read session");
-      stringAt(session, "modelId", "session/read session");
+      const opening = requireSession(context).opening;
+      if (opening === undefined) throw new Error("the session carries no opening result");
+      const summary = opening.result.session as unknown as Record<string, unknown>;
+      stringAt(summary, "providerId", "the started session");
+      stringAt(summary, "modelId", "the started session");
     },
   },
   {
@@ -317,46 +287,28 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     // No `expectBlock`: #19535 landed, a configured serve host runs the model,
     // and the anchored journey requires the streamed answer (#24410 clause 4).
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = requireSessionId(context);
-      const { turnId } = await startTurn(host, sessionId, PROMPT);
+      const session = requireSession(context);
+      // One call: send the prompt, wait for the server to end the turn, and
+      // get back its outcome, final answer and items.
+      const result = await within("the turn", STREAM_BUDGET_MS, session.run(PROMPT));
+      requireTerminal(result.outcome, "completed");
 
-      await host.waitFor(
-        "the turn/started notification",
-        COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/started" && notification.params["turnId"] === turnId,
-      );
-      const completed = await host.waitFor(
-        "the turn/completed notification",
-        STREAM_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/completed" && notification.params["turnId"] === turnId,
-      );
-      requireTerminal(completed, "completed");
-
-      // The turn is only useful if the agent actually said something, and it
-      // must have arrived incrementally, not in one final lump.
-      const deltas = host
-        .notifications()
-        .filter((notification) => notification.method === "item/delta");
-      if (deltas.length === 0) {
-        throw new Error("the turn completed without streaming a single item/delta");
-      }
-      // Only now, after turn/completed, is the set of agent messages whole.
-      // Show every one with its phase; the turn may narrate ("commentary")
-      // before and between tool calls and then answer ("finalAnswer"), and
-      // the last item is not "the answer": the phase labels a message, its
-      // position does not.
-      // A UI renders each one as it arrived, labelled by its phase; an open
-      // enum, so a phase this client does not know still decodes and reads as
-      // a final answer.
-      const messages = completedAgentMessages(host.notifications());
+      // Every completed agent message, each with its phase: the turn may
+      // narrate ("commentary") before and between tool calls and then answer
+      // ("finalAnswer"), and the last item is not "the answer". An open enum,
+      // so a phase this client does not know still decodes as a final answer.
+      const messages = completedAgentMessages(result.items);
       const shown = messages.map((message) => `[${message.messagePhase}] ${message.text}`);
       if (!messages.some((message) => message.text.length > 0)) {
         throw new Error(
           `the turn completed without a non-empty agentMessage item; saw ${JSON.stringify(shown)}`,
         );
+      }
+      // The answer must have arrived incrementally, not in one final lump.
+      // The fold accumulates text only from `item/delta` frames, so a
+      // non-empty accumulation IS the streaming evidence.
+      if (!messages.some((message) => (session.fold.items.accumulated(message.itemId) ?? "") !== "")) {
+        throw new Error("the turn completed without streaming a single item/delta");
       }
     },
   },
@@ -366,48 +318,36 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     // No `expectBlock`: #19535 landed, the agent reaches the tool, and the
     // anchored journey requires the approval round trip (#24410 clause 4).
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = requireSessionId(context);
-      const { turnId } = await startTurn(host, sessionId, APPROVAL_PROMPT);
+      const session = requireSession(context);
+      const failures: ApprovalFailure[] = [];
+      // Register before the turn. The SDK sends only a choice the request
+      // offered; anything else is refused and reported to `onApprovalError`.
+      session.onApprovalError((failure) => failures.push(failure));
+      session.onApproval(() => ({ choiceId: "allow_once" }));
 
-      // Racing turn/completed against approval/requested turns "the turn died
-      // before asking" into that sentence rather than a bare timeout.
-      const event = await host.waitFor(
-        "an approval/requested notification",
-        STREAM_BUDGET_MS,
-        (notification) =>
-          notification.method === "approval/requested" ||
-          (notification.method === "turn/completed" && notification.params["turnId"] === turnId),
-      );
-      if (event.method !== "approval/requested") {
-        const reason = event.params["reason"];
-        throw new Error(
-          `the turn ended before asking for approval` +
-            (typeof reason === "string" ? `; host reason: ${reason}` : ""),
-        );
-      }
-
-      const approvalId = stringAt(event.params, "approvalId", "approval/requested params");
-      const decided = await host.msp.connection.command(
-        "approval/decide",
-        {
-          sessionId,
-          approvalId,
-          requirementId: { approvalId, sourceIndex: 0 },
-          choiceId: "allow_once",
-          feedback: null,
-        },
-        { maxAttempts: 1 },
-      );
-      equals(decided["terminal"], true, "the approval decision is terminal");
-      const resolved = await host.waitFor(
-        "the approval/resolved notification",
+      // Send the turn yourself to read its items as they stream in.
+      const turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "approval/resolved" &&
-          notification.params["approvalId"] === approvalId,
+        session.sendUserTurn({ input: [{ type: "text", text: APPROVAL_PROMPT }] }),
       );
-      equals(resolved.params["approvalId"], approvalId, "the resolved approval id");
+      const kinds: string[] = [];
+      await within("the approval turn's items", STREAM_BUDGET_MS, (async () => {
+        for await (const item of turn.items()) kinds.push(String(item.kind));
+      })());
+      requireTerminal(await turn.completed, "completed");
+
+      if (failures.length > 0) {
+        throw new Error(`the approval round trip failed: ${JSON.stringify(failures)}`);
+      }
+      if (!kinds.includes("toolCall")) {
+        throw new Error(`the turn never streamed the tool call it asked about; kinds were ${JSON.stringify(kinds)}`);
+      }
+      // The authoritative outcome is the server's `approval/resolved`, folded
+      // into the session, never the decision's ack.
+      if (session.fold.resolvedApprovals().length === 0) {
+        throw new Error("the turn ended without an approval/resolved: it never asked, or the decision never landed");
+      }
     },
   },
   {
@@ -420,44 +360,28 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     // race at the source by keeping the turn in flight (see `provider.ts`
     // `HOLD_MS`) rather than re-importing the excuse.
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = requireSessionId(context);
-      const { turnId } = await startTurn(host, sessionId, PROMPT);
-      await host.waitFor(
-        "the turn/started notification",
+      const session = requireSession(context);
+      const turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/started" && notification.params["turnId"] === turnId,
+        session.sendUserTurn({ input: [{ type: "text", text: PROMPT }] }),
       );
-
-      // The turn must still be running when the cancel lands. A turn that
-      // already reached a terminal state cannot prove cancellation.
-      const alreadyDone = host
-        .notifications()
-        .find(
-          (notification) =>
-            notification.method === "turn/completed" && notification.params["turnId"] === turnId,
-        );
-      if (alreadyDone !== undefined) {
-        const reason = alreadyDone.params["reason"];
-        throw new Error(
-          `the turn reached ${JSON.stringify(alreadyDone.params["terminal"])} before it could be cancelled` +
-            (typeof reason === "string" ? `; host reason: ${reason}` : ""),
-        );
+      let ended = false;
+      void turn.completed.then(() => (ended = true), () => (ended = true));
+      // The first item (the prompt itself) folds once the turn runs, so the
+      // cancel below lands on a running turn, never a queued one.
+      await within("the cancel turn's first item", STREAM_BUDGET_MS, (async () => {
+        for await (const _item of turn.items()) break;
+      })());
+      // A turn that already reached a terminal state cannot prove cancellation.
+      if (ended) {
+        throw new Error(`the turn ended (${JSON.stringify(await turn.completed)}) before it could be cancelled`);
       }
 
-      await host.msp.connection.command(
-        "turn/cancel",
-        { sessionId, turnId },
-        { maxAttempts: 1 },
-      );
-      const completed = await host.waitFor(
-        "the cancelled turn/completed notification",
-        STREAM_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/completed" && notification.params["turnId"] === turnId,
-      );
-      requireTerminal(completed, "cancelled");
+      // A request, not an outcome: the turn is over when the server says so.
+      await within("the turn/cancel ack", COMMAND_BUDGET_MS, turn.cancel());
+      const outcome = await within("the cancelled turn's end", STREAM_BUDGET_MS, turn.completed);
+      requireTerminal(outcome, "cancelled");
     },
   },
   {
@@ -468,34 +392,35 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       // drain cleanly before a second can load the session. That drain is
       // itself the spec-14990 Scenario-4.4 contract: stdin closed, orderly
       // drain, exit 0.
-      const first = requireHost(context);
-      const firstExit = await first.close(CLOSE_BUDGET_MS);
-      equals(firstExit.code, 0, "the first host's exit code after stdin EOF");
-      context.host = undefined;
+      const first = requireClient(context);
+      await within("the first host's orderly drain", CLOSE_BUDGET_MS, first.close());
+      equals((await first.exit).kind, "cleanShutdown", "the first host's exit after stdin EOF");
+      context.client = undefined;
 
       const sessionId = requireSessionId(context);
-      const host = await Host.start(
-        {
-          museBin: context.museBin,
-          home: context.home,
-          workspaceRoot: context.workspaceRoot,
-          clientInfo: QUICKSTART_CLIENT_INFO,
-        },
+      const client = await within(
+        "the resume host's spawn and handshake",
         HANDSHAKE_BUDGET_MS,
+        spawnClient(context),
       );
-      context.resumeHost = host;
+      context.resumeClient = client;
 
-      const resumed = await host.msp.connection.command(
-        "session/resume",
-        { sessionId, excludeItems: false },
-        { maxAttempts: 1 },
+      const session = await within(
+        "the session/resume reply",
+        COMMAND_BUDGET_MS,
+        client.resumeSession({ sessionId, excludeItems: false }),
       );
+      const opening = session.opening;
+      if (opening?.verb !== "session/resume") {
+        throw new Error("the session did not open through session/resume");
+      }
+      const resumed = opening.result as unknown as Record<string, unknown>;
       context.resumed = resumed;
 
-      const session = objectAt(resumed, "session", "session/resume result");
-      equals(session["sessionId"], sessionId, "the resumed session id");
+      const summary = objectAt(resumed, "session", "session/resume result");
+      equals(summary["sessionId"], sessionId, "the resumed session id");
       equals(
-        session["workspaceRoot"],
+        summary["workspaceRoot"],
         context.workspaceRoot,
         "the resumed workspace root",
       );
@@ -517,9 +442,9 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     async run(context) {
       const resumed = context.resumed;
       if (resumed === undefined) throw new Error("`resume` did not finish");
-      const session = objectAt(resumed, "session", "session/resume result");
-      stringAt(session, "providerId", "resumed session");
-      stringAt(session, "modelId", "resumed session");
+      const summary = objectAt(resumed, "session", "session/resume result");
+      stringAt(summary, "providerId", "resumed session");
+      stringAt(summary, "modelId", "resumed session");
     },
   },
   {
@@ -556,18 +481,17 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     // No `expectBlock`: #19649 landed, `session/resume` honours `cursor`, and
     // the journey's own staleness subtest promoted this segment (#23839).
     async run(context) {
-      const host = context.resumeHost;
-      if (host === undefined) throw new Error("`resume` did not finish");
+      const client = context.resumeClient;
+      if (client === undefined) throw new Error("`resume` did not finish");
       const sessionId = requireSessionId(context);
       // A cursor for this session at an impossible sequence. No host can
       // ever have minted it.
-      const impossible = `v4:${sessionId}:999999`;
-      let result: Record<string, unknown> | undefined;
+      const impossible = `v9:${sessionId}:999999`;
       try {
-        result = await host.msp.connection.command(
-          "session/resume",
-          { sessionId, cursor: impossible, excludeItems: false },
-          { maxAttempts: 1 },
+        await within(
+          "the refused session/resume reply",
+          COMMAND_BUDGET_MS,
+          client.resumeSession({ sessionId, cursor: impossible, excludeItems: false }),
         );
       } catch (error) {
         // ONLY the pinned refusal counts. A bare `instanceof MspError` lets any
@@ -578,28 +502,22 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
         if (error instanceof MspError && error.kind === "notFound") return;
         throw error;
       }
-      throw new Error(
-        `session/resume accepted a cursor that never existed (${impossible}) and returned ${JSON.stringify(
-          result,
-        ).slice(0, 400)}`,
-      );
+      throw new Error(`session/resume accepted a cursor that never existed (${impossible})`);
     },
   },
   {
     id: "terminate",
     title: "Close stdin and let the host drain and exit cleanly",
     async run(context) {
-      const host = context.resumeHost;
-      if (host === undefined) throw new Error("`resume` did not finish");
+      const client = context.resumeClient;
+      if (client === undefined) throw new Error("`resume` did not finish");
       // spec 14990 Scenario 4.4: stdin closed by close(), the SDK waits for
-      // the orderly drain, and the exit code is what actually happened. The
-      // budget is the JOURNEY's; #15943 owns making the bound the SDK's.
-      const exit = await host.close(CLOSE_BUDGET_MS);
-      equals(exit.code, 0, "the host's exit code after stdin EOF");
-      equals(exit.signal, null, "the host's exit signal after stdin EOF");
-      const classification = await host.msp.child.exit;
-      equals(classification.kind, "cleanShutdown", "the SDK's exit classification");
-      context.resumeHost = undefined;
+      // the orderly drain, and the exit classification is what actually
+      // happened. The budget is the JOURNEY's; #15943 owns making the bound
+      // the SDK's.
+      await within("the host's orderly drain and exit", CLOSE_BUDGET_MS, client.close());
+      equals((await client.exit).kind, "cleanShutdown", "the SDK's exit classification");
+      context.resumeClient = undefined;
     },
   },
 ];
@@ -706,7 +624,10 @@ export async function runJourney(options: JourneyOptions): Promise<JourneyReport
   // (`runJourney`), so this journey and every cookbook recipe cannot drift on
   // the part that leaks a spawned host when a segment throws (T-24225-6).
   return await runKitJourney(SEGMENTS, context, async (owned) => {
-    await owned.host?.abandon(CLOSE_BUDGET_MS);
-    await owned.resumeHost?.abandon(CLOSE_BUDGET_MS);
+    const { client, resumeClient } = owned;
+    if (client !== undefined) await drainQuietly("the host", CLOSE_BUDGET_MS, () => client.close());
+    if (resumeClient !== undefined) {
+      await drainQuietly("the resume host", CLOSE_BUDGET_MS, () => resumeClient.close());
+    }
   });
 }

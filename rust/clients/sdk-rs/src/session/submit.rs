@@ -8,7 +8,7 @@ use crate::client::{FacadeError, FacadeResult, lock};
 use crate::errors::ProtocolError;
 use crate::msp::{
     CommandStatus, IfBusy, LastTurn, ReasoningEffort, TurnInputPart, TurnStartDisposition,
-    TurnStartParams, TurnStartResult, TurnUnqueueParams, TurnUnqueueResult,
+    TurnStartParams, TurnStartResult, TurnUnqueueParams, TurnUnqueueResult, TurnUserShell,
 };
 use crate::turn::{Turn, TurnHandle};
 
@@ -29,6 +29,13 @@ pub struct SendUserTurnOptions {
     /// Replaces the session's workspace roots from this turn on; `None` keeps
     /// them.
     pub workspace_roots: Option<Vec<String>>,
+    /// A shell command riding this turn, run at the next model-call boundary.
+    /// It excludes text and skill input, so `input` may then be empty. The
+    /// host serves it only on a connection granted the `userShell`
+    /// capability. [`MuseClient`](crate::client::MuseClient) requests no
+    /// capabilities yet, so a real host refuses such a turn with
+    /// `capabilityRequired` ([`MuseError::Msp`](crate::errors::MuseError::Msp)).
+    pub user_shell: Option<TurnUserShell>,
 }
 
 impl Session {
@@ -150,9 +157,7 @@ impl SessionInner {
             reasoning_effort: options.reasoning_effort,
             // Experimental-gated: never sent by this SDK.
             token_budget: None,
-            // No shell submit in SendUserTurnOptions: this SDK never
-            // sends a `turn/start.userShell` member.
-            user_shell: None,
+            user_shell: options.user_shell,
             workspace_roots: options.workspace_roots,
         };
         let result = self

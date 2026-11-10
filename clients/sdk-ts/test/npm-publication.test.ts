@@ -174,6 +174,26 @@ test("the tarball's entry points resolve inside the whitelisted directory", () =
   }
 });
 
+test("building stamps the fingerprint first, so a clean checkout cannot compile a stale pin", () => {
+  // ADR 77546 D4: the committed source carries the derivation hook and no
+  // literal; the value enters through the generated module the stamp step
+  // writes. Without the stamp running before `tsc`, a fresh checkout fails
+  // to compile (missing module) — so both compile entry points hook it.
+  for (const hook of ["prebuild", "precheck"] as const) {
+    const step = manifest.scripts?.[hook] ?? "";
+    assert.match(
+      step,
+      /node scripts\/msp-fingerprint\.mjs --stamp/,
+      `\`${hook}\` must derive-and-stamp before the compiler runs`,
+    );
+  }
+  assert.equal(
+    manifest.scripts?.build,
+    "tsc --build",
+    "the build itself stays a plain `tsc --build`; the stamp rides the hook",
+  );
+});
+
 test("packing builds first, so a clean checkout cannot publish a stale dist", () => {
   const prepack = manifest.scripts?.prepack ?? "";
   assert.match(

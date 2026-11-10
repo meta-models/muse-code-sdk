@@ -93,6 +93,14 @@ pub struct SnapshotState {
     pub reasoning_effort: Option<ReasoningEffortState>,
     /// Completed-turn count at this cursor.
     pub turn_count: u64,
+    /// The retained Monitor admissions at this cursor: every admission still
+    /// awaiting delivery, plus per task the newest 200 non-blank stdout lines
+    /// and the newest other admission, delivered or not, each with its drain
+    /// and void stamps; a pending cut of the history ladder carries only the
+    /// entries still awaiting delivery. A current host always sends it (empty
+    /// when no monitor admitted anything); absent means an older host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor_inbox: Option<Vec<crate::msp::view::monitor_inbox::MonitorInboxSnapshotEntry>>,
 }
 
 /// The snapshot's standing session-default reasoning effort: the fold of the

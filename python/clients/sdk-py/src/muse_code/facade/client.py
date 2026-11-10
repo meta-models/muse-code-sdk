@@ -33,6 +33,7 @@ from typing import (
     Sequence,
     Set,
     TypeVar,
+    cast,
 )
 
 from muse_code_msp import (
@@ -40,12 +41,19 @@ from muse_code_msp import (
     ClientInfo,
     InitializeParams,
     InitializeResult,
+    ModelListParams,
+    ModelListResult,
     RecoveryMode,
+    SessionConfig,
+    SessionListParams,
+    SessionListResult,
     SessionResumeParams,
     SessionStartParams,
+    UsageReadResult,
 )
 
-from ..connection.connection import Connection, MspError
+from ..connection.connection import Connection, MspError, Params, RetryDelay
+from ..connection.discovery import discover_muse_bin
 from ..connection.spawn import (
     DEFAULT_SHUTDOWN_TIMEOUT_MS,
     ExitClassification,
@@ -54,7 +62,12 @@ from ..connection.spawn import (
     SpawnedMspConnection,
     spawn_msp_connection,
 )
-from ..errors import MuseSessionDiscardedError, PermissionProfileNotApplied
+from ..errors import (
+    MuseCapabilityNotGrantedError,
+    MuseFacadeOwnedMethodError,
+    MuseSessionDiscardedError,
+    PermissionProfileNotApplied,
+)
 from .discarded import DiscardedSessions
 from .host_start import MuseHostStartError, keeps_its_own_error
 from .host_death import (
@@ -70,6 +83,42 @@ from .turn_submit import _camel
 
 _I = TypeVar("_I")
 
+# Every SessionListParams member list_sessions forwards; the wire-query
+# suite asserts this set equals the generated type's members, so a
+# regenerated member cannot be silently dropped on the way to the wire.
+LIST_FORWARDED: tuple[str, ...] = (
+    "cursor",
+    "filter",
+    "limit",
+    "updatedAfter",
+    "workspaceRoot",
+)
+
+# The wire methods whose state the facade owns, refused by
+# ``MuseClient.command``: ``initialize`` is the handshake ``spawn`` runs;
+# ``session/start``/``session/resume`` register the ``Session`` the pump routes
+# to; ``turn/start``, ``turn/steer``, ``turn/unqueue``, ``approval/decide`` and
+# ``userInput/answer`` carry the pending-command, approval and answer state
+# their verbs keep (a steer is a pending submission and an accepted unqueue
+# retires its queued entry); ``view/page`` is
+# the gap fill's; and ``view/subscribe``/``view/unsubscribe`` change the
+# subscription set the pump routes by. Same list as the TS twin.
+FACADE_OWNED_METHODS: frozenset[str] = frozenset(
+    {
+        "initialize",
+        "session/start",
+        "session/resume",
+        "turn/start",
+        "turn/steer",
+        "turn/unqueue",
+        "approval/decide",
+        "userInput/answer",
+        "view/page",
+        "view/subscribe",
+        "view/unsubscribe",
+    }
+)
+
 # OPTIONAL MEANS OMITTED, NEVER null: every member the two option
 # builders can leave unset is optional-non-nullable in the generated params,
 # so an unset member is dropped from the frame rather than nulled.
@@ -79,9 +128,14 @@ _I = TypeVar("_I")
 class StartSessionOptions:
     """Caller-facing options for ``session/start``.
 
-    Composed from the generated ``SessionStartParams``. ``config`` is excluded as well as ``commandId`` until the facade
-    implements the required ``sessionMcp`` grant check and forwarding; ``previousSessionId`` is excluded because the
-    facade starts root sessions, and ``spawnedBy`` because the facade does not expose a spawner yet.
+    Composed from the generated ``SessionStartParams``. ``commandId`` is
+    excluded because the connection mints it; ``previousSessionId`` because the
+    facade starts root sessions, and ``spawnedBy`` because the facade does not
+    expose a spawner yet.
+    Experimental-only members (``switchPolicy``) are invisible here: the
+    exclusion set tracks the stable ``SessionStartParams`` below, and a
+    graduation reds the drift assert until the facade forwards or
+    excludes the new member.
 
     Attributes:
         approval_mode: The approval enforcement mode to start under; omitted
@@ -110,6 +164,10 @@ class StartSessionOptions:
             error.
         recovery_mode: Optional recovery selection (wire ``recoveryMode``);
             omitted means no selection is sent.
+        config: Per-session configuration (wire ``config``). Naming MCP
+            servers in ``mcpServers`` needs the host's ``sessionMcp`` grant;
+            without it the start raises ``MuseCapabilityNotGrantedError``
+            before anything is sent.
     """
 
     approval_mode: str | None = None
@@ -121,14 +179,12 @@ class StartSessionOptions:
     permission_profile: str | None = None
     require_permission_profile: bool = False
     recovery_mode: RecoveryMode | None = None
+    config: SessionConfig | None = None
 
 
 @dataclass
 class ResumeSessionOptions:
     """Caller-facing options for ``session/resume``.
-
-    ``config`` remains excluded until the same capability-checked forwarding
-    as ``session/start`` lands.
 
     Attributes:
         session_id: The session to resume.
@@ -155,6 +211,8 @@ class ResumeSessionOptions:
             failure for an approval that arrived with the resume reply is
             heard whatever task the caller registers from. Never sent on the
             wire.
+        config: Per-session configuration, as at start: naming MCP servers
+            needs the host's ``sessionMcp`` grant.
     """
 
     session_id: str
@@ -166,6 +224,7 @@ class ResumeSessionOptions:
     recovery_mode: RecoveryMode | None = None
     on_approval: ApprovalHandler | None = None
     on_approval_error: ApprovalFailureHandler | None = None
+    config: SessionConfig | None = None
 
 
 # Drift pins — the Python twin of the TS `AssertNever` on START_FORWARDED /
@@ -173,15 +232,16 @@ class ResumeSessionOptions:
 # generated params but not to the options dataclass reds THIS import (and thus
 # every test), so a regenerated member cannot silently fail to reach the wire.
 # The excluded members are the ones the facade owns rather than forwards:
-# `commandId` (the connection is the single minter), `config`
-# (temporarily withheld until capability-checked forwarding lands) and
+# `commandId` (the connection is the single minter) and
 # `previousSessionId` (the facade starts root sessions; the predecessor link
 # belongs to a client that switches sessions) and `spawnedBy` (the facade
 # does not expose a spawner yet). The owned
 # members are options-only posture the wire never carries (client-local
 # `requirePermissionProfile`, the required-selection check): subtracted from
 # the options side, so a regen that adds a same-named wire member reds here.
-_START_EXCLUDED = {"commandId", "config", "previousSessionId", "spawnedBy"}
+# Experimental-only members stay out: this set tracks stable
+# `SessionStartParams`, and a graduation reds the assert below.
+_START_EXCLUDED = {"commandId", "previousSessionId", "spawnedBy"}
 _START_OWNED = {"requirePermissionProfile"}
 assert (
     {_camel(f.name) for f in fields(StartSessionOptions)} - _START_OWNED
@@ -189,13 +249,28 @@ assert (
     SessionStartParams.__annotations__
 ), "StartSessionOptions drifted from SessionStartParams — forward the new member"
 
-_RESUME_EXCLUDED = {"commandId", "config"}
+_RESUME_EXCLUDED = {"commandId"}
 _RESUME_OWNED = {"onApproval", "onApprovalError"}
 assert (
     {_camel(f.name) for f in fields(ResumeSessionOptions)} - _RESUME_OWNED
 ) | _RESUME_EXCLUDED == set(
     SessionResumeParams.__annotations__
 ), "ResumeSessionOptions drifted from SessionResumeParams — forward the new member"
+
+
+def _with_session_mcp_requested(
+    capabilities: ClientCapabilities | None,
+) -> ClientCapabilities:
+    """The caller's capability posture with ``sessionMcp`` added to its
+    requests, each requested name once: the facade requests the grant its
+    ``config`` forwarding checks, and a host grants only what was requested.
+    """
+    merged: ClientCapabilities = {**capabilities} if capabilities is not None else {}
+    requested = list(dict.fromkeys(merged.get("requestedCapabilities") or []))
+    if "sessionMcp" not in requested:
+        requested.append("sessionMcp")
+    merged["requestedCapabilities"] = requested
+    return merged
 
 
 def _committed_profile_id(snapshot: Any) -> str | None:
@@ -240,7 +315,10 @@ class MuseClientSpawnOptions:
     handshake identity.
 
     Attributes:
-        muse_bin: The host binary to run.
+        muse_bin: The host binary to run, or ``None`` to use the first
+            ``muse`` on the process ``PATH``; with neither, ``spawn`` raises
+            ``MuseHostDiscoveryError`` before starting anything. Still the
+            first field, so positional construction keeps working.
         client_info: Client identification, forwarded verbatim into
             ``initialize``.
         args: Passed through verbatim (a bare ``muse`` is the TUI — pass
@@ -248,11 +326,13 @@ class MuseClientSpawnOptions:
         cwd: Working directory for the host.
         env: The host's environment (inherited when ``None``).
         capabilities: Capability posture; absent means all defaults.
+            ``spawn`` adds ``sessionMcp`` to ``requestedCapabilities``
+            (keeping yours) so per-session MCP servers can be granted.
         on_stderr: Raw stderr chunks, drained from birth, never parsed.
         shutdown_timeout_ms: See ``MuseServeChild.spawn``.
     """
 
-    muse_bin: str
+    muse_bin: str | None
     client_info: ClientInfo
     args: Sequence[str] | None = None
     cwd: str | None = None
@@ -339,6 +419,8 @@ class MuseClient(Generic[_I]):
             A wired client, its connection already initialized.
 
         Raises:
+            MuseHostDiscoveryError: ``muse_bin`` is ``None`` and no ``muse``
+                is on ``PATH``; raised before anything is started.
             MuseHostStartError: The host ended before the handshake
                 completed; it carries the exit classification row, the
                 bounded stderr tail, and ``answered_initialize`` (``True``
@@ -352,7 +434,7 @@ class MuseClient(Generic[_I]):
                 raises the operating system's own error from the spawn call.
         """
         handshake = await spawn_msp_connection(
-            options.muse_bin,
+            discover_muse_bin(options.muse_bin),
             args=tuple(options.args) if options.args is not None else (),
             cwd=options.cwd,
             env=options.env,
@@ -366,9 +448,10 @@ class MuseClient(Generic[_I]):
                 else options.shutdown_timeout_ms
             ),
         )
-        init_params: InitializeParams = {"clientInfo": options.client_info}
-        if options.capabilities is not None:
-            init_params["capabilities"] = options.capabilities
+        init_params: InitializeParams = {
+            "clientInfo": options.client_info,
+            "capabilities": _with_session_mcp_requested(options.capabilities),
+        }
         try:
             spawned = await handshake.initialize(init_params)
         except BaseException as error:
@@ -462,6 +545,8 @@ class MuseClient(Generic[_I]):
         # other start members (None stays omitted).
         if options.permission_profile is not None:
             params["permissionProfile"] = options.permission_profile
+        if options.config is not None:
+            params["config"] = self._forward_config("session/start", options.config)
         # Required selection: a caller that requires its selection proves it,
         # never assuming the host default. The flag without the member is a
         # usage error, raised pre-wire.
@@ -535,6 +620,8 @@ class MuseClient(Generic[_I]):
             params["recoveryMode"] = options.recovery_mode
         if options.permission_profile is not None:
             params["permissionProfile"] = options.permission_profile
+        if options.config is not None:
+            params["config"] = self._forward_config("session/resume", options.config)
         return await self._open(
             "session/resume",
             params,
@@ -544,16 +631,84 @@ class MuseClient(Generic[_I]):
         )
 
     async def list_sessions(
-        self, options: Any = None
-    ) -> Any:
-        """List stored sessions (``session/list``), including text search."""
+        self, options: SessionListParams | None = None
+    ) -> SessionListResult:
+        """List stored sessions (``session/list``), including text search.
+
+        A read-only list: rides ``request()``, not ``command()`` (see
+        ``Session.list_tasks``).
+        """
         params: dict[str, Any] = {}
         if options:
-            for key in ("cursor", "filter", "limit", "updatedAfter", "workspaceRoot"):
-                value = options.get(key) if isinstance(options, Mapping) else getattr(options, key, None)
+            for key in LIST_FORWARDED:
+                value = options.get(key)
                 if value is not None:
                     params[key] = value
-        return await self._connection.command("session/list", params)
+        return cast(
+            SessionListResult, await self._connection.request("session/list", params)
+        )
+
+    async def list_models(
+        self, options: ModelListParams | None = None
+    ) -> ModelListResult:
+        """List the models the host accepts in ``Session.set_model``
+        (``model/list``).
+
+        With ``sessionId``, that session's current model is flagged
+        ``isActive``. A query: rides ``request()``, like ``list_sessions``.
+        """
+        params: dict[str, Any] = {}
+        if options and options.get("sessionId") is not None:
+            params["sessionId"] = options["sessionId"]
+        return cast(ModelListResult, await self._connection.request("model/list", params))
+
+    async def read_usage(self) -> UsageReadResult:
+        """Read the host's last-observed subscription usage (``usage/read``)
+        without a model call; ``usage`` is absent when nothing was observed."""
+        return cast(UsageReadResult, await self._connection.request("usage/read"))
+
+    async def command(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        command_id: str | None = None,
+        max_attempts: int | None = None,
+        retry_delay: RetryDelay | None = None,
+    ) -> Params:
+        """Send a wire method directly, typically one the facade does not wrap.
+
+        It rides the same ``Connection.command()`` the verbs use: the
+        connection mints the ``commandId``, retries a nothing-admitted refusal
+        under the same id, and checks the ack's echo. Frames the command
+        causes still reach your sessions through the client's one inbound
+        pump; this sends and returns the ack, nothing more. Each call keeps
+        one fixed-size fingerprint for the connection's lifetime, so prefer a
+        facade verb for a query you poll.
+
+        Args:
+            method: The wire method.
+            params: Its params, without ``commandId``.
+            command_id: Reuse this id for a replay of the same logical command.
+            max_attempts: Total attempts, including the first (default 3).
+            retry_delay: Injectable so deterministic tests do not sleep.
+
+        Returns:
+            The host's ack.
+
+        Raises:
+            MuseFacadeOwnedMethodError: ``method`` is one whose state the
+                facade owns (``FACADE_OWNED_METHODS``); nothing is written.
+        """
+        if method in FACADE_OWNED_METHODS:
+            raise MuseFacadeOwnedMethodError(method)
+        return await self._connection.command(
+            method,
+            dict(params),
+            command_id=command_id,
+            max_attempts=max_attempts,
+            retry_delay=retry_delay,
+        )
 
     async def close(self) -> None:
         """Shut the host down in an orderly way.
@@ -567,15 +722,24 @@ class MuseClient(Generic[_I]):
         EOF. So the close's own classification is forwarded to every session;
         ``host_exited`` answers ``notADeath`` for a clean shutdown, keeping the
         orderly arm inert.
+
+        A stop ``Session.run`` left running after a second cancellation has no
+        host to send to once the close ends it, so the close cancels it and
+        waits for it, leaving no such task pending once the close settles.
         """
         self._closing = True
-        if self._child is not None:
-            exit_classification: ExitClassification = await self._child.close()
-            if is_abnormal_host_death(exit_classification):
-                for session in self._sessions:
-                    session.host_exited(exit_classification)
-            return
-        await self._connection.close()
+        try:
+            if self._child is not None:
+                exit_classification: ExitClassification = await self._child.close()
+                if is_abnormal_host_death(exit_classification):
+                    for session in self._sessions:
+                        session.host_exited(exit_classification)
+                return
+            await self._connection.close()
+        finally:
+            held = [task for session in self._sessions for task in session._end_held_stops()]
+            if held:
+                await asyncio.gather(*held, return_exceptions=True)
 
     async def _open(
         self,
@@ -625,6 +789,9 @@ class MuseClient(Generic[_I]):
             session.on_approval_error(on_approval_error)
         if on_approval is not None:
             session.on_approval(on_approval)
+        # ``_route`` drops what ``apply`` returns, so a reclaim folded during
+        # this session's own ``unqueue()`` must be held for that call.
+        session._apply_results_dropped = True
         self._sessions.add(session)
         # The frames that named this session while its verb was in flight
         # fold NOW, in arrival order — synchronously, so nothing the pump
@@ -632,6 +799,25 @@ class MuseClient(Generic[_I]):
         for held in self._held.pop(session_id, ()):
             session.apply(held)
         return session
+
+    def _forward_config(self, method: str, config: SessionConfig) -> SessionConfig:
+        # Per-session MCP servers need the ``sessionMcp`` grant in the
+        # handshake this client was built with (``spawn`` requests it; a
+        # caller's own handshake must request it too); a client given no
+        # handshake cannot show it. A config naming no server needs no grant,
+        # as on the host.
+        if not config.get("mcpServers"):
+            return config
+        handshake = self._initialize_result
+        if handshake is not None and "sessionMcp" in handshake.get("grantedCapabilities", []):
+            return config
+        raise MuseCapabilityNotGrantedError(
+            "sessionMcp",
+            method,
+            "config.mcpServers needs the sessionMcp grant, which this connection's "
+            "handshake does not hold (MuseClient.spawn requests it; a host withholds "
+            "it when per-session MCP is turned off)",
+        )
 
     def _assert_reattach_allowed(self, session_id: str) -> None:
         # Two facts, both recorded by an ephemeral discharge: THIS session was

@@ -20,9 +20,10 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = PROJECT_ROOT / "scripts" / "sdk-source-closure.json"
 
-# The publish path the mirror workflow calls; both must survive the mirror
+# The publish path the mirror workflow calls; all must survive the mirror
 # with their execute story intact (the TS PUBLISH_SCRIPT arm's reasoning).
 PUBLISH_SCRIPTS = (
+    "scripts/msp_fingerprint.py",
     "scripts/publish-sdk-pypi.sh",
     "scripts/sdk-py-wheel-rows.py",
 )
@@ -59,8 +60,9 @@ def test_the_closure_covers_the_python_tree() -> None:
     for script in PUBLISH_SCRIPTS:
         assert script in closure, (
             f"{script} must be a closure path: the mirror's publish-pypi.yml "
-            "calls the gate script by path, and the gate script calls the row "
-            "generator — a republish without either dead-ends the publish"
+            "calls the gate script by path, the gate script calls the row "
+            "generator, and the row generator imports the fingerprint module "
+            "— a republish without any of them dead-ends the publish"
         )
 
 

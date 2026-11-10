@@ -1,7 +1,7 @@
 /**
  * The `--area sdk` scenario set.
  *
- * Three groups, all driving the REAL `tbh serve`:
+ * Three groups, all driving the REAL `muse serve`:
  *  - `scenarios/conformance.ts` — handshake and lifecycle. These conform
  *    fully today, so the group is deliberately small: re-proving a green
  *    surface is not QA.

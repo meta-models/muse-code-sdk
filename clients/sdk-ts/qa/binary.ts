@@ -1,5 +1,5 @@
 /**
- * Find the REAL `tbh` binary. The harness never falls back to a stand-in
+ * Find the REAL `muse` binary. The harness never falls back to a stand-in
  * host: a black-box QA harness that quietly tests a fixture proves nothing,
  * so "not found" is an explicit unavailability the caller must handle, never
  * a substitution.
@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** `clients/sdk-ts/dist/qa/` → the repo's `projects/tbh` root. */
+/** `clients/sdk-ts/dist/qa/` → the workspace root, where a local build's `target/` lands. */
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
 /** The env var the auto-qa procedure sets; it wins over any discovered build. */
@@ -39,9 +39,8 @@ export function resolveMuseBinary(env: NodeJS.ProcessEnv = process.env): BinaryR
   return {
     available: false,
     reason: [
-      `no \`tbh\` binary found. Build one and point ${MUSE_QA_SDK_BIN} at it:`,
-      "  CARGO_TARGET_DIR=$(scripts/probe-env.sh --print) cargo build -p tbh-cli --bin tbh",
-      `  export ${MUSE_QA_SDK_BIN}=$CARGO_TARGET_DIR/debug/tbh`,
+      `no \`muse\` binary found. Point ${MUSE_QA_SDK_BIN} at the muse binary under test, e.g. an installed one:`,
+      `  export ${MUSE_QA_SDK_BIN}=$(command -v muse)`,
       `searched: ${candidates.map(([path]) => path).join(", ")}`,
     ].join("\n"),
   };

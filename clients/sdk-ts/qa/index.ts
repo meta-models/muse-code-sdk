@@ -2,7 +2,7 @@
  * `auto-qa --area sdk` — the black-box QA harness for `@muse-code/sdk`.
  *
  * It plays an EXTERNAL INTEGRATOR: the real `@muse-code/sdk`, reached only through
- * its public barrel, driving the real `tbh serve` binary over MSP stdio, with
+ * its public barrel, driving the real `muse serve` binary over MSP stdio, with
  * a wire tap recording both directions so every finding can be stated as
  * "public API said X, wire said Y".
  *

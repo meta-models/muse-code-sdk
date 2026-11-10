@@ -1,10 +1,10 @@
-"""Port of ``clients/sdk-ts/test/facade-wire-queries.test.ts``.
+"""Wire-present facade helpers: session queries and commands the host already
+serves (`task/list`, `skill/list`, `hook/list`, `workflow/pause`,
+`workflow/resume`, `recap/request`, `feedback/submit`, `session/sideChat`,
+`session/list`) reached through typed `Session`/`MuseClient` verbs.
 
-The wire-present query and command facades on the public ``Session`` /
-``MuseClient`` over the in-memory ``FakeDuplex``: ``task/list``,
-``skill/list``, ``hook/list``, ``workflow/pause``, ``workflow/resume``,
-``recap/request``, ``feedback/submit``, ``session/sideChat``, and
-``session/list`` search. The fold ``messagePhase`` pin lives in ``test_session_fold.py``.
+Port of ``clients/sdk-ts/test/facade-wire-queries.test.ts``. Causal, never
+time-based: every wait is a bounded loop-turn pump.
 """
 
 from __future__ import annotations
@@ -15,86 +15,97 @@ from typing import Any
 import pytest
 
 from muse_code import (
-    DiscardedSessions,
     MuseClient,
     MuseClientOptions,
     MuseSessionDiscardedError,
     Session,
+    SyncMuseClient,
     read_session_durability,
 )
 from muse_code.connection import Connection
 from muse_code.connection.spawn import ExitClassification
+from muse_code.facade.client import LIST_FORWARDED
+from muse_code_msp import SessionListParams
 
-from helpers_connection import FakeDuplex, answer, sent_frame, sent_params, wait_for_writes
+from helpers_connection import (
+    AsyncChunks,
+    FakeDuplex,
+    answer,
+    frame,
+    pump,
+    sent_frame,
+    sent_params,
+    wait_for_writes,
+)
 
-SESSION = "s-1"
+Params = dict[str, Any]
+
+DURABLE = read_session_durability({"sessionDurability": "durable"})
 
 
-def _durability() -> Any:
-    return read_session_durability({"sessionDurability": "durable"})
-
-
-def _wired_session() -> tuple[Session[Any], FakeDuplex]:
+def _wired_session() -> "tuple[Session[Any], FakeDuplex]":
     transport = FakeDuplex()
-    connection = Connection(transport)
-    session: Session[Any] = Session(SESSION, _durability(), connection=connection)
+    session: Session[Any] = Session("s-1", DURABLE, connection=Connection(transport))
     return session, transport
-
-
-async def _exchange(transport: FakeDuplex, result: dict[str, Any]) -> dict[str, Any]:
-    await wait_for_writes(transport, 1)
-    sent = sent_frame(transport, 0)
-    answer(transport, 0, result)
-    return sent
 
 
 @pytest.mark.asyncio
 async def test_list_tasks_sends_task_list_for_this_session_and_returns_rows() -> None:
     session, transport = _wired_session()
     pending = asyncio.ensure_future(session.list_tasks())
-    sent = await _exchange(
+    await wait_for_writes(transport, 1)
+    assert sent_frame(transport, 0)["method"] == "task/list"
+    assert sent_params(transport, 0)["sessionId"] == "s-1"
+    assert "commandId" not in sent_params(transport, 0), "a read-only list mints no commandId"
+    answer(
         transport,
+        0,
         {"tasks": [{"taskId": "t-1", "kind": "tool", "status": "inProgress"}]},
     )
-    assert sent["method"] == "task/list"
-    assert sent_params(transport, 0)["sessionId"] == "s-1"
-    result = await pending
-    assert result["tasks"][0]["taskId"] == "t-1"
+    assert (await pending)["tasks"][0]["taskId"] == "t-1"
 
 
 @pytest.mark.asyncio
 async def test_list_skills_and_list_hooks_send_skill_list_and_hook_list() -> None:
-    cases: list[tuple[Any, str, dict[str, Any]]] = [
-        (lambda s: s.list_skills(), "skill/list", {"skills": []}),
-        (lambda s: s.list_hooks(), "hook/list", {"hooks": []}),
-    ]
-    for call, method, result_payload in cases:
+    for call, method, result in [
+        (Session.list_skills, "skill/list", {"skills": []}),
+        (Session.list_hooks, "hook/list", {"hooks": []}),
+    ]:
         session, transport = _wired_session()
         pending = asyncio.ensure_future(call(session))
-        sent = await _exchange(transport, result_payload)
-        assert sent["method"] == method
+        await wait_for_writes(transport, 1)
+        assert sent_frame(transport, 0)["method"] == method
+        assert sent_params(transport, 0)["sessionId"] == "s-1"
+        answer(transport, 0, result)
         await pending
 
 
 @pytest.mark.asyncio
-async def test_pause_workflow_resume_workflow_request_recap_submit_feedback_open_side_chat_send_their_wire_methods() -> (
-    None
-):
-    cases: list[tuple[str, Any, dict[str, Any]]] = [
+async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolve_acks() -> None:
+    cases: list[tuple[str, Any, Params, Params, str, Any]] = [
         (
             "workflow/pause",
             lambda s: s.pause_workflow("run-1"),
-            {"commandId": "c", "status": "accepted"},
+            {"sessionId": "s-1", "workflowRunId": "run-1"},
+            {"status": "accepted"},
+            "status",
+            "accepted",
         ),
         (
             "workflow/resume",
             lambda s: s.resume_workflow("run-1"),
-            {"commandId": "c", "status": "accepted", "turnId": "t-9"},
+            {"sessionId": "s-1", "workflowRunId": "run-1"},
+            {"status": "accepted", "turnId": "t-9"},
+            "turnId",
+            "t-9",
         ),
         (
             "recap/request",
             lambda s: s.request_recap(),
-            {"commandId": "c", "status": "accepted"},
+            {"sessionId": "s-1"},
+            {"status": "accepted"},
+            "status",
+            "accepted",
         ),
         (
             "feedback/submit",
@@ -102,83 +113,205 @@ async def test_pause_workflow_resume_workflow_request_recap_submit_feedback_open
                 {"classification": "bug", "note": "n", "withFiles": False}
             ),
             {
+                "classification": "bug",
+                "note": "n",
+                "withFiles": False,
+                "sessionId": "s-1",
+            },
+            {
                 "bundlePath": "/b",
                 "outcome": "recorded",
                 "sessionRecordAttached": False,
                 "sessionRecordTruncated": False,
             },
+            "bundlePath",
+            "/b",
         ),
         (
             "session/sideChat",
             lambda s: s.open_side_chat(),
+            {"sessionId": "s-1"},
             {
                 "session": {"sessionId": "side-1", "status": "idle"},
                 "history": {"mode": "none", "items": []},
                 "pendingRequests": [],
                 "viewCursor": "v",
             },
+            "viewCursor",
+            "v",
         ),
     ]
-    for method, call, result_payload in cases:
+    for method, call, params, result, ack_field, ack_value in cases:
         session, transport = _wired_session()
         pending = asyncio.ensure_future(call(session))
         await wait_for_writes(transport, 1)
-        sent = sent_frame(transport, 0)
-        echoed = {**result_payload, "commandId": sent_params(transport, 0)["commandId"]}
+        assert sent_frame(transport, 0)["method"] == method
+        sent = dict(sent_params(transport, 0))
+        sent.pop("commandId", None)
+        assert sent == params, f"{method} sends the full params"
+        echoed = {**result, "commandId": sent_params(transport, 0).get("commandId")}
         answer(transport, 0, echoed)
-        assert sent["method"] == method
-        params = sent_params(transport, 0)
-        assert params["sessionId"] == "s-1"
-        if method in ("workflow/pause", "workflow/resume"):
-            assert params["workflowRunId"] == "run-1"
-        if method == "feedback/submit":
-            assert params["classification"] == "bug"
-            assert params["note"] == "n"
-            assert params["withFiles"] is False
-        await pending
-
-
-@pytest.mark.asyncio
-async def test_discharged_session_refuses_wire_queries() -> None:
-    shared = DiscardedSessions()
-    ephemeral = read_session_durability({"sessionDurability": "ephemeral"})
-    session: Session[Any] = Session(SESSION, ephemeral, discarded=shared)
-    session.pending.submitted("c-1", "x")
-    session.host_exited(
-        ExitClassification(
-            kind="crash", exit_code=77, exit_signal=None, stderr_tail=("panicked",)
-        )
-    )
-    with pytest.raises(MuseSessionDiscardedError):
-        await session.list_tasks()
+        assert (await pending)[ack_field] == ack_value, f"{method} resolves its ack"
 
 
 @pytest.mark.asyncio
 async def test_fold_only_session_refuses_wire_queries_without_a_connection() -> None:
-    session: Session[Any] = Session(SESSION, _durability())
-    with pytest.raises(RuntimeError, match="needs a connection"):
+    session: Session[Any] = Session("s-1", DURABLE)
+    with pytest.raises(Exception, match="needs a connection"):
         await session.list_tasks()
+
+    # The refusal refuses only the send: local folding stays usable.
+    session.apply(
+        {
+            "method": "item/completed",
+            "params": {
+                "sessionId": "s-1",
+                "turnId": "turn-1",
+                "item": {
+                    "itemId": "m-1",
+                    "kind": "agentMessage",
+                    "revision": 1,
+                    "status": "completed",
+                    "text": "kept",
+                },
+            },
+        }
+    )
+    assert session.fold.items.get("m-1") is not None
 
 
 @pytest.mark.asyncio
-async def test_muse_client_list_sessions_sends_session_list_with_text_filter() -> None:
+async def test_client_list_sessions_forwards_every_option_and_resolves() -> None:
     transport = FakeDuplex()
-    connection = Connection(transport)
     client: MuseClient[Any] = MuseClient(
-        connection, MuseClientOptions(durability=_durability())
+        Connection(transport), MuseClientOptions(durability=DURABLE)
     )
-    pending = asyncio.ensure_future(
-        client.list_sessions(
-            {"filter": {"text": {"allOf": ["check"], "fields": ["title"]}}}
-        )
-    )
-    sent = await _exchange(transport, {"sessions": [], "nextCursor": None})
-    assert sent["method"] == "session/list"
-    assert sent_params(transport, 0)["filter"]["text"] == {
-        "allOf": ["check"],
-        "fields": ["title"],
+    options: Params = {
+        "cursor": "cur-1",
+        "filter": {"text": {"allOf": ["check"], "fields": ["title"]}},
+        "limit": 5,
+        "updatedAfter": "2026-01-01T00:00:00Z",
+        "workspaceRoot": "/repo",
     }
+    pending = asyncio.ensure_future(client.list_sessions(options))  # type: ignore[arg-type]
+    await wait_for_writes(transport, 1)
+    assert sent_frame(transport, 0)["method"] == "session/list"
+    assert "commandId" not in sent_params(transport, 0)
+    assert sent_params(transport, 0) == options
+    answer(transport, 0, {"sessions": [], "nextCursor": None})
     assert await pending == {"sessions": [], "nextCursor": None}
-    await client.close()
 
 
+@pytest.mark.asyncio
+async def test_discarded_session_refuses_wire_verbs_before_sending() -> None:
+    transport = FakeDuplex()
+    session: Session[Any] = Session(
+        "s-9",
+        read_session_durability({"sessionDurability": "ephemeral"}),
+        connection=Connection(transport),
+    )
+    crash = ExitClassification(
+        kind="crash",
+        exit_code=77,
+        exit_signal=None,
+        stderr_tail=("thread 'main' panicked",),
+    )
+    assert session.host_exited(crash).kind == "discharged"
+
+    listing = asyncio.ensure_future(session.list_tasks())
+    pausing = asyncio.ensure_future(session.pause_workflow("run-1"))
+    await pump()
+    assert transport.writes == []
+    with pytest.raises(MuseSessionDiscardedError):
+        await listing
+    with pytest.raises(MuseSessionDiscardedError):
+        await pausing
+
+
+def test_list_forwarded_covers_every_generated_member() -> None:
+    assert set(LIST_FORWARDED) == set(SessionListParams.__annotations__)
+
+
+class _AutoHost:
+    """Answers each request from inside ``write`` (the sync loop is parked
+    in the blocking verb, so frames cannot be fed from outside)."""
+
+    def __init__(self) -> None:
+        self.chunks = AsyncChunks()
+        self.writes: list[str] = []
+
+    @property
+    def incoming(self) -> Any:
+        return self.chunks
+
+    async def write(self, chunk: str) -> None:
+        self.writes.append(chunk)
+        import json
+
+        sent = json.loads(chunk)
+        method = sent.get("method")
+        results: dict[str, Params] = {
+            "session/start": {
+                "session": {"sessionId": "s-1", "status": "idle", "turnCount": 0},
+                "viewCursor": "v:0",
+            },
+            "task/list": {"tasks": [{"taskId": "t-1"}]},
+            "workflow/pause": {"status": "accepted"},
+            "session/list": {"sessions": [], "nextCursor": None},
+        }
+        if method in results:
+            result = dict(results[method])
+            params = sent.get("params") or {}
+            if "commandId" in params:
+                result["commandId"] = params["commandId"]
+            self.chunks.push(
+                frame({"jsonrpc": "2.0", "id": sent["id"], "result": result})
+            )
+
+    async def close(self, flushed: object = None) -> None:
+        if flushed is not None and hasattr(flushed, "__await__"):
+            await flushed  # type: ignore[arg-type]
+        self.chunks.end()
+
+
+def test_sync_twins_run_the_wire_verbs() -> None:
+    host = _AutoHost()
+
+    async def factory() -> MuseClient[Any]:
+        return MuseClient(
+            Connection(host), MuseClientOptions(durability=DURABLE)  # type: ignore[arg-type]
+        )
+
+    client: SyncMuseClient[Any] = SyncMuseClient.create(factory)
+    session = client.start_session()
+    assert session.list_tasks()["tasks"][0]["taskId"] == "t-1"
+    assert session.pause_workflow("run-1")["status"] == "accepted"
+    assert client.list_sessions() == {"sessions": [], "nextCursor": None}
+    client.close()
+
+
+def test_fold_surfaces_agent_message_message_phase_verbatim() -> None:
+    session: Session[Any] = Session("s-1", DURABLE)
+
+    def item(item_id: str, kind: str, **extra: Any) -> Params:
+        return {
+            "method": "item/completed",
+            "params": {
+                "sessionId": "s-1",
+                "turnId": "turn-1",
+                "item": {
+                    "itemId": item_id,
+                    "kind": kind,
+                    "revision": 1,
+                    "status": "completed",
+                    **extra,
+                },
+            },
+        }
+
+    session.apply(item("m-1", "agentMessage", messagePhase="commentary", text="working"))
+    session.apply(item("tc-1", "toolCall"))
+    session.apply(item("m-2", "agentMessage", messagePhase="finalAnswer", text="done"))
+    commentary = session.fold.items.get("m-1")
+    assert commentary is not None
+    assert commentary["messagePhase"] == "commentary"

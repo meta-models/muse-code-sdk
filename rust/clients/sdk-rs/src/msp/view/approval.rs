@@ -151,6 +151,16 @@ pub struct ApprovalResolvedParams {
     /// decision.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decided_by_command_id: Option<String>,
+    /// Why an `abort` was not a cancel, when the host knows: `lockEpochEnded |
+    /// brokerUnavailable`, an open vocabulary. Clients render an unknown value
+    /// like an absent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abort_reason: Option<String>,
+    /// The client whose `approval/decide` won: absent on policy, judge and
+    /// interrupt terminals, for a connection with no recorded handshake, and on
+    /// older logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_client: Option<crate::msp::handshake::ClientInfo>,
     /// The decision time as RFC3339, projected from the durable
     /// `DecisionApplied` record's own stamp: optional on the wire so decoders
     /// tolerate its absence, always populated by current hosts.
@@ -164,6 +174,18 @@ pub struct ApprovalResolvedParams {
     /// parent session's plane; parent-own approvals omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_origin: Option<ApprovalSubagentOrigin>,
+}
+
+/// The `ApprovalResolvedParams.abortReason` wire words.
+impl ApprovalResolvedParams {
+    /// `lockEpochEnded`: a `computerUseTakeover` approval lost the race because
+    /// the holder's lock epoch ended or another takeover won, so the lock moved
+    /// before the answer; never a cancel.
+    pub const ABORT_REASON_LOCK_EPOCH_ENDED: &'static str = "lockEpochEnded";
+    /// `brokerUnavailable`: the lock broker was unreachable after the
+    /// takeover was marked resolving and holds no record of a transfer, so
+    /// the lock did not move and the request can be retried.
+    pub const ABORT_REASON_BROKER_UNAVAILABLE: &'static str = "brokerUnavailable";
 }
 
 /// Child (native subagent) provenance for an approval projected onto the PARENT
@@ -189,7 +211,7 @@ pub struct ApprovalSubagentOrigin {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ApprovalSubject {
-    /// Open discriminator: `shell | fileAccess | network | unixSocket | process | tool`.
+    /// Open discriminator: `shell | fileAccess | network | unixSocket | process | tool | computerUseTakeover`.
     pub kind: String,
     /// The full raw shell command. Present when `kind` is `shell`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,6 +260,10 @@ pub struct ApprovalSubject {
     /// never match on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<ApprovalOrigin>,
+    /// The session that holds the Computer Use lock now, by label and times
+    /// only. Present when `kind` is `computerUseTakeover`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub holder: Option<ComputerUseLockHolder>,
 }
 
 /// The `ApprovalSubject.kind` wire words — one source for the session-view fold
@@ -262,6 +288,10 @@ impl ApprovalSubject {
     /// `tool`: any other tool action, such as an MCP tool call. Show it using
     /// `toolName` and the request's `rawArgs`.
     pub const KIND_TOOL: &'static str = "tool";
+    /// `computerUseTakeover`: move the Computer Use lock from the session
+    /// named in `holder` to this one. Only one-time choices are offered, no
+    /// rule is ever saved, and only a user's decision resolves it.
+    pub const KIND_COMPUTER_USE_TAKEOVER: &'static str = "computerUseTakeover";
     /// `read`: read access to a `fileAccess` path.
     pub const ACCESS_READ: &'static str = "read";
     /// `write`: write access to a `fileAccess` path. It does not include read
@@ -269,6 +299,20 @@ impl ApprovalSubject {
     pub const ACCESS_WRITE: &'static str = "write";
     /// `control`: control of a `process` target.
     pub const ACCESS_CONTROL: &'static str = "control";
+}
+
+/// The Computer Use lock's holder as a `computerUseTakeover` approval shows it:
+/// never its app, window, target or current action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ComputerUseLockHolder {
+    /// The holding session's label.
+    pub session_label: String,
+    /// When the holder took the lock (RFC 3339).
+    pub acquired_at: String,
+    /// When the holder last acted under the lock (RFC 3339).
+    pub last_activity_at: String,
 }
 
 /// What triggered a tool action, shown so the user can judge it. It is

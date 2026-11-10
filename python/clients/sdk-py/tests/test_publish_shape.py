@@ -443,7 +443,7 @@ def test_a_pre_release_version_refuses_the_row_derivation(tmp_path: Path) -> Non
         "clients/msp-py/pyproject.toml",
         "clients/msp-py/src/muse_code_msp/__init__.py",
         "clients/sdk-py/pyproject.toml",
-        "schema/msp/stable/manifest.json",
+        "schema/msp/stable/msp.schema.json",
     ):
         target = tmp_path / source
         target.parent.mkdir(parents=True, exist_ok=True)

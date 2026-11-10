@@ -6,32 +6,46 @@
  * are fully headless. Actually RUNNING a turn on the chosen model needs a real
  * provider — that arm is out of scope here and the docs page says so.
  *
- * What it teaches (and what the docs page walks through):
+ * What it teaches (and what the docs page walks through), all through the
+ * SDK facade — `MuseClient.spawn`, `startSession`, `listModels`,
+ * `Session.setModel`, and the session's own fold:
  *  - a session's `modelId`/`providerId` are NULLABLE, and a fresh logged-out
  *    session really starts with `modelId: null`: no durable selection record
  *    exists until one lands. That unselected state is what the switch below
  *    moves out of.
- *  - `model/list` is a QUERY: no commandId, no durable record. Its rows carry
- *    everything a picker UI renders (`displayLabel`, `providerId`, `modelId`),
- *    and with a `sessionId` supplied the row matching that session's effective
- *    model is flagged `isActive`.
- *  - `session/setModel` is a COMMAND: the ack means the selection was
- *    admitted, and the durable `session/modelChanged` notification means it
+ *  - `listModels` is a QUERY (`model/list`): no commandId, no durable record.
+ *    Its rows carry everything a picker UI renders (`displayLabel`,
+ *    `providerId`, `modelId`), and with a `sessionId` supplied the row
+ *    matching that session's effective model is flagged `isActive`.
+ *  - `setModel` is a COMMAND (`session/setModel`): the ack means the selection
+ *    was admitted, and the durable `session/modelChanged` record means it
  *    happened. A client that treats the ack as "done" has skipped the record
  *    every other attached client will fold.
+ *  - the session `MuseClient` hands back folds every frame for you, so the
+ *    record shows up in `session.fold.sessionState` with no listener code.
  *  - verification is a read, not a memory: `session/read` returns the session
- *    with the switched `providerId`/`modelId`, and a fresh `model/list` flags
- *    the new row `isActive` — the same statements the client's own fold makes
- *    after applying `session/modelChanged`.
+ *    with the switched `providerId`/`modelId`, and a fresh `listModels` flags
+ *    the new row `isActive` — the same statements the fold makes.
  */
 
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Session, readSessionDurability } from "@muse-code/sdk";
+import { MuseClient } from "@muse-code/sdk";
+import type { Session } from "@muse-code/sdk";
+import type { ModelListResult } from "@muse-code/msp";
 
-import { Host, arrayAt, equals, objectAt, requireHost, stringAt } from "../kit/host.js";
+import {
+  HOST_DRAIN_WINDOW_MS,
+  TimeoutError,
+  drainQuietly,
+  equals,
+  isolatedHostEnv,
+  objectAt,
+  stringAt,
+  within,
+} from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
 import type { JourneyReport, Segment } from "../kit/segments.js";
 import type { Recipe, RecipeHosts } from "../runner.js";
@@ -50,8 +64,8 @@ interface CatalogRow {
 
 interface Context {
   readonly museBin: string;
-  host?: Host;
-  sessionId?: string;
+  client?: MuseClient;
+  session?: Session;
   /**
    * The model members of the `session/start` result, verbatim. Both are
    * nullable on the wire, and a fresh logged-out session really does start
@@ -64,11 +78,16 @@ interface Context {
 }
 
 /**
- * Narrow the untyped `model/list` rows to the members the recipe reads,
- * failing with the row's index so a malformed catalog names its defect.
+ * Check the `listModels` rows' members at run time, failing with the row's
+ * index so a malformed catalog names its defect: the SDK types the result,
+ * but it does not validate what the host sent.
  */
-function catalogRows(result: Record<string, unknown>): readonly CatalogRow[] {
-  return arrayAt(result, "models", "model/list result").map((row, index) => {
+function catalogRows(result: ModelListResult): readonly CatalogRow[] {
+  const models: unknown = result.models;
+  if (!Array.isArray(models)) {
+    throw new Error(`model/list result: "models" is not an array (got ${JSON.stringify(models)})`);
+  }
+  return models.map((row: unknown, index) => {
     if (row === null || typeof row !== "object" || Array.isArray(row)) {
       throw new Error(`model/list row ${String(index)} is not an object`);
     }
@@ -94,17 +113,46 @@ function sameModel(
   return a.providerId === b.providerId && a.modelId === b.modelId;
 }
 
-/** Narrow an untyped MSP result member to a string or a wire `null`. */
-function nullableStringAt(
-  value: Record<string, unknown>,
-  key: string,
-  where: string,
-): string | null {
-  const member = value[key];
+/** Narrow a result member to a string or a wire `null`. */
+function nullableString(member: unknown, where: string): string | null {
   if (member !== null && typeof member !== "string") {
-    throw new Error(`${where}: "${key}" is neither a string nor null (got ${JSON.stringify(member)})`);
+    throw new Error(`${where} is neither a string nor null (got ${JSON.stringify(member)})`);
   }
   return member;
+}
+
+/**
+ * Re-check the session's fold until `probe` finds what it wants. The facade
+ * folds every frame but has no state-change hook, so a short bounded re-check
+ * is the wait; the budget is a failure cap, not pacing.
+ */
+async function untilFolded<T>(
+  what: string,
+  budgetMs: number,
+  probe: () => T | undefined,
+): Promise<T> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const found = probe();
+    if (found !== undefined) return found;
+    if (Date.now() > deadline) throw new TimeoutError(what, budgetMs);
+    // Polls because Session has no fold-change event yet (#81895).
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function requireClient(context: Context): MuseClient {
+  if (context.client === undefined) throw new Error("`spawn` did not finish");
+  return context.client;
+}
+
+function requireSwitch(context: Context): { session: Session; target: CatalogRow } {
+  const session = context.session;
+  const target = context.target;
+  if (session === undefined || target === undefined) {
+    throw new Error("`switch` did not finish");
+  }
+  return { session, target };
 }
 
 const SEGMENTS: ReadonlyArray<Segment<Context>> = [
@@ -112,14 +160,19 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "spawn",
     title: "Spawn the release-built host and complete the handshake",
     async run(context) {
-      context.host = await Host.start(
-        {
-          museBin: context.museBin,
-          home: await mkdtemp(join(tmpdir(), "muse-cookbook-home-")),
-          workspaceRoot: await mkdtemp(join(tmpdir(), "muse-cookbook-ws-")),
-          clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
-        },
+      context.client = await within(
+        "the host's spawn and MSP handshake",
         HANDSHAKE_BUDGET_MS,
+        MuseClient.spawn({
+          museBin: context.museBin,
+          args: ["serve"],
+          cwd: await mkdtemp(join(tmpdir(), "muse-cookbook-ws-")),
+          env: isolatedHostEnv(await mkdtemp(join(tmpdir(), "muse-cookbook-home-"))),
+          clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
+          // The kit's owned drain window (see HOST_DRAIN_WINDOW_MS), so the
+          // drain bound and the SDK's actual window cannot drift apart.
+          shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
+        }),
       );
     },
   },
@@ -127,22 +180,27 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "session",
     title: "Start a session and read the model members it started with",
     async run(context) {
-      const host = requireHost(context);
-      const result = await host.msp.connection.command(
+      const client = requireClient(context);
+      const session = await within(
         "session/start",
-        { workspaceRoot: await mkdtemp(join(tmpdir(), "muse-cookbook-session-ws-")) },
-        { maxAttempts: 1 },
+        COMMAND_BUDGET_MS,
+        client.startSession({
+          workspaceRoot: await mkdtemp(join(tmpdir(), "muse-cookbook-session-ws-")),
+        }),
       );
-      const session = objectAt(result, "session", "session/start result");
-      equals(session["status"], "idle", "a fresh session's status");
-      context.sessionId = stringAt(session, "sessionId", "session/start session");
+      context.session = session;
+      if (session.opening?.verb !== "session/start") {
+        throw new Error("the session did not open through session/start");
+      }
+      const info = session.opening.result.session;
+      equals(info.status, "idle", "a fresh session's status");
       // Verbatim, nulls included. A fresh logged-out session has no durable
       // model-selection record yet, and this is where a client learns that:
       // `modelId` is null until a selection lands — the state this recipe
       // switches OUT of.
       context.startup = {
-        providerId: nullableStringAt(session, "providerId", "session/start session"),
-        modelId: nullableStringAt(session, "modelId", "session/start session"),
+        providerId: nullableString(info.providerId, "session/start session providerId"),
+        modelId: nullableString(info.modelId, "session/start session modelId"),
       };
     },
   },
@@ -150,17 +208,22 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "list-models",
     title: "List the catalog and pick the row to switch to",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
+      const client = requireClient(context);
+      const session = context.session;
       const startup = context.startup;
-      if (sessionId === undefined || startup === undefined) {
+      if (session === undefined || startup === undefined) {
         throw new Error("`session` did not finish");
       }
-      // A query, not a command: request, no commandId. Passing the sessionId
-      // is what makes `isActive` meaningful — it flags the row matching THIS
+      // A query, not a command: no commandId. Passing the sessionId is what
+      // makes `isActive` meaningful — it flags the row matching THIS
       // session's effective model.
-      const result = await host.msp.connection.request("model/list", { sessionId });
-      const rows = catalogRows(result);
+      const rows = catalogRows(
+        await within(
+          "the model/list reply",
+          COMMAND_BUDGET_MS,
+          client.listModels({ sessionId: session.sessionId }),
+        ),
+      );
       if (rows.length === 0) {
         throw new Error("the bundled catalog served no rows; nothing to switch to");
       }
@@ -197,101 +260,92 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "switch",
     title: "Switch the session's model and read the admission ack",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
+      const session = context.session;
       const target = context.target;
-      if (sessionId === undefined || target === undefined) {
+      if (session === undefined || target === undefined) {
         throw new Error("`list-models` did not finish");
       }
-      // A command this time: `Connection.command` mints the commandId and
-      // verifies the ack's echo. The ack says the selection was ADMITTED —
-      // the durable record it produces is the next segment's frame.
-      const ack = await host.msp.connection.command(
-        "session/setModel",
-        { sessionId, model: { providerId: target.providerId, modelId: target.modelId } },
-        { maxAttempts: 1 },
+      // A command this time: the SDK mints the commandId and verifies the
+      // ack's echo. The ack says the selection was ADMITTED — the durable
+      // record it produces is the next segment's evidence.
+      const ack = await within(
+        "the session/setModel ack",
+        COMMAND_BUDGET_MS,
+        session.setModel({ providerId: target.providerId, modelId: target.modelId }),
       );
-      equals(ack["status"], "accepted", "session/setModel ack status");
+      equals(ack.status, "accepted", "session/setModel ack status");
     },
   },
   {
     id: "model-changed",
-    title: "Observe the durable session/modelChanged notification",
+    title: "Wait for the durable session/modelChanged record to reach the session",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
-      const target = context.target;
-      if (sessionId === undefined || target === undefined) {
-        throw new Error("`switch` did not finish");
-      }
+      const { session, target } = requireSwitch(context);
       // Matched on the target model AND the user source, not just the
-      // method: a host is free to fold selection records of its own (a
+      // family: a host is free to land selection records of its own (a
       // startup default, a policy change), and with a single-row catalog
       // even the modelId cannot tell those apart. A client-initiated
-      // session/setModel folds as `source: "user"` — that pair is what
-      // identifies this switch's record.
-      const changed = await host.waitFor(
-        "the user-sourced session/modelChanged notification for the switched model",
+      // setModel folds as `source: "user"` — that pair is what identifies
+      // this switch's record. The host writes it right after the ack, so
+      // it may not have arrived the moment `setModel` resolves.
+      const changed = await untilFolded(
+        "the user-sourced session/modelChanged record for the switched model",
         COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "session/modelChanged" &&
-          notification.params["sessionId"] === sessionId &&
-          notification.params["modelId"] === target.modelId &&
-          notification.params["source"] === "user",
+        () => {
+          const record = session.fold.sessionState.get("session/modelChanged");
+          return record != null && record.source === "user" && record.modelId === target.modelId
+            ? record
+            : undefined;
+        },
       );
-      equals(changed.params["providerId"], target.providerId, "the changed model's provider");
+      equals(changed.providerId, target.providerId, "the changed model's provider");
     },
   },
   {
     id: "fold",
-    title: "Fold the notifications and read the change off sessionState",
+    title: "Read the change off the session's fold",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
-      const target = context.target;
-      if (sessionId === undefined || target === undefined) {
-        throw new Error("`switch` did not finish");
-      }
-      // What a real client does with these frames: fold them. The SDK's
-      // `Session` keeps the latest value per session-state family, so after
-      // the switch the `session/modelChanged` slot holds the new selection.
-      const session = new Session({
-        sessionId,
-        durability: readSessionDurability(host.msp.initializeResult),
-      });
-      for (const notification of host.notifications()) {
-        if (notification.params["sessionId"] !== sessionId) continue;
-        session.apply(notification);
-      }
+      const { session, target } = requireSwitch(context);
+      const startup = context.startup;
+      if (startup === undefined) throw new Error("`session` did not finish");
+      // What a UI reads when it renders: the fold keeps the latest value per
+      // session-state family, so the `session/modelChanged` slot now holds
+      // the new selection — no listener of yours was needed to put it there.
       const folded = session.fold.sessionState.get("session/modelChanged");
       if (folded === undefined || folded === null) {
         throw new Error("the fold holds no session/modelChanged value after the switch");
       }
       equals(folded.modelId, target.modelId, "the folded model change's modelId");
       equals(folded.providerId, target.providerId, "the folded model change's providerId");
+      // And it moved: the slot no longer says what the session started with.
+      if (folded.modelId === startup.modelId && folded.providerId === startup.providerId) {
+        throw new Error("the folded selection is still the model the session started with");
+      }
     },
   },
   {
     id: "verify",
     title: "Read the session back and re-list: both report the new model",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
-      const target = context.target;
-      if (sessionId === undefined || target === undefined) {
-        throw new Error("`switch` did not finish");
-      }
+      const client = requireClient(context);
+      const { session, target } = requireSwitch(context);
+      const sessionId = session.sessionId;
       // Verification is a read, not a memory. `session/read` serves the
       // session as folded from its durable records — if the switch is here,
-      // it survived, and every later resume will see it.
-      const read = await host.msp.connection.request("session/read", { sessionId });
-      const session = objectAt(read, "session", "session/read result");
-      equals(session["providerId"], target.providerId, "the read-back session's providerId");
-      equals(session["modelId"], target.modelId, "the read-back session's modelId");
+      // it survived, and every later resume will see it. The facade wraps no
+      // read yet, so it goes through `client.command`.
+      const read = await within(
+        "the session/read reply",
+        COMMAND_BUDGET_MS,
+        client.command("session/read", { sessionId }),
+      );
+      const info = objectAt(read, "session", "session/read result");
+      equals(info["providerId"], target.providerId, "the read-back session's providerId");
+      equals(info["modelId"], target.modelId, "the read-back session's modelId");
       // ...and the catalog agrees: the switched row is the active one now,
       // and no row disagrees with it.
       const relisted = catalogRows(
-        await host.msp.connection.request("model/list", { sessionId }),
+        await within("the model/list reply", COMMAND_BUDGET_MS, client.listModels({ sessionId })),
       );
       const active = relisted.filter((row) => row.isActive);
       if (active.length === 0) {
@@ -308,14 +362,14 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
   },
   {
     id: "drain",
-    title: "Close stdin and let the host exit cleanly",
+    title: "Close the client and let the host exit cleanly",
     async run(context) {
-      const host = requireHost(context);
-      const exit = await host.close(CLOSE_BUDGET_MS);
-      equals(exit.code, 0, "the host's exit code after stdin EOF");
-      const classification = await host.msp.child.exit;
+      const client = requireClient(context);
+      await within("the orderly drain", CLOSE_BUDGET_MS, client.close());
+      // `cleanShutdown` is the SDK's row for exit code 0 after stdin EOF.
+      const classification = await within("the exit classification", CLOSE_BUDGET_MS, client.exit);
       equals(classification.kind, "cleanShutdown", "the SDK's exit classification");
-      context.host = undefined;
+      context.client = undefined;
     },
   },
 ];
@@ -330,7 +384,10 @@ export const listModelsAndSwitchMidSession: Recipe = {
     if (museBin === undefined) throw new Error("museBin is required");
     const context: Context = { museBin };
     return await runJourney(SEGMENTS, context, async (owned) => {
-      await owned.host?.abandon(CLOSE_BUDGET_MS);
+      const client = owned.client;
+      if (client !== undefined) {
+        await drainQuietly("the host", CLOSE_BUDGET_MS, () => client.close());
+      }
     });
   },
 };

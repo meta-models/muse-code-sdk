@@ -28,7 +28,7 @@ import type { BlockedVerdict, QaScenario, ScenarioOutcome } from "../scenario-ki
 
 const BLOCKER = "#19535";
 const BECAUSE =
-  "`tbh serve` hardwires `RuntimeBuilderFactory::not_logged_in()`, so every turn terminalizes at model-respond in milliseconds and the subject behaviour never occurs";
+  "`muse serve` hardwires `RuntimeBuilderFactory::not_logged_in()`, so every turn terminalizes at model-respond in milliseconds and the subject behaviour never occurs";
 
 /** Did #19535 still bite — i.e. did the turn die on the pinned credential failure? */
 function blockerStillBites(run: ObservedRun): boolean {
@@ -179,6 +179,7 @@ export function blockedScenario(shape: BlockedShape): QaScenario {
     title: shape.title,
     vein: shape.vein,
     expectBlocked: { blocker: BLOCKER, because: BECAUSE },
+    expected: `blocked-by-${BLOCKER} until its fix lands, then: ${shape.willAssert}`,
     async run(museBin): Promise<ScenarioOutcome> {
       const outcome = await drivenOnce({
         museBin,
@@ -198,7 +199,6 @@ export function blockedScenario(shape: BlockedShape): QaScenario {
           blockerStillBites(run)
             ? `blocked-by-${BLOCKER}: the turn died on the pinned credential failure`
             : `blocker lifted — the turn ran. NOW ASSERT: ${shape.willAssert}`,
-        expected: `blocked-by-${BLOCKER} until its fix lands, then: ${shape.willAssert}`,
       });
       return { ...outcome, blockedVerdict: blockedVerdictOf(shape.id, outcome.runs) };
     },
@@ -294,21 +294,21 @@ export const TURN_BLOCKED_SCENARIOS: readonly QaScenario[] = [
     // second, non-MSP writer. Encoded here so the gap is visible rather than
     // silently missing from the set.
     id: "B08",
-    title: "#18945 cross-writer arm: a journal advanced by `tbh exec` still resumes",
+    title: "#18945 cross-writer arm: a journal advanced by `muse exec` still resumes",
     vein: "session load/resume state integrity",
     expectBlocked: {
       blocker: "#18945 (cross-writer arm)",
       because:
-        "reproducing it needs an out-of-band `tbh exec` or TUI writer appending to the same journal, which is outside this harness's MSP-only external-integrator lens (charter decision 1). Fix PR #21273 is open behind #19087",
+        "reproducing it needs an out-of-band `muse exec` or TUI writer appending to the same journal, which is outside this harness's MSP-only external-integrator lens (charter decision 1). Fix PR #21273 is open behind #19087",
     },
+    expected:
+      "an MSP-reachable way to advance a journal from a second writer, or an explicit owner decision to widen the harness's lens beyond MSP",
     async run(): Promise<ScenarioOutcome> {
       return {
         runs: [],
         blockedVerdict: { bites: true },
         observed:
           "blocked: the harness speaks only MSP stdio, so it cannot mint the out-of-band write this arm requires",
-        expected:
-          "an MSP-reachable way to advance a journal from a second writer, or an explicit owner decision to widen the harness's lens beyond MSP",
       };
     },
   },

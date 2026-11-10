@@ -15,6 +15,9 @@ pub const SESSION_NOT_LOADED_CODE: i64 = -32024;
 /// write lane refuses before it can append a fabricated history.
 pub const SESSION_STREAM_MISMATCH_CODE: i64 = -32025;
 
+/// The cross-cutting wire code for [`ErrorKind::StartupPending`].
+pub const STARTUP_PENDING_CODE: i64 = -32015;
+
 /// The session-lifecycle wire code for [`ErrorKind::LimitsAboveMax`]: one
 /// shared symbol so the `session/start` producer and test assertions cannot
 /// drift on the literal.
@@ -76,6 +79,9 @@ pub enum ErrorCode {
     /// on the binary-change upgrade path; `data.paths` names the canonical
     /// socket to retry against.
     DaemonDraining,
+    /// `-32015` — daemon startup (provider-credential mint or catalog fetch) is
+    /// still pending; retryable.
+    StartupPending,
     /// `-32028` — a `session/start` choice is wider than the host ceiling on at
     /// least one axis.
     LimitsAboveMax,
@@ -125,6 +131,10 @@ pub enum ErrorCode {
     UserInputAlreadySettled,
     /// `-32057` — answers do not match the prompt's questions or bounds.
     UserInputAnswerInvalid,
+    /// `-32058` — takeover decide while the lock broker is unreachable.
+    ApprovalBrokerUnavailable,
+    /// `-32059` — decide after a takeover was marked resolving.
+    ApprovalResolving,
     /// `-32060` — cursor anchor names no position of the requested stream.
     MissingAnchor,
     /// `-32061` — anchor (or origin) falls in a retention-pruned prefix.
@@ -150,11 +160,11 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    /// Every code enrolled in the public bundle, in registry order: the 37
-    /// stable rows plus 14 experimental rows (5 raw-log, 1 workspace-trust, 1
-    /// limits, 1 draining-daemon refusal, 3 admission, 3 usage-refresh), which
-    /// render only in the experimental bundle.
-    pub const ALL: [Self; 51] = [
+    /// Every code enrolled in the public bundle, in registry order: the stable
+    /// rows plus the experimental rows (raw-log, workspace-trust, limits, the
+    /// draining-daemon refusal, the startup-pending refusal, admission and
+    /// usage-refresh), which render only in the experimental bundle.
+    pub const ALL: [Self; 54] = [
         Self::ParseError,
         Self::InvalidRequest,
         Self::MethodNotFound,
@@ -166,6 +176,7 @@ impl ErrorCode {
         Self::NotFound,
         Self::Interrupted,
         Self::Cancelled,
+        Self::StartupPending,
         Self::SessionNotFound,
         Self::SessionInUse,
         Self::SessionAmbiguous,
@@ -195,6 +206,8 @@ impl ErrorCode {
         Self::UserInputNotFound,
         Self::UserInputAlreadySettled,
         Self::UserInputAnswerInvalid,
+        Self::ApprovalBrokerUnavailable,
+        Self::ApprovalResolving,
         Self::MissingAnchor,
         Self::PrunedPrefix,
         Self::WrongStream,
@@ -250,6 +263,11 @@ impl ErrorCode {
             Self::NotFound => fatal(-32011, ErrorKind::NotFound),
             Self::Interrupted => preempted(-32013, ErrorKind::Interrupted),
             Self::Cancelled => preempted(-32014, ErrorKind::Cancelled),
+            Self::StartupPending => ErrorCodeDefinition::experimental_with_retry(
+                STARTUP_PENDING_CODE,
+                ErrorKind::StartupPending,
+                Some(true),
+            ),
             Self::SessionNotFound => fatal(-32020, ErrorKind::SessionNotFound),
             Self::SessionInUse => fatal(-32021, ErrorKind::SessionInUse),
             Self::SessionAmbiguous => fatal(-32022, ErrorKind::SessionAmbiguous),
@@ -297,6 +315,8 @@ impl ErrorCode {
             Self::UserInputNotFound => fatal(-32055, ErrorKind::UserInputNotFound),
             Self::UserInputAlreadySettled => fatal(-32056, ErrorKind::UserInputAlreadySettled),
             Self::UserInputAnswerInvalid => fatal(-32057, ErrorKind::UserInputAnswerInvalid),
+            Self::ApprovalBrokerUnavailable => drains(-32058, ErrorKind::ApprovalBrokerUnavailable),
+            Self::ApprovalResolving => fatal(-32059, ErrorKind::ApprovalResolving),
             Self::MissingAnchor => {
                 ErrorCodeDefinition::experimental(-32060, ErrorKind::MissingAnchor)
             }

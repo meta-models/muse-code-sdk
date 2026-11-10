@@ -17,11 +17,17 @@ import asyncio
 import stat
 import sys
 from pathlib import Path
+from typing import Any
 
 import pydantic
 import pytest
 
-from muse_code import EXPECTED_SCHEMA_FINGERPRINT
+from muse_code import (
+    EXPECTED_SCHEMA_FINGERPRINT,
+    MuseClient,
+    MuseClientSpawnOptions,
+    MuseHostDiscoveryError as RootMuseHostDiscoveryError,
+)
 from muse_code.connection import (
     ProtocolError,
     discover_muse_bin,
@@ -615,3 +621,94 @@ async def test_a_second_initialize_after_success_rejects_but_leaves_the_host_ali
         assert is_alive(pid), "the send-once reject must NOT close the live host"
     finally:
         await asyncio.wait_for(spawned.close(), FAILURE_CAP_S)
+
+
+# The facade's ``MuseClient.spawn`` applies the same two tiers when
+# ``muse_bin`` is ``None``.
+
+
+@pytest.mark.asyncio
+async def test_facade_spawn_with_muse_bin_none_and_no_host_refuses_before_spawning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    # A spawn attempt would surface as MuseHostStartError or an OS error; the
+    # discovery error proves no process was started.
+    with pytest.raises(MuseHostDiscoveryError):
+        await MuseClient.spawn(
+            MuseClientSpawnOptions(muse_bin=None, client_info={"name": "pytest", "version": "0"})
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell shim")
+@pytest.mark.asyncio
+async def test_facade_spawn_with_muse_bin_none_runs_the_muse_found_on_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    host = tmp_path / "host.py"
+    host.write_text(
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        f"fingerprint = {EXPECTED_SCHEMA_FINGERPRINT!r}\n"
+        "result = {'schema': {'fingerprint': fingerprint, 'version': 1},\n"
+        "          'serverInfo': {'name': 'path-host', 'version': '0.0.0'},\n"
+        "          'grantedCapabilities': [], 'sessionDurability': 'durable'}\n"
+        "sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': result}) + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdin.read()\n"
+    )
+    shim = tmp_path / "muse"
+    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{host}" "$@"\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    client = await asyncio.wait_for(
+        MuseClient.spawn(
+            MuseClientSpawnOptions(muse_bin=None, client_info={"name": "pytest", "version": "0"})
+        ),
+        FAILURE_CAP_S,
+    )
+    try:
+        assert client.initialize_result["serverInfo"]["name"] == "path-host"
+    finally:
+        await asyncio.wait_for(client.close(), FAILURE_CAP_S)
+
+
+def test_spawn_options_keep_their_positional_order() -> None:
+    # A 1.4.x caller wrote ``MuseClientSpawnOptions("muse", client_info)``;
+    # making ``muse_bin`` nullable must not move it.
+    info: Any = {"name": "pytest", "version": "0"}
+    options = MuseClientSpawnOptions("muse", info)
+    assert options.muse_bin == "muse"
+    assert options.client_info == info
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX execute bits")
+@pytest.mark.asyncio
+async def test_the_spawn_env_path_does_not_steer_the_search(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Only the process PATH is searched, as in the TS and Rust SDKs: a
+    # ``muse`` reachable only through the child's own ``env`` is not found.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with_muse = tmp_path / "with-muse"
+    with_muse.mkdir()
+    shim = with_muse / "muse"
+    shim.write_text("#!/bin/sh\nexit 0\n")
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(empty))
+
+    with pytest.raises(MuseHostDiscoveryError):
+        await MuseClient.spawn(
+            MuseClientSpawnOptions(
+                muse_bin=None,
+                client_info={"name": "pytest", "version": "0"},
+                env={"PATH": str(with_muse)},
+            )
+        )
+
+
+def test_the_discovery_error_is_exported_from_the_package_root() -> None:
+    assert RootMuseHostDiscoveryError is MuseHostDiscoveryError

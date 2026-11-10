@@ -96,9 +96,11 @@ pub struct ApprovalChange {
     /// finished reviewing), `restartRecovered` (a host restart recovered this
     /// approval: either the host first resolves it `abort` and a re-ask comes
     /// as a new approval with a new `approvalId`, or it stays pending under
-    /// the same `approvalId` with refreshed choices) or `alreadyTerminal`
-    /// (recovery found it already decided). The set is open, so newer hosts
-    /// may add kinds.
+    /// the same `approvalId` with refreshed choices), `alreadyTerminal`
+    /// (recovery found it already decided) or `resolving` (a
+    /// `computerUseTakeover` approval was marked resolving and waits for the
+    /// lock broker; a decide now answers -32059). The set is open, so newer
+    /// hosts may add kinds.
     pub kind: String,
     /// The stage requirement that was satisfied. Present only when `kind` is
     /// `stageResolved`.

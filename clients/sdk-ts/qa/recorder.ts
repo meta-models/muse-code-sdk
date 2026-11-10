@@ -48,7 +48,7 @@ export interface OpenHostOptions {
   readonly serveArgs?: readonly string[];
   /**
    * Replace the whole argv, for the replay host used by facade-vs-binary
-   * attribution. Real scenarios never set this: their host is `tbh serve`.
+   * attribution. Real scenarios never set this: their host is `muse serve`.
    */
   readonly argv?: readonly string[];
   /** Root for this host's HOME and tap file. */

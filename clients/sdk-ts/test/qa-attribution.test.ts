@@ -124,7 +124,7 @@ test("QA-TEST-012: an expect-block FLIPS the moment its blocker stops biting", a
   // And the flip must reach the report, loudly: an expect-block that goes
   // quiet when it lifts is a scenario nobody ever converts.
   const report = buildReport({
-    binaryPath: "/tmp/tbh",
+    binaryPath: "/tmp/muse",
     binaryVersion: "test",
     scenarios: [
       {

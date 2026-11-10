@@ -50,6 +50,10 @@ pub enum CapabilityName {
     /// `log/physicalUnsubscribe`. Experimental-tier only and independent of
     /// `rawLog`: either can be withheld alone.
     RawLogPhysical,
+    /// The experimental `journal/*` surface: lets a client act as the
+    /// durable store for the host's session journal. Experimental tier
+    /// only, behind `experimentalApi`; not granted by default.
+    Journal,
     /// The socket daemon's vacate contract, revision 1: a client that requests
     /// it re-resumes its sessions on the canonical socket after `vacated`, and
     /// a granted connection counts as one that follows a vacate.
@@ -57,6 +61,10 @@ pub enum CapabilityName {
     /// socket daemon acts on it. A later revision of the contract takes a new
     /// name.
     DaemonVacate,
+    /// The serve process's launcher context in `InitializeResult`: a client
+    /// that requests it is told the invocation id and context the launcher
+    /// started this process with. Experimental-tier only; gates no method.
+    LaunchContext,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

@@ -315,9 +315,9 @@ test("QA-TEST-011c: an observation that cannot reproduce from frames is INDETERM
 });
 
 test("the missing-binary refusal is explicit, never a fixture substitution", () => {
-  const refused = resolveMuseBinary({ [MUSE_QA_SDK_BIN]: "/nonexistent/tbh" });
+  const refused = resolveMuseBinary({ [MUSE_QA_SDK_BIN]: "/nonexistent/muse" });
   assert.equal(refused.available, false);
-  assert.ok(refused.available === false && refused.reason.includes("/nonexistent/tbh"));
+  assert.ok(refused.available === false && refused.reason.includes("/nonexistent/muse"));
   assert.ok(
     refused.available === false && refused.reason.includes(MUSE_QA_SDK_BIN),
     "the refusal names the env var the operator set",
@@ -330,7 +330,6 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
       runs: [],
       blockedVerdict: { bites: blockerStillBites },
       observed: "o",
-      expected: "e",
     });
 
   const scenarios: QaScenario[] = [
@@ -339,6 +338,7 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
       title: "still blocked",
       vein: "fake",
       expectBlocked: { blocker: "#1", because: "x".repeat(70) },
+      expected: "e",
       run: outcome(true),
     },
     {
@@ -346,12 +346,14 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
       title: "blocker lifted",
       vein: "fake",
       expectBlocked: { blocker: "#2", because: "y".repeat(70) },
+      expected: "e",
       run: outcome(false),
     },
     {
       id: "F03",
       title: "threw",
       vein: "fake",
+      expected: "e",
       async run(): Promise<never> {
         throw new Error("the harness learned nothing");
       },
@@ -364,12 +366,12 @@ test("the verdict mapping is pinned: expected-block, block-lifted, and blocked",
       title: "explicit refused: undefined still means bites",
       vein: "fake",
       expectBlocked: { blocker: "#3", because: "z".repeat(70) },
+      expected: "e",
       async run(): Promise<Awaited<ReturnType<QaScenario["run"]>>> {
         return {
           runs: [],
           blockedVerdict: { bites: true, refused: undefined },
           observed: "o",
-          expected: "e",
         };
       },
     },

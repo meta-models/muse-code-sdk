@@ -2,7 +2,7 @@
   "name": "@muse-code/sdk-quickstart",
   "version": "0.0.0",
   "private": true,
-  "description": "The runnable @muse-code/sdk first-session journey (issue #21932). Doubles as the SS7.1 consumption doc: README.md walks the same program this package executes against a release-built `tbh serve`. `npm test` is the binary-free half; `npm run journey:test` is the acceptance run and needs MUSE_BIN.",
+  "description": "The runnable @muse-code/sdk first-session journey (issue #21932). Doubles as the SS7.1 consumption doc: README.md walks the same program this package executes against an installed `muse serve`. `npm test` is the binary-free half; `npm run journey:test` is the acceptance run and needs MUSE_BIN.",
   "type": "module",
   "main": "dist/src/journey.js",
   "types": "dist/src/journey.d.ts",

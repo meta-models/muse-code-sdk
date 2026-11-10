@@ -109,7 +109,8 @@ test("runSegment keeps the thrown message and its cause", async () => {
  * cannot test its own module-load failure. So an edit softening that throw into
  * a skip — the exact violation FR-21932-4 exists to stop — stayed green everywhere.
  * This spawns the acceptance file in a child with `MUSE_BIN` removed and
- * requires a nonzero exit that names the build command (review round, #22835).
+ * requires a nonzero exit that names how to point `MUSE_BIN` at a `muse` binary
+ * (review round, #22835).
  */
 test("the acceptance run refuses to skip itself when MUSE_BIN is absent", async () => {
   const { spawnSync } = await import("node:child_process");
@@ -138,7 +139,8 @@ test("the acceptance run refuses to skip itself when MUSE_BIN is absent", async 
   assert.notEqual(run.status, 0, "a missing MUSE_BIN must fail, never skip");
   const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
   assert.match(output, /MUSE_BIN is required/);
-  assert.match(output, /cargo build --release -p tbh-cli --bin tbh/);
+  // The printed fix names an installed binary a public reader has.
+  assert.match(output, /MUSE_BIN=\$\(command -v muse\)/);
   // The printed rerun command must be the one that actually runs the journey.
   assert.match(output, /npm run journey:test --workspace @muse-code\/sdk-quickstart/);
   // Assert the COUNT, not the substring `# skip`: TAP always prints a

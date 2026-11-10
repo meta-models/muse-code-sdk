@@ -149,7 +149,9 @@ function run(args: string[], env: Record<string, string> = {}): RunResult {
  *
  * The copy's `build` script is neutralised: the fixture has no `node_modules`,
  * so a real `tsc --build` would fail and every arm would then be testing the
- * build gate instead of the gate it names. `dist/` is copied precisely so the
+ * build gate instead of the gate it names. The `prebuild`/`precheck` hooks
+ * are neutralised with it — npm runs them implicitly, and the fixture stages
+ * no schema tree for the stamp step. `dist/` is copied precisely so the
  * pack and audit stages still have something real to work on.
  */
 /** Every fixture dir made here, so none is stranded in $TMPDIR after the run. */
@@ -170,6 +172,8 @@ function fixtureWith(mutate: (m: Record<string, unknown>) => void): string {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
   const scripts = (manifest.scripts ?? {}) as Record<string, string>;
   scripts.build = "true";
+  scripts.prebuild = "true";
+  scripts.precheck = "true";
   scripts.prepack = "true";
   manifest.scripts = scripts;
   mutate(manifest);
@@ -1040,6 +1044,8 @@ function mirrorFixture(
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
   const scripts = (manifest.scripts ?? {}) as Record<string, string>;
   scripts.build = "true";
+  scripts.prebuild = "true";
+  scripts.precheck = "true";
   scripts.prepack = "true";
   manifest.scripts = scripts;
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

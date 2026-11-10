@@ -1,0 +1,63 @@
+{
+  "kind": "mspTranscript",
+  "schemaVersion": 1,
+  "scenario": "computer-use-takeover-decline",
+  "provenance": "hand-authored",
+  "viewSchemaVersion": 1,
+  "serverConfig": {
+    "frameLimitBytes": 10485760
+  },
+  "transports": [
+    "stdio",
+    "in-process"
+  ],
+  "normalize": [
+    "id",
+    "params.commandId",
+    "params.turnId",
+    "params.itemId",
+    "result.session.sessionId"
+  ],
+  "seeds": {
+    "idSeed": 7,
+    "clockStartMs": 1754590931000
+  },
+  "source": [
+    {
+      "lines": "1-3",
+      "cite": "tdd SS1.4.1-SS1.4.2 handshake (a macOS host: Computer Use is offered only there, spec 630 FR-001a)"
+    },
+    {
+      "lines": "4-6",
+      "cite": "tdd SS2.5.1 wire example"
+    },
+    {
+      "lines": "7-8",
+      "cite": "tdd SS3.10 model/list request/result (spec 211 T041 catalog discovery at session acquisition)"
+    },
+    {
+      "lines": "9-12",
+      "cite": "tdd SS3.2 and SS4.5.1-SS4.5.2 turn start and user message"
+    },
+    {
+      "lines": "13",
+      "cite": "tdd SS4.5.5 toolCall item/started: the turn's cua_setup start, parked on its approval"
+    },
+    {
+      "lines": "14-16",
+      "cite": "tdd SS5.2.8 computerUseTakeover subject (holder label and two times only; allow_once Take over and abort Keep, one-shot) on SS5.3 approval/requested and approval/request, plus the SS5.3.3 presentation receipt"
+    },
+    {
+      "lines": "17-19",
+      "cite": "tdd SS5.4 and SS5.5 abort (Keep) from the user: a durable deny resolution, nothing moves (SS5.2.8)"
+    },
+    {
+      "lines": "20",
+      "cite": "tdd SS4.5.5 rejected linked tool terminal carrying the enriched setup.other_owner refusal (spec 630 FR-73131-13: holder label and times, decline is terminal for the request)"
+    },
+    {
+      "lines": "21-24",
+      "cite": "tdd SS4.5.3 agent message and SS4.5.1 turn/completed"
+    }
+  ]
+}

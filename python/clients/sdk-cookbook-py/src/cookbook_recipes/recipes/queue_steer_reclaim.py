@@ -4,24 +4,26 @@ rules every chat-style UI eventually hits.
 Runs against ``muse-conformance serve-fixture`` playing the committed golden
 transcript ``schema/msp/transcripts/turn-unqueued-round-trip``.
 
-What it teaches: ``turn/start`` answers with a ``disposition`` and that word
-is the whole routing decision (``started`` / ``queued`` — the ack's
-``turnId`` names the PRE-MINTED turn — / ``steered``); a queued submit can be
-taken back before it launches (``turn/unqueue``, then the durable
-``turn/unqueued``); folding ``turn/unqueued`` through ``Session.apply``
-retires the entry ``reclaimed`` with the original input restored to the
-composer and settles the pre-minted turn's outcome as ``unqueued`` (no
-``turn/completed`` ever carries a reclaimed turnId); and the reclaim is
-surgical — the active turn runs to its own terminal.
+What it teaches: a submit gets a ``disposition`` and that word is the whole
+routing decision (``started`` / ``queued`` — the turn handle names the
+PRE-MINTED turn — / ``steered``), and ``session.pending`` shows it: a queued
+submit stays there, acked ``queued``. A queued submit can be taken back
+before it launches with ``turn.unqueue()``: the accepted reclaim retires the
+entry ``reclaimed`` with the original input restored to the composer, and the
+pre-minted turn's ``turn.completed`` settles as ``unqueued`` (no
+``turn/completed`` ever carries a reclaimed turnId). ``unqueue()``
+returns that retirement whichever of the ack and ``turn/unqueued`` the client
+reads first.
+And the reclaim is surgical — the active turn runs to its own terminal.
 
 Steering is taught on the page but not exercised here: no committed
 transcript records a steered submit, because what a steer absorbs depends on
 a live model's timing.
 
-The ``Session`` below is constructed fold-only (no connection): every wire
-write goes through ``Connection.command`` with an explicit commandId, and
-the recipe feeds the session the recorded view notifications — the same
-routing ``MuseClient`` does for you on a live connection.
+Fixture mechanics: serve-fixture replays recorded server lines byte-exactly,
+so acks echo the RECORDED commandId and the SDK verifies that echo. The
+connection's one commandId minter is therefore scripted with the transcript's
+ids in send order; everything else goes through the ``MuseClient`` facade.
 """
 
 from __future__ import annotations
@@ -29,20 +31,29 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Callable, Mapping, Sequence, TypeVar
 
-from muse_code import Session, read_session_durability
+from muse_code import (
+    MuseClient,
+    MuseClientOptions,
+    SendUserTurnOptions,
+    Session,
+    StartSessionOptions,
+    Turn,
+    TurnUnqueueOutcome,
+    read_session_durability,
+)
+from muse_code.connection.spawn import spawn_msp_connection
+from muse_code.pending.pending_command_set import PendingCommandEntry, ReclaimedRetirement
 
 from ..kit import (
     equals,
-    Host,
+    HOST_DRAIN_WINDOW_MS,
     JourneyReport,
-    object_at,
-    require_host,
+    pinned_to,
+    recorded_fingerprint,
     run_journey,
     Segment,
-    spawn_fixture_host,
-    string_at,
     within,
 )
 from ..runner import Recipe, RecipeHosts
@@ -62,6 +73,8 @@ ACTIVE_TURN_COMMAND_ID = "018f6a32-1111-7000-8000-0000000000a1"
 QUEUED_TURN_COMMAND_ID = "018f6a32-3333-7000-8000-0000000000c3"
 UNQUEUE_COMMAND_ID = "018f6a32-5555-7000-8000-0000000000c5"
 
+_T = TypeVar("_T")
+
 
 @dataclass
 class Context:
@@ -69,226 +82,207 @@ class Context:
 
     conformance_bin: str
     transcript_root: str
-    host: Host | None = None
+    client: "MuseClient[str] | None" = None
     session: "Session[str] | None" = None
-    applied: int = 0
-    session_id: str | None = None
-    active_turn_id: str | None = None
-    queued_turn_id: str | None = None
+    active: "Turn[str] | None" = None
+    queued: "Turn[str] | None" = None
+    # The queued submit's pending entry, as ``session.pending`` showed it.
+    queued_entry: "PendingCommandEntry[str] | None" = None
+    # What ``turn.unqueue()`` returned, set once the reclaim was accepted.
+    unqueued: "TurnUnqueueOutcome[str] | None" = None
 
 
-def _known(value: str | None, what: str) -> str:
+def _known(value: _T | None, what: str) -> _T:
     if value is None:
         raise RuntimeError(f"{what} is not known: an earlier segment did not finish")
     return value
 
 
-def _require_session(context: Context) -> "Session[str]":
-    if context.session is None:
-        raise RuntimeError("no session: an earlier segment did not finish")
-    return context.session
+def _scripted_command_ids(ids: Sequence[str]) -> Callable[[], str]:
+    """Hand out the transcript's commandIds in send order. Harness-only: a real
+    client keeps the SDK's default minter, which is what makes ids unique."""
+    queue = list(ids)
 
+    def mint() -> str:
+        if not queue:
+            raise RuntimeError("the recipe sent more commands than the transcript records")
+        return queue.pop(0)
 
-def _apply_view(context: Context) -> list[Any]:
-    """Feed every not-yet-applied recorded notification for this session
-    through ``Session.apply``, returning the retirements those folds produced
-    — the recipe's stand-in for the per-session routing ``MuseClient``
-    performs on a live connection."""
-    host = require_host(context.host, "spawn")
-    session = _require_session(context)
-    retirements: list[Any] = []
-    seen = host.notifications()
-    while context.applied < len(seen):
-        notification = seen[context.applied]
-        context.applied += 1
-        if notification.params.get("sessionId") != session.session_id:
-            continue
-        outcome = session.apply(
-            {"method": notification.method, "params": dict(notification.params)}
-        )
-        retirements.extend(outcome.retirements)
-    return retirements
+    return mint
 
 
 async def _spawn(context: Context) -> None:
-    context.host = await spawn_fixture_host(
-        conformance_bin=context.conformance_bin,
-        transcript_dir=Path(context.transcript_root) / SCENARIO,
+    transcript_dir = Path(context.transcript_root) / SCENARIO
+    stderr: list[str] = []
+    # Built by hand rather than with ``MuseClient.spawn``: spawn asks for an
+    # extra capability the recorded ``initialize`` line does not carry.
+    handshake = await spawn_msp_connection(
+        context.conformance_bin,
+        args=("serve-fixture", "--transcript", str(transcript_dir)),
         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
-        client_info={"name": "conformance", "version": "0.0.0"},
-        budget_ms=HANDSHAKE_BUDGET_MS,
+        on_stderr=stderr.append,
+        shutdown_timeout_ms=HOST_DRAIN_WINDOW_MS,
+        connection_options={
+            "mint_command_id": _scripted_command_ids(
+                (
+                    SESSION_START_COMMAND_ID,
+                    ACTIVE_TURN_COMMAND_ID,
+                    QUEUED_TURN_COMMAND_ID,
+                    UNQUEUE_COMMAND_ID,
+                )
+            )
+        },
+    )
+    # The strict fingerprint gate, retargeted to the bundle the transcript was
+    # recorded against (the kit's ``spawn_fixture_host`` does the same).
+    with pinned_to(recorded_fingerprint(transcript_dir)):
+        try:
+            spawned = await within(
+                "the MSP handshake",
+                HANDSHAKE_BUDGET_MS,
+                handshake.initialize({"clientInfo": {"name": "conformance", "version": "0.0.0"}}),
+            )
+        except BaseException as error:
+            # A failed initialize has already closed the host it spawned.
+            raise RuntimeError(f"handshake failed; stderr: {''.join(stderr)}") from error
+    # Durability comes off the handshake: it decides what happens to pending
+    # commands if the host dies.
+    durability = read_session_durability(spawned.initialize_result)
+    equals(durability.kind, "durable", "the handshake's session durability")
+    context.client = MuseClient(
+        spawned.connection, MuseClientOptions(durability=durability, host=spawned)
     )
 
 
 async def _session(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    started = await within("the session/start ack", COMMAND_BUDGET_MS, host.connection.command(
-        "session/start",
-        {"workspaceRoot": WORKSPACE_ROOT},
-        max_attempts=1,
-        command_id=SESSION_START_COMMAND_ID,
-    ))
-    session_obj = object_at(started, "session", "session/start result")
-    session_id = string_at(session_obj, "sessionId", "session/start session")
-    # Durability comes off the handshake, exactly as a real client reads it:
-    # it decides what happens to pending commands if the host dies.
-    durability = read_session_durability(host.msp.initialize_result)
-    equals(durability.kind, "durable", "the handshake's session durability")
-    context.session_id = session_id
-    context.session = Session(session_id, durability)
+    client = _known(context.client, "the client")
+    context.session = await within(
+        "the session/start result",
+        COMMAND_BUDGET_MS,
+        client.start_session(StartSessionOptions(workspace_root=WORKSPACE_ROOT)),
+    )
+
+
+async def _first_item_of_kind(turn: "Turn[str]", kind: str) -> Mapping[str, object]:
+    async for item in turn.items():
+        if item.get("kind") == kind:
+            return item
+    raise AssertionError(f"the turn ended without a {kind} item")
 
 
 async def _start_active(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    session = _require_session(context)
-    session_id = _known(context.session_id, "the session id")
-    # The pending entry FIRST, then the wire: the pending set is what a UI
-    # renders optimistically, so it exists from the moment of submission.
-    session.pending.submitted(ACTIVE_TURN_COMMAND_ID, ACTIVE_PROMPT)
-    ack = await within("the turn/start ack", COMMAND_BUDGET_MS, host.connection.command(
-        "turn/start",
-        {"sessionId": session_id, "input": [{"type": "text", "text": ACTIVE_PROMPT}]},
-        max_attempts=1,
-        command_id=ACTIVE_TURN_COMMAND_ID,
-    ))
-    equals(ack.get("status"), "accepted", "turn/start ack status")
-    equals(ack.get("disposition"), "started", "the idle submit's disposition")
-    equals(ack.get("startedNewTurn"), True, "the disposition's boolean shorthand")
-    # The ack's turnId is authoritative — always take it, never derive it.
-    turn_id = string_at(ack, "turnId", "turn/start ack")
-    session.pending.acked(ACTIVE_TURN_COMMAND_ID, {"turnId": turn_id, "disposition": "started"})
-    context.active_turn_id = turn_id
-
-    # The commandId-bearing userMessage folding in is what retires the entry:
-    # the optimistic echo is replaced by the durable item.
-    def _carries_command(notification: Any) -> bool:
-        if notification.method != "item/completed":
-            return False
-        item = notification.params.get("item")
-        return isinstance(item, dict) and item.get("commandId") == ACTIVE_TURN_COMMAND_ID
-
-    await host.wait_for("the active turn's userMessage item", COMMAND_BUDGET_MS, _carries_command)
-    retirements = _apply_view(context)
-    materialized = next(
-        (r for r in retirements if r.command_id == ACTIVE_TURN_COMMAND_ID), None
+    session = _known(context.session, "the session")
+    # ``composer_input`` is what a retirement hands back; the SDK records the
+    # pending entry before it writes the wire, so a UI can render it at once.
+    active = await within(
+        "the turn/start ack",
+        COMMAND_BUDGET_MS,
+        session.send_user_turn(
+            SendUserTurnOptions(
+                input=[{"type": "text", "text": ACTIVE_PROMPT}], composer_input=ACTIVE_PROMPT
+            )
+        ),
     )
-    if materialized is None or materialized.kind != "materialized":
-        raise AssertionError(
-            f"the started submit should retire as materialized; got {retirements!r}"
-        )
-    equals(session.pending.has(ACTIVE_TURN_COMMAND_ID), False, "the materialized entry is gone")
+    # The userMessage carrying our commandId folding in is what retires the
+    # entry: the optimistic echo is replaced by the durable item.
+    user_message = await within(
+        "the active turn's userMessage item",
+        COMMAND_BUDGET_MS,
+        _first_item_of_kind(active, "userMessage"),
+    )
+    equals(user_message.get("commandId"), ACTIVE_TURN_COMMAND_ID, "the userMessage's commandId")
+    equals(session.pending.size, 0, "pending entries once the started submit materialized")
+    equals(active.observed_start, True, "the started submit's turn began")
+    context.active = active
 
 
 async def _queue(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    session = _require_session(context)
-    session_id = _known(context.session_id, "the session id")
-    session.pending.submitted(QUEUED_TURN_COMMAND_ID, QUEUED_PROMPT)
-    ack = await within("the turn/start ack", COMMAND_BUDGET_MS, host.connection.command(
-        "turn/start",
-        {
-            "sessionId": session_id,
-            "input": [{"type": "text", "text": QUEUED_PROMPT}],
-            "ifBusy": "queue",
-        },
-        max_attempts=1,
-        command_id=QUEUED_TURN_COMMAND_ID,
-    ))
-    equals(ack.get("status"), "accepted", "the queued submit's ack status")
-    equals(ack.get("disposition"), "queued", "the busy submit's disposition")
-    equals(ack.get("startedNewTurn"), False, "queued input starts no turn yet")
-    queued_turn_id = string_at(ack, "turnId", "the queued submit's ack")
-    session.pending.acked(
-        QUEUED_TURN_COMMAND_ID, {"turnId": queued_turn_id, "disposition": "queued"}
+    session = _known(context.session, "the session")
+    queued = await within(
+        "the queued submit's ack",
+        COMMAND_BUDGET_MS,
+        session.send_user_turn(
+            SendUserTurnOptions(
+                input=[{"type": "text", "text": QUEUED_PROMPT}],
+                if_busy="queue",
+                composer_input=QUEUED_PROMPT,
+            )
+        ),
     )
-    context.queued_turn_id = queued_turn_id
-    # Nothing has settled the queued entry: it stays pending — exactly what a
-    # UI renders as "queued, not yet running".
-    equals(session.pending.has(QUEUED_TURN_COMMAND_ID), True, "the queued entry is held")
+    # The handle names a turn that does not run yet. Nothing has settled the
+    # entry, so it stays pending — exactly what a UI renders as "queued, not
+    # yet running" — until the wire says launched, rejected, or reclaimed.
+    entry = next(
+        (
+            held
+            for held in session.pending.list()
+            if held.ack is not None and held.ack["turnId"] == queued.turn_id
+        ),
+        None,
+    )
+    if entry is None or entry.ack is None:
+        raise AssertionError("the queued submit left no pending entry")
+    equals(entry.ack["disposition"], "queued", "the busy submit's disposition")
+    equals(entry.input, QUEUED_PROMPT, "the queued entry's composer input")
+    equals(queued.observed_start, False, "queued input starts no turn yet")
+    context.queued = queued
+    context.queued_entry = entry
 
 
 async def _reclaim(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    session = _require_session(context)
-    session_id = _known(context.session_id, "the session id")
-    queued_turn_id = _known(context.queued_turn_id, "the queued turn id")
-    # Mint the handle BEFORE the fold settles it, the way a UI already
-    # holding "queued turn X" would: the wait below must resolve, not hang.
-    queued = session.turn(queued_turn_id)
-    ack = await within("the turn/unqueue ack", COMMAND_BUDGET_MS, host.connection.command(
-        "turn/unqueue",
-        {"sessionId": session_id, "turnId": queued_turn_id},
-        max_attempts=1,
-        command_id=UNQUEUE_COMMAND_ID,
-    ))
-    equals(ack.get("status"), "accepted", "turn/unqueue ack status")
-    equals(ack.get("turnId"), queued_turn_id, "the turnId the unqueue ack echoes")
-
-    unqueued = await host.wait_for(
-        "the turn/unqueued notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/unqueued" and n.params.get("turnId") == queued_turn_id,
-    )
-    # The notification's commandId names the turn/start that QUEUED the turn
-    # — the entry to retire — not the unqueue command that reclaimed it.
-    equals(unqueued.params.get("commandId"), QUEUED_TURN_COMMAND_ID, "turn/unqueued's commandId")
-
-    retirements = _apply_view(context)
-    reclaimed = next(
-        (r for r in retirements if r.command_id == QUEUED_TURN_COMMAND_ID), None
-    )
-    if reclaimed is None or reclaimed.kind != "reclaimed":
-        raise AssertionError(
-            f"the reclaim should retire the entry as reclaimed; got {retirements!r}"
-        )
-    # The whole point of the gesture: the input comes BACK. A client that
-    # drops it here has turned "un-send" into "delete my draft".
-    equals(reclaimed.restore_to_composer, True, "the reclaim restores to the composer")
-    equals(reclaimed.input, QUEUED_PROMPT, "the input handed back to the composer")
-    equals(session.pending.has(QUEUED_TURN_COMMAND_ID), False, "the reclaimed entry is gone")
+    session = _known(context.session, "the session")
+    queued = _known(context.queued, "the queued turn")
+    entry = _known(context.queued_entry, "the queued entry")
+    unqueued = await within("the turn/unqueue ack", COMMAND_BUDGET_MS, queued.unqueue())
+    equals(unqueued.ack.get("status"), "accepted", "turn/unqueue ack status")
+    equals(unqueued.ack.get("turnId"), queued.turn_id, "the turnId the unqueue ack echoes")
+    equals(session.pending.has(entry.command_id), False, "the reclaimed entry is gone")
+    # The next segment asserts what came back; keep it for that step.
+    context.unqueued = unqueued
 
     # The pre-minted turn's outcome is `unqueued` — its own terminal kind. No
     # turn/completed will ever carry this turnId, so a wait folding only
-    # turn/completed would hang forever. Bounded: if the fold's settle
-    # contract regressed, the intended red must not become a job-wall hang.
-    outcome = await within(
-        "the reclaimed turn's settled outcome", COMMAND_BUDGET_MS, queued.completed
-    )
-    equals(outcome.kind, "unqueued", "the reclaimed turn's outcome")
+    # turn/completed would hang forever.
+    outcome = await within("the reclaimed turn's outcome", COMMAND_BUDGET_MS, queued.completed)
+    if outcome.kind != "unqueued":
+        raise AssertionError(f"the reclaimed turn should settle unqueued; got {outcome!r}")
+    # turn/unqueued names the turn/start that QUEUED the turn — the entry it
+    # retires — not the unqueue command that reclaimed it.
+    equals(outcome.params.get("commandId"), entry.command_id, "turn/unqueued's commandId")
+
+
+async def _reclaim_returns_the_draft(context: Context) -> None:
+    retirement = _known(context.unqueued, "the unqueue result").retirement
+    if retirement is None:
+        raise AssertionError("unqueue() returned no retirement for the accepted reclaim")
+    # The whole point of the gesture: the input comes BACK. A client that
+    # drops it here has turned "un-send" into "delete my draft".
+    if not isinstance(retirement, ReclaimedRetirement):
+        raise AssertionError(f"the reclaim should retire the entry as reclaimed; got {retirement!r}")
+    equals(retirement.restore_to_composer, True, "the reclaim restores to the composer")
+    equals(retirement.input, QUEUED_PROMPT, "the input handed back to the composer")
 
 
 async def _active_untouched(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    session = _require_session(context)
-    active_turn_id = _known(context.active_turn_id, "the active turn id")
-    completed = await host.wait_for(
-        "the active turn's turn/completed",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == active_turn_id,
-    )
-    equals(completed.params.get("terminal"), "completed", "the active turn's terminal")
-    _apply_view(context)
-    outcome = await within(
-        "the active turn's folded outcome",
-        COMMAND_BUDGET_MS,
-        session.turn(active_turn_id).completed,
-    )
+    active = _known(context.active, "the active turn")
+    outcome = await within("the active turn's outcome", COMMAND_BUDGET_MS, active.completed)
     if outcome.kind != "completed":
         raise AssertionError(f"the active turn should complete; got {outcome!r}")
-    equals(outcome.params.get("terminal"), "completed", "the folded outcome's terminal")
+    equals(outcome.params.get("terminal"), "completed", "the active turn's terminal")
     equals(outcome.observed_start, True, "this session observed the active turn start")
 
 
 async def _drain(context: Context) -> None:
-    host = require_host(context.host, "spawn")
-    exit_ = await host.close(CLOSE_BUDGET_MS)
-    equals(exit_.code, 0, "the fixture host's exit code after stdin EOF")
-    context.host = None
+    client = _known(context.client, "the client")
+    await within("the fixture host's orderly drain and exit", CLOSE_BUDGET_MS, client.close())
+    classification = await client.exit
+    equals(classification.kind, "cleanShutdown", "the fixture host's exit classification")
+    context.client = None
 
 
 SEGMENTS: tuple[Segment[Context], ...] = (
     Segment("spawn", f"Spawn the canned host playing the {SCENARIO} transcript", _spawn),
-    Segment("session", "Start a session and mirror it in a fold-only Session", _session),
+    Segment("session", "Start the session through the client", _session),
     Segment(
         "start-active",
         'Submit while idle: disposition "started", entry retires as materialized',
@@ -298,7 +292,12 @@ SEGMENTS: tuple[Segment[Context], ...] = (
         "queue", 'Submit while busy: disposition "queued", the ack pre-mints the turn', _queue
     ),
     Segment(
-        "reclaim", "Reclaim the queued turn: turn/unqueue, then the durable turn/unqueued", _reclaim
+        "reclaim", "Reclaim the queued turn: unqueue, entry back to the composer", _reclaim
+    ),
+    Segment(
+        "reclaim-returns-the-draft",
+        "The accepted unqueue hands the draft back to the composer",
+        _reclaim_returns_the_draft,
     ),
     Segment(
         "active-untouched",
@@ -317,8 +316,14 @@ async def _run(hosts: RecipeHosts) -> JourneyReport:
     )
 
     async def teardown(owned: Context) -> None:
-        if owned.host is not None:
-            await owned.host.abandon(CLOSE_BUDGET_MS)
+        client = owned.client
+        if client is not None:
+            try:
+                await within("the fixture host's teardown drain", CLOSE_BUDGET_MS, client.close())
+            except Exception as error:  # noqa: BLE001 - warned, never raised
+                import sys
+
+                print(f"teardown: the fixture host did not drain cleanly: {error}", file=sys.stderr)
 
     return await run_journey(SEGMENTS, context, teardown)
 

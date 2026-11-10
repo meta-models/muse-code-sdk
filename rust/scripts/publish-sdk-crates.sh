@@ -50,13 +50,17 @@
 #                                                # publish-crates.yml
 #   scripts/publish-sdk-crates.sh --help
 #
+# Before the gates, a crate whose build derives the fingerprint through a
+# build script gets the release schema bytes vendored under its build/
+# directory; a crate without one skips that step.
+#
 # Gates, in order: tree anchor (clean for --publish); manifest identity (name,
 # licence, version equal to the host version); repository is the public
 # mirror; no path dependency of any kind; the packaged file list is the public
-# set; the packaged .crate passes the external-audience text check, every
-# file of it (the check npm and PyPI run); `cargo publish --dry-run`; and a
-# standalone copy laid out like the mirror's `rust/` folder, with no
-# workspace above it, packages cleanly.
+# set, build-time fingerprint inputs included; the packaged .crate passes the
+# external-audience text check, every file of it (the check npm and PyPI
+# run); `cargo publish --dry-run`; and a standalone copy laid out like the
+# mirror's `rust/` folder, with no workspace above it, packages cleanly.
 #
 # Environment:
 #   CARGO           cargo to run; defaults to cargo on PATH. Network policy
@@ -92,9 +96,13 @@ REPO_ROOT="$(repo_root)"
 CARGO="${CARGO:-cargo}"
 MODE="build-only"
 WORKDIR=""
+VENDORED_BY_US=""
 
 cleanup() {
   [[ -n "$WORKDIR" && -d "$WORKDIR" ]] && rm -rf "$WORKDIR"
+  # Remove vendored bytes this run staged; a present copy it reused (the
+  # mirror's staged release bytes, or a previous run's) is not ours.
+  [[ "$VENDORED_BY_US" == 1 && -n "${CRATE_DIR:-}" ]] && rm -f "$CRATE_DIR/build/msp.schema.json"
   return 0
 }
 # Cleanup runs on exit; a signal exits, so a cancelled --publish never goes
@@ -197,6 +205,36 @@ DIRTY_FLAG=()
 echo "publish-sdk-crates.sh — mode: $MODE"
 echo "crate: $CRATE_DIR"
 echo ""
+
+# ---------------------------------------------------------------------------
+# Vendored schema bytes. A crate whose build derives the fingerprint
+# through a build script needs the release schema bytes under its `build/`
+# directory: the packaged crate carries them, so a crates.io build derives
+# without the producing tree. The bytes are never committed (.gitignore);
+# a run vendors them from the live bundle when they are missing and reuses
+# a present copy otherwise. A crate without a build script skips this
+# entirely.
+# ---------------------------------------------------------------------------
+# The build script's filename, named once: the vendor test, the gate-5
+# file list, and the gate-8 copy below must all agree on it.
+readonly BUILD_SCRIPT_FILENAME="build.rs"
+if [[ -f "$CRATE_DIR/$BUILD_SCRIPT_FILENAME" ]]; then
+  VENDORED="$CRATE_DIR/build/msp.schema.json"
+  if [[ -f "$VENDORED" ]]; then
+    note "reusing the vendored release schema bytes under build/"
+  else
+    step "vendor: release schema bytes"
+    SCHEMA_SOURCE="$REPO_ROOT/schema/msp/stable/msp.schema.json"
+    [[ -f "$SCHEMA_SOURCE" ]] ||
+      die "the crate derives its fingerprint at build time but no schema bytes exist to vendor (looked for $SCHEMA_SOURCE); a release must provide them"
+    mkdir -p "$CRATE_DIR/build" ||
+      die "cannot stage the vendored release bytes under $CRATE_DIR/build"
+    cp "$SCHEMA_SOURCE" "$VENDORED" ||
+      die "cannot vendor $SCHEMA_SOURCE under $CRATE_DIR/build"
+    VENDORED_BY_US=1
+    ok "vendored the release schema bytes under build/ (removed on exit; never committed)"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Gate 1 — tree anchor. Publishing from a dirty or unknown tree makes the
@@ -353,7 +391,9 @@ ok "every dependency resolves from a registry"
 
 # ---------------------------------------------------------------------------
 # Gate 5 — the packaged file list is exactly the public set: the library, its
-# examples, README.md, LICENSE, Cargo.toml, and the files cargo adds.
+# examples, the build-time fingerprint inputs (the build script, its port,
+# the vendored release bytes), README.md, LICENSE, Cargo.toml, and the
+# files cargo adds.
 # ---------------------------------------------------------------------------
 step "gate: packaged file list"
 "$CARGO" package --list "${DIRTY_FLAG[@]}" --manifest-path "$MANIFEST" >"$WORKDIR/files.txt" ||
@@ -363,6 +403,7 @@ while IFS= read -r file; do
   case "$file" in
     Cargo.toml | Cargo.toml.orig | Cargo.lock | .cargo_vcs_info.json) ;;
     README.md | LICENSE | src/* | examples/*) ;;
+    $BUILD_SCRIPT_FILENAME | build/*) ;;
     *) unexpected+="$file " ;;
   esac
 done <"$WORKDIR/files.txt"
@@ -408,7 +449,10 @@ ok "cargo publish --dry-run passes"
 step "gate: standalone mirror layout"
 STANDALONE="$WORKDIR/mirror/rust/clients/sdk-rs"
 mkdir -p "$STANDALONE"
-for entry in src examples Cargo.toml README.md LICENSE; do
+# The build-time fingerprint inputs ride along: with no workspace above
+# the copy, the standalone build derives from the vendored bytes alone,
+# proving the release path end to end.
+for entry in src examples "$BUILD_SCRIPT_FILENAME" build Cargo.toml README.md LICENSE; do
   [[ -e "$CRATE_DIR/$entry" ]] && cp -R "$CRATE_DIR/$entry" "$STANDALONE/"
 done
 # The tree's lockfile, when there is one, pins the same dependency versions.

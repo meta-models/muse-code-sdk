@@ -4,8 +4,22 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// The `session/start` `limits` choice: every member is optional — a start
-/// names only the axes it chooses. Reports use `SessionLimits`, whose members
-/// are always present.
+/// names only the axes it chooses, and an omitted axis reads the daemon
+/// default: the daemon's own posture on the sandbox axes, and on trust
+/// untrusted unless the daemon serves trusted by default. On a daemon whose
+/// default sandbox is off, turning the sandbox on takes both `sandboxEnabled:
+/// true` and `sandboxNetwork`; naming `sandboxEnabled: true` without
+/// `sandboxNetwork`, or a network restriction (`restricted` or `proxy-only`)
+/// without naming `sandboxEnabled`, is refused `-32602` (`data.reason:
+/// "tighterSandboxUnserved"`) until a tracked change settles how a session
+/// turns the sandbox on there; a network restriction beside an explicit
+/// `sandboxEnabled: false`, which never turns it on, is refused the same way
+/// while a tracked change is open, so drop the restriction. Where the ceiling
+/// allows the sandbox off over a sandbox-on default, a network restriction
+/// beside `sandboxEnabled: false` is admitted and restricts nothing: with the
+/// sandbox off the network is not sandboxed, so the session runs and reports
+/// `sandboxNetwork: "enabled"`. Reports use `SessionLimits`, whose members are
+/// always present. A `session/resume` names only `workspaceTrusted` here.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionLimitsChoice {

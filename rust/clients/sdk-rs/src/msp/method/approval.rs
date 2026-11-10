@@ -129,3 +129,37 @@ pub struct SessionSetApprovalModeResult {
     /// carries as `approvalMode`.
     pub effective_mode: EffectiveApprovalModeState,
 }
+
+/// One client-supplied shell prefix allow-rule: argv tokens in the
+/// `ShellPrefixSuggestion.argv_prefix` shape. An object, not a bare array, so
+/// the element can grow additively later.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientApprovalRule {
+    /// The argv-token prefix. Must be non-empty with no empty token; banned
+    /// prefixes refuse the carrying call.
+    pub argv_prefix: Vec<String>,
+}
+
+/// Where a session policy rule came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PolicyRuleOrigin {
+    /// Supplied by the client over MSP (`approvalRules` / set command).
+    Client,
+    /// Minted from a server-offered `approval/decide` choice.
+    Server,
+}
+
+/// One listed client-supplied rule in `EffectivePermissionState`: the prefix
+/// plus its origin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ClientApprovalRuleState {
+    /// The argv-token prefix.
+    pub argv_prefix: Vec<String>,
+    /// Always `client` on this surface; carried so the listing stays
+    /// attributable if it ever merges families.
+    pub origin: PolicyRuleOrigin,
+}

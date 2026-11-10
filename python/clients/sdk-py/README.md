@@ -19,11 +19,7 @@ wrapper for scripts and notebooks.
   same-command retry that can never double-submit.
 - `SyncMuseClient` mirrors the same surface with blocking verbs.
 
-This package versions in lockstep with Muse Code:
-`muse-code-sdk X.Y.Z` pairs with Muse Code `X.Y.Z`. The stable surface
-evolves additively, and a breaking change follows a documented
-deprecation and changelog path. Surfaces marked experimental may change
-or be removed with a changelog entry and no deprecation window.
+Status: developer preview. Experimental protocol surfaces may change.
 
 The generated MSP wire types live in the companion package
 [`muse-code-msp`](https://pypi.org/project/muse-code-msp/) and are never
@@ -45,28 +41,56 @@ path passed at spawn time.
 ```python
 import asyncio
 
-from muse_code import (
-    MuseClient, MuseClientSpawnOptions, SendUserTurnOptions, StartSessionOptions,
-)
+from muse_code import MuseClient, MuseClientSpawnOptions, StartSessionOptions
 
 async def main() -> None:
     client = await MuseClient.spawn(MuseClientSpawnOptions(
-        muse_bin="muse",
+        muse_bin=None,  # None finds `muse` on PATH; or pass a path
         args=["serve"],
         client_info={"name": "my-app", "version": "1.0.0"},
     ))
     session = await client.start_session(StartSessionOptions(workspace_root="."))
-    turn = await session.send_user_turn(SendUserTurnOptions(
-        input=[{"type": "text", "text": "Summarize this repository."}],
-        composer_input="Summarize this repository.",
-    ))
-    async for item in turn.items():
-        print(item)
-    await turn.completed
+    result = await session.run("Summarize this repository.")
+    print(result.final_text)
     await client.close()
 
 asyncio.run(main())
 ```
+
+`session.run` sends one turn and returns when the turn has ended, with the
+outcome, the final answer text, the turn's items, and its token usage. A turn
+that failed or was cancelled still returns; read `result.outcome` to tell. The
+final answer is the last completed agent message that is not commentary. Pass a
+list of input parts instead of a string, and turn options as keywords:
+`await session.run(parts, reasoning_effort="high")`.
+
+To stop it, cancel the task that awaits it, for example with
+`asyncio.timeout(60)` on Python 3.11 or newer. A turn still waiting in the
+queue is taken back, and a running turn is cancelled; `run` then waits for
+the turn to end and re-raises `CancelledError`. `SyncSession.run` is the
+blocking version, with no way to cancel.
+
+To follow a turn as it runs, send it yourself and read its items (paste
+inside `main()` above, before `await client.close()`; add
+`SendUserTurnOptions` to the import):
+
+```python
+turn = await session.send_user_turn(SendUserTurnOptions(
+    input=[{"type": "text", "text": "Summarize this repository."}],
+    composer_input="Summarize this repository.",
+))
+async for item in turn.items():
+    print(item)
+await turn.completed
+```
+
+To stop a running turn, `await turn.interrupt()` (the stop gesture; pass
+`retract=True` to also take the prompt back) or `await turn.cancel()`. Both are
+requests: the turn is over when `turn.completed` settles. `turn.steer(...)`
+adds input to the running turn, and `turn.unqueue()` takes back a queued one.
+The session itself can `fork`, `compact`, `rename`, and `leave`, and switch its
+model, reasoning effort, or approval mode (`set_model`, `set_reasoning_effort`,
+`set_approval_mode`); `client.list_models()` lists the models it accepts.
 
 To run a session and the child agents it starts without approval prompts,
 start it under the built-in `:unrestricted` permission profile. Current

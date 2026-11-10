@@ -230,7 +230,8 @@ export function createUuidV7Mint(): () => string {
   };
 }
 
-async function defaultRetryDelay(attempt: number): Promise<void> {
+/** @internal The jittered backoff `command` retries with; `Session.run` reuses it. */
+export async function defaultRetryDelay(attempt: number): Promise<void> {
   const ceilingMs = Math.min(2_000, 50 * 2 ** Math.max(0, attempt - 1));
   const delayMs = Math.floor(Math.random() * (ceilingMs + 1));
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));

@@ -12,6 +12,7 @@ impl SessionViewHealth {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Unavailable => "unavailable",
+            Self::Healthy => "healthy",
             Self::Unknown(value) => value,
         }
     }
@@ -34,6 +35,7 @@ impl<'de> Deserialize<'de> for SessionViewHealth {
         let value = String::deserialize(deserializer)?;
         Ok(match value.as_str() {
             "unavailable" => Self::Unavailable,
+            "healthy" => Self::Healthy,
             _ => Self::Unknown(value),
         })
     }

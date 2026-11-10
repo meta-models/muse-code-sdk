@@ -115,6 +115,53 @@ class PermissionProfileNotApplied(Exception):
         self.session_id: str = session_id
 
 
+
+class MuseFacadeOwnedMethodError(Exception):
+    """``MuseClient.command`` was asked to send a method whose state the
+    facade owns. Sending it raw would bypass that state, so it is refused
+    before anything is written; use the facade verb instead.
+
+    Attributes:
+        method: The refused wire method.
+    """
+
+    def __init__(self, method: str) -> None:
+        """Builds the refusal.
+
+        Args:
+            method: The refused wire method.
+        """
+        super().__init__(
+            f"{method} is sent by the facade itself and cannot go through "
+            "MuseClient.command; use the facade verb that owns it"
+        )
+        self.method: str = method
+
+
+class MuseCapabilityNotGrantedError(Exception):
+    """A session open asked for something the host did not grant on this
+    connection: today, per-session MCP servers (``config["mcpServers"]``)
+    without the ``sessionMcp`` capability. Refused before anything is sent;
+    the client stays usable, and an open without that request still goes
+    through.
+
+    Attributes:
+        capability: The capability the request needs.
+        method: The wire method that was refused.
+    """
+
+    def __init__(self, capability: str, method: str, reason: str) -> None:
+        """Builds the refusal.
+
+        Args:
+            capability: The capability the request needs.
+            method: The wire method that was refused.
+            reason: Why the grant is missing.
+        """
+        super().__init__(f"{method} was not sent: {reason}")
+        self.capability: str = capability
+        self.method: str = method
+
 ValidationSeam = Literal["initializeResult", "spawnOptions"]
 """Which validating pydantic seam refused its input.
 
@@ -207,9 +254,9 @@ class MuseHostMismatchError(Exception):
             pinned: ``muse_code.EXPECTED_SCHEMA_FINGERPRINT``.
             host_version: ``serverInfo.version`` from the handshake result.
             required_host_version: The generated
-                ``muse_code_msp.REQUIRED_HOST_VERSION`` — tree-derived by the
-                renderer from the host crate's manifest and kept honest by
-                the regen gate, never hand-typed.
+                ``muse_code_msp.REQUIRED_HOST_VERSION`` — derived at import
+                through the vendored resolver and kept honest by the regen
+                gate, never hand-typed.
                 Required, not defaulted: the contract names the exact version, so
                 a version-less message is not a state this error can carry.
         """

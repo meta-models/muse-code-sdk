@@ -57,6 +57,7 @@
 //! #         selector: None,
 //! #         arguments: None,
 //! #         upload_id: None,
+//! #         client_ref: None,
 //! #         source: None,
 //! #     }
 //! # }

@@ -46,6 +46,7 @@ __all__ = [
     "isolated_host_env",
     "object_at",
     "pinned_to",
+    "recorded_fingerprint",
     "require_host",
     "run_journey",
     "spawn_fixture_host",
@@ -123,6 +124,13 @@ def _recorded_fingerprint(transcript_dir: Path) -> str:
         if isinstance(frame.get("result"), dict) and "schema" in frame["result"]
     )
     return str(result["result"]["schema"]["fingerprint"])
+
+
+def recorded_fingerprint(transcript_dir: Path) -> str:
+    """Public name for the recorded fingerprint, for recipes that build their
+    own fixture handshake (to script commandIds) and retarget with
+    :func:`pinned_to` themselves."""
+    return _recorded_fingerprint(transcript_dir)
 
 
 @contextmanager

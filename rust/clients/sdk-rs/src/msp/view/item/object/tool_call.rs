@@ -136,4 +136,29 @@ pub struct ToolCallMembers {
     /// derivation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_id: Option<String>,
+    /// `toolCall`: this call's live background-target record. Set when the
+    /// foreground tool starts, refreshed by whole-item `item/updated` when the
+    /// facts change, omitted once the call settles or unregisters — present
+    /// means a live candidate. Absent (pre-feature hosts, unregistered calls)
+    /// keeps the client's derived behavior, never an error. Old clients ignore
+    /// it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_target: Option<BackgroundTarget>,
+}
+
+/// One call's live background-target record: exactly the runtime snapshot's
+/// four facts, no new nouns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BackgroundTarget {
+    /// The tool call this record describes (the provider call id).
+    pub tool_call_id: String,
+    /// Point-in-time Ctrl+B chooser hint; the runtime re-checks
+    /// admission on the action.
+    pub manual_release_admissible: bool,
+    /// Whether the call sits in its foreground wait right now.
+    pub foreground_wait_active: bool,
+    /// Whether the background was already requested for this call.
+    pub background_requested: bool,
 }

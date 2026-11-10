@@ -29,28 +29,6 @@ export class MuseForeignSessionError extends Error {
 }
 
 /**
- * An image part whose bytes provably match a different well-known media
- * type than the one declared (#117). Thrown locally by `sendUserTurn`
- * before anything is submitted; only PNG/JPEG/GIF/WebP signatures are
- * judged, anything else passes through for the host to judge.
- */
-export class MuseImageMediaTypeError extends Error {
-  readonly declared: string;
-  readonly detected: string;
-  readonly partIndex: number;
-
-  constructor(declared: string, detected: string, partIndex: number) {
-    super(
-      `image part ${partIndex} media type mismatch: declared "${declared}" but the image bytes match "${detected}"; refusing to submit`,
-    );
-    this.name = "MuseImageMediaTypeError";
-    this.declared = declared;
-    this.detected = detected;
-    this.partIndex = partIndex;
-  }
-}
-
-/**
  * Why one SS4.8 splice-fill did not complete. Each arm names a different owner
  * (this SDK's own composition, the transport, the host), because the repair
  * differs:
@@ -118,5 +96,68 @@ export class PermissionProfileNotApplied extends Error {
     this.requested = requested;
     this.served = served;
     this.sessionId = sessionId;
+  }
+}
+
+/** The developer-docs compatibility page the host-discovery error cites. */
+export const COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/compatibility/";
+
+/**
+ * No host binary was given and no executable `muse` is on `PATH` (FR-79107-1).
+ * Raised by `MuseClient.spawn` before any process is started. The package does
+ * not bundle a host; install Muse Code or pass `museBin`.
+ */
+export class MuseHostDiscoveryError extends Error {
+  /** The spawn option that names an explicit host path. */
+  readonly parameter = "museBin";
+  /** The page listing the host versions this SDK supports. */
+  readonly compatibilityUrl = COMPATIBILITY_PAGE_URL;
+
+  constructor() {
+    super(
+      "no muse host found: pass museBin=<path to a muse binary> or put `muse` on PATH. " +
+        "The package does not bundle a host; supported host versions are listed on the " +
+        `compatibility page's TypeScript row: ${COMPATIBILITY_PAGE_URL}`,
+    );
+    this.name = "MuseHostDiscoveryError";
+  }
+}
+
+/**
+ * `MuseClient.command` was asked to send a method whose state the facade owns
+ * (FR-79107-2). Sending it raw would bypass that state, so it is refused
+ * before anything is written; use the facade verb instead.
+ */
+export class MuseFacadeOwnedMethodError extends Error {
+  /** The refused wire method. */
+  readonly method: string;
+
+  constructor(method: string) {
+    super(
+      `${method} is sent by the facade itself and cannot go through MuseClient.command; ` +
+        "use the facade verb that owns it",
+    );
+    this.name = "MuseFacadeOwnedMethodError";
+    this.method = method;
+  }
+}
+
+/**
+ * A session open asked for something the host did not grant on this
+ * connection (FR-79107-3): today, per-session MCP servers (`config.mcpServers`)
+ * without the `sessionMcp` capability. Refused before anything is sent; the
+ * client stays usable, and an open without that request still goes through.
+ */
+export class MuseCapabilityNotGrantedError extends Error {
+  /** The capability the request needs. */
+  readonly capability: string;
+  /** The wire method that was refused. */
+  readonly method: string;
+
+  constructor(capability: string, method: string, reason: string) {
+    super(`${method} was not sent: ${reason}`);
+    this.name = "MuseCapabilityNotGrantedError";
+    this.capability = capability;
+    this.method = method;
   }
 }

@@ -1,8 +1,8 @@
-"""``turn/start`` submission and same-``commandId`` replay. Port of the
-TypeScript SDK's turn-submit module.
+"""``turn/start`` and ``turn/steer`` submission and same-``commandId`` replay.
+Port of the TypeScript SDK's turn-submit module.
 
 It holds the ONE piece of state :class:`~muse_code.pending.PendingCommandSet`
-deliberately cannot: the ``turn/start`` params per ``commandId``. The set
+deliberately cannot: the submitted method and params per ``commandId``. The set
 stores the COMPOSER input and is wire-blind by design, so a
 replay — which must re-send the SAME logical command to be the sanctioned
 retry rather than a double execution — needs the params on this side of that
@@ -12,14 +12,17 @@ boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from typing import Generic, List, Sequence, TypeVar, cast
+from typing import Generic, List, Sequence, Tuple, TypeVar, cast
 
 from muse_code_msp import (
+    TURN_START_DISPOSITION_KNOWN_VALUES,
     IfBusy,
     ReasoningEffort,
     TurnInputPart,
     TurnStartParams,
     TurnStartResult,
+    TurnSteerParams,
+    TurnSteerResult,
     TurnUserShell,
 )
 
@@ -102,6 +105,44 @@ assert {
 ), "SendUserTurnOptions drifted from TurnStartParams — forward the new member"
 
 
+@dataclass
+class SteerTurnOptions(Generic[_I]):
+    """What a turn handle's ``steer`` sends (``turn/steer``), composed from the
+    generated params. ``expectedTurnId`` is the handle's own turn;
+    ``commandId``/``sessionId`` are excluded as on :class:`SendUserTurnOptions`.
+
+    Attributes:
+        input: The steer's input parts (the wire ``input`` member).
+        reasoning_effort: The tier for the model calls this steer reaches
+            (wire ``reasoningEffort``).
+        composer_input: What to hand back to the composer if this steer is
+            ever retired.
+    """
+
+    input: List[TurnInputPart]
+    reasoning_effort: ReasoningEffort | None = None
+    composer_input: _I | None = None
+
+
+# Drift pin, the twin of the TS `AssertNever` on TURN_STEER_FORWARDED.
+_STEER_WIRE_FIELDS = {"input", "reasoning_effort"}
+_STEER_EXCLUDED = {"commandId", "sessionId", "expectedTurnId"}
+assert {
+    _camel(f.name) for f in fields(SteerTurnOptions) if f.name in _STEER_WIRE_FIELDS
+} | _STEER_EXCLUDED == set(
+    TurnSteerParams.__annotations__
+), "SteerTurnOptions drifted from TurnSteerParams — forward the new member"
+
+# A steer's ack carries no disposition, but it IS the steered admission the
+# pending fold names: the input waits on the running turn's steer queue, so
+# the entry holds like a ``turn/start`` acked ``steered``.
+_STEERED = "steered"
+assert _STEERED in TURN_START_DISPOSITION_KNOWN_VALUES
+
+# One remembered submission: its method and params, re-sent byte for byte.
+_Remembered = Tuple[str, Params]
+
+
 def command_error_response(error: BaseException) -> CommandErrorResponse | None:
     """An :class:`MspError` as the pending set reads it.
 
@@ -142,7 +183,7 @@ class TurnSubmitter(Generic[_I]):
         self._connection = connection
         self._pending = pending
         # See the module doc. Pruned on retirement, so it tracks the set.
-        self._memory: dict[str, Params] = {}
+        self._memory: dict[str, _Remembered] = {}
 
     @property
     def wired(self) -> bool:
@@ -174,13 +215,7 @@ class TurnSubmitter(Generic[_I]):
     async def submit(
         self, options: SendUserTurnOptions[_I], anchor_after_item_id: str | None
     ) -> PendingCommandAck:
-        """Records the optimistic pending entry, then sends ``turn/start``.
-
-        The ORDER is the point. An entry created only on the ack is invisible
-        for exactly the window it exists to cover — between the user pressing
-        enter and the host answering — and ``anchor_after_item_id`` is fixed
-        here, at submission time, because the protocol's insertion point may never
-        be relocated by events that fold in afterwards.
+        """Submits a ``turn/start`` through the pending path.
 
         Args:
             options: The caller's turn options.
@@ -195,22 +230,83 @@ class TurnSubmitter(Generic[_I]):
         # id early.
         command_id = connection.mint_command_id()
         params = self._params(command_id, options)
-        self._pending.submitted(
+        ack, _ = await self._submit_recorded(
+            connection,
             command_id,
+            ("turn/start", params),
             # ``composer_input`` is optional on the options object; a consumer
             # rendering nothing optimistically has nothing to restore, and the
             # set stores whatever it is handed for restoration. ``None`` is a
             # valid stored input, so the cast preserves it rather than
             # inventing a value.
             cast(_I, options.composer_input),
-            display_text=params.get("displayText"),
+            anchor_after_item_id,
+        )
+        return ack
+
+    async def steer(
+        self,
+        turn_id: str,
+        options: SteerTurnOptions[_I],
+        anchor_after_item_id: str | None,
+    ) -> TurnSteerResult:
+        """Steers ``turn_id`` (``turn/steer``) through the same pending path as
+        :meth:`submit`: the pending entry exists from the moment a client
+        submits ``turn/start`` or ``turn/steer``, and the steer's
+        ``userMessage`` echoes its ``commandId``.
+
+        Args:
+            turn_id: The turn the caller believes is running.
+            options: The steer's input and optional tier/composer members.
+            anchor_after_item_id: The last item the session holds now.
+
+        Returns:
+            The wire ``turn/steer`` result.
+        """
+        connection = self.require_connection("steer")
+        command_id = connection.mint_command_id()
+        params: Params = {
+            "commandId": command_id,
+            "expectedTurnId": turn_id,
+            "input": options.input,
+            "sessionId": self._session_id,
+        }
+        if options.reasoning_effort is not None:
+            params["reasoningEffort"] = options.reasoning_effort
+        _, result = await self._submit_recorded(
+            connection,
+            command_id,
+            ("turn/steer", params),
+            cast(_I, options.composer_input),
+            anchor_after_item_id,
+        )
+        return cast(TurnSteerResult, result)
+
+    async def _submit_recorded(
+        self,
+        connection: Connection,
+        command_id: str,
+        remembered: _Remembered,
+        input: _I,
+        anchor_after_item_id: str | None,
+    ) -> Tuple[PendingCommandAck, Params]:
+        # Records the optimistic pending entry, then sends. The ORDER is the
+        # point: an entry created only on the ack is invisible for exactly the
+        # window it exists to cover, and the anchor is fixed here, at
+        # submission time, because the insertion point may never be relocated
+        # by events that fold in afterwards.
+        method, params = remembered
+        self._pending.submitted(
+            command_id,
+            input,
+            display_text=params.get("displayText") if method == "turn/start" else None,
             anchor_after_item_id=anchor_after_item_id,
         )
-        self._memory[command_id] = params
+        self._memory[command_id] = remembered
         try:
-            ack = await self._send(connection, params, command_id)
+            ack, result = await self._send(connection, remembered, command_id)
             self._pending.acked(command_id, ack)
-            return ack
+            return ack, result
         except MspError as error:
             response = command_error_response(error)
             # Only a durable -32030 settles; every other error admitted
@@ -225,7 +321,7 @@ class TurnSubmitter(Generic[_I]):
             raise
 
     async def replay(self, command_id: str) -> ReplayAnswer[_I] | None:
-        """Re-sends one remembered ``turn/start`` under its ORIGINAL
+        """Re-sends one remembered submission under its ORIGINAL
         ``commandId``.
 
         Args:
@@ -236,12 +332,12 @@ class TurnSubmitter(Generic[_I]):
             either this session never authored the command, or the failure was
             transport/protocol, which proves nothing about the intake.
         """
-        params = self._memory.get(command_id)
-        if params is None:
+        remembered = self._memory.get(command_id)
+        if remembered is None:
             return None
-        connection = self.require_connection("turn/start replay")
+        connection = self.require_connection(f"{remembered[0]} replay")
         try:
-            ack = await self._send(connection, params, command_id)
+            ack, _ = await self._send(connection, remembered, command_id)
             return ReplayAck(ack=ack)
         except MspError as error:
             response = command_error_response(error)
@@ -269,15 +365,20 @@ class TurnSubmitter(Generic[_I]):
             self._memory.pop(retirement.command_id, None)
 
     async def _send(
-        self, connection: Connection, params: Params, command_id: str
-    ) -> PendingCommandAck:
-        raw = await connection.command("turn/start", params, command_id=command_id)
-        result: TurnStartResult = raw  # type: ignore[assignment]
+        self, connection: Connection, remembered: _Remembered, command_id: str
+    ) -> Tuple[PendingCommandAck, Params]:
+        method, params = remembered
+        raw = await connection.command(method, params, command_id=command_id)
         # ``turnId`` comes from the ACK, never from the ``commandId``: the protocol
         # makes the ack authoritative, and a queued submit's turn may already
         # exist.
-        return PendingCommandAck(
-            turnId=result["turnId"], disposition=result["disposition"]
+        if method == "turn/steer":
+            steered = cast(TurnSteerResult, raw)
+            return PendingCommandAck(turnId=steered["turnId"], disposition=_STEERED), raw
+        result = cast(TurnStartResult, raw)
+        return (
+            PendingCommandAck(turnId=result["turnId"], disposition=result["disposition"]),
+            raw,
         )
 
     def _params(self, command_id: str, options: SendUserTurnOptions[_I]) -> Params:

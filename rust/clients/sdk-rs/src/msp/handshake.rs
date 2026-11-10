@@ -329,4 +329,23 @@ pub struct InitializeResult {
     /// no read method to serve. Absent is never fabricated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_limits: Option<crate::msp::method::limits::SessionLimits>,
+    /// The launcher context this serve process started with. **Experimental**:
+    /// present exactly when `grantedCapabilities` lists `launchContext`, absent
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_context: Option<LaunchContext>,
+}
+
+/// `InitializeResult.launchContext`: the two launcher variables of the serve
+/// process's environment, verbatim, read once at process start; one value for
+/// every connection and session the process hosts. Each member is `null` when
+/// its variable is unset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct LaunchContext {
+    /// `META_3PAI_INVOCATION_ID` (required, nullable).
+    pub invocation_id: Option<String>,
+    /// `META_3PAI_INVOCATION_CONTEXT` (required, nullable).
+    pub invocation_context: Option<String>,
 }

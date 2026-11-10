@@ -9,7 +9,7 @@ registry is its fixture-registry contract.
 
 ```
 schema/msp/transcripts/<scenario-id>/transcript.ndjson   # the wire session
-schema/msp/transcripts/<scenario-id>/manifest.json       # provenance + pins
+schema/msp/transcripts/<scenario-id>/manifest.json       # provenance + config
 schema/msp/transcripts/<scenario-id>/records.jsonl       # optional, see below
 ```
 
@@ -42,7 +42,6 @@ wire order. No consumer needs the Rust harness to read one.
   "schemaVersion": 1,
   "scenario": "handshake-usershell-granted",
   "provenance": "hand-authored",
-  "fingerprint": "sha256:…",
   "viewSchemaVersion": 1,
   "serverConfig": { "frameLimitBytes": 10485760 },
   "transports": ["stdio", "in-process"],
@@ -58,11 +57,12 @@ wire order. No consumer needs the Rust harness to read one.
   regenerates it under the recorded seeds and byte-diffs; `sdk-tolerance`
   fixtures are permanently hand-authored and exempt (they carry shapes a
   real server cannot emit).
-- `fingerprint` — the stable-bundle fingerprint the transcript was authored
-  under. CI fails when it diverges from
-  `schema/msp/stable/manifest.json` without regeneration or a recorded
-  acknowledgment in `schema/msp/changelog/acknowledgments.json` naming this
-  transcript's manifest path.
+- `fingerprint` — MUST NOT be written. A leftover member from an
+  unmerged branch is ignored: validation and staleness derive the
+  stable-bundle fingerprint from the schema bytes at use, and CI fails when
+  a transcript's frames no longer validate without regeneration or a
+  recorded acknowledgment in `schema/msp/changelog/acknowledgments.json`
+  naming this transcript's manifest path.
 - `serverConfig` — recorded server configuration; replay always starts the
   host with it (the short-serve fixture family depends on the frame limit).
 - `normalize` — the declared nondeterministic paths, drawn ONLY from the
@@ -110,12 +110,12 @@ Where the conformance harness is built:
 ```
 muse-conformance validate
 muse-conformance staleness
-muse-conformance repin
 ```
 
 Run from the repo root (or pass `--root`). Exit codes: 0 conformant,
 1 conformance failure, 2 usage, 3 infrastructure. `validate`
-schema-validates every frame against the bundle the manifest pins, enforces
+schema-validates every frame against the current stable bundle derived from
+the checkout, enforces
 the envelope/ordering rules, and prints the pending-dependency
 registrations (what is registered but blocked, and on which issue). `replay`
 is the live server-side oracle described below.
@@ -125,17 +125,16 @@ its pending-dependency registration (exit 3) — the live content remains a
 later conformance slice, default tests and CI never set the gate, and no
 invocation today touches network or credentials. The future live path
 requires secrets preflight first. The staleness gate classifies a stale
-pin's drift and directs the matching resolution: additive drift is fixed by
-regenerating the pins (regenerate the bundle, re-pin every derived copy,
-revalidate); non-additive drift needs a regenerated transcript
+transcript's drift and directs the matching resolution: additive drift is
+fixed by regenerating the bundle and revalidating (no manifest change: an
+additive advance needs no transcript edit); non-additive drift needs a
+regenerated transcript
 (`muse-conformance regen`) or an acknowledgment in
 `schema/msp/changelog/acknowledgments.json` (a `host-generated` transcript
 regenerates only: the replay-host parity sweep asserts byte-identity, so an
-acknowledgment cannot take it green in CI). `repin` is that command's
-rewrite half: it re-pins additive-stale manifests plus the SDK
-constant, skips acknowledged pins, and leaves non-additive drift reported for
-a human decision; it never edits the ledger, the release baseline, or a
-`transcript.ndjson`.
+acknowledgment cannot take it green in CI). (The `repin` rewrite mode retired
+with the TypeScript derive-at-build slice: the SDK constant it rewrote now derives at
+build, so no committed copy remains to re-pin.)
 
 ## Replaying a transcript against the seeded host
 
@@ -299,12 +298,12 @@ codes 0–5 plus an unrecognized code such as 77 for the seven process-death arm
 
 ## What today's bundle can and cannot validate
 
-The pinned stable bundle currently defines the envelope surface
+The current stable bundle defines the envelope surface
 (`initialize`, `initialized`, envelopes, the error registry). Frames whose
 methods land with later protocol lanes (`session/*`, `turn/*`, `item/*`,
 `approval/*`) are envelope-validated and counted as such in `validate`
 output; full method-schema validation tightens automatically as the protocol
-enrolls those surfaces and transcripts re-pin the moved fingerprint. Do not
+enrolls those surfaces. Do not
 read the envelope-only count as a defect: it is the additive-evolution
 posture made visible.
 

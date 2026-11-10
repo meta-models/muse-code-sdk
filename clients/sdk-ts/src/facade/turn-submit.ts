@@ -1,20 +1,21 @@
 /**
- * `turn/start` submission and same-`commandId` replay (spec 14990 FR-018 /
- * T030 obligations (a) and (d); tdd SS3.1.1, SS3.2, SS4.13).
+ * `turn/start` and `turn/steer` submission and same-`commandId` replay (spec
+ * 14990 FR-018 / T030 obligations (a) and (d), FR-79106-1; tdd SS3.1.1,
+ * SS3.2, SS3.3, SS4.13).
  *
  * Split out of `session.ts` for the same reason `approval.ts` was: this is a
  * wire-shaping and idempotency concern, not a fold concern, and `Session` was
  * already the package's largest module.
  *
  * It holds the ONE piece of state `PendingCommandSet` deliberately cannot: the
- * `turn/start` params per `commandId`. The set stores the COMPOSER input and is
- * wire-blind by design (INV-001), so a replay — which must re-send the SAME
- * logical command, byte for byte, to be the sanctioned retry rather than a
- * double execution — needs the params to live on this side of that boundary.
+ * submitted method and params per `commandId`. The set stores the COMPOSER
+ * input and is wire-blind by design (INV-001), so a replay — which must re-send
+ * the SAME logical command, byte for byte, to be the sanctioned retry rather
+ * than a double execution — needs the params to live on this side of that
+ * boundary.
  */
 
 import { MspError } from "../connection/connection.js";
-import { MuseImageMediaTypeError } from "../errors.js";
 import type { Connection } from "../connection/connection.js";
 import type { PendingCommandSet } from "../pending/pending-command-set.js";
 import type {
@@ -24,7 +25,13 @@ import type {
   ReplayAnswer,
 } from "../pending/pending-command-set.js";
 
-import type { TurnInputPart, TurnStartParams, TurnStartResult } from "@muse-code/msp";
+import type {
+  TurnStartDisposition,
+  TurnStartParams,
+  TurnStartResult,
+  TurnSteerParams,
+  TurnSteerResult,
+} from "@muse-code/msp";
 
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;
@@ -72,6 +79,40 @@ type _TurnStartIsExhaustive = AssertNever<
 >;
 
 /**
+ * What a turn handle's `steer` sends (`turn/steer`, tdd SS3.3), composed from
+ * the generated params. `expectedTurnId` is the handle's own turn, and
+ * `commandId`/`sessionId` are excluded for the same reasons as on
+ * {@link SendUserTurnOptions}.
+ */
+export type SteerTurnOptions<I> = Readonly<
+  Omit<TurnSteerParams, "commandId" | "sessionId" | "expectedTurnId">
+> & {
+  /** What to hand back to the composer if this steer is ever retired (SS4.13). */
+  readonly composerInput?: I;
+};
+
+/** Every `turn/steer` member forwarded; a regenerated member fails the build. */
+const TURN_STEER_FORWARDED = ["input", "reasoningEffort"] as const;
+type _TurnSteerIsExhaustive = AssertNever<
+  Exclude<
+    keyof Omit<TurnSteerParams, "commandId" | "sessionId" | "expectedTurnId">,
+    (typeof TURN_STEER_FORWARDED)[number]
+  >
+>;
+
+/**
+ * A steer's ack carries no disposition, but it IS the steered admission SS4.13
+ * names: the input is pending on the running turn's steer queue, so the entry
+ * holds like a `turn/start` acked `"steered"` (the acked-steer join arm).
+ */
+const STEERED: Extract<TurnStartDisposition, "steered"> = "steered";
+
+/** One remembered submission, re-sent byte for byte on replay. */
+type RememberedSubmit =
+  | { readonly method: "turn/start"; readonly params: TurnStartParams }
+  | { readonly method: "turn/steer"; readonly params: TurnSteerParams };
+
+/**
  * An `MspError` as the pending set reads it (SS4.13's settlement test).
  *
  * `undefined` for anything that is NOT a server-authored MSP error — a
@@ -88,82 +129,10 @@ export function commandErrorResponse(error: unknown): CommandErrorResponse | und
   };
 }
 
-/** Well-known image media types whose signatures are sniffed locally (#117). */
-const SNIFFED_IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
-
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/** Decode only the leading bytes a signature check needs, ignoring whitespace. */
-function decodeBase64Prefix(data: string, maxBytes: number): Uint8Array {
-  const bytes: number[] = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const char of data) {
-    if (char === "=") break;
-    const value = BASE64_ALPHABET.indexOf(char);
-    if (value < 0) continue;
-    buffer = (buffer << 6) | value;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((buffer >> bits) & 0xff);
-      buffer &= bits === 0 ? 0 : (1 << bits) - 1;
-      if (bytes.length >= maxBytes) break;
-    }
-  }
-  return new Uint8Array(bytes);
-}
-
-function asciiAt(bytes: Uint8Array, offset: number, text: string): boolean {
-  if (bytes.length < offset + text.length) return false;
-  for (let i = 0; i < text.length; i += 1) {
-    if (bytes[offset + i] !== text.charCodeAt(i)) return false;
-  }
-  return true;
-}
-
-/** The well-known type a byte prefix actually is, or `undefined` if unrecognised. */
-function sniffImageMediaType(bytes: Uint8Array): string | undefined {
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
-    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (asciiAt(bytes, 0, "GIF87a") || asciiAt(bytes, 0, "GIF89a")) return "image/gif";
-  if (asciiAt(bytes, 0, "RIFF") && asciiAt(bytes, 8, "WEBP")) return "image/webp";
-  return undefined;
-}
-
-function canonicalSniffedType(mediaType: string): string | undefined {
-  const base = (mediaType.split(";", 1)[0] ?? "").trim().toLowerCase();
-  if (base === "image/jpg") return "image/jpeg";
-  return SNIFFED_IMAGE_TYPES.has(base) ? base : undefined;
-}
-
-/**
- * Refuse an image part whose bytes provably contradict its declared
- * `mediaType` (#117). Only the well-known signatures above are judged: an
- * unrecognised declaration, missing payload, or unrecognised byte prefix
- * passes through unchanged for the host to judge.
- */
-function validateImageParts(input: readonly TurnInputPart[]): void {
-  if (!Array.isArray(input)) return;
-  for (const [index, part] of input.entries()) {
-    if (part == null || part.type !== "image") continue;
-    if (typeof part.mediaType !== "string" || typeof part.base64Data !== "string") continue;
-    if (part.base64Data.length === 0) continue;
-    const declared = canonicalSniffedType(part.mediaType);
-    if (declared === undefined) continue;
-    const detected = sniffImageMediaType(decodeBase64Prefix(part.base64Data, 12));
-    if (detected !== undefined && detected !== declared) {
-      throw new MuseImageMediaTypeError(part.mediaType, detected, index);
-    }
-  }
+/** A submission's raw wire result, and the ack the pending set reads from it. */
+interface SentSubmit {
+  readonly ack: PendingCommandAck;
+  readonly result: Record<string, unknown>;
 }
 
 export class TurnSubmitter<I> {
@@ -171,7 +140,7 @@ export class TurnSubmitter<I> {
   readonly #connection: Connection | undefined;
   readonly #pending: PendingCommandSet<I>;
   /** See the module doc. Pruned on retirement, so it tracks the pending set. */
-  readonly #memory = new Map<string, TurnStartParams>();
+  readonly #memory = new Map<string, RememberedSubmit>();
 
   constructor(
     sessionId: string,
@@ -197,8 +166,58 @@ export class TurnSubmitter<I> {
     return connection;
   }
 
+  /** Submit a `turn/start` through the SS4.13 path (`#submitRecorded`). */
+  async submit(
+    options: SendUserTurnOptions<I>,
+    anchorAfterItemId: string | null,
+  ): Promise<PendingCommandAck> {
+    const connection = this.requireConnection("sendUserTurn");
+    // Delegated, not re-implemented: the connection owns the single mint, so
+    // INV-013's single-minter property survives this verb needing the id early.
+    const commandId = connection.mintCommandId();
+    const params = this.#params(commandId, options);
+    const sent = await this.#submitRecorded(
+      connection,
+      commandId,
+      { method: "turn/start", params },
+      options.composerInput as I,
+      anchorAfterItemId,
+    );
+    return sent.ack;
+  }
+
   /**
-   * Record the optimistic SS4.13 entry, then send `turn/start`.
+   * Steer `turnId` (`turn/steer`, tdd SS3.3) through the same SS4.13 path as
+   * `submit`: SS4.13's entry exists "from the moment it submits `turn/start`
+   * (or `turn/steer`)", and the steer's `userMessage` echoes its `commandId`,
+   * so materialization, rejection and reconnect replay all ride the set.
+   */
+  async steer(
+    turnId: string,
+    options: SteerTurnOptions<I>,
+    anchorAfterItemId: string | null,
+  ): Promise<TurnSteerResult> {
+    const connection = this.requireConnection("steer");
+    const commandId = connection.mintCommandId();
+    const params: TurnSteerParams = {
+      commandId,
+      expectedTurnId: turnId,
+      input: options.input,
+      sessionId: this.#sessionId,
+    };
+    if (options.reasoningEffort != null) params.reasoningEffort = options.reasoningEffort;
+    const sent = await this.#submitRecorded(
+      connection,
+      commandId,
+      { method: "turn/steer", params },
+      options.composerInput as I,
+      anchorAfterItemId,
+    );
+    return sent.result as unknown as TurnSteerResult;
+  }
+
+  /**
+   * Record the optimistic SS4.13 entry, then send.
    *
    * The ORDER is the point. An entry created only on the ack is invisible for
    * exactly the window it exists to cover — between the user pressing enter and
@@ -206,30 +225,26 @@ export class TurnSubmitter<I> {
    * time, because SS4.13's insertion point may never be relocated by events
    * that fold in afterwards.
    */
-  async submit(
-    options: SendUserTurnOptions<I>,
+  async #submitRecorded(
+    connection: Connection,
+    commandId: string,
+    remembered: RememberedSubmit,
+    input: I,
     anchorAfterItemId: string | null,
-  ): Promise<PendingCommandAck> {
-    // Local #117 refusal first: no mint, no pending entry, no frame, so a
-    // mislabelled image leaves the session exactly as it was.
-    validateImageParts(options.input);
-    const connection = this.requireConnection("sendUserTurn");
-    // Delegated, not re-implemented: the connection owns the single mint, so
-    // INV-013's single-minter property survives this verb needing the id early.
-    const commandId = connection.mintCommandId();
-    const params = this.#params(commandId, options);
+  ): Promise<SentSubmit> {
+    const displayText = remembered.method === "turn/start" ? remembered.params.displayText : undefined;
     this.#pending.submitted({
       anchorAfterItemId,
       commandId,
-      input: options.composerInput as I,
-      ...(params.displayText === undefined ? {} : { displayText: params.displayText }),
+      input,
+      ...(displayText === undefined ? {} : { displayText }),
     });
-    this.#memory.set(commandId, params);
+    this.#memory.set(commandId, remembered);
 
     try {
-      const ack = await this.#send(connection, params, commandId);
-      this.#pending.acked(commandId, ack);
-      return ack;
+      const sent = await this.#send(connection, remembered, commandId);
+      this.#pending.acked(commandId, sent.ack);
+      return sent;
     } catch (error) {
       const response = commandErrorResponse(error);
       // Only a durable -32030 settles; every other error admitted nothing and
@@ -245,7 +260,7 @@ export class TurnSubmitter<I> {
   }
 
   /**
-   * Re-send one remembered `turn/start` under its ORIGINAL `commandId`
+   * Re-send one remembered submission under its ORIGINAL `commandId`
    * (SS3.1.1 — always safe, and the only re-send that is not a double
    * execution).
    *
@@ -254,11 +269,11 @@ export class TurnSubmitter<I> {
    * transport/protocol one, which proves nothing about the intake.
    */
   async replay(commandId: string): Promise<ReplayAnswer | undefined> {
-    const params = this.#memory.get(commandId);
-    if (params === undefined) return undefined;
-    const connection = this.requireConnection("turn/start replay");
+    const remembered = this.#memory.get(commandId);
+    if (remembered === undefined) return undefined;
+    const connection = this.requireConnection(`${remembered.method} replay`);
     try {
-      return { ack: await this.#send(connection, params, commandId), kind: "ack" };
+      return { ack: (await this.#send(connection, remembered, commandId)).ack, kind: "ack" };
     } catch (error) {
       const response = commandErrorResponse(error);
       if (response === undefined) return undefined;
@@ -281,18 +296,22 @@ export class TurnSubmitter<I> {
 
   async #send(
     connection: Connection,
-    params: TurnStartParams,
+    remembered: RememberedSubmit,
     commandId: string,
-  ): Promise<PendingCommandAck> {
-    const raw = await connection.command(
-      "turn/start",
-      params as unknown as Record<string, unknown>,
+  ): Promise<SentSubmit> {
+    const result = await connection.command(
+      remembered.method,
+      remembered.params as unknown as Record<string, unknown>,
       { commandId },
     );
-    const result = raw as unknown as TurnStartResult;
     // `turnId` comes from the ACK and never from the `commandId`: SS3.2 makes
     // the ack authoritative, and a queued submit's turn may already exist.
-    return { disposition: result.disposition, turnId: result.turnId };
+    if (remembered.method === "turn/steer") {
+      const steered = result as unknown as TurnSteerResult;
+      return { ack: { disposition: STEERED, turnId: steered.turnId }, result };
+    }
+    const started = result as unknown as TurnStartResult;
+    return { ack: { disposition: started.disposition, turnId: started.turnId }, result };
   }
 
   /**

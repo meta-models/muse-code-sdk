@@ -70,6 +70,10 @@ pub enum ErrorKind {
     /// retry against and `data.retryable` is `true`. Experimental tier with the
     /// socket surface.
     DaemonDraining,
+    /// The daemon's startup credential or catalog step is still running;
+    /// `data.retryable` is `true` and the message names the pending step.
+    /// Experimental tier with the socket daemon surface.
+    StartupPending,
     /// A `session/start` choice is wider than the host ceiling on at least one
     /// axis; `data.axes` names every too-wide axis with its requested and
     /// ceiling values and `data.retryable` is `false`. Experimental tier with
@@ -138,6 +142,13 @@ pub enum ErrorKind {
     UserInputAlreadySettled,
     /// Structured answer or clarification is invalid (`-32057`).
     UserInputAnswerInvalid,
+    /// A `computerUseTakeover` decide arrived while the Computer Use lock
+    /// broker was unreachable, before the approval was marked resolving
+    /// (`-32058`); the approval stays pending.
+    ApprovalBrokerUnavailable,
+    /// A decide arrived after a `computerUseTakeover` approval was marked
+    /// resolving and before its terminal record (`-32059`).
+    ApprovalResolving,
     /// A raw-log cursor position names no position of the requested stream;
     /// `data.stream` and `data.after` name the rejected anchor. Experimental
     /// tier.

@@ -3,8 +3,10 @@
  * tasks.md T030).
  *
  * A handle owns two things: the SS3.1.4 turn-wait, and the async iterators
- * that ride the fold for this turn. It authors no wire traffic and holds no
- * durable state — `Session` feeds it folded events and it fans them out.
+ * that ride the fold for this turn. It holds no durable state — `Session`
+ * feeds it folded events and it fans them out. Its control verbs
+ * (`cancel`/`interrupt`/`steer`/`unqueue`, FR-79106-1) author wire traffic
+ * only through the `TurnControls` its `Session` hands it.
  *
  * INV-006 governs the wait: the SDK never locally times out, fails, or
  * completes a turn. Every settlement below traces to a server-authored fact,
@@ -17,11 +19,19 @@
 import type {
   Item,
   ItemDeltaParams,
+  TurnCancelResult,
   TurnCompletedParams,
   TurnErrorKind,
+  TurnInterruptParams,
+  TurnInterruptResult,
+  TurnSteerResult,
   TurnTerminal,
+  TurnUnqueueResult,
   TurnUnqueuedParams,
 } from "@muse-code/msp";
+
+import type { PendingRetirement } from "../pending/pending-command-set.js";
+import type { SteerTurnOptions } from "./turn-submit.js";
 
 /**
  * Bound through the CLOSED extraction of each generated vocabulary. Both
@@ -198,6 +208,37 @@ class PushStream<T> implements AsyncIterableIterator<T> {
 /** The turn's replayable backlog, supplied by `Session` from the fold. */
 export type ItemReplay = () => readonly FoldedItem[];
 
+/** What `interrupt` forwards: the SS3.4 retract pairing. */
+export type InterruptTurnOptions = Readonly<Pick<TurnInterruptParams, "retract">>;
+
+/**
+ * What `unqueue` resolves to: the wire ack, and the SS4.13 retirement the
+ * accepted reclaim produced — the queued submit's input handed back to the
+ * composer. On a session `MuseClient` opened, `retirement` is set for this
+ * session's own accepted reclaim whatever order the ack and `turn/unqueued`
+ * arrive in. It is undefined when this session holds no queued entry for the
+ * turn (another client's submit, say). On a `Session` you feed through
+ * `apply` yourself, it is also undefined when `turn/unqueued` folded first:
+ * that `apply` returned the retirement, so restore the composer from
+ * whichever of the two returned it. Either way it is handed out once.
+ */
+export interface TurnUnqueueOutcome<I> {
+  readonly ack: TurnUnqueueResult;
+  readonly retirement: PendingRetirement<I> | undefined;
+}
+
+/**
+ * The wire half of a handle's control verbs, supplied by its `Session`, which
+ * owns the connection, the discard latch and the SS4.13 pending set.
+ */
+export interface TurnControls<I> {
+  cancel(turnId: string): Promise<TurnCancelResult>;
+  interrupt(turnId: string, options: InterruptTurnOptions): Promise<TurnInterruptResult>;
+  steer(turnId: string, options: SteerTurnOptions<I>): Promise<TurnSteerResult>;
+  /** `commandId` resends one reclaim under its first id; omitted, the connection mints one. */
+  unqueue(turnId: string, commandId?: string): Promise<TurnUnqueueOutcome<I>>;
+}
+
 /**
  * A turn, as a CONSUMER sees it — the SS7.1 turn surface and nothing else.
  *
@@ -208,18 +249,42 @@ export type ItemReplay = () => readonly FoldedItem[];
  * is exactly what INV-006 forbids. They stay reachable only through
  * `Session.apply`, i.e. only from a server-authored event.
  */
-export interface Turn {
+export interface Turn<I = unknown> {
   readonly turnId: string;
   /** Did THIS session observe a `turn/started`? Not a launch-failure marker. */
   readonly observedStart: boolean;
   readonly completed: Promise<TurnOutcome>;
   items(): AsyncIterableIterator<FoldedItem>;
   deltas(): AsyncIterableIterator<ItemDeltaParams>;
+  /**
+   * Cancel this turn on the normal command lane (`turn/cancel`, tdd SS3.5).
+   * Admission only: the turn is over when its `turn/completed` folds.
+   */
+  cancel(): Promise<TurnCancelResult>;
+  /**
+   * Stop this turn on the priority lane (`turn/interrupt`, tdd SS3.4), the
+   * user's stop gesture; `retract: true` also asks to retract the prompt.
+   * Admission only, like `cancel`.
+   */
+  interrupt(options?: InterruptTurnOptions): Promise<TurnInterruptResult>;
+  /**
+   * Add input to this turn while it runs (`turn/steer`, tdd SS3.3). The steer
+   * is a pending command (SS4.13) until its `userMessage` folds.
+   */
+  steer(options: SteerTurnOptions<I>): Promise<TurnSteerResult>;
+  /**
+   * Take this queued turn back before it launches (`turn/unqueue`, tdd SS3.6).
+   * An accepted ack means the turn never launches, so this session's queued
+   * entry retires at once (SS4.13 Reclaimed) and comes back as `retirement`;
+   * the turn itself settles `unqueued` when the server's `turn/unqueued` folds.
+   */
+  unqueue(): Promise<TurnUnqueueOutcome<I>>;
 }
 
-export class TurnHandle implements Turn {
+export class TurnHandle<I = unknown> implements Turn<I> {
   readonly turnId: string;
   readonly #replayItems: ItemReplay;
+  readonly #controls: TurnControls<I>;
   readonly #itemStreams = new Set<PushStream<FoldedItem>>();
   readonly #deltaStreams = new Set<PushStream<ItemDeltaParams>>();
   readonly #completed: Promise<TurnOutcome>;
@@ -236,9 +301,10 @@ export class TurnHandle implements Turn {
    */
   #failure: unknown;
 
-  constructor(turnId: string, replayItems: ItemReplay) {
+  constructor(turnId: string, replayItems: ItemReplay, controls: TurnControls<I>) {
     this.turnId = turnId;
     this.#replayItems = replayItems;
+    this.#controls = controls;
     this.#completed = new Promise<TurnOutcome>((resolve, reject) => {
       this.#settle = resolve;
       this.#fail = reject;
@@ -303,6 +369,22 @@ export class TurnHandle implements Turn {
     );
     this.#admit(stream, this.#deltaStreams);
     return stream;
+  }
+
+  cancel(): Promise<TurnCancelResult> {
+    return this.#controls.cancel(this.turnId);
+  }
+
+  interrupt(options: InterruptTurnOptions = {}): Promise<TurnInterruptResult> {
+    return this.#controls.interrupt(this.turnId, options);
+  }
+
+  steer(options: SteerTurnOptions<I>): Promise<TurnSteerResult> {
+    return this.#controls.steer(this.turnId, options);
+  }
+
+  unqueue(): Promise<TurnUnqueueOutcome<I>> {
+    return this.#controls.unqueue(this.turnId);
   }
 
   /**

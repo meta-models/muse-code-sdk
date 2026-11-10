@@ -24,6 +24,12 @@ posture is the STRICT gate, so reaching the segment at all
 proves the gate passed, and the segment asserts the served/pinned equality
 explicitly.
 
+It is written against the SDK facade an application uses —
+``MuseClient.spawn``, ``start_session``, ``session.run``, ``send_user_turn``
+with ``items()``, ``on_approval``, ``turn.cancel()``, ``resume_session``,
+``close`` — never the raw connection, so the first program a reader copies
+teaches that layer.
+
 The journey has two modes. :func:`run_configured_journey` is the ACCEPTANCE
 mode: it seeds ``home`` with a loopback fake first-party endpoint
 (``provider.py``), so the host really runs a model and every segment is
@@ -38,29 +44,33 @@ same verdicts.
 
 from __future__ import annotations
 
-import re
+import asyncio
+import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, List, Mapping, Sequence
 
 import muse_code
 from muse_code import (
+    ApprovalDecisionInput,
+    MuseClient,
     MuseClientSpawnOptions,
     ResumeSessionOptions,
     SendUserTurnOptions,
+    Session,
     StartSessionOptions,
     SyncMuseClient,
     SyncSession,
     SyncTurn,
+    Turn,
+    TurnOutcome,
 )
 from muse_code.connection import MspError
+from muse_code_msp import ClientInfo
 
 from .host import (
     HOST_DRAIN_WINDOW_MS,
     STUB_VIEW_CURSOR,
-    Host,
-    HostOptions,
-    RecordedNotification,
     isolated_host_env,
     within,
 )
@@ -77,7 +87,7 @@ from .segments import (
     run_sync_journey as run_sync_kit_journey,
 )
 
-QUICKSTART_CLIENT_INFO: Mapping[str, str] = {
+QUICKSTART_CLIENT_INFO: ClientInfo = {
     "name": "muse_sdk_quickstart_py",
     "version": "0.0.0",
 }
@@ -139,15 +149,22 @@ class Context:
     home: str
     workspace_root: str
     session_id: str | None = None
-    host: Host | None = None
-    resume_host: Host | None = None
+    client: "MuseClient[Any] | None" = None
+    session: "Session[Any] | None" = None
+    resume_client: "MuseClient[Any] | None" = None
     resumed: Mapping[str, Any] | None = None
 
 
-def _require_host(context: Context) -> Host:
-    if context.host is None:
-        raise AssertionError("no live host: an earlier segment did not finish")
-    return context.host
+def _require_client(context: Context) -> "MuseClient[Any]":
+    if context.client is None:
+        raise AssertionError("no live client: an earlier segment did not finish")
+    return context.client
+
+
+def _require_session(context: Context) -> "Session[Any]":
+    if context.session is None:
+        raise AssertionError("no session: `session-new` did not finish")
+    return context.session
 
 
 def _require_session_id(context: Context) -> str:
@@ -157,32 +174,27 @@ def _require_session_id(context: Context) -> str:
 
 
 def _completed_agent_messages(
-    notifications: Sequence[RecordedNotification],
-) -> list[tuple[str, str]]:
-    """Every completed ``agentMessage`` a turn served, in arrival order, as
-    ``(messagePhase, text)``.
+    items: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, str, str]]:
+    """Every completed ``agentMessage`` a turn served, in first-opened order,
+    as ``(itemId, messagePhase, text)``.
 
     A turn holds several — commentary before and between tool calls, then
     the final answer — and no position is special: the LAST one is not "the
     answer": the phase labels a message, its position does not. Show them
-    all, each with its phase, once
-    ``turn/completed`` has arrived. An absent ``messagePhase`` is an older
-    host, which served final answers only (an absent phase reads as a final
-    answer).
+    all, each with its phase, once the turn has ended. An absent
+    ``messagePhase`` is an older host, which served final answers only (an
+    absent phase reads as a final answer).
     """
-    messages: list[tuple[str, str]] = []
-    for notification in notifications:
-        if notification.method != "item/completed":
-            continue
-        item = notification.params.get("item")
-        if not isinstance(item, dict) or item.get("kind") != "agentMessage":
-            continue
-        if item.get("status") != "completed":
+    messages: list[tuple[str, str, str]] = []
+    for item in items:
+        if item.get("kind") != "agentMessage" or item.get("status") != "completed":
             continue
         text = item.get("text")
         phase = item.get("messagePhase")
         messages.append(
             (
+                str(item.get("itemId")),
                 "commentary" if phase == "commentary" else "finalAnswer",
                 text if isinstance(text, str) else "",
             )
@@ -190,46 +202,53 @@ def _completed_agent_messages(
     return messages
 
 
-async def _start_turn(host: Host, session_id: str, prompt: str) -> str:
-    """Run one ``turn/start`` and return the admitted ``turnId`` — shared by
-    the turn, approval and cancel segments so all three observe the same
-    admission contract."""
-    ack = await within(
-        "the turn/start ack",
-        COMMAND_BUDGET_MS,
-        host.connection.command(
-            "turn/start",
-            {"sessionId": session_id, "input": [{"type": "text", "text": prompt}]},
-            max_attempts=1,
-        ),
+def _spawn_options(context: Context) -> MuseClientSpawnOptions:
+    """Spawn ``muse serve`` and complete the handshake in one call. The first
+    three fields are all an application needs; the rest are what this
+    journey adds because it tests one specific build in a throwaway HOME."""
+    options = MuseClientSpawnOptions(
+        muse_bin=None,  # None runs the first `muse` on your PATH
+        args=["serve"],
+        client_info=QUICKSTART_CLIENT_INFO,
     )
-    _equals(ack.get("status"), "accepted", "turn/start ack status")
-    # `started` and `queued` are BOTH correct answers: a
-    # turn/start landing after the previous turn completed but before the
-    # session settles to idle mints a queued turn. `steered` is deliberately
-    # NOT accepted — it merges into a RUNNING turn, which no segment asks for.
-    disposition = ack.get("disposition")
-    if disposition not in ("started", "queued"):
+    # What the journey adds: the binary under test and a throwaway HOME.
+    return replace(
+        options,
+        muse_bin=context.muse_bin,
+        cwd=context.workspace_root,
+        env=isolated_host_env(context.home),
+        shutdown_timeout_ms=HOST_DRAIN_WINDOW_MS,
+    )
+
+
+def _require_terminal(outcome: TurnOutcome, expected: str) -> None:
+    """Fails with the host's own reason text when a turn ends any other way."""
+    if outcome.kind != "completed":
         raise AssertionError(
-            f'turn/start ack disposition: expected "started" or "queued", '
-            f"got {disposition!r}"
+            f"the turn ended {outcome.kind!r}, expected terminal {expected!r}"
         )
-    _equals(
-        ack.get("startedNewTurn"),
-        disposition == "started",
-        "turn/start ack startedNewTurn",
-    )
-    return _string_at(ack, "turnId", "turn/start ack")
-
-
-def _require_terminal(completed: Mapping[str, Any], expected: str) -> None:
-    """Fails with the host's own reason text when a turn ends off-terminal."""
-    terminal = completed.get("terminal")
+    terminal = outcome.params.get("terminal")
     if terminal != expected:
-        reason = completed.get("reason")
+        reason = outcome.params.get("reason")
         note = f"; host reason: {reason}" if isinstance(reason, str) else ""
         raise AssertionError(
             f"turn/completed terminal was {terminal!r}, expected {expected!r}{note}"
+        )
+
+
+async def _close_quietly(what: str, client: "MuseClient[Any]") -> None:
+    """Best-effort teardown for a failure path. Never raises: since the SDK
+    owns termination, an expiry means the drain was not CLEAN — the child is
+    reclaimed either way."""
+    try:
+        await within(
+            f"{what}'s orderly drain and exit", CLOSE_BUDGET_MS + 10_000, client.close()
+        )
+    except Exception as error:  # noqa: BLE001 - warned, never raised
+        sys.stderr.write(
+            f"warning: {what} did not drain cleanly ({error}); the SDK escalates "
+            "to SIGTERM/SIGKILL, so the child is reclaimed even when the drain "
+            "is not.\n"
         )
 
 
@@ -237,23 +256,19 @@ def _require_terminal(completed: Mapping[str, Any], expected: str) -> None:
 
 
 async def _spawn(context: Context) -> None:
-    # Host.start spawns and handshakes in one step, which is what a consumer
-    # writes. Spawn is proven by the handshake answering at all: a host that
-    # dies on launch surfaces its classified exit here instead of a hang.
-    context.host = await Host.start(
-        HostOptions(
-            muse_bin=context.muse_bin,
-            home=context.home,
-            workspace_root=context.workspace_root,
-            client_info=QUICKSTART_CLIENT_INFO,
-        ),
+    # `MuseClient.spawn` spawns and handshakes in one step. Spawn is proven by
+    # the handshake answering at all: a host that dies on launch raises
+    # `MuseHostStartError` here, with its exit and stderr, instead of a hang.
+    context.client = await within(
+        "the host's spawn and handshake",
         HANDSHAKE_BUDGET_MS,
+        MuseClient.spawn(_spawn_options(context)),
     )
 
 
 async def _handshake(context: Context) -> None:
-    host = _require_host(context)
-    result: Mapping[str, Any] = host.msp.initialize_result
+    client = _require_client(context)
+    result: Mapping[str, Any] = client.initialize_result
     server_info = _object_at(result, "serverInfo", "initialize result")
     _string_at(server_info, "name", "initialize serverInfo")
     _string_at(server_info, "version", "initialize serverInfo")
@@ -270,202 +285,164 @@ async def _handshake(context: Context) -> None:
     )
 
 
+def _opening_result(session: "Session[Any] | SyncSession[Any]") -> Mapping[str, Any]:
+    opening = session.opening
+    if opening is None:
+        raise AssertionError("the session carries no opening result")
+    return opening.result
+
+
 async def _session_new(context: Context) -> None:
-    host = _require_host(context)
-    result = await within(
-        "the session/start ack",
+    client = _require_client(context)
+    session = await within(
+        "the session/start reply",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "session/start", {"workspaceRoot": context.workspace_root}, max_attempts=1
-        ),
+        client.start_session(StartSessionOptions(workspace_root=context.workspace_root)),
     )
-    session = _object_at(result, "session", "session/start result")
-    session_id = _string_at(session, "sessionId", "session/start session")
-    _equals(session.get("status"), "idle", "a fresh session's status")
+    result = _opening_result(session)
+    summary = _object_at(result, "session", "session/start result")
+    _equals(summary.get("sessionId"), session.session_id, "the started session id")
+    _equals(summary.get("status"), "idle", "a fresh session's status")
     _equals(
-        session.get("workspaceRoot"),
+        summary.get("workspaceRoot"),
         context.workspace_root,
         "the session's workspace root",
     )
     # A DEFAULT start writes no durable fact, so the cursor is pinned to
     # exactly the before-genesis "".
     _equals(result.get("viewCursor"), "", "a default start's view cursor")
-    # The push side of the same fact: the host announces the session it just
-    # created, and it is the same session.
-    started = await host.wait_for(
-        "the session/started notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "session/started",
-    )
-    announced = _object_at(started.params, "session", "session/started params")
-    _equals(announced.get("sessionId"), session_id, "the announced session id")
-    context.session_id = session_id
+    context.session = session
+    context.session_id = session.session_id
 
 
 async def _session_effective_model(context: Context) -> None:
-    host = _require_host(context)
-    session_id = _require_session_id(context)
-    read = await within(
-        "the session/read result",
-        COMMAND_BUDGET_MS,
-        host.connection.request(
-            "session/read", {"sessionId": session_id, "excludeItems": True}
-        ),
+    summary = _object_at(
+        _opening_result(_require_session(context)), "session", "session/start result"
     )
-    session = _object_at(read, "session", "session/read result")
-    _string_at(session, "providerId", "session/read session")
-    _string_at(session, "modelId", "session/read session")
+    _string_at(summary, "providerId", "started session")
+    _string_at(summary, "modelId", "started session")
 
 
 async def _turn(context: Context) -> None:
-    host = _require_host(context)
-    session_id = _require_session_id(context)
-    turn_id = await _start_turn(host, session_id, PROMPT)
+    session = _require_session(context)
+    # One call: send the prompt, wait for the server to end the turn, and get
+    # back its outcome, final answer and items.
+    result = await within("the turn", STREAM_BUDGET_MS, session.run(PROMPT))
+    _require_terminal(result.outcome, "completed")
 
-    await host.wait_for(
-        "the turn/started notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/started" and n.params.get("turnId") == turn_id,
-    )
-    completed = await host.wait_for(
-        "the turn/completed notification",
-        STREAM_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == turn_id,
-    )
-    _require_terminal(completed.params, "completed")
-
-    # The turn is only useful if the agent actually said something, and it
-    # must have arrived incrementally, not in one final lump.
-    deltas = [n for n in host.notifications() if n.method == "item/delta"]
-    if not deltas:
-        raise AssertionError("the turn completed without streaming a single item/delta")
-    # Only now, after turn/completed, is the set of agent messages whole. A
-    # UI renders each one as it arrived, labelled by its phase; the last item
-    # is not "the answer" (the phase labels a message, its position does
-    # not), and a phase this client does not know still reads as a final
-    # answer.
-    messages = _completed_agent_messages(host.notifications())
-    shown = [f"[{phase}] {text}" for phase, text in messages]
-    if not any(text for _, text in messages):
+    # Every completed agent message, each with its phase; the last item is
+    # not "the answer" (the phase labels a message, its position does not),
+    # and a phase this client does not know still reads as a final answer.
+    messages = _completed_agent_messages(result.items)
+    shown = [f"[{phase}] {text}" for _, phase, text in messages]
+    if not any(text for _, _, text in messages):
         raise AssertionError(
             f"the turn completed without a non-empty agentMessage item; saw {shown!r}"
         )
+    # The answer must have arrived incrementally, not in one final lump. The
+    # fold accumulates text only from item/delta frames, so a non-empty
+    # accumulation IS the streaming evidence.
+    if not any(session.fold.items.accumulated(item_id) for item_id, _, _ in messages):
+        raise AssertionError("the turn completed without streaming a single item/delta")
+
+
+async def _stream_turn(turn: "Turn[Any]") -> list[str]:
+    kinds: list[str] = []
+    async for item in turn.items():
+        kinds.append(str(item.get("kind")))
+    return kinds
 
 
 async def _approval(context: Context) -> None:
-    host = _require_host(context)
-    session_id = _require_session_id(context)
-    turn_id = await _start_turn(host, session_id, APPROVAL_PROMPT)
+    session = _require_session(context)
+    failures: list[Any] = []
+    # Register before the turn. The SDK sends only a choice the request
+    # offered; anything else is refused and reported to `on_approval_error`.
+    session.on_approval_error(failures.append)
+    session.on_approval(lambda request: ApprovalDecisionInput(choice_id="allow_once"))
 
-    # Racing turn/completed against approval/requested turns "the turn died
-    # before asking" into that sentence rather than a bare timeout.
-    event = await host.wait_for(
-        "an approval/requested notification",
-        STREAM_BUDGET_MS,
-        lambda n: n.method == "approval/requested"
-        or (n.method == "turn/completed" and n.params.get("turnId") == turn_id),
-    )
-    if event.method != "approval/requested":
-        reason = event.params.get("reason")
-        note = f"; host reason: {reason}" if isinstance(reason, str) else ""
-        raise AssertionError(f"the turn ended before asking for approval{note}")
-
-    approval_id = _string_at(event.params, "approvalId", "approval/requested params")
-    decided = await within(
-        "the approval/decide ack",
+    # Send the turn yourself to read its items as they stream in.
+    turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "approval/decide",
-            {
-                "sessionId": session_id,
-                "approvalId": approval_id,
-                "requirementId": {"approvalId": approval_id, "sourceIndex": 0},
-                "choiceId": "allow_once",
-                "feedback": None,
-            },
-            max_attempts=1,
+        session.send_user_turn(
+            SendUserTurnOptions(input=[{"type": "text", "text": APPROVAL_PROMPT}])
         ),
     )
-    _equals(decided.get("terminal"), True, "the approval decision is terminal")
-    resolved = await host.wait_for(
-        "the approval/resolved notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "approval/resolved"
-        and n.params.get("approvalId") == approval_id,
-    )
-    _equals(resolved.params.get("approvalId"), approval_id, "the resolved approval id")
+    kinds = await within("the approval turn's items", STREAM_BUDGET_MS, _stream_turn(turn))
+    _require_terminal(await turn.completed, "completed")
+
+    if failures:
+        raise AssertionError(f"the approval round trip failed: {failures!r}")
+    if "toolCall" not in kinds:
+        raise AssertionError(
+            f"the turn never streamed the tool call it asked about; kinds: {kinds!r}"
+        )
+    # The authoritative outcome is the server's approval/resolved, folded into
+    # the session, never the decision's ack.
+    if not session.fold.resolved_approvals():
+        raise AssertionError(
+            "the turn ended without an approval/resolved: it never asked, "
+            "or the decision never landed"
+        )
+
+
+async def _first_item(turn: "Turn[Any]") -> None:
+    async for _item in turn.items():
+        return
 
 
 async def _cancel(context: Context) -> None:
-    host = _require_host(context)
-    session_id = _require_session_id(context)
-    turn_id = await _start_turn(host, session_id, PROMPT)
-    await host.wait_for(
-        "the turn/started notification",
+    session = _require_session(context)
+    turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/started" and n.params.get("turnId") == turn_id,
+        session.send_user_turn(
+            SendUserTurnOptions(input=[{"type": "text", "text": PROMPT}])
+        ),
     )
-
+    # The first item (the prompt itself) folds once the turn runs, so the
+    # cancel below lands on a running turn, never a queued one.
+    await within("the cancel turn's first item", STREAM_BUDGET_MS, _first_item(turn))
     # The turn must still be running when the cancel lands (the provider's
     # hold keeps it in flight; see provider.HOLD_S).
-    already_done = next(
-        (
-            n
-            for n in host.notifications()
-            if n.method == "turn/completed" and n.params.get("turnId") == turn_id
-        ),
-        None,
-    )
-    if already_done is not None:
+    completed = asyncio.ensure_future(turn.completed)
+    if completed.done():
         raise AssertionError(
-            f"the turn reached {already_done.params.get('terminal')!r} before it "
-            "could be cancelled"
+            f"the turn ended ({completed.result()!r}) before it could be cancelled"
         )
 
-    await within(
-        "the turn/cancel ack",
-        COMMAND_BUDGET_MS,
-        host.connection.command(
-            "turn/cancel", {"sessionId": session_id, "turnId": turn_id}, max_attempts=1
-        ),
-    )
-    completed = await host.wait_for(
-        "the cancelled turn/completed notification",
-        STREAM_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == turn_id,
-    )
-    _require_terminal(completed.params, "cancelled")
+    # A request, not an outcome: the turn is over when the server says so.
+    await within("the turn/cancel ack", COMMAND_BUDGET_MS, turn.cancel())
+    outcome = await within("the cancelled turn's end", STREAM_BUDGET_MS, completed)
+    _require_terminal(outcome, "cancelled")
 
 
 async def _resume(context: Context) -> None:
     # The session lease belongs to the live host, so the first one has to
     # drain cleanly before a second can load the session.
-    first = _require_host(context)
-    first_exit = await first.close(CLOSE_BUDGET_MS)
-    _equals(first_exit.code, 0, "the first host's exit code after stdin EOF")
-    context.host = None
+    first = _require_client(context)
+    await within("the first host's orderly drain", CLOSE_BUDGET_MS, first.close())
+    exit_ = await first.exit
+    _equals(exit_.kind, "cleanShutdown", "the first host's exit after stdin EOF")
+    context.client = None
 
     session_id = _require_session_id(context)
-    host = await Host.start(
-        HostOptions(
-            muse_bin=context.muse_bin,
-            home=context.home,
-            workspace_root=context.workspace_root,
-            client_info=QUICKSTART_CLIENT_INFO,
-        ),
+    client: "MuseClient[Any]" = await within(
+        "the resume host's spawn and handshake",
         HANDSHAKE_BUDGET_MS,
+        MuseClient.spawn(_spawn_options(context)),
     )
-    context.resume_host = host
+    context.resume_client = client
 
-    resumed = await within(
-        "the session/resume ack",
+    resumed_session = await within(
+        "the session/resume reply",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "session/resume",
-            {"sessionId": session_id, "excludeItems": False},
-            max_attempts=1,
+        client.resume_session(
+            ResumeSessionOptions(session_id=session_id, exclude_items=False)
         ),
     )
+    resumed = _opening_result(resumed_session)
     context.resumed = resumed
 
     session = _object_at(resumed, "session", "session/resume result")
@@ -511,20 +488,20 @@ async def _resume_history(context: Context) -> None:
 
 
 async def _resume_rejects_unknown_cursor(context: Context) -> None:
-    host = context.resume_host
-    if host is None:
+    client = context.resume_client
+    if client is None:
         raise AssertionError("`resume` did not finish")
     session_id = _require_session_id(context)
     # A cursor at an impossible sequence: no host can ever have minted it.
-    impossible = f"v4:{session_id}:999999"
+    impossible = f"v9:{session_id}:999999"
     try:
-        result = await within(
+        await within(
             "the session/resume refusal",
             COMMAND_BUDGET_MS,
-            host.connection.command(
-                "session/resume",
-                {"sessionId": session_id, "cursor": impossible, "excludeItems": False},
-                max_attempts=1,
+            client.resume_session(
+                ResumeSessionOptions(
+                    session_id=session_id, cursor=impossible, exclude_items=False
+                )
             ),
         )
     except MspError as error:
@@ -534,25 +511,22 @@ async def _resume_rejects_unknown_cursor(context: Context) -> None:
             return
         raise
     raise AssertionError(
-        f"session/resume accepted a cursor that never existed ({impossible}) "
-        f"and returned {str(result)[:400]}"
+        f"session/resume accepted a cursor that never existed ({impossible})"
     )
 
 
 async def _terminate(context: Context) -> None:
-    host = context.resume_host
-    if host is None:
+    client = context.resume_client
+    if client is None:
         raise AssertionError("`resume` did not finish")
-    # 14990 its acceptance scenario: stdin closed by close(), the SDK waits for the
-    # orderly drain, and the exit is what actually happened.
-    exit_ = await host.close(CLOSE_BUDGET_MS)
-    _equals(exit_.code, 0, "the host's exit code after stdin EOF")
-    _equals(exit_.signal, None, "the host's exit signal after stdin EOF")
+    # 14990 its acceptance scenario: stdin closed by close(), the SDK waits for
+    # the orderly drain, and the exit classification is what actually happened.
+    await within("the host's orderly drain and exit", CLOSE_BUDGET_MS, client.close())
     classification = await within(
-        "the SDK's exit classification", COMMAND_BUDGET_MS, host.msp.child.exit
+        "the SDK's exit classification", COMMAND_BUDGET_MS, client.exit
     )
     _equals(classification.kind, "cleanShutdown", "the SDK's exit classification")
-    context.resume_host = None
+    context.resume_client = None
 
 
 SEGMENTS: tuple[Segment[Context], ...] = (
@@ -648,10 +622,10 @@ async def run_journey(options: JourneyOptions) -> JourneyReport:
     )
 
     async def teardown(owned: Context) -> None:
-        if owned.host is not None:
-            await owned.host.abandon(CLOSE_BUDGET_MS)
-        if owned.resume_host is not None:
-            await owned.resume_host.abandon(CLOSE_BUDGET_MS)
+        if owned.client is not None:
+            await _close_quietly("the host", owned.client)
+        if owned.resume_client is not None:
+            await _close_quietly("the resume host", owned.resume_client)
 
     return await run_kit_journey(SEGMENTS, context, teardown)
 
@@ -699,7 +673,7 @@ class SyncContext:
 def _sync_spawn_options(context: SyncContext) -> MuseClientSpawnOptions:
     return MuseClientSpawnOptions(
         muse_bin=context.muse_bin,
-        client_info=dict(QUICKSTART_CLIENT_INFO),
+        client_info=QUICKSTART_CLIENT_INFO,
         args=["serve"],
         cwd=context.workspace_root,
         env=isolated_host_env(context.home),
@@ -719,42 +693,10 @@ def _require_sync_session(context: SyncContext) -> "SyncSession[Any]":
     return context.session
 
 
-def _opening_result(session: "SyncSession[Any]") -> Mapping[str, Any]:
-    opening = session.opening
-    if opening is None:
-        raise AssertionError("the session carries no opening result")
-    return opening.result
-
-
 def _run_sync_turn(session: "SyncSession[Any]", prompt: str) -> SyncTurn:
     return session.send_user_turn(
         SendUserTurnOptions(
             input=[{"type": "text", "text": prompt}], composer_input=prompt
-        )
-    )
-
-
-def _sync_cancel(context: SyncContext, turn_id: str) -> None:
-    """The rerun's ONE deliberate reach past the wrapper's public surface.
-
-    Neither facade owns a cancel verb — ``turn/cancel`` is a raw
-    connection-plane command in the TS journey too — so the sync REWRITE keeps
-    it raw exactly like the async journey does. The sync surface deliberately
-    exposes no connection, so
-    this harness — a first-party journey, not shipped SDK code — drives the
-    one raw command through the wrapper's own runner seam, which is also what
-    keeps it serialized with the wrapper's verbs. A public escape hatch here
-    would freeze API for one harness call (Constitution XI). The facade-verb
-    gap itself is tracked in a tracked issue.
-    """
-    client = _require_sync_client(context)
-    session_id = context.session_id
-    connection = client._client._connection  # noqa: SLF001 - see the docstring
-    client._runner.run(  # noqa: SLF001 - see the docstring
-        connection.command(
-            "turn/cancel",
-            {"sessionId": session_id, "turnId": turn_id},
-            max_attempts=1,
         )
     )
 
@@ -798,10 +740,8 @@ def _sync_session_new(context: SyncContext) -> None:
 
 
 def _sync_session_effective_model(context: SyncContext) -> None:
-    # The sync surface reads the same facts off the session/start RESULT the
-    # wire already carries (providerId/modelId ride the session summary); the
-    # async journey's session/read is a connection-plane spelling of the same
-    # observable.
+    # Both journeys read providerId/modelId from the session summary in the
+    # session/start result.
     session = _require_sync_session(context)
     summary = _object_at(_opening_result(session), "session", "session/start result")
     _string_at(summary, "providerId", "started session")
@@ -860,36 +800,34 @@ def _sync_approval(context: SyncContext) -> None:
         raise AssertionError("no approval/resolved folded — the decide never landed")
 
 
-def _sync_wait_turn_started(context: SyncContext, turn: SyncTurn) -> None:
-    """Block until this turn's ``turn/started`` has folded.
+def _sync_wait_first_item(context: SyncContext, turn: SyncTurn) -> None:
+    """Block until the turn's first item (the prompt itself) has folded, under
+    the async step's budget.
 
-    The turn/start ack can legally say ``queued``, and a cancel
-    landing before the queued turn launches is rejected — the exact race the
-    async journey defends by waiting for the notification first. The sync
-    twin waits on the same server fact through the facade's own fold
-    (``observed_start`` flips only when ``turn/started`` folds), pumped
-    through the runner seam ``_sync_cancel`` already uses, under the SAME
-    labeled harness budget the async arm waits with — never a machine-speed
-    spin.
+    The first item folds once the turn runs, so the cancel lands on a running
+    turn, never a queued one (a cancel that beats a queued turn's launch is
+    rejected). The sync surface has no bounded wait, so this harness — a
+    first-party journey, not shipped SDK code — runs the async handle's
+    ``items()`` under ``within`` on the wrapper's own runner, which keeps it
+    serialized with the wrapper's verbs. A public bounded-iteration knob would
+    freeze API for one harness call (Constitution XI).
     """
-    import asyncio
-
     client = _require_sync_client(context)
 
-    async def wait() -> None:
-        while not turn.observed_start:
-            await asyncio.sleep(0.01)
+    async def first_item() -> None:
+        async for _item in turn._turn.items():  # noqa: SLF001 - see the docstring
+            return
 
-    client._runner.run(  # noqa: SLF001 - see _sync_cancel's docstring
-        within("turn/started before the sync cancel", COMMAND_BUDGET_MS, wait())
+    client._runner.run(  # noqa: SLF001 - see the docstring
+        within("the cancel turn's first item", STREAM_BUDGET_MS, first_item())
     )
 
 
 def _sync_cancel_segment(context: SyncContext) -> None:
     session = _require_sync_session(context)
     turn = _run_sync_turn(session, PROMPT)
-    _sync_wait_turn_started(context, turn)
-    _sync_cancel(context, turn.turn_id)
+    _sync_wait_first_item(context, turn)
+    turn.cancel()
     outcome = turn.completed()
     if outcome.kind != "completed" or outcome.params.get("terminal") != "cancelled":
         terminal = (
@@ -953,7 +891,7 @@ def _sync_resume_rejects_unknown_cursor(context: SyncContext) -> None:
     session_id = context.session_id
     if client is None or session_id is None:
         raise AssertionError("`resume` did not finish")
-    impossible = f"v4:{session_id}:999999"
+    impossible = f"v9:{session_id}:999999"
     try:
         client.resume_session(
             ResumeSessionOptions(

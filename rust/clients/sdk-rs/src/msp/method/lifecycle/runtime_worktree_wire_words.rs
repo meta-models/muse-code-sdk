@@ -1,6 +1,7 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 use super::runtime_worktree::RuntimeWorktreeCleanupPolicy;
+use super::runtime_worktree::RuntimeWorktreeCleanupReason;
 use super::runtime_worktree::RuntimeWorktreeCleanupState;
 use super::runtime_worktree::RuntimeWorktreeOwnership;
 use serde::Deserialize;
@@ -108,6 +109,47 @@ impl<'de> Deserialize<'de> for RuntimeWorktreeCleanupState {
             "cleaned" => Self::Cleaned,
             "retained" => Self::Retained,
             "cleanupFailed" => Self::CleanupFailed,
+            _ => Self::Unknown(value),
+        })
+    }
+}
+
+impl RuntimeWorktreeCleanupReason {
+    /// The exact wire spelling, including a value from a newer host.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::DirtyWorktree => "dirtyWorktree",
+            Self::HeadChanged => "headChanged",
+            Self::PathEscape => "pathEscape",
+            Self::CleanupFailed => "cleanupFailed",
+            Self::UncertainLeaseState => "uncertainLeaseState",
+            Self::Unknown(value) => value,
+        }
+    }
+}
+
+impl Serialize for RuntimeWorktreeCleanupReason {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RuntimeWorktreeCleanupReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "dirtyWorktree" => Self::DirtyWorktree,
+            "headChanged" => Self::HeadChanged,
+            "pathEscape" => Self::PathEscape,
+            "cleanupFailed" => Self::CleanupFailed,
+            "uncertainLeaseState" => Self::UncertainLeaseState,
             _ => Self::Unknown(value),
         })
     }

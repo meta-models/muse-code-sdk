@@ -17,7 +17,9 @@ impl CapabilityName {
             Self::PeerMessaging => "peerMessaging",
             Self::RawLog => "rawLog",
             Self::RawLogPhysical => "rawLogPhysical",
+            Self::Journal => "journal",
             Self::DaemonVacate => "daemonVacate",
+            Self::LaunchContext => "launchContext",
             Self::Unknown(word) => word,
         }
     }
@@ -43,7 +45,9 @@ impl<'de> Deserialize<'de> for CapabilityName {
             "peerMessaging" => Self::PeerMessaging,
             "rawLog" => Self::RawLog,
             "rawLogPhysical" => Self::RawLogPhysical,
+            "journal" => Self::Journal,
             "daemonVacate" => Self::DaemonVacate,
+            "launchContext" => Self::LaunchContext,
             _ => Self::Unknown(word),
         })
     }

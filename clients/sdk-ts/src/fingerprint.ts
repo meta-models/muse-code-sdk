@@ -1,42 +1,52 @@
 /**
  * The schema-bundle staleness anchor (spec 14990 FR-006).
  *
- * `EXPECTED_SCHEMA_FINGERPRINT` pins the stable protocol-schema fingerprint
- * this SDK was written against. Two consumers:
+ * `EXPECTED_SCHEMA_FINGERPRINT` is the stable protocol-schema fingerprint
+ * this SDK was built against. It derives at build: the `prebuild` step
+ * (`node scripts/msp-fingerprint.mjs --stamp`) computes it from the
+ * committed schema bytes and stamps the generated module this file imports
+ * (ADR 77546 D4). No literal is committed here — a schema advance moves
+ * the value at the next build, and two PRs that change different schema
+ * regions never conflict on this file.
  *
- *  - Build time: a test asserts this equals `schema/msp/stable/manifest.json`,
- *    so a schema advance that forgets the SDK reds the SDK lane instead of
- *    shipping a silently-stale facade. This is the same manifest-pin pattern
- *    the #210 transcripts use.
+ * Two consumers:
+ *
+ *  - Build time: the receipt-pins gate proves this file carries the
+ *    derivation hook and no committed copy, and the sdk-ts suite proves
+ *    the stamped value equals the port's derivation over the live schema
+ *    bytes — so a schema advance that the build somehow misses reds
+ *    instead of shipping a silently-stale facade.
  *  - Runtime: the connection machine compares `InitializeResult.schema
- *    .fingerprint` against this pin. A mismatch is a WARNING, never an error
- *    (tdd SS1.4.1) — additive-optional evolution means an older SDK keeps
- *    working against a newer host.
+ *    .fingerprint` against this value. A mismatch is a WARNING, never an
+ *    error (tdd SS1.4.1) — additive-optional evolution means an older SDK
+ *    keeps working against a newer host.
  */
-export const EXPECTED_SCHEMA_FINGERPRINT =
-  "sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6";
+import { STAMPED_SCHEMA_FINGERPRINT } from "./fingerprint.stamped.js";
+
+export const EXPECTED_SCHEMA_FINGERPRINT: string = STAMPED_SCHEMA_FINGERPRINT;
 
 /**
  * What a build-time mismatch MEANS, in the words a human needs at 2am.
  *
  * A mismatch is the normal, expected consequence of the protocol schema
  * advancing — it is NOT evidence that the SDK is broken. The remedy is to
- * re-pin and adapt whatever actually changed. Several lanes have burned time
- * reading a red fingerprint as an SDK defect, so the message says it plainly.
+ * rebuild and adapt whatever actually changed. Several lanes have burned
+ * time reading a red fingerprint as an SDK defect, so the message says it
+ * plainly.
  */
 export function fingerprintMismatchMessage(
   pinned: string,
   actual: string,
 ): string {
   return [
-    "MSP schema fingerprint moved: re-pin after a schema advance.",
-    `  pinned by @muse-code/sdk: ${pinned}`,
-    `  schema/msp/stable/manifest.json: ${actual}`,
+    "MSP schema fingerprint moved: rebuild after a schema advance.",
+    `  built by @muse-code/sdk: ${pinned}`,
+    `  derived stable schema fingerprint: ${actual}`,
     "",
     "This does NOT mean the SDK is broken. The stable schema bundle advanced",
-    "(a #206 enrollment or renderer change). Fix it by running",
-    "scripts/regen-msp-pins.sh, which re-pins EXPECTED_SCHEMA_FINGERPRINT and",
-    "every other derived copy from the committed stable manifest, then adapt",
+    "(a #206 enrollment or renderer change). Fix it by rebuilding",
+    "(`npm run build` re-stamps EXPECTED_SCHEMA_FINGERPRINT from the",
+    "committed schema bytes), then adapt",
     "the facade to whatever the advance actually changed. Never hand-edit",
     "schema/msp/** to match the SDK.",
   ].join("\n");
@@ -65,7 +75,7 @@ export function checkServedFingerprint(
     served,
     message:
       `host schema fingerprint ${served} differs from the fingerprint this ` +
-      `SDK pins (${pinned}); proceeding under additive-optional evolution ` +
-      `(SS1.5.4). Re-pin after a schema advance.`,
+      `SDK was built against (${pinned}); proceeding under additive-optional ` +
+      `evolution (SS1.5.4). Rebuild after a schema advance.`,
   };
 }

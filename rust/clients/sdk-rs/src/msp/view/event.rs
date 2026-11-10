@@ -60,6 +60,11 @@ pub struct TurnCompletedParams {
     /// reach the client here — never as a JSON-RPC error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<TurnError>,
+    /// The client whose wire stop was the first one accepted for this turn,
+    /// when a wire stop ended it and its client was recorded. Absent otherwise,
+    /// including on older logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_client: Option<crate::msp::handshake::ClientInfo>,
 }
 
 /// `turn/retracted` params: an interrupt-paired retract durably settled,
@@ -210,6 +215,27 @@ pub struct TurnModelRetryScheduledParams {
     /// The failing model attempt's HTTP status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_status: Option<u16>,
+}
+
+/// `turn/modelAttemptStarted` params: a turn's model provider task recorded its
+/// opening status — one model attempt is starting (before the provider dials),
+/// retries and later model steps included. Clients raise their thinking state
+/// here, the point a switch-off TUI flips on model-task activity. Non-terminal:
+/// it never resolves a turn-wait. `sourceRange` cites the session stream's
+/// mirror of the task-lifecycle record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct TurnModelAttemptStartedParams {
+    /// The owning session.
+    pub session_id: String,
+    /// Opaque, strictly monotonic view cursor.
+    pub view_cursor: String,
+    /// The durable record this event folded from (the session stream's
+    /// mirror of the model task's opening status; `first == last`).
+    pub source_range: SourceRange,
+    /// The running turn whose model attempt is starting.
+    pub turn_id: String,
 }
 
 /// `turn/unqueued` params: a queued submit's reclaim durably won; its

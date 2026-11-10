@@ -56,6 +56,7 @@ impl HistoryNoneReason {
             Self::HistoryBudget => "historyBudget",
             Self::ProjectionUnavailable => "projectionUnavailable",
             Self::ProjectionReadLimit => "projectionReadLimit",
+            Self::ProjectionRebuildFailed => "projectionRebuildFailed",
             Self::Unknown(value) => value,
         }
     }
@@ -82,6 +83,7 @@ impl<'de> Deserialize<'de> for HistoryNoneReason {
             "historyBudget" => Self::HistoryBudget,
             "projectionUnavailable" => Self::ProjectionUnavailable,
             "projectionReadLimit" => Self::ProjectionReadLimit,
+            "projectionRebuildFailed" => Self::ProjectionRebuildFailed,
             _ => Self::Unknown(value),
         })
     }

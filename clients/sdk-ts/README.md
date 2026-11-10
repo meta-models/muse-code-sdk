@@ -48,20 +48,40 @@ exact version, and read the changelog before moving off it.
 import { MuseClient } from "@muse-code/sdk";
 
 const client = await MuseClient.spawn({
-  museBin: "muse",
   args: ["serve"],
   clientInfo: { name: "my-app", version: "1.0.0" },
 });
 
 const session = await client.startSession({ workspaceRoot: process.cwd() });
 
+const result = await session.run("Summarize this repository.");
+console.log(result.finalText);
+
+await client.close();
+```
+
+`session.run` sends one turn and resolves when the turn has ended, with the
+outcome, the final answer text, the turn's items, and its token usage. A turn
+that failed or was cancelled still resolves; read `result.outcome` to tell.
+The final answer is the last completed agent message that is not commentary.
+Pass input parts instead of a string, and the turn options as the second
+argument:
+`session.run(parts, { reasoningEffort: "high" })`.
+
+To stop it, pass an `AbortSignal`, for example
+`session.run(prompt, { signal: AbortSignal.timeout(60_000) })`. A turn still
+waiting in the queue is taken back, and a running turn is cancelled. `run`
+then waits for the turn to end and rejects with the signal's reason. An
+already-aborted signal sends nothing.
+
+To follow a turn as it runs, send it yourself and read its items:
+
+```ts
 const turn = await session.sendUserTurn({
   input: [{ type: "text", text: "Summarize this repository." }],
 });
 for await (const item of turn.items()) console.log(item);
 await turn.completed;
-
-await client.close();
 ```
 
 `turn.items()` replays what the session already holds before its live tail;
@@ -113,58 +133,24 @@ if (prompt !== undefined && question !== undefined) {
 }
 ```
 
-The facade — spawn, session open/resume, turns, approvals, questions, and
-recovery after dropped deliveries — is complete and covered by the
-conformance suites in the source repository. It follows the stability
-posture above: evolution is additive, and a breaking change follows a
-documented deprecation and changelog path.
+To stop a running turn, call `turn.interrupt()` (the stop gesture; pass
+`{ retract: true }` to also take the prompt back) or `turn.cancel()`. Both are
+requests: the turn is over when `turn.completed` settles. `turn.steer({ input })`
+adds input to the running turn, and `turn.unqueue()` takes back a queued one.
+The session itself can `fork`, `compact`, `rename`, and `leave`, and switch its
+model, reasoning effort, or approval mode (`setModel`, `setReasoningEffort`,
+`setApprovalMode`); `client.listModels()` lists the models it accepts.
 
-## Capabilities: `userShell`
+Status: developer preview. The facade — spawn, session open/resume, turns,
+approvals, questions, and recovery after dropped deliveries — is complete and covered by
+the conformance suites in the source repository.
 
-Some operations need a capability the host grants during the handshake.
-Request `userShell` when you spawn the client, then check
-`client.initializeResult.grantedCapabilities` before passing `userShell`
-to `session.sendUserTurn`; do not send it when the capability is not listed:
+## Not yet available
 
-```ts
-import { MuseClient, MspError } from "@muse-code/sdk";
-
-const client = await MuseClient.spawn({
-  museBin: "muse",
-  args: ["serve"],
-  clientInfo: { name: "my-app", version: "1.0.0" },
-  capabilities: { requestedCapabilities: ["userShell"] },
-});
-
-const canUseUserShell =
-  client.initializeResult.grantedCapabilities.includes("userShell");
-```
-
-A grant does not guarantee the command runs: with shell execution
-disabled the host can still grant `userShell` and accept the turn,
-and the `userShell` item then ends `failed`, so check the item's
-status.
-
-If `userShell` is sent without that grant, the server refuses the call;
-branch on the typed error kind rather than the message text. Server
-refusals arrive as `MspError`, and a missing `userShell` capability
-reports `error.kind === "capabilityRequired"` (the capability is also on
-`error.data.capability`):
-
-```ts
-try {
-  await session.sendUserTurn({
-    input: [],
-    userShell: { commandText: "git status" },
-  });
-} catch (error) {
-  if (error instanceof MspError && error.kind === "capabilityRequired") {
-    // userShell was not granted for this connection; continue without it.
-  } else {
-    throw error;
-  }
-}
-```
+`@muse-code/acp` is not published on npm and is not part of this public
+repository. There is no supported ACP adapter to install today; please do not
+depend on that package name. If an ACP adapter ships, it will be announced in
+a public release.
 
 ## Documentation
 

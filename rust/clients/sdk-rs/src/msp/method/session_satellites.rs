@@ -84,13 +84,19 @@ pub struct EffectivePermissionState {
     /// cannot see.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub axes: Option<PermissionAxes>,
+    /// The session's client-supplied shell prefix allow-rules with origin.
+    /// Absent means the host folded none — never fabricated. **Experimental**.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_approval_rules: Option<Vec<super::approval::ClientApprovalRuleState>>,
 }
 
 /// Who opened a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSpawnedBy {
-    /// The exact session that opened this one.
+    /// The exact session that opened this one, except that any `muse` started
+    /// in a later pane of the worker's tmux session or Herdr workspace names
+    /// the worker's manager and carries the worker's `project`/`thread` labels.
     pub parent_session_id: String,
     /// An opaque project label the spawner named, when it named one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -115,6 +121,12 @@ pub struct ForkProvenance {
     pub cut_explicit: bool,
     /// The `commandId` of the `session/fork` that created it.
     pub command_id: String,
+    /// `true` when validated full provenance records a conversation rewind,
+    /// `false` for a proved ordinary fork. **Additive-optional**: omitted when
+    /// the serving face holds no full provenance, which means unknown, never a
+    /// guessed ordinary fork; never `null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_rewind: Option<bool>,
 }
 
 /// Side provenance folded from the durable side provenance.

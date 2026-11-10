@@ -1,5 +1,7 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::session_config_mt::SessionModelEndpointTransportOverride;
+use super::session_config_mt::SessionSettingsOverrides;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
@@ -22,6 +24,35 @@ pub struct SessionConfig {
     /// Native MCP servers added only to this session runtime.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mcp_servers: BTreeMap<String, SessionMcpServerConfig>,
+    /// Experimental: a flat settings patch composing for this session's loads
+    /// only. Secret-shaped keys fail the decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_overrides: Option<SessionSettingsOverrides>,
+    /// Experimental: the model endpoint transport this session's model
+    /// consumers resolve against at load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_endpoint_transport_override: Option<SessionModelEndpointTransportOverride>,
+    /// Experimental: this session's tool-output byte budget, as `muse exec
+    /// --max-tool-output-bytes` sets it for a headless run. `0` means no limit;
+    /// a positive value must be at least 9. The budget applies only on a host
+    /// whose default-off `tool_output_budget` gate serves it: there, each
+    /// model-visible tool result, from workspace and MCP tools alike, is
+    /// bounded at this many bytes from the runtime's construction. Other hosts
+    /// accept a valid value and ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tool_output_bytes: Option<u64>,
+    /// Experimental: developer instructions for this session only, on
+    /// `session/start` and `session/resume`. The text is trimmed. A nonblank
+    /// value replaces the settings-derived developer instructions; an omitted
+    /// member is no override and keeps the full developer context. Explicit
+    /// `null` and blank text are the explicit clear (the Rust value is an empty
+    /// string): no override, and on a host that serves developer instructions
+    /// they also turn off the session's suppressible developer context (the
+    /// agent catalog and the memory snapshot). Any other type fails the decode.
+    /// A host that does not serve developer instructions ignores a valid
+    /// member.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer_prompt: Option<String>,
 }
 
 impl fmt::Debug for SessionConfig {
@@ -31,6 +62,16 @@ impl fmt::Debug for SessionConfig {
             .field(
                 "mcp_server_names",
                 &self.mcp_servers.keys().collect::<Vec<_>>(),
+            )
+            .field("settings_overrides", &self.settings_overrides)
+            .field(
+                "model_endpoint_transport_override",
+                &self.model_endpoint_transport_override,
+            )
+            .field("max_tool_output_bytes", &self.max_tool_output_bytes)
+            .field(
+                "developer_prompt_bytes",
+                &self.developer_prompt.as_ref().map(String::len),
             )
             .finish()
     }
@@ -46,6 +87,12 @@ impl<'de> Deserialize<'de> for SessionConfig {
         struct Wire {
             #[serde(default)]
             mcp_servers: BTreeMap<String, SessionMcpServerConfig>,
+            #[serde(default)]
+            settings_overrides: Option<SessionSettingsOverrides>,
+            #[serde(default)]
+            model_endpoint_transport_override: Option<SessionModelEndpointTransportOverride>,
+            #[serde(default)]
+            max_tool_output_bytes: Option<u64>,
         }
 
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -60,12 +107,50 @@ impl<'de> Deserialize<'de> for SessionConfig {
                 "session config mcpServers must be an object",
             ));
         }
+        if object
+            .get("settingsOverrides")
+            .is_some_and(|overrides| !overrides.is_object())
+        {
+            return Err(D::Error::custom(
+                "session config settingsOverrides must be an object",
+            ));
+        }
+        if object
+            .get("modelEndpointTransportOverride")
+            .is_some_and(|transport| !transport.is_object())
+        {
+            return Err(D::Error::custom(
+                "session config modelEndpointTransportOverride must be an object",
+            ));
+        }
+        if object
+            .get("maxToolOutputBytes")
+            .is_some_and(|bytes| !bytes.is_u64())
+        {
+            return Err(D::Error::custom(
+                "session config maxToolOutputBytes must be a non-negative integer",
+            ));
+        }
+        let developer_prompt = match object.get("developerPrompt") {
+            None => None,
+            Some(serde_json::Value::Null) => Some(String::new()),
+            Some(serde_json::Value::String(text)) => Some(text.trim().to_owned()),
+            Some(_) => {
+                return Err(D::Error::custom(
+                    "session config developerPrompt must be a string or null",
+                ));
+            }
+        };
         let wire: Wire = serde_json::from_value(value).map_err(D::Error::custom)?;
         for name in wire.mcp_servers.keys() {
             validate_name(name, SessionMcpNameKind::Server).map_err(D::Error::custom)?;
         }
         Ok(Self {
             mcp_servers: wire.mcp_servers,
+            settings_overrides: wire.settings_overrides,
+            model_endpoint_transport_override: wire.model_endpoint_transport_override,
+            max_tool_output_bytes: wire.max_tool_output_bytes,
+            developer_prompt,
         })
     }
 }

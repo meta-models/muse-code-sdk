@@ -1,7 +1,7 @@
 [package]
 name = "muse-code-sdk"
 # SDK releases track the Muse Code host version.
-version = "1.4.14"
+version = "1.4.15"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -14,9 +14,11 @@ documentation = "https://docs.rs/muse-code-sdk"
 readme = "README.md"
 keywords = ["muse-code", "agent", "sdk", "msp", "async"]
 categories = ["api-bindings", "asynchronous", "development-tools"]
-# Only the library, its examples, and the public docs ship; tests, generated
-# test support, and internal process docs stay out of the package.
-include = ["src/**", "examples/**", "README.md", "LICENSE", "Cargo.toml"]
+# Only the library, its examples, the build-time fingerprint derivation
+# (the build script plus its port, plus the vendored release bytes the
+# publish flow writes — never committed), and the public docs ship; tests,
+# generated test support, and internal process docs stay out of the package.
+include = ["src/**", "examples/**", "build.rs", "build/**", "README.md", "LICENSE", "Cargo.toml"]
 
 # Its own copy of the workspace lints: the public mirror builds this crate
 # standalone, where `workspace = true` cannot resolve. A check in the
@@ -37,9 +39,21 @@ thiserror = "2"
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.28", features = ["signal"] }
 
+[build-dependencies]
+# The build script derives the fingerprint from schema bytes, so it
+# compiles the same JSON substrate the library does, plus the
+# digest (the protocol crate repeats its build substrate the same way).
+# Same pins as [dependencies]: the port and the canonical hash must agree.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "test-util"] }
+# The vector suite includes the build port by path, and
+# build-dependencies do not link into tests: the same pin, repeated.
+sha2 = "0.10"
 
 [[example]]
 name = "quickstart"

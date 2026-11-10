@@ -42,23 +42,19 @@
  *    deterministic and headless; it is not how an application should pick a
  *    profile (always read the handshake).
  *
- * HARNESS PLUMBING, NOT CLIENT GUIDANCE, two pieces:
+ * Everything a client does here goes through the SDK facade: `MuseClient.spawn`,
+ * `startSession`, `Session.setApprovalMode`, `client.exit`, `listSessions`,
+ * `resumeSession`, and `close`. `listSessions` is how the fresh-host segment
+ * PROVES the host's startup housekeeping ran before the resume instead of
+ * merely racing it.
  *
- *  - the SDK deliberately exposes no pid or kill on its public surface — an
- *    external death does not come through the SDK. To deliver one on demand,
- *    the journey launches the host through a three-line shell wrapper that
- *    prints the host's pid on stderr (captured via the SDK's own `onStderr`
- *    tap) and `exec`s the real binary, so the printed pid IS the host's pid.
- *    Your application never does this; the host that dies under you needs no
- *    help.
- *  - the journey spawns its hosts the way `MuseClient.spawn` does inside —
- *    `spawnMspConnection`, then `MspHandshake.initialize`, then a `MuseClient`
- *    composed around the connection — because it also has to speak
- *    `session/list` and `session/setApprovalMode`, which the facade does not
- *    wrap: the list call is how the fresh-host segment PROVES the host's
- *    startup housekeeping ran before the resume instead of merely racing it.
- *    The two forms produce the same client; `MuseClient.spawn` is the one to
- *    use.
+ * HARNESS PLUMBING, NOT CLIENT GUIDANCE: the SDK deliberately exposes no pid
+ * or kill on its public surface — an external death does not come through
+ * the SDK. To deliver one on demand, the journey hands `MuseClient.spawn` a
+ * three-line shell wrapper as its binary: it prints the host's pid on stderr
+ * (captured via the SDK's own `onStderr` tap) and `exec`s the real binary, so
+ * the printed pid IS the host's pid. Your application never does this; the
+ * host that dies under you needs no help.
  */
 
 import { mkdtemp } from "node:fs/promises";
@@ -72,15 +68,9 @@ import {
   MuseSessionDiscardedError,
   readSessionDurability,
   Session,
-  spawnMspConnection,
 } from "@muse-code/sdk";
-import type {
-  ExitClassification,
-  HostDeathDischarge,
-  SpawnedMspConnection,
-  TurnOutcome,
-} from "@muse-code/sdk";
-import type { ApprovalMode, InitializeResult, Item, SessionListResult } from "@muse-code/msp";
+import type { ExitClassification, HostDeathDischarge, TurnOutcome } from "@muse-code/sdk";
+import type { ApprovalMode, InitializeResult, Item } from "@muse-code/msp";
 
 import { HOST_DRAIN_WINDOW_MS, TimeoutError, equals, isolatedHostEnv, within } from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
@@ -132,8 +122,6 @@ interface Context {
   readonly home: string;
   readonly workspaceRoot: string;
   clientA?: MuseClient;
-  /** The first host's raw connection, kept for `session/setApprovalMode`, which the facade does not wrap. */
-  hostA?: SpawnedMspConnection;
   hostPid?: number;
   sessionA?: Session;
   sessionId?: string;
@@ -155,34 +143,29 @@ function must<T>(value: T | undefined, what: string): T {
 }
 
 /**
- * Spawn a host and hand back the facade this page teaches, `MuseClient`.
+ * Spawn a host through the facade this page teaches, `MuseClient.spawn`.
  *
- * Spelled the way `MuseClient.spawn` is spelled inside — `spawnMspConnection`,
- * `MspHandshake.initialize`, then a `MuseClient` composed around the
- * connection — so the journey keeps the raw connection for the two methods the
- * facade does not wrap, `session/setApprovalMode` and `session/list` (see
- * `start-a-session-and-follow-a-turn` and `resume-on-a-fresh-host`). An
- * application calls `MuseClient.spawn`; it gets exactly this client.
- *
- * `killable` selects the wrapper described in the header: `$$` is the shell's
- * own pid and `exec` REPLACES the shell with the host binary, so the pid the
- * marker names is the pid the host runs under. The plain arm launches the
- * binary directly; nothing kills that host, so it needs no marker.
+ * `killable` swaps the binary for the pid-marker wrapper described in the
+ * header (test plumbing only): `$$` is the shell's own pid and `exec`
+ * REPLACES the shell with the host binary, so the pid the marker names is the
+ * pid the host runs under. The plain arm launches the binary directly;
+ * nothing kills that host, so it needs no marker.
  */
 async function spawnHost(
   context: Context,
   killable: boolean,
-): Promise<{ client: MuseClient; host: SpawnedMspConnection; stderr: () => string }> {
+): Promise<{ client: MuseClient; stderr: () => string }> {
   let stderrText = "";
-  const handshake = spawnMspConnection({
+  const pending = MuseClient.spawn({
     ...(killable
       ? {
-          command: "/bin/sh",
+          museBin: "/bin/sh",
           args: ["-c", `echo "${PID_MARKER}=$$" >&2; exec "$0" serve`, context.museBin],
         }
-      : { command: context.museBin, args: ["serve"] }),
+      : { museBin: context.museBin, args: ["serve"] }),
     cwd: context.workspaceRoot,
     env: isolatedHostEnv(context.home),
+    clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" },
     // The kit's owned drain window (see HOST_DRAIN_WINDOW_MS), so the drain
     // bound and the SDK's actual window cannot drift apart.
     shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
@@ -190,23 +173,15 @@ async function spawnHost(
       stderrText += chunk;
     },
   });
-  let host: SpawnedMspConnection;
   try {
-    host = await within(
-      "the MSP handshake",
-      HANDSHAKE_BUDGET_MS,
-      handshake.initialize({ clientInfo: { name: "muse_sdk_cookbook", version: "0.0.0" } }),
-    );
+    const client = await within("the host's spawn and MSP handshake", HANDSHAKE_BUDGET_MS, pending);
+    return { client, stderr: () => stderrText };
   } catch (error) {
-    // A failed handshake must not leak the process it already spawned.
-    await handshake.close().catch(() => undefined);
+    // A spawn that outlives the bound must not leak the host it may still
+    // hand back: close it whenever it arrives.
+    void pending.then((late) => late.close()).catch(() => undefined);
     throw error;
   }
-  const client = new MuseClient(host.connection, {
-    durability: readSessionDurability(host.initializeResult),
-    host,
-  });
-  return { client, host, stderr: () => stderrText };
 }
 
 /** Wait for the wrapper's pid marker to land on the recorded stderr. */
@@ -266,7 +241,6 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     async run(context) {
       const spawned = await spawnHost(context, true);
       context.clientA = spawned.client;
-      context.hostA = spawned.host;
       context.hostPid = await hostPid(spawned.stderr, SETTLE_BUDGET_MS);
       // Read the profile the moment you have the handshake — after the host
       // dies is too late to ask it. The release host's sessions are durable.
@@ -279,7 +253,6 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     title: "Start a session with one durable fact and register a turn wait the host will never answer",
     async run(context) {
       const client = must(context.clientA, "spawned client");
-      const host = must(context.hostA, "spawned host");
       // Give the session something to keep. The durable promise covers what
       // you put INTO a session — turns, choices, anything written through it.
       // A session holding nothing but its own start records is litter to the
@@ -301,18 +274,13 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       }
       // The durable fact, under its own command id: a later change is kept
       // content, while the start's own selection would be reclaimed with it.
-      // Sent over the raw connection, one of the two methods this recipe needs
-      // that the facade does not wrap; `Connection.command` stamps the command id.
+      // The SDK stamps the command id.
       const mode = await within(
         "session/setApprovalMode",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-          "session/setApprovalMode",
-          { sessionId: context.sessionId, mode: APPROVAL_MODE },
-          { maxAttempts: 1 },
-        ),
+        context.sessionA.setApprovalMode(APPROVAL_MODE),
       );
-      equals(mode["applyOutcome"], "completed", "the approval-mode change's outcome");
+      equals(mode.applyOutcome, "completed", "the approval-mode change's outcome");
       // A consumer following a turn is a promise held across the death. This
       // turn id gets no answer — deliberately: what the durable arm proves is
       // that the death REJECTS the wait instead of leaving it hanging forever,
@@ -407,17 +375,17 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
         "durable",
         "the fresh host's durability profile",
       );
-      // List before you resume. A fresh host answers `session/list` only once
+      // List before you resume. A fresh host answers `listSessions` only once
       // its startup housekeeping has settled — including the pass that
       // reclaims dead hosts' empty sessions — so this call is the receipt that
       // the pass ran and kept THIS session. Without it the resume below could
       // land before the pass and succeed by luck; with it, a host that
       // reclaimed the session shows up here as a missing row, every time.
-      const listing = (await within(
+      const listing = await within(
         "session/list",
         COMMAND_BUDGET_MS,
-        spawned.host.connection.request("session/list", {}),
-      )) as unknown as SessionListResult;
+        context.clientB.listSessions(),
+      );
       const listed = listing.sessions.find((row) => row.sessionId === sessionId);
       if (listed === undefined) {
         throw new Error(

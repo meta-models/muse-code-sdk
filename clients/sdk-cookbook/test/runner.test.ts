@@ -25,7 +25,7 @@ import type { Recipe, RecipeHosts } from "../src/runner.js";
 import { RECIPES } from "../src/manifest.js";
 
 const HOSTS: RecipeHosts = {
-  museBin: "/fake/tbh",
+  museBin: "/fake/muse",
   conformanceBin: "/fake/muse-conformance",
   transcriptRoot: "/fake/transcripts",
 };

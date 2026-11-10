@@ -1,7 +1,7 @@
 /**
  * A scripted MSP host used ONLY to prove the wire-tap oracle can fail.
  *
- * The real `tbh serve` is the harness's subject everywhere else (see
+ * The real `muse serve` is the harness's subject everywhere else (see
  * `qa-real-binary.test.ts`). It cannot play this role: the deviations below
  * are things a correct host never does, so there is no way to ask the real
  * binary to produce one. Proving the oracle discriminates therefore needs a

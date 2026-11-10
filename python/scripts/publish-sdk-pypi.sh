@@ -93,8 +93,11 @@ cleanup() {
   # The built distributions and their scratch dir live here. Remove them
   # whatever happens. The publish-mode staged tree survives because it is
   # COPIED to a path outside this scratch dir precisely so this trap never
-  # touches what the calling workflow's upload step consumes.
+  # touches what the calling workflow's upload step consumes. The bundled
+  # schema staging leaves the source tree the same way: it is build input,
+  # never committed, so it is removed here on every exit path.
   [[ -n "$WORKDIR" && -d "$WORKDIR" ]] && rm -rf "$WORKDIR"
+  [[ -n "${SCHEMA_STAGE:-}" && -d "${SCHEMA_STAGE:-}" ]] && rm -rf "$SCHEMA_STAGE"
   return 0
 }
 trap cleanup EXIT INT TERM
@@ -390,6 +393,38 @@ for package in "${PACKAGE_DIRS[@]}"; do
   esac
   ok "dependency posture holds"
 done
+
+# ---------------------------------------------------------------------------
+# Stage — the schema copy the wire-types wheel bundles. The generated
+# package derives its fingerprints at import from the schema bytes: a
+# source checkout reads the live tree, an installed wheel reads the copy
+# staged here (package-data, never committed — .gitignore holds the
+# directory so a crashed run can never land it). Runs after Gate 1, so the
+# tree anchor still proves a clean package tree, and the EXIT trap removes
+# the staging whatever happens below. The schema resolves at the producing
+# layout first, then the mirror's verbatim sibling (the wheel-rows probe
+# precedent: the mirror's python/ tree carries no schema of its own).
+# ---------------------------------------------------------------------------
+step "stage: bundled schema"
+SCHEMA_STAGE="$REPO_ROOT/clients/msp-py/src/muse_code_msp/_schema"
+resolve_schema() { # <variant>: print the schema path or fail
+  for candidate in \
+    "$REPO_ROOT/schema/msp/$1/msp.schema.json" \
+    "$(dirname "$REPO_ROOT")/schema/msp/$1/msp.schema.json"; do
+    [[ -f "$candidate" ]] && { printf '%s' "$candidate"; return 0; }
+  done
+  return 1
+}
+STABLE_SCHEMA="$(resolve_schema stable)" ||
+  die "no stable schema under $REPO_ROOT or its verbatim sibling; a wheel must not ship without its schema fingerprint"
+EXPERIMENTAL_SCHEMA="$(resolve_schema experimental)" ||
+  die "no experimental schema under $REPO_ROOT or its verbatim sibling; a wheel must not ship without its schema fingerprint"
+mkdir -p "$SCHEMA_STAGE/stable" "$SCHEMA_STAGE/experimental"
+cp "$STABLE_SCHEMA" "$SCHEMA_STAGE/stable/msp.schema.json"
+cp "$EXPERIMENTAL_SCHEMA" "$SCHEMA_STAGE/experimental/msp.schema.json"
+[[ -s "$SCHEMA_STAGE/stable/msp.schema.json" && -s "$SCHEMA_STAGE/experimental/msp.schema.json" ]] ||
+  die "schema staging produced empty files; refusing to build"
+ok "staged stable + experimental schema for the wheel ($SCHEMA_STAGE)"
 
 # ---------------------------------------------------------------------------
 # Gate 3 — build, offline. --no-isolation so the build backend is the dev

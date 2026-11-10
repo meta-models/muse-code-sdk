@@ -11,22 +11,21 @@ The journey arm drives the quickstart SHAPE (start the agent, run a turn,
 follow its items, reach the verdict, shut down) over a deterministic scripted
 host; the S4 quickstart program re-runs the same narrative against the
 release-built host. The spawn/close blocking path is additionally proven
-against the real ``serve-fixture`` host (skipped, never failed, when no
-binary is available — the same posture as the async spawn suites).
+against a real child-process host.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import threading
-from pathlib import Path
 from typing import Any, AsyncIterator, List
 
 import pytest
 
-import muse_code
 from muse_code import (
+    EXPECTED_SCHEMA_FINGERPRINT,
     MuseClient,
     MuseClientOptions,
     MuseClientSpawnOptions,
@@ -36,14 +35,9 @@ from muse_code import (
     read_session_durability,
 )
 from muse_code.connection import Connection
-from muse_code.replay import load_transcript
-
-from helpers_host_lifetime import fixture_host_bin
 
 Params = dict[str, Any]
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-CORPUS = PROJECT_ROOT / "schema" / "msp" / "transcripts"
 
 SESSION = "s-sync"
 TURN = "t-sync"
@@ -301,6 +295,23 @@ def test_the_sync_wrapper_runs_the_journey_shape_with_the_same_verdicts() -> Non
     methods = [json.loads(line).get("method") for line in host.writes]
     assert methods == ["session/start", "turn/start"]
 
+    client.close()
+
+
+def test_sync_run_blocks_for_the_turn_and_returns_its_final_text() -> None:
+    host, client = scripted_client()
+    session = client.start_session()
+
+    result = session.run("run the tests", reasoning_effort="high")
+
+    assert result.turn_id == TURN
+    assert result.outcome.kind == "completed"
+    assert result.final_text == "All tests pass"
+    assert [item["itemId"] for item in result.items] == ["i-1"]
+    sent = [json.loads(line) for line in host.writes]
+    assert [frame.get("method") for frame in sent] == ["session/start", "turn/start"]
+    assert sent[1]["params"]["input"] == [{"text": "run the tests", "type": "text"}]
+    assert sent[1]["params"]["reasoningEffort"] == "high"
     client.close()
 
 
@@ -859,38 +870,34 @@ def test_verbs_on_a_closed_wrapper_are_refused_with_a_plain_error() -> None:
 # ---- the real-host blocking spawn/close path --------------------------------
 
 
-def test_sync_spawn_initialize_and_close_against_the_fixture_host(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    binary = fixture_host_bin()
-    if binary is None:
-        pytest.skip("no muse-conformance fixture host available (Rust build)")
-    scenario = "handshake-usershell-granted"
-    transcript = load_transcript(CORPUS / scenario)
-    init = next(
-        frame for frame in transcript.client_frames if frame.get("method") == "initialize"
+def test_sync_spawn_initialize_and_close_against_a_real_child_host() -> None:
+    # A real child process behind the blocking spawn/close path. It grants
+    # only what the client requested among what it offers, as a real host
+    # does: ``spawn`` requests ``sessionMcp`` beside the caller's
+    # ``userShell``, and a host offering only ``userShell`` grants just that.
+    # (The recorded serve-fixture corpus predates the ``sessionMcp`` request,
+    # so its exact-frame match would refuse this initialize; the
+    # connection-layer handshake suites keep that corpus check.)
+    body = (
+        "import json, sys\n"
+        "request = json.loads(sys.stdin.readline())\n"
+        "caps = request['params'].get('capabilities') or {}\n"
+        "granted = [c for c in caps.get('requestedCapabilities') or [] if c == 'userShell']\n"
+        f"fingerprint = {EXPECTED_SCHEMA_FINGERPRINT!r}\n"
+        "result = {'schema': {'fingerprint': fingerprint, 'version': 1},\n"
+        "          'serverInfo': {'name': 'child-host', 'version': '0.0.0'},\n"
+        "          'grantedCapabilities': granted, 'sessionDurability': 'durable'}\n"
+        "sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+        "'result': result}) + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdin.read()\n"
     )
-    recorded = next(
-        frame
-        for frame in transcript.server_frames
-        if isinstance(frame.get("result"), dict) and "schema" in frame["result"]
-    )
-    monkeypatch.setattr(
-        muse_code,
-        "EXPECTED_SCHEMA_FINGERPRINT",
-        str(recorded["result"]["schema"]["fingerprint"]),
-    )
-
     client: "SyncMuseClient[str]" = SyncMuseClient.spawn(
         MuseClientSpawnOptions(
-            muse_bin=binary,
-            client_info=dict(init["params"]["clientInfo"]),
-            # The RECORDED capability request too: serve-fixture matches our
-            # initialize frame against the recorded one (identity excepted),
-            # so an omitted `capabilities` is a frameDivergence exit, which
-            # this arm then reads as an EOF mid-handshake.
-            capabilities=dict(init["params"]["capabilities"]),
-            args=["serve-fixture", "--transcript", str(CORPUS / scenario)],
+            muse_bin=sys.executable,
+            client_info={"name": "sync-tests", "version": "0.0.0"},
+            capabilities={"requestedCapabilities": ["userShell"]},
+            args=["-c", body],
         )
     )
     granted = client.initialize_result.get("grantedCapabilities")

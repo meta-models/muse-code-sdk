@@ -31,7 +31,7 @@ CHECKER = PROJECT_ROOT / "scripts" / "check-public-mirror-text.py"
 CLOSURE_MANIFEST = PROJECT_ROOT / "scripts" / "sdk-source-closure.json"
 PYPI_SCRIPT = PROJECT_ROOT / "scripts" / "publish-sdk-pypi.sh"
 BRIDGE_SCRIPT = PROJECT_ROOT / "scripts" / "bridge-developer-docs.sh"
-# The workflow lives at the checkout root, two levels above the tbh project
+# The workflow lives at the checkout root, two levels above the project
 # root (the python-docs-gate suite reads it the same way).
 DOCS_WORKFLOW = PROJECT_ROOT.parents[1] / (
     ".gith" + "ub/workflows/" + "tb" + "h-muse-developer-docs.yml"
@@ -595,6 +595,7 @@ def test_closure_python_marked_set_is_frozen() -> None:
         "clients/sdk-quickstart-py",
         "scripts/check-public-mirror-text.py",
         "scripts/check-sdk-py-external-audience.py",
+        "scripts/msp_fingerprint.py",
         "scripts/publish-sdk-pypi.sh",
         "scripts/sdk-py-wheel-rows.py",
     }
@@ -611,6 +612,8 @@ def test_closure_rust_marked_set_is_frozen() -> None:
         "clients/sdk-rs/Cargo.toml",
         "clients/sdk-rs/LICENSE",
         "clients/sdk-rs/README.md",
+        "clients/sdk-rs/build",
+        "clients/sdk-rs/build.rs",
         "clients/sdk-rs/examples",
         "clients/sdk-rs/src",
         "scripts/publish-sdk-crates.sh",

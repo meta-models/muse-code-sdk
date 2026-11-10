@@ -2,7 +2,7 @@
  * QA-TEST-001/002/003 — the wire tap and the oracle, proven over the REAL
  * `@muse-code/sdk` spawn path against a real child process.
  *
- * The host here is a scripted MSP host rather than `tbh serve` for one
+ * The host here is a scripted MSP host rather than `muse serve` for one
  * reason only: the deviations under test are things a CORRECT host never
  * does, so the real binary cannot produce them on demand. The real-binary
  * arm is `qa-real-binary.test.ts`; this file proves the oracle DISCRIMINATES,

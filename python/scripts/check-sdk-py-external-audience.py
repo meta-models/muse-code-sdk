@@ -43,9 +43,12 @@ Five modes, two pattern tiers:
                     crate's documentation shows, and the examples' headers;
                     item docs stay on the tree tier) with the full table,
                     and every packaged file whole with the tree tier,
-                    cargo's own records included. A crate that is not one
-                    readable package root, or that holds a non-UTF-8
-                    member, refuses. This is the crates.io publish gate:
+                    cargo's own records included, except the vendored
+                    release schema bytes (a fingerprinted build input,
+                    unscanned like the wheel's bundled schema). A crate
+                    that is not one readable package root, or that holds
+                    a non-UTF-8 member, refuses. This is the crates.io
+                    publish gate:
                     scripts/publish-sdk-crates.sh runs it on the crate
                     `cargo package` wrote, before the dry run and any
                     publish.
@@ -164,6 +167,7 @@ TREE_WALK_PATHS = (
     "clients/sdk-py",
     "clients/sdk-quickstart-py",
     "scripts/check-public-mirror-text.py",
+    "scripts/msp_fingerprint.py",
     "scripts/publish-sdk-pypi.sh",
     "scripts/sdk-py-wheel-rows.py",
 )
@@ -402,8 +406,12 @@ def check_crate(crate: Path) -> list[str]:
     # the manifest's description and each module's inner docs are registry
     # metadata (full table, as PyPI's module docstrings are); every packaged
     # file is public down to its comments (tree tier), cargo's generated
-    # Cargo.toml and .cargo_vcs_info.json included. Fail closed when an
-    # audited entry is absent, as the npm tarball mode does.
+    # Cargo.toml and .cargo_vcs_info.json included — except the vendored
+    # release schema bytes (`build/msp.schema.json`), a build input
+    # whose bytes the fingerprint hashes exactly, citations included. The
+    # wheel tier treats its bundled schema bytes the same way (data files
+    # ride unscanned; only METADATA and `.py` are audited). Fail closed when
+    # an audited entry is absent, as the npm tarball mode does.
     findings: list[str] = []
     try:
         archive_cm = tarfile.open(crate)
@@ -438,6 +446,11 @@ def check_crate(crate: Path) -> list[str]:
             findings += audit(text(member), f"{crate.name}!{entry}")
         for member in members:
             where = f"{crate.name}!{member.name}"
+            # The vendored release schema bytes ride unscanned (see above):
+            # the fingerprint hashes these exact bytes, so they cannot be
+            # sanitized, and the wheel tier already ships them the same way.
+            if member.name == f"{root}/build/msp.schema.json":
+                continue
             source = text(member)
             findings += findings_in(source, where, TREE_PRIVATE_PATTERNS)
             if member.name.endswith(".rs"):

@@ -10,8 +10,8 @@ are neither an item nor a state family:
 
 - the TURN LIFECYCLE — ``turn/started``, ``turn/completed``,
   ``turn/retracted``, ``turn/unqueued``, and the non-terminal
-  ``turn/retryScheduled``, ``turn/modelRetryScheduled``, and
-  ``turn/foregroundCompleted``;
+  ``turn/retryScheduled``, ``turn/modelRetryScheduled``,
+  ``turn/modelAttemptStarted``, and ``turn/foregroundCompleted``;
 - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending sets
   and their first durable terminal. The decision flow (choosing and sending a
   resolution) is the facade's, not the fold's;
@@ -73,6 +73,7 @@ VIEW_EVENT_METHODS: frozenset[str] = frozenset(
         "turn/retracted",
         "turn/retryScheduled",
         "turn/modelRetryScheduled",
+        "turn/modelAttemptStarted",
         "turn/unqueued",
         "approval/requested",
         # The reviewer-held twin of `approval/requested`: routed to its own
@@ -154,6 +155,10 @@ class TurnEntry:
         model_retry_scheduled: The latest scheduled provider-backoff retry;
             non-terminal. The model-attempt twin of ``retry_scheduled``;
             clears on the turn's terminal.
+        model_attempt_started: The latest model attempt start, recorded
+            before the provider dials; non-terminal. It stays set through
+            tool runs and retry backoffs until the turn's terminal, so it is
+            not a live "model is working" flag.
         foreground_completed: The latest foreground-completed notice;
             non-terminal. Tells a renderer the answer is done while
             ``blockingAgents`` hold the turn; clears on the turn's terminal.
@@ -166,6 +171,7 @@ class TurnEntry:
     error: Params | None = None
     retry_scheduled: Params | None = None
     model_retry_scheduled: Params | None = None
+    model_attempt_started: Params | None = None
     foreground_completed: Params | None = None
 
 
@@ -344,14 +350,17 @@ class IgnoredMissingParams:
 class IgnoredStaleFrame:
     """A recognized frame the fold deliberately dropped, state unchanged.
 
-    A ``turn/started``, ``turn/retryScheduled``, ``turn/modelRetryScheduled``
-    or ``turn/foregroundCompleted`` for a turn that already left ``running``;
+    A ``turn/started``, ``turn/retryScheduled``, ``turn/modelRetryScheduled``,
+    ``turn/modelAttemptStarted`` or ``turn/foregroundCompleted`` for a turn
+    that already left ``running``;
     a ``turn/completed`` for a ``retracted`` or ``unqueued`` turn; a declined
     ``turn/retracted`` for a turn the fold has not seen; an
     ``approval/updated`` for an approval it never saw requested (or whose
     entry a resolution already deleted); or a redelivered
     ``approval/requested`` / ``userInput/requested`` for an approval/prompt
-    that already has its durable terminal; or a ``view/gap`` whose ``next``
+    that already has its durable terminal; or a ``userInput/requested``
+    for a turn already known to have left ``running``; or a ``view/gap``
+    whose ``next``
     an earlier frame already named while the hole is open (``id`` is that
     ``next``). Truthful by contract: a "pending"
     outcome here would make a renderer show an entry the fold does not hold.
@@ -473,6 +482,7 @@ class _InternalTurn:
     error: Params | None = None
     retry_scheduled: Params | None = None
     model_retry_scheduled: Params | None = None
+    model_attempt_started: Params | None = None
     foreground_completed: Params | None = None
 
 
@@ -496,6 +506,9 @@ class SessionFold:
         self._pending_approvals: dict[str, _InternalApproval] = {}
         self._resolved_approvals: dict[str, Params] = {}
         self._pending_user_inputs: dict[str, Params] = {}
+        # Pending prompt ids by turn, so retiring a turn's prompts costs
+        # that turn's count, not every pending prompt.
+        self._pending_user_input_ids_by_turn: dict[str, set[str]] = {}
         self._settled_user_inputs: dict[str, Params] = {}
         self._active_turn_id: str | None = None
         self._pending_gap: dict[str, str] | None = None
@@ -631,6 +644,8 @@ class SessionFold:
             return self._turn_retry_scheduled(params)
         if method == "turn/modelRetryScheduled":
             return self._turn_model_retry_scheduled(params)
+        if method == "turn/modelAttemptStarted":
+            return self._turn_model_attempt_started(params)
         if method == "turn/foregroundCompleted":
             return self._turn_foreground_completed(params)
         if method == "approval/requested":
@@ -745,10 +760,13 @@ class SessionFold:
         # Same for the provider-backoff hint: a finished turn is not
         # waiting out a backoff.
         turn.model_retry_scheduled = None
+        # Same for the attempt hint: a finished turn's model is not working.
+        turn.model_attempt_started = None
         # Same for the foreground hint: a finished turn is not
         # background-waiting.
         turn.foreground_completed = None
         self._clear_active(turn_id)
+        self._retire_pending_user_inputs_for(turn_id)
         return TurnFold(turn_id, turn.state)
 
     def _turn_retracted(self, params: Params) -> FoldOutcome:
@@ -774,6 +792,7 @@ class SessionFold:
         # `item/updated` with `retracted: true`, which the item half folds.
         turn.state = "retracted"
         self._clear_active(turn_id)
+        self._retire_pending_user_inputs_for(turn_id)
         return TurnFold(turn_id, turn.state)
 
     def _turn_unqueued(self, params: Params) -> FoldOutcome:
@@ -786,6 +805,7 @@ class SessionFold:
         turn.command_id = params.get("commandId")
         turn.state = "unqueued"
         self._clear_active(turn_id)
+        self._retire_pending_user_inputs_for(turn_id)
         return TurnFold(turn_id, turn.state)
 
     def _turn_retry_scheduled(self, params: Params) -> FoldOutcome:
@@ -812,6 +832,18 @@ class SessionFold:
         turn.model_retry_scheduled = params
         return TurnFold(turn_id, turn.state)
 
+    def _turn_model_attempt_started(self, params: Params) -> FoldOutcome:
+        # Non-terminal by contract: it never resolves a turn-wait.
+        turn_id = str(params["turnId"])
+        turn = self._turn_for(turn_id)
+        # ...but it is still a turn frame, so it takes the same redelivery
+        # guard as the retry hint: a replayed page must not re-plant the
+        # attempt hint on a turn that already left `running`.
+        if turn.state != "running":
+            return IgnoredStaleFrame("turn/modelAttemptStarted", turn_id)
+        turn.model_attempt_started = params
+        return TurnFold(turn_id, turn.state)
+
     def _turn_foreground_completed(self, params: Params) -> FoldOutcome:
         # Non-terminal by contract: it never resolves a turn-wait.
         turn_id = str(params["turnId"])
@@ -836,6 +868,33 @@ class SessionFold:
         if self._active_turn_id == turn_id:
             self._active_turn_id = None
 
+    def _retire_pending_user_inputs_for(self, turn_id: str) -> None:
+        # A prompt listed while its turn ran retires when that turn leaves
+        # `running`: no answer can settle it afterwards, so keeping it
+        # listed pends it forever (the reported started->requested->
+        # completed order). Retiring records no settlement — the prompt
+        # was never answered. Cost is the ending turn's own prompt count
+        # via the by-turn index, never a scan over every pending prompt.
+        for user_input_id in self._pending_user_input_ids_by_turn.pop(turn_id, set()):
+            self._pending_user_inputs.pop(user_input_id, None)
+
+    def _index_pending_user_input(self, user_input_id: str, params: Params) -> None:
+        self._pending_user_input_ids_by_turn.setdefault(
+            str(params.get("turnId", "")), set()
+        ).add(user_input_id)
+
+    def _unindex_pending_user_input(self, user_input_id: str) -> None:
+        params = self._pending_user_inputs.get(user_input_id)
+        if params is None:
+            return
+        turn_id = str(params.get("turnId", ""))
+        ids = self._pending_user_input_ids_by_turn.get(turn_id)
+        if ids is None:
+            return
+        ids.discard(user_input_id)
+        if not ids:
+            del self._pending_user_input_ids_by_turn[turn_id]
+
     @staticmethod
     def _turn_snapshot(turn: _InternalTurn) -> TurnEntry:
         return TurnEntry(
@@ -846,6 +905,7 @@ class SessionFold:
             error=turn.error,
             retry_scheduled=turn.retry_scheduled,
             model_retry_scheduled=turn.model_retry_scheduled,
+            model_attempt_started=turn.model_attempt_started,
             foreground_completed=turn.foreground_completed,
         )
 
@@ -925,11 +985,22 @@ class SessionFold:
         # Symmetric with `_approval_requested`: a settled prompt stays settled.
         if user_input_id in self._settled_user_inputs:
             return IgnoredStaleFrame("userInput/requested", user_input_id)
+        # A prompt for a turn this fold has already seen leave `running` is
+        # an orphan: no answer can settle it, so listing it would pend
+        # forever. Guarded to KNOWN dead turns only — a prompt naming a
+        # turn the fold has never seen (a fresh resume re-sending a
+        # still-open question) still lists.
+        turn = self._turns.get(str(params.get("turnId", "")))
+        if turn is not None and turn.state != "running":
+            return IgnoredStaleFrame("userInput/requested", user_input_id)
+        self._unindex_pending_user_input(user_input_id)
         self._pending_user_inputs[user_input_id] = params
+        self._index_pending_user_input(user_input_id, params)
         return UserInputPending(user_input_id)
 
     def _user_input_settled(self, params: Params) -> FoldOutcome:
         user_input_id = str(params["userInputId"])
+        self._unindex_pending_user_input(user_input_id)
         self._pending_user_inputs.pop(user_input_id, None)
         first_settlement = user_input_id not in self._settled_user_inputs
         if first_settlement:

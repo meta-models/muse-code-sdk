@@ -94,7 +94,7 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<RunOneOutc
   }
 
   const findings: readonly OracleFinding[] = outcome.runs.flatMap((run) => runOracle(run));
-  const matched = outcome.observed === outcome.expected;
+  const matched = outcome.observed === scenario.expected;
 
   // Attribution costs a replay child, so it runs only when there is something
   // to attribute — and it runs for BOTH arms, because a facade misreport and
@@ -134,7 +134,7 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<RunOneOutc
           verdict: "blocked",
           findings,
           observed: outcome.observed,
-          expected: outcome.expected,
+          expected: scenario.expected,
           blockedBecause: blockedVerdict.refused,
           ...(attribution === undefined ? {} : { attribution }),
         },
@@ -147,7 +147,7 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<RunOneOutc
         verdict: blockedVerdict?.bites === true ? "expected-block" : "block-lifted",
         findings,
         observed: outcome.observed,
-        expected: outcome.expected,
+        expected: scenario.expected,
         ...(attribution === undefined ? {} : { attribution }),
       },
       runs: outcome.runs,
@@ -168,7 +168,7 @@ async function runOne(scenario: QaScenario, museBin: string): Promise<RunOneOutc
       verdict,
       findings,
       observed: outcome.observed,
-      expected: outcome.expected,
+      expected: scenario.expected,
       ...(attribution === undefined ? {} : { attribution }),
     },
     runs: outcome.runs,

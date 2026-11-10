@@ -43,6 +43,45 @@ pub struct MonitorInboxItemAdmittedParams {
     pub queued_at: String,
 }
 
+/// One snapshot `monitorInbox` entry: a retained admission in the
+/// `monitor/inboxItemAdmitted` shape, envelope-stripped, plus the newest drain
+/// and void stamps folded for it. The entry is still awaiting delivery when
+/// `drainedAt` is absent, or when `voidedAt` is strictly newer than it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct MonitorInboxSnapshotEntry {
+    /// The inbox item id (dedupe key).
+    pub item_id: String,
+    /// The owning monitor task id (per-task set key).
+    pub task_id: String,
+    /// Per-task event order key (with `line_index`).
+    pub event_index: u64,
+    /// Monitor event kind, snake_case, open vocabulary.
+    pub event_kind: String,
+    /// Line order key; absent when the event has no line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_index: Option<u64>,
+    /// Whether the event carries displayable lines.
+    pub show_lines: bool,
+    /// The model-facing delivery text.
+    pub body: String,
+    /// The producer-recorded pre-augmentation content; absent on earlier
+    /// records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_body: Option<String>,
+    /// The notice-text summary.
+    pub summary: String,
+    /// Admission stamp (RFC3339).
+    pub queued_at: String,
+    /// The newest drain stamp (RFC3339); absent while never drained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drained_at: Option<String>,
+    /// The newest wake-missed void stamp (RFC3339); absent while never voided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voided_at: Option<String>,
+}
+
 /// `monitor/inboxItemDrained` params: one monitor inbox drain — a consumption
 /// marker with its recorded stamp.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

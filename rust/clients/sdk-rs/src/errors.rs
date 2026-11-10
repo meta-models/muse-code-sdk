@@ -148,6 +148,22 @@ pub enum MuseError {
     /// that is not durable, so nothing survives to resume.
     #[error("session {0} was discarded after an ephemeral transport ended")]
     SessionDiscarded(String),
+    /// A start that required its permission profile could not prove the host
+    /// committed it. The session is open on the host, but no handle to it is
+    /// returned; resume it by `session_id` or start again.
+    #[error(
+        "required permission profile {requested:?} was not applied: the committed selection is {} (session {session_id})",
+        served.as_deref().map_or_else(|| "unknown".to_owned(), |served| format!("{served:?}"))
+    )]
+    PermissionProfileNotApplied {
+        /// The profile id the caller required.
+        requested: String,
+        /// The committed profile id the host reported, or `None` when it
+        /// reported none.
+        served: Option<String>,
+        /// The session the start opened.
+        session_id: String,
+    },
     /// The command was discarded locally, because the last handle that could
     /// await it was dropped.
     #[error("command {command_id} was discarded locally")]

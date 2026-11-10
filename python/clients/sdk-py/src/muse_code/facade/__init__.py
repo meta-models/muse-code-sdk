@@ -50,8 +50,9 @@ from .session import (
     SessionGapOverlap,
     SessionOpening,
 )
-from .turn_handle import FoldedItem, Turn, TurnOutcome, is_launch_failure
-from .turn_submit import SendUserTurnOptions
+from .run import RunResult
+from .turn_handle import FoldedItem, Turn, TurnOutcome, TurnUnqueueOutcome, is_launch_failure
+from .turn_submit import SendUserTurnOptions, SteerTurnOptions
 
 __all__ = [
     "AbnormalExit",
@@ -71,6 +72,7 @@ __all__ = [
     "MuseHostStartError",
     "PendingCommandView",
     "ResumeSessionOptions",
+    "RunResult",
     "SendUserTurnOptions",
     "Session",
     "SessionApplyOutcome",
@@ -81,9 +83,11 @@ __all__ = [
     "SessionGapOverlap",
     "SessionOpening",
     "StartSessionOptions",
+    "SteerTurnOptions",
     "TransportEof",
     "Turn",
     "TurnOutcome",
+    "TurnUnqueueOutcome",
     "is_abnormal_host_death",
     "is_launch_failure",
     "read_session_durability",

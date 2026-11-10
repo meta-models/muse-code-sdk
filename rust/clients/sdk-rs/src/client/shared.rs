@@ -124,6 +124,25 @@ impl ClientShared {
         }
     }
 
+    /// Undoes a registered start the client then refused: its route (and the
+    /// frames queued on it) and its registration, so no orphan route is left.
+    /// The open count stays: the host still subscribes this connection to the
+    /// id, so a later resume of it is a re-open.
+    pub(super) fn retract_open(&self, session: &Session) {
+        let session_id = session.session_id();
+        let refused = session.downgrade();
+        let mut state = lock(&self.router.state);
+        // A newer open of the id may have replaced this route; that one stays.
+        let routed_here = state
+            .sessions
+            .get(session_id)
+            .is_some_and(|route| Weak::ptr_eq(&route.session, &refused));
+        if routed_here {
+            state.sessions.remove(session_id);
+            state.registered.remove(session_id);
+        }
+    }
+
     pub(super) fn register(&self, session: &Session, reopened: bool) {
         // `close()` and the transport-end sweep each settle the sessions in
         // their router snapshot; an open whose reply returned first can

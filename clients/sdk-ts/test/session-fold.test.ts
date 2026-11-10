@@ -41,11 +41,11 @@ import type {
   SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
-  SessionViewHealthChangedParams,
   SourceRange,
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
+  TurnModelAttemptStartedParams,
   TurnModelRetryScheduledParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
@@ -673,6 +673,72 @@ test("a replayed page never re-plants the backoff hint on a turn that left runni
   });
 });
 
+test("turn/modelAttemptStarted is non-terminal: the turn keeps running", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnModelAttemptStartedParams = {
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/modelAttemptStarted", params });
+
+  assert.equal(fold.activeTurnId, "turn-1", "a starting attempt never settles a turn");
+  assert.equal(fold.turn("turn-1")?.state, "running");
+  assert.equal(fold.turn("turn-1")?.modelAttemptStarted?.turnId, "turn-1");
+});
+
+test("turn/completed clears the model-attempt hint (tdd SS4.5.1)", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  const params: TurnModelAttemptStartedParams = {
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-1",
+    viewCursor: "v:s:2",
+  };
+  fold.apply({ method: "turn/modelAttemptStarted", params });
+  assert.ok(fold.turn("turn-1")?.modelAttemptStarted, "the hint is set while the turn runs");
+
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:3"));
+
+  // A finished turn's model is not working; a renderer keyed on the hint
+  // would otherwise show Thinking on a turn that is already done.
+  assert.equal(fold.turn("turn-1")?.modelAttemptStarted, undefined);
+});
+
+test("a replayed page never re-plants the attempt hint on a turn that left running", () => {
+  const fold = new SessionFold();
+  const attempt: ViewEvent = {
+    method: "turn/modelAttemptStarted",
+    params: {
+      sessionId: SESSION,
+      sourceRange: SOURCE,
+      turnId: "turn-1",
+      viewCursor: "v:s:2",
+    },
+  };
+  const page: readonly ViewEvent[] = [
+    turnStarted("turn-1", "cmd-1", "v:s:1"),
+    attempt,
+    turnCompleted("turn-1", "cancelled", "v:s:3"),
+    turnRetracted("turn-1", "cmd-1", "v:s:4"),
+  ];
+  for (const event of page) fold.apply(event);
+  assert.equal(fold.turn("turn-1")?.modelAttemptStarted, undefined, "in-order delivery is clean");
+
+  for (const event of page) fold.apply(event);
+
+  assert.equal(fold.turn("turn-1")?.state, "retracted");
+  assert.equal(fold.turn("turn-1")?.modelAttemptStarted, undefined, "the replayed hint is dropped");
+  assert.deepEqual(fold.apply(attempt), {
+    kind: "ignoredStaleFrame",
+    method: "turn/modelAttemptStarted",
+    id: "turn-1",
+  });
+});
+
 test("turn/completed clears the foreground hint (tdd SS4.5.12)", () => {
   const fold = new SessionFold();
   fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
@@ -969,6 +1035,119 @@ test("userInput/requested after userInput/settled never resurrects the prompt", 
   );
 });
 
+test("userInput/requested for a turn that already settled is stale and never listed", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:2"));
+  const outcome = fold.apply(userInputRequested("u-1", "v:s:3"));
+
+  assert.deepEqual(outcome, {
+    kind: "ignoredStaleFrame",
+    method: "userInput/requested",
+    id: "u-1",
+  });
+  assert.equal(fold.pendingUserInputs().length, 0, "the orphaned prompt is not listed");
+});
+
+test("userInput/requested for a retracted or unqueued turn is stale and never listed", () => {
+  for (const end of ["retracted", "unqueued"] as const) {
+    const fold = new SessionFold();
+    fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+    fold.apply(
+      end === "retracted"
+        ? turnRetracted("turn-1", "cmd-1", "v:s:2")
+        : turnUnqueued("turn-1", "cmd-1", "v:s:2"),
+    );
+    const outcome = fold.apply(userInputRequested("u-1", "v:s:3"));
+    assert.deepEqual(outcome, {
+      kind: "ignoredStaleFrame",
+      method: "userInput/requested",
+      id: "u-1",
+    });
+    assert.equal(fold.pendingUserInputs().length, 0, `the ${end}-turn prompt is not listed`);
+  }
+});
+
+test("userInput/requested for a running turn is listed, and for an unseen turn still lists", () => {
+  const running = new SessionFold();
+  running.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  assert.deepEqual(running.apply(userInputRequested("u-1", "v:s:2")), {
+    kind: "userInputPending",
+    userInputId: "u-1",
+  });
+  assert.deepEqual(
+    running.pendingUserInputs().map((u) => u.userInputId),
+    ["u-1"],
+  );
+
+  // Fresh-resume arm: this fold never saw the turn, so it cannot prove the
+  // turn dead — a re-sent still-open question must not be dropped blindly.
+  const fresh = new SessionFold();
+  assert.deepEqual(fresh.apply(userInputRequested("u-1", "v:s:1")), {
+    kind: "userInputPending",
+    userInputId: "u-1",
+  });
+  assert.deepEqual(
+    fresh.pendingUserInputs().map((u) => u.userInputId),
+    ["u-1"],
+  );
+});
+
+test("a listed prompt retires when its turn leaves running, in reported order", () => {
+  for (const end of ["completed", "retracted", "unqueued"] as const) {
+    const fold = new SessionFold();
+    fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+    fold.apply(userInputRequested("u-1", "v:s:2"));
+    assert.equal(fold.pendingUserInputs().length, 1, "listed while running");
+    fold.apply(
+      end === "completed"
+        ? turnCompleted("turn-1", "completed", "v:s:3")
+        : end === "retracted"
+          ? turnRetracted("turn-1", "cmd-1", "v:s:3")
+          : turnUnqueued("turn-1", "cmd-1", "v:s:3"),
+    );
+    assert.equal(
+      fold.pendingUserInputs().length,
+      0,
+      `the ${end} turn's prompt no longer lists`,
+    );
+    // Retiring is not a settlement: no settled entry is recorded.
+    assert.equal(fold.settledUserInputs().length, 0);
+  }
+});
+
+test("a declined retract keeps its turn's prompt, and another turn ending retires nothing", () => {
+  const fold = new SessionFold();
+  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
+  fold.apply(userInputRequested("u-1", "v:s:2"));
+  fold.apply(turnRetracted("turn-1", "cmd-1", "v:s:3", "declined"));
+  assert.deepEqual(
+    fold.pendingUserInputs().map((u) => u.userInputId),
+    ["u-1"],
+    "a declined retract leaves the turn running, so the prompt stays",
+  );
+
+  fold.apply(turnCompleted("turn-2", "completed", "v:s:4"));
+  assert.deepEqual(
+    fold.pendingUserInputs().map((u) => u.userInputId),
+    ["u-1"],
+    "another turn ending retires only its own prompts",
+  );
+});
+
+test("a prompt for an unseen turn lists, then retires when that turn's end frame lands", () => {
+  const fold = new SessionFold();
+  fold.apply(userInputRequested("u-1", "v:s:1"));
+  assert.deepEqual(
+    fold.pendingUserInputs().map((u) => u.userInputId),
+    ["u-1"],
+    "unseen turn: the fold cannot prove it dead, so the prompt lists",
+  );
+  fold.apply(turnCompleted("turn-1", "completed", "v:s:2"));
+  assert.equal(fold.pendingUserInputs().length, 0, "the end frame retires it");
+  assert.equal(fold.settledUserInputs().length, 0, "retiring records no settlement");
+});
+
 test("approval/resolved retires the pending approval and records the terminal", () => {
   const fold = new SessionFold();
   fold.apply(approvalRequested("a-1", "v:s:1"));
@@ -1232,67 +1411,6 @@ test("a session lifecycle broadcast keeps its pre-enrollment drop until #33102 f
   assert.equal(fold.items.size, 0, "a lifecycle broadcast seeds no item");
   assert.deepEqual(fold.sessionState.families(), [], "and no state family");
   assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
-});
-
-function viewHealthChanged(
-  health: string,
-  noneReason?: string,
-): { readonly method: string; readonly params: SessionViewHealthChangedParams } {
-  const params: SessionViewHealthChangedParams = {
-    health,
-    sessionId: SESSION,
-    ...(noneReason !== undefined ? { noneReason } : {}),
-  };
-  return { method: "session/viewHealthChanged", params };
-}
-
-test("session/viewHealthChanged keeps its default drop when view-health surfacing is not opted in (#94)", () => {
-  const fold = new SessionFold();
-  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
-
-  const outcome = fold.apply(viewHealthChanged("unavailable", "projectionUnavailable"));
-
-  assert.deepEqual(outcome, {
-    kind: "ignoredUnrecognizedMethod",
-    method: "session/viewHealthChanged",
-  });
-  assert.equal(fold.current, true, "a health push is not a delivery gap");
-  assert.equal(fold.pendingGap, undefined);
-  assert.equal(fold.items.size, 0, "a health push seeds no item");
-  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
-  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
-});
-
-test("an opted-in fold surfaces session/viewHealthChanged verbatim and folds no state (#94)", () => {
-  const fold = new SessionFold({ surfaceViewHealth: true });
-  fold.apply(turnStarted("turn-1", "cmd-1", "v:s:1"));
-
-  const outcome = fold.apply(viewHealthChanged("unavailable", "projectionUnavailable"));
-
-  assert.deepEqual(outcome, {
-    kind: "viewHealthChanged",
-    params: {
-      health: "unavailable",
-      noneReason: "projectionUnavailable",
-      sessionId: SESSION,
-    },
-  });
-  assert.equal(fold.current, true, "a health push is not a delivery gap");
-  assert.equal(fold.pendingGap, undefined);
-  assert.equal(fold.items.size, 0, "a health push seeds no item");
-  assert.deepEqual(fold.sessionState.families(), [], "and no state family");
-  assert.equal(fold.activeTurnId, "turn-1", "the rest of the fold is untouched");
-});
-
-test("an opted-in fold surfaces an unrecognized health value verbatim (#94)", () => {
-  const fold = new SessionFold({ surfaceViewHealth: true });
-
-  const outcome = fold.apply(viewHealthChanged("degradedFuture"));
-
-  assert.deepEqual(outcome, {
-    kind: "viewHealthChanged",
-    params: { health: "degradedFuture", sessionId: SESSION },
-  });
 });
 
 test("a real view/gap frame moves the fold's CURRENCY and no store (T032 flips D-24021-1's drop)", () => {
@@ -1723,6 +1841,12 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     turnId: "turn-t3",
     viewCursor: "v:t:8",
   };
+  const modelAttempt: TurnModelAttemptStartedParams = {
+    sessionId: SESSION,
+    sourceRange: SOURCE,
+    turnId: "turn-t3",
+    viewCursor: "v:t:8",
+  };
   const foreground: TurnForegroundCompletedParams = {
     blockingAgents: ["goal-reminder"],
     sessionId: SESSION,
@@ -1827,6 +1951,7 @@ test("every ViewEvent method routes to its own arm, never the default (mutation 
     "turn/retracted": turnRetracted("turn-t2", "cmd-t2", "v:t:7"),
     "turn/retryScheduled": { method: "turn/retryScheduled", params: retrySched },
     "turn/modelRetryScheduled": { method: "turn/modelRetryScheduled", params: modelRetrySched },
+    "turn/modelAttemptStarted": { method: "turn/modelAttemptStarted", params: modelAttempt },
     "turn/foregroundCompleted": { method: "turn/foregroundCompleted", params: foreground },
     "turn/unqueued": turnUnqueued("turn-t4", "cmd-t4", "v:t:9"),
     "approval/requested": approvalRequested("a-t", "v:t:10"),

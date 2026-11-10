@@ -16,13 +16,14 @@ app first. The durability fork every embedder has to get right:
 - what survives is what you PUT in the session: give it a durable fact
   before you rely on resuming it.
 
-HARNESS PLUMBING, NOT CLIENT GUIDANCE, two pieces: the SDK exposes no pid or
-kill, so the killable host is launched through a three-line shell wrapper
-that prints its pid on stderr and ``exec``s the real binary; and the journey
-spawns hosts the way ``MuseClient.spawn`` does inside (``spawn_msp_connection``
-+ ``initialize`` + a composed ``MuseClient``) because it also has to speak
-``session/list`` and ``session/setApprovalMode``, which the facade does not
-wrap.
+Everything a client does here goes through the SDK facade:
+``MuseClient.spawn``, ``start_session``, ``Session.set_approval_mode``,
+``client.exit``, ``list_sessions``, ``resume_session``, and ``close``.
+
+HARNESS PLUMBING, NOT CLIENT GUIDANCE: the SDK exposes no pid or kill, so the
+killable host is ``MuseClient.spawn`` handed a three-line shell wrapper as
+its binary; the wrapper prints its pid on stderr and ``exec``s the real
+binary.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from typing import Any, Callable, List, Mapping, Tuple
 from muse_code import (
     DiscardedSessions,
     MuseClient,
-    MuseClientOptions,
+    MuseClientSpawnOptions,
     MuseHostDiedError,
     MuseSessionDiscardedError,
     ResumeSessionOptions,
@@ -47,11 +48,8 @@ from muse_code import (
     StartSessionOptions,
     read_session_durability,
 )
-from muse_code.connection.spawn import (
-    ExitClassification,
-    SpawnedMspConnection,
-    spawn_msp_connection,
-)
+from muse_code.connection.spawn import ExitClassification
+from muse_code_msp import ApprovalMode
 
 from ..kit import (
     equals,
@@ -75,7 +73,7 @@ PID_MARKER = "muse-cookbook-host-pid"
 """The stderr marker the shell wrapper prints. Test plumbing; see the module
 docstring."""
 
-APPROVAL_MODE = "denyUnmatched"
+APPROVAL_MODE: ApprovalMode = "denyUnmatched"
 """The one durable fact the killed session carries. It is a LATER
 approval-mode change, sent after the start: the start's own approval
 selection is startup scaffold the fresh host reclaims, so selecting the
@@ -109,9 +107,6 @@ class Context:
     home: str
     workspace_root: str
     client_a: "MuseClient[Any] | None" = None
-    # The first host's raw connection, kept for ``session/setApprovalMode``,
-    # which the facade does not wrap.
-    host_a: SpawnedMspConnection | None = None
     host_pid: int | None = None
     session_a: "Session[Any] | None" = None
     session_id: str | None = None
@@ -132,53 +127,40 @@ def _must(value: Any, what: str) -> Any:
 
 async def _spawn_host(
     context: Context, killable: bool
-) -> tuple["MuseClient[Any]", SpawnedMspConnection, Callable[[], str]]:
-    """Spawn a host and hand back the facade this page teaches, ``MuseClient``.
+) -> tuple["MuseClient[Any]", Callable[[], str]]:
+    """Spawn a host through the facade this page teaches, ``MuseClient.spawn``.
 
-    Spelled the way ``MuseClient.spawn`` is spelled inside, so the journey
-    keeps the raw connection for the two methods the facade does not wrap,
-    ``session/setApprovalMode`` and ``session/list``. ``killable`` selects
-    the pid-marker wrapper: ``$$`` is
-    the shell's own pid and ``exec`` REPLACES the shell with the host binary,
-    so the printed pid IS the host's pid.
+    ``killable`` swaps the binary for the pid-marker wrapper (test plumbing
+    only): ``$$`` is the shell's own pid and ``exec`` REPLACES the shell with
+    the host binary, so the printed pid IS the host's pid.
     """
     stderr: List[str] = []
     if killable:
-        command = "/bin/sh"
+        muse_bin = "/bin/sh"
         args: tuple[str, ...] = ("-c", f'echo "{PID_MARKER}=$$" >&2; exec "$0" serve', context.muse_bin)
     else:
-        command = context.muse_bin
+        muse_bin = context.muse_bin
         args = ("serve",)
-    handshake = await spawn_msp_connection(
-        command,
-        args=args,
-        cwd=context.workspace_root,
-        env=isolated_host_env(context.home),
-        on_stderr=stderr.append,
-        # The kit's owned drain window, so the drain bound and the SDK's
-        # actual window cannot drift apart.
-        shutdown_timeout_ms=HOST_DRAIN_WINDOW_MS,
+    # No leak on a timed-out handshake: ``within`` cancels the pending spawn,
+    # and ``MuseClient.spawn`` closes the host it started when cancelled.
+    client = await within(
+        "the host's spawn and MSP handshake",
+        HANDSHAKE_BUDGET_MS,
+        MuseClient.spawn(
+            MuseClientSpawnOptions(
+                muse_bin=muse_bin,
+                args=args,
+                cwd=context.workspace_root,
+                env=isolated_host_env(context.home),
+                client_info={"name": "muse_sdk_cookbook_py", "version": "0.0.0"},
+                on_stderr=stderr.append,
+                # The kit's owned drain window, so the drain bound and the
+                # SDK's actual window cannot drift apart.
+                shutdown_timeout_ms=HOST_DRAIN_WINDOW_MS,
+            )
+        ),
     )
-    try:
-        host = await within(
-            "the MSP handshake",
-            HANDSHAKE_BUDGET_MS,
-            handshake.initialize(
-                {"clientInfo": {"name": "muse_sdk_cookbook_py", "version": "0.0.0"}}
-            ),
-        )
-    except BaseException:
-        # A failed handshake must not leak the process it already spawned.
-        try:
-            await handshake.close()
-        except Exception:  # noqa: BLE001 - reclaim only
-            pass
-        raise
-    client: MuseClient[Any] = MuseClient(
-        host.connection,
-        MuseClientOptions(durability=read_session_durability(host.initialize_result), host=host),
-    )
-    return client, host, lambda: "".join(stderr)
+    return client, lambda: "".join(stderr)
 
 
 async def _host_pid(stderr: Callable[[], str], budget_ms: int) -> int:
@@ -226,9 +208,8 @@ def _item_started(item: Mapping[str, Any], view_cursor: str) -> Mapping[str, Any
 
 
 async def _spawn_and_read_durability(context: Context) -> None:
-    client, host, stderr = await _spawn_host(context, killable=True)
+    client, stderr = await _spawn_host(context, killable=True)
     context.client_a = client
-    context.host_a = host
     context.host_pid = await _host_pid(stderr, SETTLE_BUDGET_MS)
     # Read the profile the moment you have the handshake — after the host
     # dies is too late to ask it. The release host's sessions are durable.
@@ -238,7 +219,6 @@ async def _spawn_and_read_durability(context: Context) -> None:
 
 async def _start_and_follow(context: Context) -> None:
     client = _must(context.client_a, "spawned client")
-    host = _must(context.host_a, "spawned host")
     # Give the session something to keep: a session holding nothing but its
     # own start records is litter to the next host once the host that started
     # it is gone. That includes the start's OWN approval selection — it is
@@ -257,14 +237,9 @@ async def _start_and_follow(context: Context) -> None:
         raise AssertionError("the session did not open through session/start")
     # The durable fact, under its own command id: a later change is kept
     # content, while the start's own selection would be reclaimed with it.
+    # The SDK stamps the command id.
     mode = await within(
-        "session/setApprovalMode",
-        COMMAND_BUDGET_MS,
-        host.connection.command(
-            "session/setApprovalMode",
-            {"sessionId": context.session_id, "mode": APPROVAL_MODE},
-            max_attempts=1,
-        ),
+        "session/setApprovalMode", COMMAND_BUDGET_MS, session.set_approval_mode(APPROVAL_MODE)
     )
     equals(mode.get("applyOutcome"), "completed", "the approval-mode change's outcome")
     # A consumer following a turn is a promise held across the death. This
@@ -349,20 +324,18 @@ async def _durable_death_rejects_the_waiters(context: Context) -> None:
 
 async def _resume_on_a_fresh_host(context: Context) -> None:
     session_id = _must(context.session_id, "session id")
-    client, host, _stderr = await _spawn_host(context, killable=False)
+    client, _stderr = await _spawn_host(context, killable=False)
     context.client_b = client
     equals(
         read_session_durability(client.initialize_result).kind,
         "durable",
         "the fresh host's durability profile",
     )
-    # List before you resume: a fresh host answers session/list only once its
+    # List before you resume: a fresh host answers list_sessions only once its
     # startup housekeeping has settled — including the pass that reclaims
     # dead hosts' empty sessions — so this call is the receipt that the pass
     # ran and kept THIS session.
-    listing = await within(
-        "session/list", COMMAND_BUDGET_MS, host.connection.request("session/list", {})
-    )
+    listing = await within("session/list", COMMAND_BUDGET_MS, client.list_sessions())
     rows = listing.get("sessions")
     if not isinstance(rows, list):
         raise AssertionError(f"session/list served no sessions array: {listing!r}")

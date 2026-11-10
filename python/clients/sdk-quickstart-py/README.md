@@ -52,28 +52,43 @@ TypeScript quickstart (`clients/sdk-quickstart`): same ids, same order.
 
 ### 1. Spawn the host (`spawn`)
 
-`Host.start` — a thin harness helper over the SDK's `spawn_msp_connection` —
-launches your own `muse serve` child in an isolated `HOME` and completes the
-MSP handshake. You cannot send traffic before the handshake completes.
+`MuseClient.spawn` starts your own `muse serve` child and completes the MSP
+handshake in one call. You cannot send anything before the handshake
+completes; the client you get back is ready to use. These are the options an
+application needs:
 
 ```python
-    context.host = await Host.start(
-        HostOptions(
-            muse_bin=context.muse_bin,
-            home=context.home,
-            workspace_root=context.workspace_root,
-            client_info=QUICKSTART_CLIENT_INFO,
-        ),
-        HANDSHAKE_BUDGET_MS,
+    options = MuseClientSpawnOptions(
+        muse_bin=None,  # None runs the first `muse` on your PATH
+        args=["serve"],
+        client_info=QUICKSTART_CLIENT_INFO,
     )
 ```
 
+`args=["serve"]` starts the protocol host: a bare `muse` is the interactive
+app. The journey then sets `muse_bin` to the build it tests, a working
+directory, and an `env` with its own `HOME`, so it never touches your real
+sessions. A host that dies on launch raises `MuseHostStartError` with its exit
+and stderr instead of hanging:
+
+```python
+    context.client = await within(
+        "the host's spawn and handshake",
+        HANDSHAKE_BUDGET_MS,
+        MuseClient.spawn(_spawn_options(context)),
+    )
+```
+
+`within` is the journey's own bounded wait, so a stuck step fails with a
+sentence instead of hanging the run; your application may not need it.
+
 ### 2. Check the handshake (`handshake`)
 
-The result names the server, your `museHome`, the session durability profile,
-and the schema fingerprint. The Python SDK's fingerprint posture is the
-STRICT gate: a host serving a different schema than the SDK was built against
-fails `initialize` with an exact error, so if you got here, they match.
+`client.initialize_result` names the server, your `museHome`, the session
+durability profile, and the schema fingerprint. The Python SDK's fingerprint
+posture is the STRICT gate: a host serving a different schema than the SDK was
+built against fails `initialize` with an exact error, so if you got here, they
+match.
 
 ```python
     schema = _object_at(result, "schema", "initialize result")
@@ -89,97 +104,84 @@ fails `initialize` with an exact error, so if you got here, they match.
 
 ### 3. Start a session (`session-new`)
 
-`session/start` is a command: it is acknowledged durably, and the host also
-announces the new session on the push stream. A default start has written no
-durable fact yet, so its view cursor is exactly the before-genesis `""`.
-
 ```python
-    result = await within(
-        "the session/start ack",
+    session = await within(
+        "the session/start reply",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "session/start", {"workspaceRoot": context.workspace_root}, max_attempts=1
-        ),
+        client.start_session(StartSessionOptions(workspace_root=context.workspace_root)),
     )
 ```
+
+The client owns the connection: it sends each state-changing call with an id
+it mints, and routes every event the host pushes to the session it belongs
+to. The host's reply is on `session.opening.result`. A default start has
+written no durable fact yet, so its view cursor is exactly the before-genesis
+`""`.
 
 ### 4. Read the effective model (`session-effective-model`)
 
-A session always names the provider and model it will actually use.
-
-```python
-    read = await within(
-        "the session/read result",
-        COMMAND_BUDGET_MS,
-        host.connection.request(
-            "session/read", {"sessionId": session_id, "excludeItems": True}
-        ),
-    )
-    session = _object_at(read, "session", "session/read result")
-    _string_at(session, "providerId", "session/read session")
-    _string_at(session, "modelId", "session/read session")
-```
+A session always names the provider and model it will actually use: read
+`providerId` and `modelId` off the session in `session.opening.result`.
 
 ### 5. Run a turn (`turn`)
 
-Send a prompt, watch the answer stream in as `item/delta` notifications, and
-wait for the turn's terminal.
+`session.run` sends one prompt and returns once the turn has ended, with the
+outcome, the final answer text (`final_text`), the turn's items, and its
+token usage. A turn that failed or was cancelled still returns; read
+`result.outcome` to tell.
 
 ```python
-    await host.wait_for(
-        "the turn/started notification",
-        COMMAND_BUDGET_MS,
-        lambda n: n.method == "turn/started" and n.params.get("turnId") == turn_id,
-    )
-    completed = await host.wait_for(
-        "the turn/completed notification",
-        STREAM_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == turn_id,
-    )
-    _require_terminal(completed.params, "completed")
+    result = await within("the turn", STREAM_BUDGET_MS, session.run(PROMPT))
+    _require_terminal(result.outcome, "completed")
 ```
 
-### 6. Answer a permission request (`approval`)
+To stop it, cancel the task that awaits it: a queued turn is taken back, a
+running one is cancelled, and `run` re-raises `CancelledError` once the turn
+has ended.
 
-A prompt that touches the disk makes the agent ask first. The choices are
-server-minted; you answer with one of them, and the authoritative outcome is
-the view stream's `approval/resolved`, never the ack.
+### 6. Read a turn as it streams, and answer a permission request (`approval`)
+
+A prompt that touches the disk makes the agent ask first. Register your
+handler before you send the turn. The choices are server-minted: a choice the
+request did not offer is refused and reported to `on_approval_error` instead
+of being sent.
 
 ```python
-    approval_id = _string_at(event.params, "approvalId", "approval/requested params")
-    decided = await within(
-        "the approval/decide ack",
+    session.on_approval_error(failures.append)
+    session.on_approval(lambda request: ApprovalDecisionInput(choice_id="allow_once"))
+```
+
+To show the turn while it runs, send it yourself and read its items. Each
+iteration yields an item as it changes (the prompt, the tool call, the
+agent's messages), and the loop ends when the turn ends:
+
+```python
+    turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "approval/decide",
-            {
-                "sessionId": session_id,
-                "approvalId": approval_id,
-                "requirementId": {"approvalId": approval_id, "sourceIndex": 0},
-                "choiceId": "allow_once",
-                "feedback": None,
-            },
-            max_attempts=1,
+        session.send_user_turn(
+            SendUserTurnOptions(input=[{"type": "text", "text": APPROVAL_PROMPT}])
         ),
     )
 ```
+
+```python
+    async for item in turn.items():
+        kinds.append(str(item.get("kind")))
+```
+
+The authoritative answer to the approval is the host's `approval/resolved`,
+which the session records in `session.fold.resolved_approvals()`.
 
 ### 7. Cancel a running turn (`cancel`)
 
+`turn.cancel()` only asks. The turn is over when `turn.completed` settles,
+with the terminal `"cancelled"`:
+
 ```python
-    await within(
-        "the turn/cancel ack",
-        COMMAND_BUDGET_MS,
-        host.connection.command(
-            "turn/cancel", {"sessionId": session_id, "turnId": turn_id}, max_attempts=1
-        ),
-    )
-    completed = await host.wait_for(
-        "the cancelled turn/completed notification",
-        STREAM_BUDGET_MS,
-        lambda n: n.method == "turn/completed" and n.params.get("turnId") == turn_id,
-    )
-    _require_terminal(completed.params, "cancelled")
+    await within("the turn/cancel ack", COMMAND_BUDGET_MS, turn.cancel())
+    outcome = await within("the cancelled turn's end", STREAM_BUDGET_MS, completed)
+    _require_terminal(outcome, "cancelled")
 ```
 
 ### 8–10. Close, reopen, resume (`resume`, `resume-effective-model`, `resume-history`)
@@ -188,13 +190,17 @@ The session lease belongs to the live host, so the first one drains cleanly
 before a second loads the same session — with its history intact.
 
 ```python
-    resumed = await within(
-        "the session/resume ack",
+    await within("the first host's orderly drain", CLOSE_BUDGET_MS, first.close())
+    exit_ = await first.exit
+    _equals(exit_.kind, "cleanShutdown", "the first host's exit after stdin EOF")
+```
+
+```python
+    resumed_session = await within(
+        "the session/resume reply",
         COMMAND_BUDGET_MS,
-        host.connection.command(
-            "session/resume",
-            {"sessionId": session_id, "excludeItems": False},
-            max_attempts=1,
+        client.resume_session(
+            ResumeSessionOptions(session_id=session_id, exclude_items=False)
         ),
     )
 ```
@@ -210,9 +216,11 @@ wearing its name.
 Close stdin, let the host drain, and read the exit the SDK classified.
 
 ```python
-    exit_ = await host.close(CLOSE_BUDGET_MS)
-    _equals(exit_.code, 0, "the host's exit code after stdin EOF")
-    _equals(exit_.signal, None, "the host's exit signal after stdin EOF")
+    await within("the host's orderly drain and exit", CLOSE_BUDGET_MS, client.close())
+    classification = await within(
+        "the SDK's exit classification", COMMAND_BUDGET_MS, client.exit
+    )
+    _equals(classification.kind, "cleanShutdown", "the SDK's exit classification")
 ```
 
 ## The same journey, blocking

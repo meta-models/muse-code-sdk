@@ -2,9 +2,11 @@
 turn-handle module.
 
 A handle owns two things: the turn-wait, and the async iterators that
-ride the fold for this turn. It authors no wire traffic and holds no durable
-state — :class:`~muse_code.facade.session.Session` feeds it folded events and
-it fans them out.
+ride the fold for this turn. It holds no durable state —
+:class:`~muse_code.facade.session.Session` feeds it folded events and it fans
+them out. Its control verbs (``cancel``/``interrupt``/``steer``/``unqueue``)
+author wire traffic only through the :class:`TurnControls` its session hands
+it.
 
 One rule governs the wait: the SDK never locally times out, fails, or completes
 a turn. Every settlement below traces to a server-authored fact, with one
@@ -18,6 +20,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from typing import (
+    TYPE_CHECKING,
+    Any,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -36,11 +40,30 @@ from muse_code_msp import (
     TURN_TERMINAL_KNOWN_VALUES,
     Item,
     ItemDeltaParams,
+    TurnCancelResult,
     TurnCompletedParams,
+    TurnInterruptResult,
+    TurnSteerResult,
     TurnUnqueuedParams,
+    TurnUnqueueResult,
 )
 
+from ..pending.pending_command_set import PendingRetirement
+from .turn_submit import SteerTurnOptions
+
 _T = TypeVar("_T")
+# The turn handles' composer-input type. It defaults to ``Any`` (the TS twin's
+# ``Turn<I = unknown>``) so a bare ``Turn``/``SyncTurn`` annotation written
+# before the handles were generic stays strict-clean. TypeVar defaults need
+# ``typing_extensions`` before Python 3.13, but only type checkers read the
+# default and they ship its stubs, so the import stays type-check-only and the
+# package takes no runtime dependency for it.
+if TYPE_CHECKING:
+    from typing_extensions import TypeVar as _DefaultedTypeVar
+
+    _I = _DefaultedTypeVar("_I", default=Any)
+else:
+    _I = TypeVar("_I")
 
 FoldedItem = Item
 """What the iterators yield: the fold's stored item.
@@ -97,9 +120,10 @@ class _TerminalUnknown:
 
 TurnOutcome = Union[_Completed, _Unqueued, _TerminalUnknown]
 """How a turn ended, from a waiter's point of view. ``turn/retracted``,
-``turn/retryScheduled``, ``turn/modelRetryScheduled``, and
-``turn/foregroundCompleted`` are deliberately absent: a retracted turn still
-reaches its own terminal, and a scheduled retry, a scheduled backoff, or a
+``turn/retryScheduled``, ``turn/modelRetryScheduled``,
+``turn/modelAttemptStarted``, and ``turn/foregroundCompleted`` are
+deliberately absent: a retracted turn still reaches its own terminal, and a
+scheduled retry, a scheduled backoff, a starting model attempt, or a
 foreground notice is explicitly non-terminal."""
 
 
@@ -216,7 +240,51 @@ ItemReplay = Callable[[], "tuple[FoldedItem, ...]"]
 """The turn's replayable backlog, supplied by ``Session`` from the fold."""
 
 
-class TurnHandle:
+@dataclass(frozen=True)
+class TurnUnqueueOutcome(Generic[_I]):
+    """What ``unqueue`` returns: the wire ack, and the pending-command
+    retirement the accepted reclaim produced — the queued submit's input
+    handed back to the composer.
+
+    Attributes:
+        ack: The wire ``turn/unqueue`` result.
+        retirement: On a session ``MuseClient`` opened, set for this
+            session's own accepted reclaim whatever order the ack and
+            ``turn/unqueued`` arrive in. ``None`` when this session holds no
+            queued entry for the turn (another client's submit, say). On a
+            ``Session`` you feed through ``apply`` yourself, also ``None``
+            when ``turn/unqueued`` folded first: that ``apply`` returned the
+            retirement, so restore the composer from whichever of the two
+            returned it. Either way it is handed out once.
+    """
+
+    ack: TurnUnqueueResult
+    retirement: PendingRetirement[_I] | None = None
+
+
+class TurnControls(Protocol[_I]):
+    """The wire half of a handle's control verbs, supplied by its session,
+    which owns the connection, the discard latch and the pending set."""
+
+    async def cancel(self, turn_id: str) -> TurnCancelResult:
+        """Sends ``turn/cancel`` for ``turn_id``."""
+        ...
+
+    async def interrupt(self, turn_id: str, retract: bool | None) -> TurnInterruptResult:
+        """Sends ``turn/interrupt`` for ``turn_id``."""
+        ...
+
+    async def steer(self, turn_id: str, options: SteerTurnOptions[_I]) -> TurnSteerResult:
+        """Sends ``turn/steer`` for ``turn_id`` through the pending path."""
+        ...
+
+    async def unqueue(self, turn_id: str) -> TurnUnqueueOutcome[_I]:
+        """Sends ``turn/unqueue`` for ``turn_id``; retires the queued entry
+        on an accepted ack."""
+        ...
+
+
+class TurnHandle(Generic[_I]):
     """One turn's public surface, and the Session-fed mutators behind it.
 
     ``Session.turn()`` returns this typed as :class:`Turn` (the consumer view)
@@ -230,10 +298,14 @@ class TurnHandle:
         turn_id: The wire turn id.
     """
 
-    def __init__(self, turn_id: str, replay_items: ItemReplay) -> None:
-        """Builds the handle; ``replay_items`` reads this turn's folded items."""
+    def __init__(
+        self, turn_id: str, replay_items: ItemReplay, controls: TurnControls[_I]
+    ) -> None:
+        """Builds the handle; ``replay_items`` reads this turn's folded items
+        and ``controls`` carries its control verbs to the wire."""
         self.turn_id = turn_id
         self._replay_items = replay_items
+        self._controls = controls
         self._item_streams: Set[_PushStream[FoldedItem]] = set()
         self._delta_streams: Set[_PushStream[ItemDeltaParams]] = set()
         self._observed_start = False
@@ -319,6 +391,34 @@ class TurnHandle:
         self._admit(stream, self._delta_streams)
         return stream
 
+    async def cancel(self) -> TurnCancelResult:
+        """Cancel this turn on the normal command lane (``turn/cancel``).
+
+        Admission only: the turn is over when its ``turn/completed`` folds.
+        """
+        return await self._controls.cancel(self.turn_id)
+
+    async def interrupt(self, *, retract: bool | None = None) -> TurnInterruptResult:
+        """Stop this turn on the priority lane (``turn/interrupt``), the
+        user's stop gesture; ``retract=True`` also asks to retract the prompt.
+        Admission only, like :meth:`cancel`."""
+        return await self._controls.interrupt(self.turn_id, retract)
+
+    async def steer(self, options: SteerTurnOptions[_I]) -> TurnSteerResult:
+        """Add input to this turn while it runs (``turn/steer``). The steer is
+        a pending command until its ``userMessage`` folds."""
+        return await self._controls.steer(self.turn_id, options)
+
+    async def unqueue(self) -> TurnUnqueueOutcome[_I]:
+        """Take this queued turn back before it launches (``turn/unqueue``).
+
+        An accepted ack means the turn never launches, so this session's
+        queued entry retires at once and comes back as ``retirement``; the
+        turn itself settles ``unqueued`` when the server's ``turn/unqueued``
+        folds.
+        """
+        return await self._controls.unqueue(self.turn_id)
+
     def _admit(
         self, stream: _PushStream[_T], into: Set[_PushStream[_T]]
     ) -> None:
@@ -402,7 +502,7 @@ class TurnHandle:
 
 
 @runtime_checkable
-class Turn(Protocol):
+class Turn(Protocol[_I]):
     """A turn, as a CONSUMER sees it — the protocol turn surface and nothing else.
 
     ``Session.turn()`` and ``send_user_turn()`` advertise THIS rather than the
@@ -436,4 +536,20 @@ class Turn(Protocol):
 
     def deltas(self) -> AsyncIterator[ItemDeltaParams]:
         """This turn's ``item/delta`` frames, live only."""
+        ...
+
+    async def cancel(self) -> TurnCancelResult:
+        """Cancel this turn on the normal command lane (``turn/cancel``)."""
+        ...
+
+    async def interrupt(self, *, retract: bool | None = None) -> TurnInterruptResult:
+        """Stop this turn on the priority lane (``turn/interrupt``)."""
+        ...
+
+    async def steer(self, options: SteerTurnOptions[_I]) -> TurnSteerResult:
+        """Add input to this running turn (``turn/steer``)."""
+        ...
+
+    async def unqueue(self) -> TurnUnqueueOutcome[_I]:
+        """Take this queued turn back before it launches (``turn/unqueue``)."""
         ...

@@ -47,7 +47,7 @@ const TRIPLE = {
   reviewerAuthority: "autoReview",
 } as const;
 
-// dist/test/<file>.js → clients/sdk-ts/dist/test → projects/tbh
+// dist/test/<file>.js → clients/sdk-ts/dist/test → the workspace root
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..", "..", "..", "..");
 

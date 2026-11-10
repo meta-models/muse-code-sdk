@@ -9,12 +9,19 @@ use serde_json::Value;
 
 use crate::approval::ApprovalDecisionInput;
 use crate::msp::{
-    ApprovalMode, ApprovalRequestParams, HistoryPreference, SessionConfig, SessionResumeParams,
-    SessionResumeResult, SessionStartParams, SessionStartResult,
+    ApprovalMode, ApprovalRequestParams, HistoryPreference, RecoveryMode, SessionConfig,
+    SessionReadParams, SessionResumeParams, SessionResumeResult, SessionStartParams,
+    SessionStartResult,
 };
 use crate::session::{Session, SessionOpening, drop_unreadable_snapshot, resume_history_items};
 
-use super::{FacadeError, FacadeResult, MuseClient, invalid_frame, lock};
+use super::{FacadeError, FacadeResult, MuseClient, invalid_frame, lock, protocol_error};
+
+/// The committed profile id a session object reports; `None` when it reports
+/// no permission state or a launch override with no id.
+fn committed_profile_id(session: &crate::msp::Session) -> Option<String> {
+    session.permission_state.as_ref()?.profile_id.clone()
+}
 
 /// Options for [`MuseClient::start_session`]. A field left `None` takes the
 /// server's default, except the workspace: with neither `workspace_root` nor
@@ -39,6 +46,21 @@ pub struct StartSessionOptions {
     pub approval_mode: Option<ApprovalMode>,
     /// Per-session configuration.
     pub config: Option<SessionConfig>,
+    /// The permission profile to start under, by id; the host's default
+    /// applies when `None`. The host may still commit another profile, so set
+    /// `require_permission_profile` to refuse a start that did not apply it.
+    pub permission_profile: Option<String>,
+    /// When `true`, [`MuseClient::start_session`] proves the host committed
+    /// `permission_profile` before returning the session: from the start
+    /// result, else from one `session/read`. Any other committed profile, or
+    /// none reported, fails with
+    /// [`MuseError::PermissionProfileNotApplied`](crate::errors::MuseError::PermissionProfileNotApplied).
+    /// Setting it without `permission_profile` is refused before anything is
+    /// sent. This flag is never sent to the host.
+    pub require_permission_profile: bool,
+    /// Whether the session is built with recovery on or off; the host's
+    /// default applies when `None`.
+    pub recovery_mode: Option<RecoveryMode>,
 }
 
 /// Options for [`MuseClient::resume_session`].
@@ -59,11 +81,34 @@ pub struct ResumeSessionOptions {
     pub history: Option<HistoryPreference>,
     /// Per-session configuration, as at start.
     pub config: Option<SessionConfig>,
+    /// The model to resume with; when `None`, the session keeps the model it
+    /// recorded.
+    pub model_id: Option<String>,
+    /// The permission profile to resume under, by id; when `None`, the
+    /// session keeps the authority it recorded.
+    pub permission_profile: Option<String>,
+    /// Whether the resumed session is built with recovery on or off; the
+    /// host's default applies when `None`.
+    pub recovery_mode: Option<RecoveryMode>,
 }
 
 impl MuseClient {
     /// Starts a new session and returns its handle once the server accepts it.
     pub async fn start_session(&self, options: StartSessionOptions) -> FacadeResult<Session> {
+        // A required selection names the profile it requires: refused before
+        // anything is sent, so the start never proceeds on the host default.
+        let required = match (
+            options.require_permission_profile,
+            &options.permission_profile,
+        ) {
+            (false, _) => None,
+            (true, Some(profile)) => Some(profile.clone()),
+            (true, None) => {
+                return Err(protocol_error(
+                    "require_permission_profile needs permission_profile: require the profile you pass",
+                ));
+            }
+        };
         let command_id = self.shared.mint_command_id()?;
         // A start that names its id subscribes it too, so it is noted before
         // sending, like a resume.
@@ -73,28 +118,29 @@ impl MuseClient {
             .map(|id| (self.shared.note_open(&id), id));
         let params = SessionStartParams {
             command_id,
-            // Not exposed by the facade yet.
-            recovery_mode: None,
+            recovery_mode: options.recovery_mode,
             session_id: options.session_id,
             workspace_root: options.workspace_root,
             workspace_roots: options.workspace_roots,
             model_id: options.model_id,
             provider_id: options.provider_id,
             approval_mode: options.approval_mode,
+            // Not exposed by the facade yet.
+            approval_rules: None,
             config: options.config,
             // The facade does not expose a spawner yet.
             spawned_by: None,
             // The SDK starts plain sessions; worktree starts stay
             // an explicit experimental spelling the caller does not send.
             worktree: None,
-            // The Rust SDK does not expose the start-time profile
-            // selection yet; the session starts under the
-            // host's default.
-            permission_profile: None,
+            permission_profile: options.permission_profile,
             // Not exposed by the facade yet.
             limits: None,
             // The SDK starts plain sessions, with no predecessor.
             previous_session_id: None,
+            // The SDK starts root sessions; the switch policy belongs to
+            // a client that switches sessions.
+            switch_policy: None,
         };
         let result = match self
             .shared
@@ -111,6 +157,7 @@ impl MuseClient {
                 return Err(error);
             }
         };
+        let started_profile = committed_profile_id(&result.session);
         let session = Session::from_opening(
             Arc::clone(&self.shared),
             SessionOpening::Start(Box::new(result)),
@@ -128,7 +175,65 @@ impl MuseClient {
             None => self.shared.note_open(session.session_id()),
         };
         self.shared.register(&session, reopened);
-        Ok(session)
+        match required {
+            Some(requested) => {
+                match self
+                    .prove_profile(&session, started_profile, requested)
+                    .await
+                {
+                    Ok(()) => Ok(session),
+                    Err(error) => {
+                        self.shared.retract_open(&session);
+                        Err(error)
+                    }
+                }
+            }
+            None => Ok(session),
+        }
+    }
+
+    /// Succeeds only when the host committed `requested`: the profile the
+    /// start result reported, else one point-in-time `session/read`, which
+    /// never subscribes. Only the committed profile id is compared. On refusal
+    /// or a failed read-back the caller retracts the open and drops the
+    /// handle; the error names the session so the caller can resume it or
+    /// start again.
+    async fn prove_profile(
+        &self,
+        session: &Session,
+        started: Option<String>,
+        requested: String,
+    ) -> FacadeResult<()> {
+        let served = match started {
+            Some(started) => Some(started),
+            None => {
+                let read = self
+                    .shared
+                    .command::<_, Value>(
+                        "session/read",
+                        &SessionReadParams {
+                            session_id: session.session_id().to_owned(),
+                            exclude_items: None,
+                        },
+                    )
+                    .await?;
+                // Read structurally: a session shape this SDK cannot decode
+                // proves nothing, so it reads as unknown, never as applied.
+                read.get("session")
+                    .and_then(|session| session.get("permissionState"))
+                    .and_then(|state| state.get("profileId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            }
+        };
+        if served.as_deref() == Some(requested.as_str()) {
+            return Ok(());
+        }
+        Err(FacadeError::PermissionProfileNotApplied {
+            requested,
+            served,
+            session_id: session.session_id().to_owned(),
+        })
     }
 
     /// Approvals the resume result lists as pending keep the no-handler path
@@ -168,20 +273,23 @@ impl MuseClient {
         let reopened = self.shared.note_open(&options.session_id);
         let params = SessionResumeParams {
             command_id,
-            // Not exposed by the facade yet.
-            recovery_mode: None,
+            recovery_mode: options.recovery_mode,
             session_id: options.session_id,
             cursor: options.cursor,
             exclude_items: options.exclude_items,
             history: options.history,
             config: options.config,
-            // The Rust SDK does not expose the resume-time profile
-            // pick yet (same as the start selection
-            // above); the resume restores retained authority only.
-            permission_profile: None,
-            // The Rust SDK does not expose the resume-time model
-            // override yet; the resume resolves by recorded origin.
-            model_id: None,
+            permission_profile: options.permission_profile,
+            model_id: options.model_id,
+            // A facade resume is programmatic, never the user's explicit
+            // Resume action, so it carries no explicit continuation.
+            continue_paused_source: None,
+            // Not exposed by the facade yet.
+            approval_rules: None,
+            // Not exposed by the facade yet.
+            missing_input_assets: None,
+            // Not exposed by the facade yet.
+            limits: None,
         };
         // Kept raw too: the fold seeds history from the raw item objects.
         let mut raw = match self

@@ -191,3 +191,74 @@ def test_a_mistyped_consumer_reds_with_a_real_type_error(tmp_path: Path) -> None
     assert "py.typed" not in output and "stubs" not in output, (
         f"mypy could not resolve the packages' types at all:\n{output}"
     )
+
+
+_STEER_CONSUMER = '''\
+"""A consumer steering a turn of a Session[str]: composer_input must be str."""
+
+from __future__ import annotations
+
+import muse_code
+
+
+async def steer(session: muse_code.Session[str], sync: muse_code.SyncSession[str]) -> None:
+    options = muse_code.SteerTurnOptions(
+        input=[{{"type": "text", "text": "s"}}], composer_input={composer}
+    )
+    await session.turn("t-1").steer(options)
+    sync.turn("t-1").steer(options)
+'''
+
+
+@pytest.mark.parametrize(
+    ("composer", "expect_error"), [('"draft"', False), ("42", True)]
+)
+def test_steer_composer_input_is_typed_by_the_session(
+    tmp_path: Path, composer: str, expect_error: bool
+) -> None:
+    # The turn handles are generic in the session's composer-input type, so a
+    # retired steer can only hand the composer back the type it holds.
+    program = tmp_path / "consumer.py"
+    program.write_text(_STEER_CONSUMER.format(composer=composer))
+    result = _run_mypy(
+        ["--follow-imports=silent", str(program)],
+        cwd=tmp_path,
+        cache_dir=tmp_path / "cache",
+        env=_consumer_env(),
+    )
+    output = f"{result.stdout}{result.stderr}"
+    if expect_error:
+        assert result.returncode != 0, "mypy accepted an int composer_input on a Session[str]"
+        assert output.count("[arg-type]") == 2, f"expected two [arg-type] errors, got:\n{output}"
+    else:
+        assert result.returncode == 0, f"a well-typed steer fails mypy --strict:\n{output}"
+
+
+_BARE_TURN_CONSUMER = '''\
+"""A consumer written against the 1.4.x surface, before the turn handles took
+a composer-input type parameter: bare annotations must stay strict-clean."""
+
+from __future__ import annotations
+
+import muse_code
+
+
+def follow(turn: muse_code.Turn, sync_turn: muse_code.SyncTurn) -> str:
+    return turn.turn_id + sync_turn.turn_id
+'''
+
+
+def test_bare_turn_annotations_stay_strict_clean(tmp_path: Path) -> None:
+    # The type parameter defaults to Any (the TS twin's `Turn<I = unknown>`),
+    # so adding it is not a breaking change for strict consumers.
+    program = tmp_path / "consumer.py"
+    program.write_text(_BARE_TURN_CONSUMER)
+    result = _run_mypy(
+        ["--follow-imports=silent", str(program)],
+        cwd=tmp_path,
+        cache_dir=tmp_path / "cache",
+        env=_consumer_env(),
+    )
+    assert result.returncode == 0, (
+        f"a bare Turn/SyncTurn annotation fails mypy --strict:\n{result.stdout}{result.stderr}"
+    )

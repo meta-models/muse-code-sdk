@@ -22,7 +22,7 @@ export interface ApprovalChange {
   decision?: ApprovalDecision;
   /** A recovery detail: whether the action could run without a new decision. Present only when `kind` is `restartRecovered`. */
   executable?: boolean;
-  /** What happened: for example `stageResolved` (a shell stage was satisfied), `policyPersistence` (saving a rule succeeded or failed), `reviewStarted` or `reviewCompleted` (the automated LLM judge started or finished reviewing), `restartRecovered` (a host restart recovered this approval: either the host first resolves it `abort` and a re-ask comes as a new approval with a new `approvalId`, or it stays pending under the same `approvalId` with refreshed choices) or `alreadyTerminal` (recovery found it already decided). The set is open, so newer hosts may add kinds. */
+  /** What happened: for example `stageResolved` (a shell stage was satisfied), `policyPersistence` (saving a rule succeeded or failed), `reviewStarted` or `reviewCompleted` (the automated LLM judge started or finished reviewing), `restartRecovered` (a host restart recovered this approval: either the host first resolves it `abort` and a re-ask comes as a new approval with a new `approvalId`, or it stays pending under the same `approvalId` with refreshed choices), `alreadyTerminal` (recovery found it already decided) or `resolving` (a `computerUseTakeover` approval was marked resolving and waits for the lock broker; a decide now answers -32059). The set is open, so newer hosts may add kinds. */
   kind: string;
   /** Why saving the policy rule failed, as human-readable text. Present only when `kind` is `policyPersistence` and `status` is `failed`. */
   reason?: string;
@@ -252,6 +252,8 @@ export type ApprovalResolvedBy = "user" | "policy" | "llmJudge" | (string & {});
 
 /** `approval/resolved` params: the first durable terminal decision. */
 export interface ApprovalResolvedParams {
+  /** Why an `abort` was not a cancel, when the host knows: `lockEpochEnded | brokerUnavailable`, an open vocabulary (tdd SS5.5). Clients render an unknown value like an absent one. */
+  abortReason?: string;
   /** The policy rule the decision created. Present only when the decision created one. */
   amendment?: ApprovalAmendment;
   /** The approval that was decided. */
@@ -340,9 +342,11 @@ export interface ApprovalSubject {
   access?: string;
   /** The full raw shell command. Present when `kind` is `shell`. */
   command?: string;
+  /** The session that holds the Computer Use lock now, by label and times only. Present when `kind` is `computerUseTakeover` (tdd SS5.2.8). */
+  holder?: ComputerUseLockHolder;
   /** The network host the tool wants to reach. Present when `kind` is `network`. */
   host?: string;
-  /** Open discriminator: `shell | fileAccess | network | unixSocket | process | tool`. */
+  /** Open discriminator: `shell | fileAccess | network | unixSocket | process | tool | computerUseTakeover`. */
   kind: string;
   /** What triggered the action (a shell command or a URL), for display only and untrusted. It is not sent on `shell` subjects, and policy rules never match on it. */
   origin?: ApprovalOrigin;
@@ -398,14 +402,30 @@ export type AttentionFlag = "approvalPending" | "inputPending" | (string & {});
 /** Who durably backgrounded a task (tdd SS4.5.5, `TaskBackgroundedInitiator`). Open — runtime vocabulary. */
 export type BackgroundInitiator = "user" | "timeout" | (string & {});
 
-/** `backgroundTerminalCompletion`: the five facts the Finished cell renders (ADR 50041 D3/D4). The fold reads them from the inbox terminal record and the backgrounded call it names; every member is required (empty output serializes as `""`, never absent). */
+/** One call's live background-target record (tdd SS4.5.5; ADR 63254-background-target-on-tool-call D2): exactly the runtime snapshot's four facts, no new nouns. */
+export interface BackgroundTarget {
+  /** Whether the background was already requested for this call. */
+  backgroundRequested: boolean;
+  /** Whether the call sits in its foreground wait right now. */
+  foregroundWaitActive: boolean;
+  /** Point-in-time Ctrl+B chooser hint; the runtime re-checks admission on the action. */
+  manualReleaseAdmissible: boolean;
+  /** The tool call this record describes (the provider call id). */
+  toolCallId: string;
+}
+
+/** `backgroundTerminalCompletion`: the facts the Finished cell renders (ADR 50041 D3/D4, plus the optional exit code from D28 and the optional reason from D29). The fold reads them from the inbox terminal record and the backgrounded call it names; every member is required (empty output serializes as `""`, never absent) except `exit_code` and `reason`, each absent when the terminal carries none. */
 export interface BackgroundTerminalCompletion {
   /** The title text gate-off shows for the backgrounded command. */
   command: string;
+  /** The process exit code from the terminal record's `exit_code: ` line (ADR 50041 D28); absent when the terminal carries none. `i32`, the gate-off frozen-header twin's width (`BackgroundTerminalTailTerminal.exit_code`). Old clients ignore the unknown member (tdd evolution rule). */
+  exitCode?: number;
   /** The completion text; empty when the terminal carries none. */
   output: string;
   /** True when `output` is a prefix of the terminal text. */
   outputTruncated: boolean;
+  /** The terminal's reason from the terminal record's `reason: ` line, trimmed like gate-off's parse (ADR 50041 D29); absent when the terminal carries none or an empty one. Old clients ignore the unknown member (tdd evolution rule). */
+  reason?: string;
   /** One of `completed`, `failed`, `cancelled`, `timedOut`, `rejected` (the ItemStatus wire vocabulary, tdd SS4.4.1). */
   terminalStatus: string;
   /** The backgrounded call's call id: the live/history correlation key behind the skip-when-minted rule (ADR 50041 D6). */
@@ -561,6 +581,16 @@ export interface ComputerUseInstalledApp {
   name: string;
 }
 
+/** The Computer Use lock's holder as a `computerUseTakeover` approval shows it: never its app, window, target or current action (ADR 73131 D2). */
+export interface ComputerUseLockHolder {
+  /** When the holder took the lock (RFC 3339). */
+  acquiredAt: string;
+  /** When the holder last acted under the lock (RFC 3339). */
+  lastActivityAt: string;
+  /** The holding session's label. */
+  sessionLabel: string;
+}
+
 /** One macOS permission as setup last saw it. **Open**, like the phase. */
 export type ComputerUsePermission = "granted" | "missing" | "unknown" | (string & {});
 
@@ -710,6 +740,22 @@ export interface DamagedRange {
   unreadableLines: number;
 }
 
+/** One input the read session's log delivered to a subagent (tdd SS2.5.5, ADR 72596-delivered-inputs-on-read D2): the queue-note summary (never the body) plus the queue and drain record sequences, the order and re-read dedupe keys, plus the join ids clients adopt already-rendered rows by. */
+export interface DeliveredInput {
+  /** The matching drain record's log sequence: the Delivered row's position key. */
+  deliveredSequence: number;
+  /** The queued record's log sequence: entry order, and half of the sequence-pair join key. */
+  sequence: number;
+  /** The `SubagentInput` record's command id: the key wire-twin rows join by in either order. Absent when the record carries none. */
+  sourceCommandId?: string;
+  /** The queue record's run-log id: the record-row join key. Absent when the host's record carries no mirror metadata (a pre-feature host), which falls back to the command id, then the sequence-pair join. */
+  sourceRunRecordId?: string;
+  /** The subagent the input was delivered to (parent-scope id). */
+  subagentId: string;
+  /** The stored queue-note summary (never the body). */
+  summary: string;
+}
+
 /** `earlierHistory`: the boundary checkpoint's transcript tail, served in place of every item that opened in its pruned prefix (ADR 71910 D1/D3). No log record carries it; the host derives it from the checkpoint. */
 export interface EarlierHistory {
   /** The tail entries whose source record is in the pruned prefix, in tail order (at most 50, spec 6127 INV-002). May be empty. */
@@ -815,7 +861,7 @@ export interface ErrorData {
 }
 
 /** A stable `error.data.kind` category: camelCase, the value clients branch on. Open: new kinds are added as their methods land, and a new `kind` is additive only because this domain is declared open. */
-export type ErrorKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "invalidParams" | "experimentalRequired" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | (string & {});
+export type ErrorKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "invalidParams" | "experimentalRequired" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | "approvalBrokerUnavailable" | "approvalResolving" | (string & {});
 
 /** The `error` member of an error response (SS1.2 §2.4). */
 export interface ErrorObject {
@@ -835,6 +881,12 @@ export interface ErrorResponse {
   id: RequestId | null;
   /** The literal `"2.0"`. */
   jsonrpc: JsonRpcVersion;
+}
+
+/** The live host-declared external wait as served on a `Session` object (`Session.externalWait`): present exactly while a declaration is live for the loaded session, absent otherwise. Absence is never fabricated — an unloaded row carries no member. */
+export interface ExternalWaitView {
+  /** The host's label for what the session waits on. Omitted when the host declared without one. */
+  reason?: string;
 }
 
 /** `feedback/submit` classification (tdd SS3.25): the four TUI classes in camelCase wire spelling. **Closed**: a client-selected param vocabulary (#22785 E2). */
@@ -897,6 +949,8 @@ export interface ForkProvenance {
   cutCursor: string;
   /** Whether the fork named an explicit cut point. */
   cutExplicit: boolean;
+  /** `true` when validated full provenance records a conversation rewind, `false` for a proved ordinary fork (ADR 50280 D8). **Additive-optional**: omitted when the serving face holds no full provenance, which means unknown, never a guessed ordinary fork; never `null`. */
+  isRewind?: boolean;
   /** The source session this fork was cut from. */
   sessionId: string;
 }
@@ -979,10 +1033,10 @@ export type HeldFor = "approval" | "hook" | (string & {});
 /** What history a lifecycle result actually served (tdd SS2.5.2). Open on the client side: report-what-was-served means a client treats an unknown mode as "page it yourself". */
 export type HistoryMode = "anchoredSnapshot" | "inline" | "snapshot" | "none" | (string & {});
 
-/** Why a result served `history.mode: "none"`: the server's typed reason for serving no history. Open on the client side: an absent (older server) or unknown (newer server) value decodes conservatively as an unknown reason, and `viewCursor` text never substitutes for it. */
-export type HistoryNoneReason = "excluded" | "cursorSuffix" | "historyBudget" | "projectionUnavailable" | "projectionReadLimit" | (string & {});
+/** Why a result served `history.mode: "none"` — the server's typed reason for serving no history, with one push-only exception: `projectionRebuildFailed` rides only a `session/viewHealthChanged` notification; no resume or read result carries it (see its variant doc). Open on the client side: an absent (older server) or unknown (newer server) value decodes conservatively as an unknown reason, and `viewCursor` text never substitutes for it. */
+export type HistoryNoneReason = "excluded" | "cursorSuffix" | "historyBudget" | "projectionUnavailable" | "projectionReadLimit" | "projectionRebuildFailed" | (string & {});
 
-/** The `history` request preference of `session/resume` (tdd SS2.5.2). The forced values downgrade `anchored` → `inline` → `snapshot` → `none`; under `auto` the full rung order is anchoredSnapshot → inline → snapshot → elided snapshot → none. */
+/** The `history` request preference of `session/resume` (tdd SS2.5.2). The forced values downgrade `anchored` → `inline` → `snapshot` → `none`; under `auto` the full rung order is anchoredSnapshot → anchored pending cut → inline → snapshot → pending cut → elided snapshot → elided pending cut → none, a pending cut being the snapshot with its `monitorInbox` cut to the entries still awaiting delivery. */
 export type HistoryPreference = "auto" | "inline" | "snapshot" | "anchored";
 
 /** One installed handler (tdd SS3.26.1). */
@@ -1069,6 +1123,8 @@ export interface Item {
   background?: boolean;
   /** `toolCall`: who backgrounded the task; absent on pre-split records — never inferred (tdd SS4.5.5). */
   backgroundInitiator?: BackgroundInitiator;
+  /** `toolCall`: this call's live background-target record (tdd SS4.5.5; ADR 63254-background-target-on-tool-call D1–D2). Set when the foreground tool starts, refreshed by whole-item `item/updated` when the facts change, omitted once the call settles or unregisters — present means a live candidate. Absent (pre-feature hosts, unregistered calls) keeps the client's derived behavior, never an error. Old clients ignore it. */
+  backgroundTarget?: BackgroundTarget;
   /** `backgroundTerminalCompletion`: the five facts the Finished cell renders (ADR 50041 D4). */
   backgroundTerminalCompletion?: BackgroundTerminalCompletion;
   /** `reminderChild`: `true` when this child is a blocking reminder (it holds the turn open until it settles); absent otherwise, never `false` (ADR 41191 D4). The status word stays off the wire; clients name the reminder from `reminderAgentId`. */
@@ -1095,6 +1151,8 @@ export interface Item {
   damagedRange?: DamagedRange;
   /** `workflow`: the run-level declared-phase label — the last `Phase` detail-row label of the reconciled projection; terminal-only, absent while live (tdd SS4.5.8, #45449). */
   declaredPhase?: string;
+  /** `subagentInput` (`delivered`): `true` when the drain landed on its turn before that turn's terminal, which ends the turn's final answer as gate-off's drain record does; absent otherwise (ADR 70249 D4). */
+  deliveredBeforeTurnEnd?: boolean;
   /** `scheduledFire`: the occurrence number within the job's history, present with occurrence metadata (tdd SS4.5.17; ADR 45446 D2). */
   deliveryNumber?: number;
   /** `subagent`: nesting depth. */
@@ -1131,6 +1189,8 @@ export interface Item {
   heldFor?: HeldFor;
   /** `hookRun`: the durable `hook_key` (tdd SS4.5.11). */
   hookKey?: string;
+  /** `subagentInput`: the record the item stands for; see [`SubagentInputPhase`] (#70249). */
+  inputPhase?: SubagentInputPhase;
   /** Bare UUIDv7; the item's identity across its whole lifecycle. Identity rule (tdd SS4.4.1): the task id for task-backed kinds (`toolCall`, `subagent`), the pre-minted commit `message_id` for delta-streamed kinds (`agentMessage`, `reasoning`), `EventId::derive` over the session id and the range's starting sequence number for `damagedRange` (no record carries it, SS4.5.16), the same over the boundary checkpoint's sequence number for `earlierHistory` (SS4.5.22), and the opening durable record's event id for everything else. Opaque to clients. */
   itemId: string;
   /** `scheduledFire`: the cron job id that fired (tdd SS4.5.17; ADR 45446 D2, spec 13929 amendment #62595 FR-62595-1). */
@@ -1141,7 +1201,7 @@ export interface Item {
   label?: string;
   /** `workflow`: the reconciled terminal message, set on completion. */
   message?: string;
-  /** `agentMessage`: the phase the model declared on the commit; see [`MessagePhase`]. */
+  /** `agentMessage`: the phase the model declared; see [`MessagePhase`]. */
   messagePhase?: MessagePhase;
   /** `toolCall`: rich content the model saw beyond text; base64 is not inlined on the view (tdd SS4.5.5). */
   modelVisibleContent?: ModelVisibleContent[];
@@ -1151,18 +1211,30 @@ export interface Item {
   monitorId?: string;
   /** `scheduledFire`: the next scheduled epoch in milliseconds; absent on a final delivery (tdd SS4.5.17; ADR 45446 D2). */
   nextFireAtMs?: number;
+  /** `systemNotice`: an optional open machine code for what happened, minted per origin by the slice that adds its producer; omitted for `monitor` and for `hook` (tdd SS4.5.23). */
+  noticeKind?: string;
+  /** `systemNotice`: the producing family, so a client routes a notice without parsing its text (tdd SS4.5.23). Absent means the server named no origin: render generically, never infer one. */
+  noticeOrigin?: NoticeOrigin;
+  /** `systemNotice`: the notice's level — `info` | `warning` | `error`, open (tdd SS4.5.23; ADR 42729 D1). Absent means the server classified no level. */
+  noticeSeverity?: NoticeSeverity;
+  /** `systemNotice`: the durable thing the notice is about — for `hook`, the hook run's item id and its bounded label (tdd SS4.5.23; ADR 75121 D2). */
+  noticeSubject?: NoticeSubject;
   /** `subagent`: objective as spawned, bounded on the wire at the 64 KiB retained-text budget (tdd SS4.5.4, ADR 35691 D9); a cut sets `truncated`. The durable record stays verbatim. */
   objective?: string;
   /** `compaction`: terminal only — folds installed/fallback status. */
   outcome?: CompactionOutcome;
   /** `toolCall`/`userShell`: stored-output reference; fetch the full bytes via `item/readOutput` (served by #208). */
   outputRef?: OutputRef;
+  /** `subagent`: the `subagentId` of the subagent whose own session spawned this child, by `subagent/list`'s `parentSubagentId` rule. **Additive-optional**: absent for a child of the view's own session, or when no open `subagent` item in this view owns the spawning session; never guessed, never derived from `agentPath` (tdd SS4.5.7, #88542). */
+  parentSubagentId?: string;
   /** `toolCall`: stored structured-patch reference (`kind: "tool_patch"`, `mediaType: "application/json"`); the body is fetched via `item/readOutput` with `patchRef.id`, and the ref survives the SS2.5.2 elided-snapshot rung exactly like `outputRef` without ever being an elision trigger (tdd SS2.5.2, SS4.5.5; #33025). */
   patchRef?: OutputRef;
   /** `toolCall`: server-authored edit-family diff summary (#33025) — always beside `patchRef`; absent = no diff available (tdd SS4.5.5). */
   patchSummary?: PatchSummary;
   /** `workflow`: `true` only while a durable pause fact is in force for the run's generation; absent otherwise, never `false` (tdd SS4.5.8, ADR 45437 D2; the fold sets it on pause commit and clears it on resume-commit supersession or the generation's terminal). */
   paused?: boolean;
+  /** `peerMessage`: the four facts the consumed card renders (ADR 72708 D2, tdd SS4.5.24). */
+  peerMessage?: PeerMessage;
   /** `reasoning`: provider reasoning item id (e.g. `rs_...`), for provider-side correlation. */
   providerItemId?: string;
   /** `compaction`: noop/failure reason, verbatim (snake_case durable vocabulary, e.g. `"no_compactable_history"`). `hookRun`: terminal-only capped terminal reason (tdd SS4.5.11). */
@@ -1175,6 +1247,8 @@ export interface Item {
   replayHint?: ReplayHint;
   /** `subagent`: the result envelope from `ResultReady` (tdd SS4.5.7). */
   result?: SubagentResult;
+  /** `subagentResult`: the consumed attempt's outcome; absent if unseen at the drain (#88809). */
+  resultStatus?: SubagentResultStatus;
   /** `workflow`: set on resumed launches. */
   resumeFromRunId?: string;
   /** `userMessage`: `true` after an accepted retract (tdd SS4.5.1); re-emitted via `item/updated`. */
@@ -1221,7 +1295,7 @@ export interface Item {
   summary?: string[];
   /** `reminderChild`: the linked task id. */
   taskId?: string;
-  /** Terminal `toolCall`: the item after whose rows the terminal row renders (tdd SS4.5.21, ADR 56496 D2/D3). */
+  /** Terminal `toolCall`, or a `subagent` whose result drained (#70249): the item after whose rows the terminal row renders (tdd SS4.5.21, ADR 56496 D2/D3). */
   terminalRowAfterItemId?: string;
   /** `userMessage`: the prompt text as submitted. `agentMessage`: the accumulated reply, streamed via `item/delta` field `"text"`. `reasoning`: raw committed reasoning text where the provider exposes it (never streamed in v1, tdd SS4.5.4). */
   text?: string;
@@ -1239,9 +1313,9 @@ export interface Item {
   trigger?: CompactionTrigger;
   /** `workflow`: camelCased `WorkflowLaunchTriggerSource`, verbatim (durable runtime vocabulary, e.g. `"modelProposal"`). */
   triggerSource?: string;
-  /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`), cut a `subagent` surface (`objective`, `fallbackText`, `result.summary`, `result.text`), or cut a `monitorFeed` surface (`text`, `fallbackText`, `monitorDescription`) (ADR 50058-monitor-feed-wire D3). On a `subagent` item the flag is item-level and never cleared: once any of those four is cut, every later update keeps it, even when `result.text` arrives whole (ADR 35691 D9). The durable full text remains in the log (tdd SS4.5.4). */
+  /** `true` when the server's per-surface text budget saturated a streamed surface (`agentMessage.text`, `reasoning.summary[*]`, `toolCall.visibleOutput`, `userShell.visibleOutput`), cut a `subagent` surface (`objective`, `fallbackText`, `result.summary`, `result.text`), or cut a `monitorFeed` surface (`text`, `fallbackText`, `monitorDescription`) (ADR 50058-monitor-feed-wire D3), or cut a `systemNotice` surface (`text`, `fallbackText`; the committed-surface budget, ADR 42729 D1, tdd SS4.5.23). On a `subagent` item the flag is item-level and never cleared: once any of those four is cut, every later update keeps it, even when `result.text` arrives whole (ADR 35691 D9). The durable full text remains in the log (tdd SS4.5.4). */
   truncated?: boolean;
-  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` for the kinds outside a turn: `userShell` always (tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed` always (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13), `damagedRange` always (ADR 60914 D2), `earlierHistory` always (ADR 71910 D3). */
+  /** The owning turn (== the submitting `commandId` for fresh turns, tdd SS3.1.4). `null` for the kinds outside a turn: `userShell` always (tdd SS4.5.6), `hookRun` for session-boundary runs, `monitorFeed` always (ADR 50058-monitor-feed-wire D1), `sideChat` always (SS4.5.13), `damagedRange` always (ADR 60914 D2), `earlierHistory` always (ADR 71910 D3), `systemNotice` when produced outside a turn (tdd SS4.5.23). */
   turnId?: string | null;
   /** `subagent`: **transitive** observed usage — the child and its own descendants; updated in place, absent until first observation; never folded into `session/tokenUsage.cumulative` (tdd SS4.6.5). */
   usage?: TokenUsage;
@@ -1282,7 +1356,7 @@ export interface ItemDeltaParams {
 }
 
 /** The eleven v1 item kinds (tdd SS4.5.2–4.5.13) plus post-v1 kinds (tdd SS4.5.14+). Open: a new kind is additive evolution, and clients MUST render unknown kinds generically (tdd SS4.10). */
-export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | "monitorFeed" | "damagedRange" | "scheduledFire" | "backgroundTerminalCompletion" | "overdueNotice" | "earlierHistory" | (string & {});
+export type ItemKind = "userMessage" | "agentMessage" | "reasoning" | "toolCall" | "userShell" | "subagent" | "workflow" | "reminderChild" | "compaction" | "hookRun" | "sideChat" | "webSearch" | "monitorFeed" | "damagedRange" | "scheduledFire" | "backgroundTerminalCompletion" | "overdueNotice" | "earlierHistory" | "peerMessage" | "subagentInput" | "subagentResult" | "systemNotice" | (string & {});
 
 /** The `item/readOutput` content encoding (tdd SS4.7.4). Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract. */
 export type ItemReadOutputEncoding = "utf8" | "base64";
@@ -1402,8 +1476,18 @@ export interface MessageAttachment {
   width?: number;
 }
 
-/** `agentMessage.messagePhase` (tdd SS4.5.3, #50254): the phase the model declared on the commit, never inferred from position. Set on the completed item only; absent on `item/started`, which opens before the phase is recorded. Open: a client reads an absent or unknown value on a completed item as `"finalAnswer"` and still decodes the item. Not a turn-done signal; `turn/completed` is. */
+/** `agentMessage.messagePhase` (tdd SS4.5.3, #50254): the phase the model declared, never inferred from position. Set on every completed item, and on `item/started` when the host knows the phase (#77396): absent or unknown there means not yet known, and the completed value wins. A failed item carries none, and its missing value does not read as `"finalAnswer"`. Open: a client reads an absent or unknown value on a completed item as `"finalAnswer"` and still decodes the item. Not a turn-done signal; `turn/completed` is. */
 export type MessagePhase = "commentary" | "finalAnswer" | (string & {});
+
+/** `model/cancel` params (tdd SS3.40, FR-90352-4): the `commandId` of the call to cancel, not a retry id of its own. */
+export interface ModelCancelParams {
+  /** The call to cancel. */
+  commandId: string;
+}
+
+/** `model/cancel` result (ADR 90352 D6): always empty, for a call in flight and for an id no call holds alike; `model/completed` reports the outcome. */
+export interface ModelCancelResult {
+}
 
 /** One visible catalog row (tdd SS3.10). Catalog rows marked hidden never reach the wire, so a client cannot select one. */
 export interface ModelCatalogEntry {
@@ -1442,6 +1526,69 @@ export type ModelCatalogSource = "providerCatalog" | "fakeCatalog" | "unresolved
 
 /** What drove a model selection (tdd SS4.6.1). Open. */
 export type ModelChangeSource = "user" | "default" | "policy" | (string & {});
+
+/** One `model/complete` message (tdd SS3.40). */
+export interface ModelCompleteMessage {
+  /** Who said it. */
+  role: ModelCompleteRole;
+  /** What was said. */
+  text: string;
+}
+
+/** How a `model/complete` call settled. **Open**: a server-produced result vocabulary, so a word a newer host adds decodes to `Unknown` (tdd SS1.9). */
+export type ModelCompleteOutcome = "completed" | "failed" | "cancelled" | "timedOut" | (string & {});
+
+/** `model/complete` params (tdd SS3.40, FR-90352-1): the retry id, 1 to 32 messages (the first and the last `user`), an optional system text and the output bound. No session and no model: the host picks the model (ADR 90352 D3). The host answers an unknown field with `invalidParams`; the type itself accepts it. */
+export interface ModelCompleteParams {
+  /** The client-minted UUIDv7 retry id (required, SS3.1.1). */
+  commandId: string;
+  /** The most tokens the model may write. Range 1–1024 inclusive. */
+  maxTokens: number;
+  /** What the model answers, oldest first. At most 32 items. */
+  messages: ModelCompleteMessage[];
+  /** The system text, when the caller sends one. */
+  system?: string;
+}
+
+/** `model/complete` result (tdd SS3.40): admission only — the ack is never the completion. */
+export interface ModelCompleteResult {
+  /** The request's id, echoed. */
+  commandId: string;
+  /** Always `accepted` on this path. */
+  status: CommandStatus;
+}
+
+/** Who said one `model/complete` message. **Closed**: a client-produced input the host validates, so an unknown role is `invalidParams`. */
+export type ModelCompleteRole = "user" | "assistant";
+
+/** Why the model stopped on a `completed` call (FR-90352-2). **Open**: a server-produced word, so a word a newer host adds decodes to `Unknown` (tdd SS1.9). */
+export type ModelCompleteStopReason = "end" | "maxTokens" | (string & {});
+
+/** The provider's token counts for one completed call (ADR 90352 D5): real counts only, never an estimate. */
+export interface ModelCompleteUsage {
+  /** Input tokens, as the provider counted them. */
+  inputTokens: number;
+  /** Output tokens, as the provider counted them. */
+  outputTokens: number;
+}
+
+/** `model/completed` params (tdd SS3.40, FR-90352-2). `text`, `stopReason`, `modelId` and `usage` ride `completed` (`usage` only when the provider reported counts); `message` rides `failed`; `cancelled` and `timedOut` carry neither. The struct marks the conditional members optional; the SS prose pins the per-outcome rule. `text` is untrusted model output. */
+export interface ModelCompletedParams {
+  /** The request's id — the correlation key. */
+  commandId: string;
+  /** Why the call failed, in words (on `failed`). */
+  message?: string;
+  /** The `model/list` id of the model that ran (on `completed`). */
+  modelId?: string;
+  /** How the call settled. */
+  outcome: ModelCompleteOutcome;
+  /** Why the model stopped (on `completed`). */
+  stopReason?: ModelCompleteStopReason;
+  /** The model's answer, verbatim (on `completed`). */
+  text?: string;
+  /** The provider's counts (on `completed`, when it reported them). */
+  usage?: ModelCompleteUsage;
+}
 
 /** Per-1M-token catalog cost, carried **verbatim** for display and never rounded or re-formatted by the host (tdd SS3.10). Cost arithmetic stays client-local view math. */
 export interface ModelCost {
@@ -1574,6 +1721,48 @@ export interface MonitorInboxItemVoidedParams {
   voidedAt: string;
 }
 
+/** One snapshot `monitorInbox` entry (tdd SS4.9.1, FR-56492-7 as amended by #76729): a retained admission in the `monitor/inboxItemAdmitted` shape, envelope-stripped, plus the newest drain and void stamps folded for it. The entry is still awaiting delivery when `drainedAt` is absent, or when `voidedAt` is strictly newer than it (FR-56492-3). */
+export interface MonitorInboxSnapshotEntry {
+  /** The model-facing delivery text. */
+  body: string;
+  /** The producer-recorded pre-augmentation content; absent on pre-#24686 records. */
+  displayBody?: string;
+  /** The newest drain stamp (RFC3339); absent while never drained. */
+  drainedAt?: string;
+  /** Per-task event order key (with `line_index`). */
+  eventIndex: number;
+  /** Monitor event kind, snake_case, open vocabulary. */
+  eventKind: string;
+  /** The inbox item id (dedupe key). */
+  itemId: string;
+  /** Line order key; absent when the event has no line. */
+  lineIndex?: number;
+  /** Admission stamp (RFC3339). */
+  queuedAt: string;
+  /** Whether the event carries displayable lines. */
+  showLines: boolean;
+  /** The notice-text summary. */
+  summary: string;
+  /** The owning monitor task id (per-task set key). */
+  taskId: string;
+  /** The newest wake-missed void stamp (RFC3339); absent while never voided. */
+  voidedAt?: string;
+}
+
+/** `systemNotice`: the producing family, so a client routes a notice without parsing its text (tdd SS4.5.23). Open. The v1 vocabulary is the Monitor notice and the three system-chrome producers (ADR 42729 D1) plus the hook-run producer (ADR 75121 D2) and the paused-Workflow checkpoint producer (ADR 39490 D5); absent means the server named no origin, and a client never infers one. */
+export type NoticeOrigin = "monitor" | "skillsStartup" | "scheduledFire" | "incompleteGeneration" | "hook" | "workflowCheckpoint" | (string & {});
+
+/** `systemNotice`: the notice's level (tdd SS4.5.23). Open; an unknown value is an unknown-but-present level, rendered generically (SS4.10). */
+export type NoticeSeverity = "info" | "warning" | "error" | (string & {});
+
+/** `systemNotice`: the durable thing the notice is about (tdd SS4.5.23). `id` is required whenever the object is present; `label` is the producer's sanitized, already-capped display value, omitted when it is empty, never `""`. */
+export interface NoticeSubject {
+  /** The subject's durable identity: for `monitor`, the monitor's task id (its `toolCall` `itemId`); for `hook`, the hook run's item id (the opening `HookRunStarted` record's event id, SS4.5.11). */
+  id: string;
+  /** The subject's bounded display label (the `hookRun.label` shape). */
+  label?: string;
+}
+
 /** A notification frame, either direction (SS1.2 §2.2). No `id`; a notification is never answered. */
 export interface Notification {
   /** Emission time in Unix milliseconds, recorded once at emission; server→client notifications only (SS1.2.5). Optional on the wire so decoders tolerate older servers. */
@@ -1617,6 +1806,18 @@ export interface PatchSummary {
   files: number;
   /** Total `-`-prefixed line count across all files' hunks. */
   removed: number;
+}
+
+/** `peerMessage`: the four facts the consumed card renders (ADR 72708 D2, tdd SS4.5.24). The fold reads them from the drained inbox record's delivery snapshot; `senderLabel` already ran the gate-off label rule host-side, so the client renders it verbatim. Stable from day one (the `scheduledFire` precedent): no `x-msp-stability` marker. */
+export interface PeerMessage {
+  /** The message text verbatim — never cut (an over-budget event answers the typed `pageEventTooLarge` arm). */
+  body: string;
+  /** True for mailbox/remote senders, false for local session senders. */
+  remote: boolean;
+  /** The peer label gate-off shows: the sender name when the durable record names one, else the sender id shortened as gate-off shortens it, else `unknown session` — and `remote session` verbatim for a remote sender. */
+  senderLabel: string;
+  /** The local sender's session id; absent for remote senders and when the record names none. */
+  senderSessionId?: string;
 }
 
 /** A pending approval in the snapshot: the SS2.5.2 pointer shape plus the gated `itemId` when one exists (tdd SS4.9.1). */
@@ -1847,6 +2048,19 @@ export interface PluginMarketplaceUpdateParams {
 /** A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3): camelCase of `PluginSourceProvenance`. Open (server-produced result vocabulary, the #22785 enum-openness rule): a future provenance is additive. */
 export type PluginSource = "curated" | "marketplaceUserAdded" | "foreignImport" | "nativeLocal" | (string & {});
 
+/** Why a workspace status probe produced no fresh reading (#35065 item 2).  **Open**: a new reason is additive evolution, and a client MUST render an unknown value as an unknown-but-present reason rather than rejecting the row. */
+export type ProbeDegradedReason = "skippedUntrusted" | "skippedSandboxUnavailable" | "probeFailed" | (string & {});
+
+/** One child session pruned below a checkpoint boundary (tdd SS2.5.5, ADR 71910 D8): the restored row's key, text, and stoppability — never pruned transcript. */
+export interface PrunedSubagent {
+  /** The served display label (the spawn's role, agent path as fallback); absent when the spawn records carry neither. */
+  label?: string;
+  /** The child session id — the trace key for `session/read` on the child, exactly as for a live child row. */
+  sessionId: string;
+  /** `running`, `completed`, or `failed`; absent reads as `running`. */
+  status?: string;
+}
+
 /** One input still queued for delivery to a session (tdd SS2.5.5, ADR 63254-queued-inputs-on-read D2): the full message body plus its log record sequence, the delivery-order and re-read dedupe key, plus the run-log record id clients join served entries against record-seeded rows by. */
 export interface QueuedInput {
   /** The queued record's log sequence: delivery order, and the key clients deduplicate re-reads by. */
@@ -1995,12 +2209,16 @@ export interface RequestReceipt {
 /** A `turn/retracted` settlement outcome (tdd SS4.5.1, ADR 50074 D1). Open enum (D-033): decode is tolerant — a value outside the list reads as `Accepted` (the event's historical meaning — pre-feature hosts emit it only for accepted retracts), never fails. The bundle keeps enumerating the known values for codegen and docs. */
 export type RetractOutcome = "accepted" | "declined" | (string & {});
 
-/** The runtime-owned git worktree a child session runs in, mirrored from the `subagent.worktree.*` records on its parent's log (tdd SS2.5.5, ADR 50042-child-worktree-on-read D2). The three enums are open: clients treat an unknown value as unknown. */
+/** The runtime-owned git worktree a child session runs in, mirrored from the `subagent.worktree.*` records on its parent's log (tdd SS2.5.5, ADR 50042-child-worktree-on-read D2). The four enums are open: clients treat an unknown value as unknown. */
 export interface RuntimeWorktree {
   /** The commit the worktree was created from. */
   baseCommit: string;
+  /** The cleanup outcome's recorded diagnostic, verbatim (#70088); absent when the outcome records none. */
+  cleanupDiagnostic?: string;
   /** How the worktree is cleaned up. */
   cleanupPolicy: RuntimeWorktreeCleanupPolicy;
+  /** Why cleanup kept the worktree or failed, as the cleanup outcome recorded it (#70088); absent when the outcome records no reason. */
+  cleanupReason?: RuntimeWorktreeCleanupReason;
   /** Where the worktree's cleanup stands. */
   cleanupState: RuntimeWorktreeCleanupState;
   /** The head commit the active lease recorded. */
@@ -2015,6 +2233,9 @@ export interface RuntimeWorktree {
 
 /** How a session's worktree is cleaned up. The set is open, so newer hosts may send other values. */
 export type RuntimeWorktreeCleanupPolicy = "removeIfClean" | (string & {});
+
+/** Why a session's worktree cleanup kept the worktree or failed. The set is open, so newer hosts may send other values. */
+export type RuntimeWorktreeCleanupReason = "dirtyWorktree" | "headChanged" | "pathEscape" | "cleanupFailed" | "uncertainLeaseState" | (string & {});
 
 /** Where a session's worktree cleanup stands. The set is open, so newer hosts may send other values. */
 export type RuntimeWorktreeCleanupState = "active" | "cleaned" | "retained" | "cleanupFailed" | (string & {});
@@ -2060,6 +2281,8 @@ export interface Session {
   createdByClient?: ClientInfo;
   /** The handshake `ClientInfo` of the connection that currently holds this session's drive grant (spec 39851 INV-001; spec 42713 FR-58706-1, ADR 58706 D2), served on `session/read` only, as `name` and `version` (the handshake's display `title` is never served, the `createdByClient` rule). **Additive-optional, loaded-only, live**: present exactly when a live connection holds the grant and its handshake is known; absent on `notLoaded` rows, once the holder's connection drops (its orphaned turn included), and for a holder with no handshake stamp. Provenance only (INV-005): whether a client may drive is answered by `session/resume` / `turn/start` (`sessionInUse`), never by this member (FR-58706-4). */
   driveHolder?: ClientInfo;
+  /** The live host-declared external wait for this session, served on `session/read` only. **Additive-optional, loaded-only, live**: present exactly while a declaration is live for the loaded session; absent on `notLoaded` rows, once the declaration is cleared, once the next user input clears it, and after a restart or resume, which lose it. Presence is the declaration — a client must never infer one from any other member. */
+  externalWait?: ExternalWaitView;
   /** Derived first-user-prompt preview (tdd SS2.14.1, #27598). **Additive-optional**, omitted when underivable. */
   firstUserPrompt?: string;
   /** `null` for root sessions; fork provenance otherwise (tdd SS2.4). */
@@ -2080,10 +2303,12 @@ export interface Session {
   name?: string;
   /** How the served `name` was set (tdd SS2.4/SS2.14.1, #50048; ADR 50048 D1/D2). **Additive-optional**, **fold-only**: the snapshot fold (`session/read`, the resume/start/fork-ack snapshot) derives and carries it from the log; `session/list` rows never carry it. Absent — and any value the client does not recognize — reads as unknown, never fabricated. */
   nameOrigin?: SessionNameOrigin;
-  /** The containing session's id when `kind` is `"subagent"` (FR-002, INV-002) — the id of the TOP-LEVEL session whose home holds this child, which is **not necessarily the session that spawned it**: native-child homes are physical siblings under the outer session's `subagent/` directory, so a subagent spawned by another subagent resolves to the outer session, not to its spawner. A client building a tree from this field gets one level, not a chain. Flat rather than nested: there is exactly one fact to carry, unlike `forkedFrom`'s four-field `ForkProvenance`. **Additive-optional**; a root carries none. */
+  /** The containing session's id when `kind` is `"subagent"` (FR-002, INV-002) — the id of the TOP-LEVEL session whose home holds this child, which is **not necessarily the session that spawned it**: native-child homes are physical siblings under the outer session's `subagent/` directory, so a subagent spawned by another subagent resolves to the outer session, not to its spawner. A client building a tree from this field gets one level, not a chain. Flat rather than nested: there is exactly one fact to carry, unlike `forkedFrom`'s structured `ForkProvenance`. **Additive-optional**; a root carries none. */
   parentSessionId?: string;
   /** Absolute path of the session's durable log; non-nullable. Under the ephemeral session profile it is the **empty string**, meaning "no durable log exists" (tdd SS2.13.2) — the one value a client must not hand to a filesystem call. */
   path: string;
+  /** Why the workspace status probe produced no fresh reading (#35065 item 2) — the index's last derived value, like `branch`, so the TUI can show WHY status is unavailable instead of a generic unavailable. **Additive-optional**, omitted when the latest probed observation carries no reason or none exists. **Open enum**: a client treats an unknown-but-present reason and renders it, never rejecting the row. */
+  probeDegradedReason?: ProbeDegradedReason;
   /** The winning metadata fold's provider; `null` when that record omits it. */
   providerId: string | null;
   /** The handshake `ClientInfo` of the connection whose wire `session/resume` most recently loaded this session (spec 42713 FR-58706-2, ADR 58706 D2): stamped on the durable `session.resumed` marker, folded into the session index, and served from that column by every carrier; while the session is loaded, the stamp the loading resume wrote replaces the column on every carrier (the ack, `session/read`, `session/list`, `session/listChanged`), and after the next fold the column serves it. **Additive-optional** and **provenance only** (INV-005); a resume with no admitting handshake (TUI, exec) stamps nothing, a warm attach to an already-loaded session writes no marker, and a half stamp serves nothing (FR-003a), so absence asserts nothing. `createdByClient` never follows a resume (FR-58706-3). */
@@ -2092,7 +2317,7 @@ export interface Session {
   sessionId: string;
   /** `null` for root sessions and forks; side provenance otherwise (tdd SS2.4/SS2.5.7; ADR 45435 D2). A session carries at most one of `forkedFrom` and `sideFrom`. */
   sideFrom?: SideProvenance | null;
-  /** The session that opened this one (spec 42713 FR-69621-6, ADR 69621 D4), recorded once in this session's creation record and served from the session index. Its `parentSessionId` is the exact spawner, unlike the containing session `parentSessionId` names above; `project` and `thread` are opaque labels the spawner may name beside it. **Additive-optional** and **provenance only** (INV-005): never a visibility or authority gate. Absence asserts nothing — no recorded spawner, a later session of the spawned process, a row folded before the member existed, or a session the index has not folded yet. */
+  /** The session that opened this one (spec 42713 FR-69621-6, ADR 69621 D4), recorded once in this session's creation record and served from the session index. Unlike the containing session `parentSessionId` names above, its `parentSessionId` is the exact spawner, except that any `muse` started in a later pane of the worker's tmux session or Herdr workspace names the worker's manager and carries the worker's `project`/`thread` labels (ADR 69621 D8); `project` and `thread` are opaque labels the spawner may name beside it. **Additive-optional** and **provenance only** (INV-005): never a visibility or authority gate. Absence asserts nothing — no recorded spawner, a later session of the spawned process, a row folded before the member existed, or a session the index has not folded yet. */
   spawnedBy?: SessionSpawnedBy;
   /** Load state as this host knows it; `session/list` reports `notLoaded` for sessions loaded by *other* hosts (tdd SS2.4). */
   status: SessionStatus;
@@ -2138,6 +2363,18 @@ export interface SessionBranchChangedParams {
   viewCursor: string;
   /** The observed workspace root. */
   workspaceRoot: string;
+}
+
+/** `session/clearExternalWait` params. */
+export interface SessionClearExternalWaitParams {
+  /** The loaded session the declaration is cleared for. */
+  sessionId: string;
+}
+
+/** `session/clearExternalWait` result: no declaration is live. */
+export interface SessionClearExternalWaitResult {
+  /** Always `false` on a successful clear: no declaration is live. */
+  declared: boolean;
 }
 
 /** `session/closed` params (tdd SS2.6.2; enrolled by #33065): a loaded session was unloaded from this host, broadcast to every initialized connection. After it, the session is `notLoaded`; the log remains on disk and `session/resume` reloads it. A crash emits nothing — only the orderly unload paths do (idle unload, host shutdown and a released `session/leave`), and each writes the durable `SessionEnd` record first. */
@@ -2193,6 +2430,22 @@ export interface SessionContextUsageParams {
   viewCursor: string;
   /** The effective context-window size from the host's pressure basis; absent when the basis has no limit — the limit part is omitted, never invented (tdd SS4.6.6). */
   windowTokens?: number;
+}
+
+/** `session/declareExternalWait` params. */
+export interface SessionDeclareExternalWaitParams {
+  /** The host's label for what the session waits on, shown in the session view while the declaration is live. Omitted when the host has no label to show. */
+  reason?: string;
+  /** The loaded session the declaration is for. */
+  sessionId: string;
+}
+
+/** `session/declareExternalWait` result: the declaration is live. */
+export interface SessionDeclareExternalWaitResult {
+  /** Always `true` on a successful declare: a declaration is live. */
+  declared: boolean;
+  /** The live declaration's reason, as declared (truncated by the host runtime). Omitted when the host declared without one. */
+  reason?: string;
 }
 
 /** Whether this host writes its sessions to disk (SS1.4.1, SS2.13). A property of the host process, fixed at construction and identical for every session and every connection it serves — never requested, granted, or negotiated, which is why it is not a capability. Open: the unrepresented degraded state (#14401) has candidate resolutions that add a third value here, so closed would make that a breaking change. */
@@ -2325,7 +2578,7 @@ export interface SessionListParams {
   workspaceRoot?: string;
 }
 
-/** `session/list` result (tdd SS2.5.4). Ordering is `updatedAt` descending. */
+/** `session/list` result (tdd SS2.5.4). The default order is content activity: `lastActivityAt` descending, then `sessionId` ascending. The order is the session index's key, so a row's displayed timestamps do not always show its position: a row the index has not yet derived keeps its `updatedAt` position, a derived row with no content orders by `createdAt`, and a loaded row can show newer values. Do not re-sort or validate a page from them. `updatedAfter` still filters on `updatedAt`. */
 export interface SessionListResult {
   /** The canonical filter the server applied, present exactly when the request carried `filter` (#42035, spec 207 FR-42035-1). The probe is per-predicate PRESENCE (ADR 42035 D6): a client that requires filtering checks that every predicate it sent comes back as a member here, and treats a missing member as unsupported. Value equality is the wrong test — canonicalization trims, lowercases, NFC-normalizes, dedupes and sorts, so the echoed values often differ from the sent ones on a correctly filtered page. */
   appliedFilter?: SessionListFilter;
@@ -2428,12 +2681,16 @@ export interface SessionReadParams {
 export interface SessionReadResult {
   /** Same member as `session/resume` (tdd SS2.5.5, ADR 50074 D2). */
   blockedPrompt?: BlockedPrompt;
+  /** The inputs the read session's log delivered to its subagents (tdd SS2.5.5, ADR 72596-delivered-inputs-on-read D2). Absent-when-empty: a missing member means nothing delivered, never an error. */
+  deliveredInputs?: DeliveredInput[];
   /** The served history. */
   history: SessionHistory;
   /** Same member as `session/resume` (tdd SS2.5.5, ADR 36635 D2). */
   lastTurn?: LastTurn;
   /** The same pointer shape as `session/resume`. Because `session/read` never subscribes this is a point-in-time log read only: no requests are re-issued after it (tdd SS2.5.5). */
   pendingRequests: PendingRequestPointer[];
+  /** One short record per child session the checkpoint boundary pruned (tdd SS2.5.5, ADR 71910 D8). Absent-when-empty: a missing member means the view is uncompacted or nothing pruned, never an error. */
+  prunedSubagents?: PrunedSubagent[];
   /** The inputs still queued for delivery to the read session (tdd SS2.5.5, ADR 63254-queued-inputs-on-read D2). Absent-when-empty: a missing member means nothing queued, never an error. */
   queuedInputs?: QueuedInput[];
   /** Current local construction only; never inferred from retained history. Absence establishes neither a choice nor supported recovery. */
@@ -2492,7 +2749,7 @@ export interface SessionResumeParams {
   excludeItems?: boolean;
   /** History mode preference, default `auto`. A PREFERENCE, not a budget override: when the requested mode does not fit the history budget the server downgrades it and `history.mode` reports what was actually served (tdd SS2.5.2). Ignored when `cursor` or `excludeItems` makes it moot. */
   history?: HistoryPreference;
-  /** The explicit MSP model override (T-51858-304; INV-51858-11 rank 1): a model string the caller supplies at resume time. When present it wins over the retained binding's recorded origin — over a stamped label and over a stamped pin — and it recovers an otherwise-unresolved label binding by sending the override as the wire model instead of the unresolved refusal. Omitted preserves arm (2): the retained binding resolves by recorded origin exactly as without this member. Explicit `null` is invalid params (the same closed null-tolerant set as at start). The override changes the model within the retained provider; it never names a provider, and it never touches the retained profile. */
+  /** The explicit MSP model override (T-51858-304; INV-51858-11 rank 1): a model string the caller supplies at resume time. When present it wins over the retained binding's recorded origin — over a stamped label and over a stamped pin — and it recovers an otherwise-unresolved label binding by sending the override as the wire model instead of the unresolved refusal. Omitted preserves arm (2): the retained binding resolves by recorded origin exactly as without this member. Explicit `null` is invalid params (the same closed null-tolerant set as at start). The override changes the model within the retained provider; it never names a provider. A resume that loads the session records it as a resume `--model` records (ADR 24046 D7): nothing when it already is the session's model, else one durable selection with the provider's profile for that model. A resume that attaches to a loaded session switches the model live. A model the host refuses, a blank one included, leaves the session on its recorded model, which `session.modelId` reports; a connection that opted into `experimentalApi` also gets the reason in `modelIdRefusal`. */
   modelId?: string;
   /** The launch permission-profile pick (amendment 42624 FR-42624-1, #50054): a profile id the host catalog already admits. Select, never create. Omitted restores retained authority only, with no override. The host restores first, then applies the pick in the same pre-marker step; over a declared lost record the restore is the never-wider reset, committed before the pick, and where the reset cannot commit the pick is committed alone as that reset (spec 11237 FR-57059-4). A pick that fails admission refuses the resume `commandRejected` (-32030; `permission_profile_unknown` / `permission_profile_unavailable`) before any durable byte. Explicit `null` is invalid params (the same closed null-tolerant set as at start). */
   permissionProfile?: string;
@@ -2512,6 +2769,8 @@ export interface SessionResumeResult {
   lastTurn?: LastTurn;
   /** The late-joiner pointer set; empty when nothing is pending. */
   pendingRequests: PendingRequestPointer[];
+  /** One short record per child session the checkpoint boundary pruned (tdd SS2.5.2, ADR 71910 D8). **Additive-optional**, like `queuedInputs` on the read: absent-when-empty, never stripped. */
+  prunedSubagents?: PrunedSubagent[];
   /** The loaded session. */
   session: Session;
   /** The session view head; the connection is subscribed after it. A still-loaded session a prior `view/unsubscribe` detached is RE-ATTACHED by this resume (spec 208 FR-002a, #28920): live delivery resumes from this head. Explicit-cursor re-attach with `(after, head]` engine replay stays `view/subscribe` (SS4.7.1). */
@@ -2598,7 +2857,7 @@ export interface SessionSideChatResult {
 
 /** Who opened a session (`Session.spawnedBy`, spec 42713 FR-69621-6, ADR 69621 D4). */
 export interface SessionSpawnedBy {
-  /** The exact session that opened this one (ADR 69621 D2). */
+  /** The exact session that opened this one (ADR 69621 D2), except that any `muse` started in a later pane of the worker's tmux session or Herdr workspace names the worker's manager and carries the worker's `project`/`thread` labels (ADR 69621 D8). */
   parentSessionId: string;
   /** An opaque project label the spawner named, when it named one. */
   project?: string;
@@ -2723,14 +2982,14 @@ export interface SessionUserShellResult {
   status: CommandStatus;
 }
 
-/** The view-health state (tdd SS2.5.2 companion). Open enum (`x-msp-openness: open`): a client MUST ignore an unrecognized value. v1 emits only `Unavailable`; openness itself reserves additive room for a future re-arm (ADR 32557 D1 names it `healthy`) and for the #14401 durable-degraded axis, so no never-emitted token is baked onto the stable surface now. */
-export type SessionViewHealth = "unavailable" | (string & {});
+/** The view-health state (tdd SS2.5.2 companion). Open enum (`x-msp-openness: open`): a client MUST ignore an unrecognized value. `Healthy` is the re-arm value reserved by ADR 32557 D1, emitted after a host re-load (ADR 32557 D5, #60870); openness still reserves additive room for the #14401 durable-degraded axis. */
+export type SessionViewHealth = "unavailable" | "healthy" | (string & {});
 
-/** `session/viewHealthChanged` params (ADR 32557; #32557): the named session's live view stream became unavailable, and why.  Best-effort: ordered after already-queued view frames and may be dropped (for example when the connection is closing), so a client MUST NOT assume a guaranteed push and still reads `history.noneReason` on its next resume/read (FM-005). */
+/** `session/viewHealthChanged` params (ADR 32557; #32557): the named session's live view stream became unavailable, and why, or (ADR 32557 D5) it is back after the host re-loaded the view, so the client re-reads and re-subscribes.  Best-effort: ordered after already-queued view frames and may be dropped (for example when the connection is closing), so a client MUST NOT assume a guaranteed push and still reads `history.noneReason` on its next resume/read (FM-005). */
 export interface SessionViewHealthChangedParams {
-  /** The new view-health state. In v1 the host emits only `Unavailable`. */
+  /** The new view-health state: `Unavailable`, or `Healthy` once the host re-loaded a failed view (#60870). */
   health: SessionViewHealth;
-  /** Why the view is unavailable — the SAME typed `HistoryNoneReason` vocabulary the pull path stamps on `history.noneReason` (tdd SS2.5.2, D-050), so a client reuses one handler for push and pull. `projectionUnavailable` in v1; present only when `health` is `Unavailable`. Open on the client side: an unknown reason decodes conservatively and renders generically. */
+  /** Why the view is unavailable — the SAME typed `HistoryNoneReason` vocabulary the pull path stamps on `history.noneReason` (tdd SS2.5.2, D-050), so a client reuses one handler for push and pull. `projectionUnavailable` when the view fails, then `projectionRebuildFailed`, which the pull path never stamps: it rides only a `session/viewHealthChanged` notification, after the host's one re-load of a failed live view fails or right after a fork child's live fail-close; present only when `health` is `Unavailable`. Open on the client side: an unknown reason decodes conservatively and renders generically. */
   noneReason?: HistoryNoneReason;
   /** The session whose live view health changed. */
   sessionId: string;
@@ -2915,6 +3174,8 @@ export interface SnapshotState {
   goal: Goal | null;
   /** Every item, in first-opened order, each at its latest revision at the snapshot cursor. One schema per kind, shared with the notification item object — which is what makes snapshot+suffix a pure splice (tdd SS4.9.1). */
   items: Item[];
+  /** The retained Monitor admissions at this cursor (tdd SS4.9.1, FR-56492-7 as amended by #76729): every admission still awaiting delivery, plus per task the newest 200 non-blank stdout lines and the newest other admission, delivered or not, each with its drain and void stamps; a pending cut of the history ladder (tdd SS2.5.2, ADR 56492 D4) carries only the entries still awaiting delivery. A current host always sends it (empty when no monitor admitted anything); absent means an older host. */
+  monitorInbox?: MonitorInboxSnapshotEntry[];
   /** The settled canonical session name; `null` when the session was never named (#27598, tdd SS4.9.1 / SS2.14). Folds the same durable `session/nameChanged` record `Session.name` reports. */
   name?: string | null;
   /** The pending-approval half of the pending set. */
@@ -3031,6 +3292,21 @@ export interface SubagentInputParams {
   subagentId: string;
 }
 
+/** `subagentInput.inputPhase` (#70249): the record the item stands for. Open: a client ignores an item whose phase it does not know. */
+export type SubagentInputPhase = "queued" | "delivered" | (string & {});
+
+/** `subagent/list` params: the session whose subagent roster to read. A read-only query in the `skill/list` mold: no `commandId`, no durable record, no view event. Served by the loaded parent's runtime control records, so its refusals (`-32020`/`-32021`/`-32022`/`-32024`, plus a retryable `-32603` when the runtime source declines) are the `task/list` split. */
+export interface SubagentListParams {
+  /** The target session (the parent whose children to list). */
+  sessionId: string;
+}
+
+/** `subagent/list` result: the session's roster rows. Empty only when the parent's control records name no durable child; a declined source refuses typed instead of answering empty. */
+export interface SubagentListResult {
+  /** The session's roster rows, ordered by `(agentPath, subagentId)`. */
+  subagents: SubagentRosterEntry[];
+}
+
 /** Params for `subagent/interrupt`, `subagent/stop`, and `subagent/close` (SS3.16): a child target plus an optional human-readable reason that is preserved on the durable effect record. */
 export interface SubagentOwnerReasonParams {
   /** Client-minted UUIDv7 command id (SS3.1.1). */
@@ -3047,7 +3323,7 @@ export interface SubagentOwnerReasonParams {
 export interface SubagentResult {
   /** Artifact references, verbatim. */
   artifactRefs: string[];
-  /** `true` once the parent consumed the result (the inbox join fact the gate-off drain arm folds into the `Finished` marker — tdd SS4.5.7). Absent otherwise; never cleared once set. Clients mint the `Finished` marker off this flag instead of re-deriving the join. */
+  /** `true` once the parent consumed the result (the inbox join fact the gate-off drain arm folds into the `Finished` marker — tdd SS4.5.7). Absent otherwise; never cleared once set. Clients mint the `Finished` marker off this flag instead of re-deriving the join; a client that knows `subagentResult` (tdd SS4.5.26) draws one `Finished` member per consumed result instead, and keeps drawing from this flag for a child with no such item, as on a host before the kind (#88809). */
   drained?: boolean;
   /** Error kind, verbatim durable vocabulary, when the child failed. */
   errorKind?: string;
@@ -3059,6 +3335,43 @@ export interface SubagentResult {
   summary: string;
   /** Result text, when present, bounded on the wire at the same 64 KiB budget (ADR 35691 D9); a cut sets the item's `truncated`. */
   text?: string;
+}
+
+/** `subagentResult.resultStatus` (#88809): the consumed attempt's outcome. Absent when the host had not seen that attempt's result envelope at the drain; a client then shows the child's current outcome (ADR 88809 D2). Open: a client treats a value it does not know as an absent member. */
+export type SubagentResultStatus = "completed" | "failed" | "cancelled" | (string & {});
+
+/** One roster row: a durable child's identity, place, and state, projected from its control records. Rows carry no result content — the transcript stays on the child session / `subagent/readResult`. */
+export interface SubagentRosterEntry {
+  /** The agent definition path (`agent_path`), verbatim from the spawn. */
+  agentPath: string;
+  /** The child's own session id, readable via `session/read`/`view/page`. **Additive-optional**: absent until the child's start is attested. */
+  childSessionId?: string;
+  /** The child's control status: `Accepted` at spawn, then the latest `StatusUpdated` / `Closed` / `ResultReady` / `RecoveryAvailable` / `RecoveryDecision` (`Accepted | Starting | Running | ResultReady | Closing | Closed | RecoveryPending | ManualReconciliation`). */
+  controlStatus: SubagentControlStatus;
+  /** The granted definition's name (`definition_grant_audit` `definition_name`). **Additive-optional**: absent on spawns without a grant audit (historical records). The resolved definition id is not persisted on the spawn record, so the name is what the roster can truthfully carry. */
+  definitionName?: string;
+  /** The spawn depth (1 = a root-session child). */
+  depth: number;
+  /** The child's observed wall-clock duration in ms, when the runtime observed one. **Additive-optional**: absent until first observation. */
+  durationMs?: number;
+  /** The child's display name: the spawn `description`, falling back to the spawn `role`. **Additive-optional**: absent when neither carries one; never parsed from `agentPath`. */
+  name?: string;
+  /** The spawn objective. **Additive-optional**: absent when the spawn carried none. */
+  objective?: string;
+  /** The parent row's `agentPath`. **Additive-optional**: absent whenever `parentSubagentId` is. */
+  parentPath?: string;
+  /** The parent's `subagentId`: the roster row whose child session issued this child's spawn. **Additive-optional**: absent when the parent is the root session, or when the parent row is not in the roster or not yet attested — never guessed, never derived from `agentPath`. */
+  parentSubagentId?: string;
+  /** Whether the child's latest attempt's result is ready (a `ResultReady` for the latest admitted attempt seen). */
+  resultReady: boolean;
+  /** The spawn role. **Additive-optional**: absent when the spawn carried none. */
+  role?: string;
+  /** The durable child identity (`subagent_id`). Rows without one are not roster rows: a rejected spawn names no child. */
+  subagentId: string;
+  /** The terminal reason: the result envelope's `errorKind` when present, else the cancel outcome's `reason`. **Additive-optional**: absent on live rows and on terminals that carry no reason — never fabricated from the close outcome's status word. */
+  terminalReason?: string;
+  /** The owning dynamic workflow run id, when the child was workflow-admitted. **Additive-optional**: absent for native spawns. */
+  workflowRunId?: string;
 }
 
 /** Params for `subagent/resume`, `subagent/reopen`, and `subagent/readResult` (SS3.16): the bare child target. */
@@ -3382,6 +3695,18 @@ export interface TurnInterruptResult {
   status: CommandStatus;
   /** The interrupted turn. */
   turnId: string;
+}
+
+/** `turn/modelAttemptStarted` params (tdd SS4.5.1; ADR `68644-model-attempt-started` D1): a turn's model provider task recorded its opening status — one model attempt is starting (before the provider dials), retries and later model steps included. Clients raise their thinking state here, the point a switch-off TUI flips on model-task activity. Non-terminal: it never resolves a turn-wait. `sourceRange` cites the session stream's mirror of the task-lifecycle record (tdd SS4.2). */
+export interface TurnModelAttemptStartedParams {
+  /** The owning session. */
+  sessionId: string;
+  /** The durable record this event folded from (the session stream's mirror of the model task's opening status; `first == last`). */
+  sourceRange: SourceRange;
+  /** The running turn whose model attempt is starting. */
+  turnId: string;
+  /** Opaque, strictly monotonic view cursor (tdd SS4.1). */
+  viewCursor: string;
 }
 
 /** `turn/modelRetryScheduled` params (tdd SS4.5.1; ADR `50047-model-retry-scheduled-members` D1): a durable model-stream retry-scheduled fact folded — the provider backoff behind one model attempt is observable BEFORE the turn terminates, so a streaming client can render "system words · retrying in Ss · attempt N/M" instead of dead air. Non-terminal: it never resolves a turn-wait. The sibling `turn/retryScheduled` shape at the model layer: same member names and semantics (attempt/nextAttempt/maxAttempts/ retryDelayMs/system/errorKind/httpStatus), minus `reason` — the row's words derive from `errorKind` through the shared gate-off mapping, and the recorded machine message is not user text. The delay is the recorded scheduled backoff, never an absolute fire time — clients derive any countdown locally. `sourceRange` cites the session stream's mirror of the task-lifecycle record (tdd SS4.2). */
@@ -4020,10 +4345,10 @@ export interface WorkflowTokenBudget {
 }
 
 /** Every wire method in this schema (SS1.9 index). */
-export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "session/start" | "session/resume" | "session/fork" | "session/leave" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start" | "computerUseSetup/check";
+export type MspMethod = "initialize" | "subagent/sendMessage" | "subagent/followupTask" | "subagent/interrupt" | "subagent/stop" | "subagent/resume" | "subagent/reopen" | "subagent/close" | "subagent/readResult" | "subagent/list" | "session/start" | "session/resume" | "session/fork" | "session/declareExternalWait" | "session/clearExternalWait" | "session/leave" | "session/list" | "session/read" | "session/sideChat" | "turn/start" | "turn/steer" | "turn/interrupt" | "turn/cancel" | "turn/unqueue" | "session/compact" | "session/setModel" | "session/rename" | "session/setReasoningEffort" | "session/userShell" | "model/list" | "skill/list" | "skill/setActivation" | "skill/import" | "hook/list" | "plugin/list" | "plugin/install" | "plugin/marketplaceAdd" | "plugin/marketplaceUpdate" | "plugin/marketplaceRemove" | "task/background" | "task/stop" | "task/stopAll" | "task/list" | "goal/set" | "goal/edit" | "goal/clear" | "goal/pause" | "goal/resume" | "workflow/cancel" | "workflow/childControl" | "workflow/pause" | "workflow/resume" | "media/upload" | "view/subscribe" | "view/unsubscribe" | "view/page" | "item/readOutput" | "approval/decide" | "approval/listPending" | "session/setApprovalMode" | "userInput/answer" | "userInput/cancel" | "userInput/clarify" | "userInput/interrupt" | "usage/read" | "feedback/submit" | "recap/request" | "recap/cancel" | "model/complete" | "model/cancel" | "computerUseSettings/read" | "computerUseSettings/update" | "computerUseSetup/read" | "computerUseSetup/start" | "computerUseSetup/check";
 /** Every wire notification in this schema (SS1.9 index). */
-export type MspNotification = "initialized" | "session/started" | "session/closed" | "session/leaveCompleted" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/modelRetryScheduled" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/reviewing" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged" | "monitor/inboxItemAdmitted" | "monitor/inboxItemDrained" | "monitor/inboxItemVoided";
+export type MspNotification = "initialized" | "session/started" | "session/closed" | "session/leaveCompleted" | "skill/changed" | "turn/started" | "turn/completed" | "turn/retracted" | "turn/retryScheduled" | "turn/modelRetryScheduled" | "turn/modelAttemptStarted" | "turn/unqueued" | "turn/foregroundCompleted" | "item/started" | "item/updated" | "item/delta" | "item/completed" | "view/gap" | "approval/requested" | "approval/updated" | "approval/reviewing" | "approval/resolved" | "userInput/requested" | "userInput/settled" | "userInput/engaged" | "session/modelChanged" | "session/reasoningEffortChanged" | "session/statusChanged" | "session/goalChanged" | "session/todoListChanged" | "session/branchChanged" | "session/tokenUsage" | "session/contextUsage" | "session/approvalModeChanged" | "recap/completed" | "model/completed" | "session/modelRouteUnserved" | "session/nameChanged" | "session/viewHealthChanged" | "session/listChanged" | "usage/changed" | "computerUseSetup/changed" | "plugin/changed" | "plugin/marketplaceChanged" | "monitor/inboxItemAdmitted" | "monitor/inboxItemDrained" | "monitor/inboxItemVoided";
 /** Every server-initiated wire request in this schema (SS5.3/SS5.10.1 index). */
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */
-export type MspErrorDataKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "experimentalRequired" | "invalidParams" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid";
+export type MspErrorDataKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "experimentalRequired" | "invalidParams" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | "approvalBrokerUnavailable" | "approvalResolving";

@@ -17,6 +17,7 @@ const S01: QaScenario = {
   id: "S01",
   title: "handshake, then the lease-free read plane",
   vein: "lifecycle over stdio",
+  expected: JSON.stringify({ kind: "cleanShutdown" }),
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -27,7 +28,6 @@ const S01: QaScenario = {
       },
       observe: (run: ObservedRun) =>
         JSON.stringify(run.api.find((entry) => entry.kind === "exit")?.classification ?? null),
-      expected: JSON.stringify({ kind: "cleanShutdown" }),
     });
   },
 };
@@ -41,6 +41,7 @@ const S02: QaScenario = {
   id: "S02",
   title: "durable-only methods are withheld under `--no-session-log`",
   vein: "landed wire-command families through the facade",
+  expected: "methodNotFound",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -52,7 +53,6 @@ const S02: QaScenario = {
         });
       },
       observe: (run) => errorKindOfRun(run, "read") ?? "<no typed error>",
-      expected: "methodNotFound",
     });
   },
 };
@@ -62,6 +62,7 @@ const S03: QaScenario = {
   id: "S03",
   title: "invalid params surface as a typed error, not a hang",
   vein: "landed wire-command families through the facade",
+  expected: "invalidParams",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -72,7 +73,6 @@ const S03: QaScenario = {
         await host.command("badStart", "session/start", { workspaceRoot: "relative/path" });
       },
       observe: (run) => errorKindOfRun(run, "badStart") ?? "<no typed error>",
-      expected: "invalidParams",
     });
   },
 };

@@ -8,10 +8,10 @@
  * expect-blocked: all twelve are required.
  *
  * `MUSE_BIN` is REQUIRED. This test never skips itself: a skipped acceptance
- * artifact reads as proof and is not proof. Build the binary first:
+ * artifact reads as proof and is not proof. Point it at a release `muse` binary
+ * (an installed Muse Code CLI, or a release build of the host):
  *
- *   cargo build --release -p tbh-cli --bin tbh
- *   MUSE_BIN=$PWD/target/release/tbh npm run journey:test --workspace @muse-code/sdk-quickstart
+ *   MUSE_BIN=$(command -v muse) npm run journey:test --workspace @muse-code/sdk-quickstart
  */
 
 import { test } from "node:test";
@@ -47,9 +47,8 @@ function requiredBinary(): string {
   const configured = process.env["MUSE_BIN"];
   if (configured === undefined || configured.length === 0) {
     throw new Error(
-      "MUSE_BIN is required and must point at a release-built binary.\n" +
-        "  cargo build --release -p tbh-cli --bin tbh\n" +
-        "  MUSE_BIN=$PWD/target/release/tbh npm run journey:test --workspace @muse-code/sdk-quickstart",
+      "MUSE_BIN is required and must point at a release `muse` binary (an installed Muse Code CLI, or a release build of the host).\n" +
+        "  MUSE_BIN=$(command -v muse) npm run journey:test --workspace @muse-code/sdk-quickstart",
     );
   }
   return configured;

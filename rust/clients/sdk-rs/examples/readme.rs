@@ -40,6 +40,7 @@ fn text_part(text: impl Into<String>) -> TurnInputPart {
         selector: None,
         arguments: None,
         upload_id: None,
+        client_ref: None,
         source: None,
     }
 }

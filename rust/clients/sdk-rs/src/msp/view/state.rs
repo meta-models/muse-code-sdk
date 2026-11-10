@@ -246,6 +246,10 @@ pub struct SessionApprovalModeChangedParams {
     pub command_id: String,
     /// The requesting client's `clientInfo.name`, recorded on the audit fact.
     pub client_name: String,
+    /// The requesting client's `clientInfo.version`, beside `clientName`:
+    /// absent when unrecorded and on older logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<String>,
 }
 
 /// `session/modelRouteUnserved` params: an accepted `login.credential_update`

@@ -89,6 +89,14 @@ impl CodeModeReceipt {
 }
 
 impl CodeModeLanguage {
+    /// The word table `Deserialize` decodes through.
+    fn decode_word(word: &str) -> Self {
+        match word {
+            "javascript" => Self::Javascript,
+            _ => Self::Unknown(word.to_owned()),
+        }
+    }
+
     /// The exact wire spelling, including a value this build does not know.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -108,14 +116,19 @@ impl Serialize for CodeModeLanguage {
 impl<'de> Deserialize<'de> for CodeModeLanguage {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "javascript" => Self::Javascript,
-            _ => Self::Unknown(value),
-        })
+        Ok(Self::decode_word(&value))
     }
 }
 
 impl CodeModeOutputStream {
+    /// The word table `Deserialize` decodes through.
+    fn decode_word(word: &str) -> Self {
+        match word {
+            "transcript" => Self::Transcript,
+            _ => Self::Unknown(word.to_owned()),
+        }
+    }
+
     /// The exact wire spelling, including a value this build does not know.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -135,9 +148,6 @@ impl Serialize for CodeModeOutputStream {
 impl<'de> Deserialize<'de> for CodeModeOutputStream {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "transcript" => Self::Transcript,
-            _ => Self::Unknown(value),
-        })
+        Ok(Self::decode_word(&value))
     }
 }

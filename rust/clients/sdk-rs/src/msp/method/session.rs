@@ -1,6 +1,7 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
 pub use super::session_events::SessionStatus;
+pub use super::session_external_wait::ExternalWaitView;
 pub use super::session_satellites::AttentionFlag;
 pub use super::session_satellites::EffectiveApprovalModeState;
 pub use super::session_satellites::EffectivePermissionState;
@@ -9,8 +10,11 @@ pub use super::session_satellites::SessionSpawnedBy;
 pub use super::session_satellites::SideProvenance;
 use crate::msp::method::worktree::SessionWorktree;
 use crate::msp::view::state::SessionNameOrigin;
+pub use members::ProbeDegradedReason;
 use serde::Deserialize;
 use serde::Serialize;
+
+pub(crate) mod members;
 
 /// What kind of session this is.
 ///
@@ -134,6 +138,14 @@ pub struct Session {
     /// omitted when underivable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// Why the workspace status probe produced no fresh reading — the index's
+    /// last derived value, like `branch`, so the TUI can show WHY status is
+    /// unavailable instead of a generic unavailable. **Additive-optional**,
+    /// omitted when the latest probed observation carries no reason or none
+    /// exists. **Open enum**: a client treats an unknown-but-present reason and
+    /// renders it, never rejecting the row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_degraded_reason: Option<ProbeDegradedReason>,
     /// What kind of session this is. **Open enum**, v1 values `"root"` and
     /// `"subagent"`; a client treats an unknown value as an unknown-but-present
     /// kind and renders it, never rejecting the row. **Additive-optional**:
@@ -148,7 +160,7 @@ pub struct Session {
     /// subagent spawned by another subagent resolves to the outer session, not
     /// to its spawner. A client building a tree from this field gets one level,
     /// not a chain. Flat rather than nested: there is exactly one fact to
-    /// carry, unlike `forkedFrom`'s four-field `ForkProvenance`.
+    /// carry, unlike `forkedFrom`'s structured `ForkProvenance`.
     /// **Additive-optional**; a root carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
@@ -175,13 +187,16 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_by_client: Option<crate::msp::handshake::ClientInfo>,
     /// The session that opened this one, recorded once in this session's
-    /// creation record and served from the session index. Its `parentSessionId`
-    /// is the exact spawner, unlike the containing session `parentSessionId`
-    /// names above; `project` and `thread` are opaque labels the spawner may
-    /// name beside it. **Additive-optional** and **provenance only**: never a
-    /// visibility or authority gate. Absence asserts nothing — no recorded
-    /// spawner, a later session of the spawned process, a row folded before the
-    /// member existed, or a session the index has not folded yet.
+    /// creation record and served from the session index. Unlike the containing
+    /// session `parentSessionId` names above, its `parentSessionId` is the
+    /// exact spawner, except that any `muse` started in a later pane of the
+    /// worker's tmux session or Herdr workspace names the worker's manager and
+    /// carries the worker's `project`/`thread` labels; `project` and `thread`
+    /// are opaque labels the spawner may name beside it. **Additive-optional**
+    /// and **provenance only**: never a visibility or authority gate. Absence
+    /// asserts nothing — no recorded spawner, a later session of the spawned
+    /// process, a row folded before the member existed, or a session the index
+    /// has not folded yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spawned_by: Option<SessionSpawnedBy>,
     /// The handshake `ClientInfo` of the connection that currently holds this
@@ -195,19 +210,37 @@ pub struct Session {
     /// `session/resume` / `turn/start` (`sessionInUse`), never by this member.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drive_holder: Option<crate::msp::handshake::ClientInfo>,
+    /// The live host-declared external wait for this session, served on
+    /// `session/read` only.
+    /// **Additive-optional, loaded-only, live**: present exactly while
+    /// a declaration is live for the loaded session; absent on
+    /// `notLoaded` rows, once the declaration is cleared, once the next
+    /// user input clears it, and after a restart or resume, which lose
+    /// it. Presence is the declaration — a client must never infer one
+    /// from any other member.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_wait: Option<ExternalWaitView>,
     /// The worktree this session runs in — path and origin only (the branch
     /// stays in `branch`). **Experimental** (`Session.worktree`; stripped
     /// per-connection for unopted callers). Omitted when the session runs in no
     /// worktree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<SessionWorktree>,
-    /// This session's effective limits: the clamp output — the sandbox axes
-    /// read the live ceiling, the trust axis clamps the session's durable
-    /// stored choice (the clamp input) to it. `workspaceTrusted` is the trust
-    /// the session runs with. **Experimental, same-user socket only**
-    /// (`Session.currentLimits`; stripped per-connection for unopted callers).
-    /// Loaded sessions only (`notLoaded` rows and hosts with no limits regime
-    /// omit it) — absent is never fabricated.
+    /// This session's effective limits: the clamp output — each axis the
+    /// session chose clamps its durable stored choice (the clamp input) to the
+    /// live ceiling, and an axis it never chose reads the daemon default:
+    /// untrusted unless the daemon serves trusted by default, and the daemon's
+    /// own posture on the sandbox axes, except that a resume over a sandbox-off
+    /// posture can keep a recorded sandbox on, and a `session/fork` or
+    /// `session/sideChat` child starts with its parent's recorded shell, write
+    /// and sandbox limits and its parent's chosen trust, clamped to the live
+    /// ceiling. A sandbox kept on this way over a sandbox-off posture runs its
+    /// recorded network, or `restricted` when none was recorded, while a
+    /// tracked change is open. These are the limits the session runs with.
+    /// **Experimental, same-user socket only** (`Session.currentLimits`;
+    /// stripped per-connection for unopted callers). Loaded sessions only
+    /// (`notLoaded` rows and hosts with no limits regime omit it) — absent is
+    /// never fabricated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_limits: Option<super::limits::SessionLimits>,
     /// That another live process on this machine runs this session, and which
@@ -226,6 +259,25 @@ pub struct Session {
     /// member.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub running_elsewhere: Option<RunningElsewhere>,
+    /// Whether the answering host holds no live work for this loaded session:
+    /// the held predicate the host's idle unload and upgrade drain use, over
+    /// the pending answer `attention` reads. `true` when it finds no run in
+    /// flight or finishing its post-run work, no owned background task or live
+    /// background process, no background completion waiting to wake the
+    /// session, no session-name or goal-recovery work, and no pending approval,
+    /// user-input or admission request; `false` while any is held or a read
+    /// cannot prove it absent. **Experimental** (`Session.quiescent`; stripped
+    /// per-connection for unopted callers) and **loaded-only**: carried by
+    /// `session/read`, `session/list` rows, the `session/resume` result and the
+    /// `session/listChanged` frames built from the same row. A run or a pending
+    /// request starting pushes a frame carrying `false`; other held work
+    /// (session-name maintenance, a leave in progress) shows on the next read.
+    /// A session served `false` is rechecked about once a second and its frame
+    /// is pushed once it reads `true`. Absent on `notLoaded` rows, on a host
+    /// whose `session_quiescent_witness` gate is off, and for a session with no
+    /// live pending-request source: absence asserts nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quiescent: Option<bool>,
     /// The published head's ordinal (kt-dvw5): the head reference's own
     /// ordinal — the count of head slots in its sequence, including any
     /// reserved ones — as of the probe that served this row. A sizing

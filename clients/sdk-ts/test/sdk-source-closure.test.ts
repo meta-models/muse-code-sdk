@@ -66,20 +66,22 @@ test("the publish script is in the closure and is executable", () => {
 });
 
 /** The Python publish path (#638 S6): the gate script the mirror's
- * publish-pypi.yml calls by path, and the row generator it calls in turn.
- * Same silent failure mode as PUBLISH_SCRIPT: dropped from the closure, the
- * next republish produces a mirror whose Python publish dead-ends. The
- * tree->list direction (which Python paths must be here at all) lives with
- * the Python suite, clients/sdk-py/tests/test_source_closure.py. */
-const PYPI_PUBLISH_SCRIPTS = ["scripts/publish-sdk-pypi.sh", "scripts/sdk-py-wheel-rows.py"];
+ * publish-pypi.yml calls by path, the row generator it calls in turn, and
+ * the fingerprint module the row generator imports. Same silent failure
+ * mode as PUBLISH_SCRIPT: dropped from the closure, the next republish
+ * produces a mirror whose Python publish dead-ends. The tree->list
+ * direction (which Python paths must be here at all) lives with the Python
+ * suite, clients/sdk-py/tests/test_source_closure.py. */
+const PYPI_PUBLISH_SCRIPTS = ["scripts/msp_fingerprint.py", "scripts/publish-sdk-pypi.sh", "scripts/sdk-py-wheel-rows.py"];
 
 test("the Python publish scripts are in the closure and executable", () => {
   for (const script of PYPI_PUBLISH_SCRIPTS) {
     assert.ok(
       manifest.closure_paths.includes(script),
       `${script} must be a closure path: the mirror's publish-pypi.yml holds ` +
-        "no publishing logic and calls the gate script by path, and the gate " +
-        "script calls the row generator by path",
+        "no publishing logic and calls the gate script by path, the gate " +
+        "script calls the row generator by path, and the row generator " +
+        "imports the fingerprint module",
     );
     assert.ok(
       statSync(join(projectRoot, script)).mode & 0o111,

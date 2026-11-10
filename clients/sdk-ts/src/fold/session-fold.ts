@@ -14,7 +14,8 @@
  *
  *  - the TURN LIFECYCLE — `turn/started`, `turn/completed`, `turn/retracted`,
  *    `turn/unqueued`, and the non-terminal `turn/retryScheduled`,
- *    `turn/modelRetryScheduled`, and `turn/foregroundCompleted`;
+ *    `turn/modelRetryScheduled`, `turn/modelAttemptStarted`, and
+ *    `turn/foregroundCompleted`;
  *  - the APPROVAL and USER-INPUT view events as fold INPUTS — the pending
  *    sets and their first durable terminal. The decision flow (choosing and
  *    sending a resolution) is the facade's, not the fold's;
@@ -51,10 +52,10 @@ import type {
   SessionReasoningEffortChangedParams,
   SessionTodoListChangedParams,
   SessionTokenUsageParams,
-  SessionViewHealthChangedParams,
   TurnCompletedParams,
   TurnError,
   TurnForegroundCompletedParams,
+  TurnModelAttemptStartedParams,
   TurnModelRetryScheduledParams,
   TurnRetractedParams,
   TurnRetryScheduledParams,
@@ -87,21 +88,6 @@ export type SessionStateParams =
   | SessionTodoListChangedParams
   | SessionTokenUsageParams;
 
-/** Options for constructing a {@link SessionFold}. */
-export interface SessionFoldOptions {
-  /**
-   * Opt in to surfacing `session/viewHealthChanged` from `apply`.
-   *
-   * When `true`, that frame returns a `viewHealthChanged` outcome
-   * carrying its params verbatim, following the notice shape used for
-   * `modelRouteUnserved`: it seeds no store and moves no currency.
-   * When absent or `false` (the default), the frame keeps its current
-   * `ignoredUnrecognizedMethod` answer, so existing consumers observe
-   * no change.
-   */
-  readonly surfaceViewHealth?: boolean;
-}
-
 /** A view notification, paired with the generated params object it carries. */
 export type ViewEvent =
   | { readonly method: "item/started"; readonly params: ItemStartedParams }
@@ -114,6 +100,7 @@ export type ViewEvent =
   | { readonly method: "turn/retracted"; readonly params: TurnRetractedParams }
   | { readonly method: "turn/retryScheduled"; readonly params: TurnRetryScheduledParams }
   | { readonly method: "turn/modelRetryScheduled"; readonly params: TurnModelRetryScheduledParams }
+  | { readonly method: "turn/modelAttemptStarted"; readonly params: TurnModelAttemptStartedParams }
   | { readonly method: "turn/unqueued"; readonly params: TurnUnqueuedParams }
   | { readonly method: "approval/requested"; readonly params: ApprovalRequestParams }
   | { readonly method: "approval/reviewing"; readonly params: ApprovalRequestParams }
@@ -207,12 +194,8 @@ export type ViewEvent =
  * - `session/viewHealthChanged` (#32557, ADR 32557) is a COMMAND-PLANE
  *   health push, not a view-fold event: it reports that the live view
  *   stream stopped, so it carries no cursor and folds into no transcript
- *   state. It therefore stays out of `ViewEvent` — adding it there would
- *   force every exhaustive `ViewEvent` switch to handle a frame that
- *   folds nothing. A consumer that opts in with `surfaceViewHealth`
- *   on {@link SessionFoldOptions} instead receives it as a
- *   `viewHealthChanged` notice from `apply`; without that opt-in the
- *   frame keeps its current `ignoredUnrecognizedMethod` answer.
+ *   state. A consumer handles it out of band (mark the session view
+ *   unhealthy), never through this fold.
  * - `usage/changed` (ADR 32563 D3, tdd SS3.23) is a live HOST-STATE push
  *   outside the view altitude: no `viewCursor`, no `sourceRange`, nothing
  *   seeded into either store; it reaches consumers through the ordinary
@@ -262,6 +245,9 @@ type NonFoldNotification =
   // settlement to the requesting connection only — no `viewCursor`, no
   // `sourceRange`, nothing durable to fold.
   | "recap/completed"
+  // `model/completed` (tdd SS3.40, ADR 90352 D2) settles a `model/complete`
+  // call on the requesting connection only, outside the view stream.
+  | "model/completed"
   | SessionLifecycleBroadcast
   | LiveHostStateProjection;
 type UnfoldedViewNotification = Exclude<
@@ -328,6 +314,7 @@ export type StaleDroppableMethod =
   | "turn/foregroundCompleted"
   | "turn/retryScheduled"
   | "turn/modelRetryScheduled"
+  | "turn/modelAttemptStarted"
   | "approval/requested"
   | "approval/updated"
   | "userInput/requested"
@@ -364,6 +351,13 @@ export interface TurnEntry {
    * its delay. Clears on the turn's terminal.
    */
   readonly modelRetryScheduled?: TurnModelRetryScheduledParams;
+  /**
+   * The latest model attempt start (tdd SS4.5.1, ADR 68644 D1), recorded
+   * before the provider dials; non-terminal. It stays set through tool runs
+   * and retry backoffs until the turn's terminal, so it is not a live
+   * "model is working" flag.
+   */
+  readonly modelAttemptStarted?: TurnModelAttemptStartedParams;
   /**
    * The latest foreground-completed notice; non-terminal (tdd SS4.5.12).
    * Tells a renderer the answer is done while `blockingAgents` hold the
@@ -456,18 +450,6 @@ export type FoldOutcome =
    */
   | { readonly kind: "modelRouteUnserved"; readonly params: SessionModelRouteUnservedParams }
   /**
-   * A `session/viewHealthChanged` push, surfaced only when the fold was
-   * built with `surfaceViewHealth` (see {@link SessionFoldOptions}): a
-   * NOTICE like `modelRouteUnserved`, so the params ride the outcome
-   * verbatim for the consumer to act on once. Fresh wire objects, never
-   * store handles, so no sealing applies. Consumers that did not opt in
-   * never receive this arm.
-   */
-  | {
-      readonly kind: "viewHealthChanged";
-      readonly params: SessionViewHealthChangedParams;
-    }
-  /**
    * One monitor-inbox trio fact, surfaced verbatim (see the `ViewEvent`
    * arms above): the method names which of the three arrived, and the
    * params carry that event's fact members for the consumer's own fold.
@@ -503,13 +485,16 @@ export type FoldOutcome =
       /**
        * A recognized frame the fold deliberately dropped, leaving state
        * unchanged: a `turn/started`, `turn/retryScheduled`,
-       * `turn/modelRetryScheduled` or `turn/foregroundCompleted` for a turn
+       * `turn/modelRetryScheduled`, `turn/modelAttemptStarted` or
+       * `turn/foregroundCompleted` for a turn
        * that already left `running`; a `turn/completed` for a `retracted` or
        * `unqueued` turn; a declined `turn/retracted` for a turn the fold has
        * not seen; an `approval/updated` for an approval it never saw
        * requested (or whose entry a resolution already deleted); or a
        * redelivered `approval/requested` / `userInput/requested` for an
        * approval/prompt that already has its durable terminal; or a
+       * `userInput/requested` for a turn already known to have left
+       * `running`; or a
        * `view/gap` whose `next` an earlier frame already named while the
        * hole is open (`id` is that `next`, #62032). Truthful by
        * contract: a "pending" kind here would make a renderer show an entry
@@ -536,6 +521,7 @@ interface InternalTurn {
   error?: TurnError;
   retryScheduled?: TurnRetryScheduledParams;
   modelRetryScheduled?: TurnModelRetryScheduledParams;
+  modelAttemptStarted?: TurnModelAttemptStartedParams;
   foregroundCompleted?: TurnForegroundCompletedParams;
 }
 
@@ -612,11 +598,6 @@ export interface FoldSessionState {
 export class SessionFold {
   readonly #itemStore = new ItemStore<Item>();
   readonly #sessionStateStore = new SessionStateStore<SessionStateParams>();
-  readonly #surfaceViewHealth: boolean;
-
-  constructor(options: SessionFoldOptions = {}) {
-    this.#surfaceViewHealth = options.surfaceViewHealth === true;
-  }
 
   /** Items, snapshot-only: the mutators are `apply()`'s, not the consumer's. */
   get items(): FoldItems {
@@ -662,6 +643,8 @@ export class SessionFold {
   readonly #pendingApprovals = new Map<string, InternalApproval>();
   readonly #resolvedApprovals = new Map<string, ApprovalResolvedParams>();
   readonly #pendingUserInputs = new Map<string, UserInputRequestParams>();
+  /** Pending prompt ids by turn, so retiring a turn's prompts costs that turn's count, not every pending prompt. */
+  readonly #pendingUserInputIdsByTurn = new Map<string, Set<string>>();
   readonly #settledUserInputs = new Map<string, UserInputSettledParams>();
   #activeTurnId: string | undefined;
   #pendingGap: ViewGapParams | undefined;
@@ -760,19 +743,6 @@ export class SessionFold {
     if (event.params === null || typeof event.params !== "object" || Array.isArray(event.params)) {
       return { kind: "ignoredMissingParams", method: event.method };
     }
-    // The command-plane health push is not a `ViewEvent` (see the
-    // exclusions above), so it is answered here rather than in the
-    // switch: only an opted-in fold surfaces it, as a notice carrying
-    // its params verbatim; every other fold keeps the current drop.
-    if (event.method === "session/viewHealthChanged") {
-      if (!this.#surfaceViewHealth) {
-        return { kind: "ignoredUnrecognizedMethod", method: event.method };
-      }
-      return {
-        kind: "viewHealthChanged",
-        params: event.params as SessionViewHealthChangedParams,
-      };
-    }
     const typed = event as ViewEvent;
     switch (typed.method) {
       case "item/started":
@@ -801,6 +771,8 @@ export class SessionFold {
         return this.#turnRetryScheduled(typed.params);
       case "turn/modelRetryScheduled":
         return this.#turnModelRetryScheduled(typed.params);
+      case "turn/modelAttemptStarted":
+        return this.#turnModelAttemptStarted(typed.params);
       case "turn/foregroundCompleted":
         return this.#turnForegroundCompleted(typed.params);
 
@@ -934,10 +906,14 @@ export class SessionFold {
     // Same for the provider-backoff hint: a finished turn is not waiting
     // out a backoff (tdd SS4.5.1).
     turn.modelRetryScheduled = undefined;
+    // Same for the attempt hint: a finished turn's model is not working
+    // (tdd SS4.5.1).
+    turn.modelAttemptStarted = undefined;
     // Same for the foreground hint: a finished turn is not background-waiting
     // (tdd SS4.5.12).
     turn.foregroundCompleted = undefined;
     this.#clearActive(params.turnId);
+    this.#retirePendingUserInputsFor(params.turnId);
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
@@ -965,6 +941,7 @@ export class SessionFold {
     // `item/updated` with `retracted: true`, which the item half folds.
     turn.state = "retracted";
     this.#clearActive(params.turnId);
+    this.#retirePendingUserInputsFor(params.turnId);
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
@@ -977,6 +954,7 @@ export class SessionFold {
     turn.commandId = params.commandId;
     turn.state = "unqueued";
     this.#clearActive(params.turnId);
+    this.#retirePendingUserInputsFor(params.turnId);
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
@@ -1009,6 +987,19 @@ export class SessionFold {
     return { kind: "turn", turnId: params.turnId, state: turn.state };
   }
 
+  #turnModelAttemptStarted(params: TurnModelAttemptStartedParams): FoldOutcome {
+    // Non-terminal by contract: it never resolves a turn-wait (tdd SS4.5.1).
+    const turn = this.#turnFor(params.turnId);
+    // …but it is still a turn frame, so it takes the same redelivery guard
+    // as the retry hint: a replayed page must not re-plant the attempt hint
+    // on a turn that already left `running`.
+    if (turn.state !== "running") {
+      return { kind: "ignoredStaleFrame", method: "turn/modelAttemptStarted", id: params.turnId };
+    }
+    turn.modelAttemptStarted = params;
+    return { kind: "turn", turnId: params.turnId, state: turn.state };
+  }
+
   #turnForegroundCompleted(params: TurnForegroundCompletedParams): FoldOutcome {
     // Non-terminal by contract: it never resolves a turn-wait (tdd SS4.5.12).
     const turn = this.#turnFor(params.turnId);
@@ -1034,6 +1025,37 @@ export class SessionFold {
     if (this.#activeTurnId === turnId) this.#activeTurnId = undefined;
   }
 
+  // A prompt listed while its turn ran retires when that turn leaves
+  // `running`: no answer can settle it afterwards, so keeping it listed
+  // pends it forever (the reported started→requested→completed order).
+  // Retiring records no settlement — the prompt was never answered.
+  // Cost is the ending turn's own prompt count via the by-turn index,
+  // never a scan over every pending prompt.
+  #retirePendingUserInputsFor(turnId: string): void {
+    const ids = this.#pendingUserInputIdsByTurn.get(turnId);
+    if (ids === undefined) return;
+    for (const userInputId of ids) this.#pendingUserInputs.delete(userInputId);
+    this.#pendingUserInputIdsByTurn.delete(turnId);
+  }
+
+  #indexPendingUserInput(params: UserInputRequestParams): void {
+    let ids = this.#pendingUserInputIdsByTurn.get(params.turnId);
+    if (ids === undefined) {
+      ids = new Set();
+      this.#pendingUserInputIdsByTurn.set(params.turnId, ids);
+    }
+    ids.add(params.userInputId);
+  }
+
+  #unindexPendingUserInput(userInputId: string): void {
+    const params = this.#pendingUserInputs.get(userInputId);
+    if (params === undefined) return;
+    const ids = this.#pendingUserInputIdsByTurn.get(params.turnId);
+    if (ids === undefined) return;
+    ids.delete(userInputId);
+    if (ids.size === 0) this.#pendingUserInputIdsByTurn.delete(params.turnId);
+  }
+
   static #turnSnapshot(turn: InternalTurn): TurnEntry {
     return {
       turnId: turn.turnId,
@@ -1044,6 +1066,9 @@ export class SessionFold {
       ...(turn.retryScheduled !== undefined ? { retryScheduled: turn.retryScheduled } : {}),
       ...(turn.modelRetryScheduled !== undefined
         ? { modelRetryScheduled: turn.modelRetryScheduled }
+        : {}),
+      ...(turn.modelAttemptStarted !== undefined
+        ? { modelAttemptStarted: turn.modelAttemptStarted }
         : {}),
       ...(turn.foregroundCompleted !== undefined
         ? { foregroundCompleted: turn.foregroundCompleted }
@@ -1138,11 +1163,24 @@ export class SessionFold {
     if (this.#settledUserInputs.has(params.userInputId)) {
       return { kind: "ignoredStaleFrame", method: "userInput/requested", id: params.userInputId };
     }
+    // A prompt for a turn this fold has already seen leave `running` is an
+    // orphan: no answer can settle it, so listing it would pend forever and
+    // an answer attempt would only bounce off the host. Guarded to KNOWN
+    // dead turns only — a prompt naming a turn the fold has never seen
+    // (a fresh resume re-sending a still-open question) still lists, since
+    // this fold cannot prove that turn dead.
+    const turn = this.#turns.get(params.turnId);
+    if (turn !== undefined && turn.state !== "running") {
+      return { kind: "ignoredStaleFrame", method: "userInput/requested", id: params.userInputId };
+    }
+    this.#unindexPendingUserInput(params.userInputId);
     this.#pendingUserInputs.set(params.userInputId, params);
+    this.#indexPendingUserInput(params);
     return { kind: "userInputPending", userInputId: params.userInputId };
   }
 
   #userInputSettled(params: UserInputSettledParams): FoldOutcome {
+    this.#unindexPendingUserInput(params.userInputId);
     this.#pendingUserInputs.delete(params.userInputId);
     const firstSettlement = !this.#settledUserInputs.has(params.userInputId);
     if (firstSettlement) this.#settledUserInputs.set(params.userInputId, params);

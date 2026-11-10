@@ -6,23 +6,25 @@
  * so this recipe is deterministic and needs no credentials and no model.
  *
  * What it teaches (and what the docs page walks through):
- *  - `turn/cancel` is a REQUEST, not an outcome. The ack says the host will
- *    try; the turn is over only when `turn/completed` arrives with the
+ *  - `turn.cancel()` is a REQUEST, not an outcome. Its ack says the host will
+ *    try; the turn is over only when `turn.completed` settles with the
  *    terminal `"cancelled"`.
  *  - a cancelled turn keeps a balanced history: the in-flight toolCall item
  *    is completed as `"cancelled"`, never dropped.
  *
  * Fixture mechanics, so the code below reads honestly: serve-fixture matches
  * our frames structurally against the transcript's client lines and then
- * replays the recorded server lines byte-exactly. Our request ids unify (the
- * SDK's default minting starts at 1, where the transcript starts), but acks
- * echo the RECORDED commandId — and `Connection.command` verifies that echo —
- * so each command below passes the transcript's commandId explicitly. Values
- * we learn from the wire (sessionId, turnId) are used as received, exactly as
- * a real client uses them.
+ * replays the recorded server lines byte-exactly. Request ids unify, but acks
+ * echo the RECORDED commandId — and the SDK verifies that echo — so the
+ * connection's one commandId minter is scripted with the transcript's ids in
+ * send order. Everything else goes through the `MuseClient` facade, and the
+ * values we learn from the wire (sessionId, turnId) are used as received.
  */
 
-import { Host, equals, objectAt, requireHost, stringAt } from "../kit/host.js";
+import { MuseClient, readSessionDurability, spawnMspConnection } from "@muse-code/sdk";
+import type { FoldedItem, Session, Turn } from "@muse-code/sdk";
+
+import { HOST_DRAIN_WINDOW_MS, drainQuietly, equals, within } from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
 import type { JourneyReport, Segment } from "../kit/segments.js";
 import type { Recipe, RecipeHosts } from "../runner.js";
@@ -41,9 +43,24 @@ const TURN_CANCEL_COMMAND_ID = "018f6a21-0f0f-7aaa-bbbb-0123456789ab";
 interface Context {
   readonly conformanceBin: string;
   readonly transcript: string;
-  host?: Host;
-  sessionId?: string;
-  turnId?: string;
+  client?: MuseClient;
+  session?: Session;
+  turn?: Turn;
+  /** The toolCall that was running when we asked for the cancel. */
+  toolCallId?: string;
+}
+
+/**
+ * Hand out the transcript's commandIds in send order. Harness-only: a real
+ * client keeps the SDK's default minter, which is what makes ids unique.
+ */
+function scriptedCommandIds(ids: readonly string[]): () => string {
+  const queue = [...ids];
+  return () => {
+    const next = queue.shift();
+    if (next === undefined) throw new Error("the recipe sent more commands than the transcript records");
+    return next;
+  };
 }
 
 const SEGMENTS: ReadonlyArray<Segment<Context>> = [
@@ -51,112 +68,136 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
     id: "spawn-fixture",
     title: "Spawn the canned host playing the cancel-mid-turn transcript",
     async run(context) {
-      context.host = await Host.spawn(
-        {
-          command: context.conformanceBin,
-          args: ["serve-fixture", "--transcript", context.transcript],
-          env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
-          clientInfo: { name: "conformance", version: "0.0.0" },
+      const stderr: string[] = [];
+      // Built by hand rather than with `MuseClient.spawn`: spawn asks for an
+      // extra capability the recorded `initialize` line does not carry.
+      const handshake = spawnMspConnection({
+        command: context.conformanceBin,
+        args: ["serve-fixture", "--transcript", context.transcript],
+        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+        shutdownTimeoutMs: HOST_DRAIN_WINDOW_MS,
+        onStderr: (chunk) => stderr.push(chunk),
+        connection: {
+          mintCommandId: scriptedCommandIds([
+            SESSION_START_COMMAND_ID,
+            TURN_START_COMMAND_ID,
+            TURN_CANCEL_COMMAND_ID,
+          ]),
         },
-        HANDSHAKE_BUDGET_MS,
-      );
+      });
+      let spawned;
+      try {
+        spawned = await within(
+          "the MSP handshake",
+          HANDSHAKE_BUDGET_MS,
+          handshake.initialize({ clientInfo: { name: "conformance", version: "0.0.0" } }),
+        );
+      } catch (error) {
+        await drainQuietly("the fixture host", CLOSE_BUDGET_MS, () => handshake.close());
+        throw new Error(`handshake failed; stderr: ${stderr.join("")}`, { cause: error });
+      }
+      context.client = new MuseClient(spawned.connection, {
+        durability: readSessionDurability(spawned.initializeResult),
+        host: spawned,
+      });
     },
   },
   {
     id: "session",
     title: "Start the session the turn will run in",
     async run(context) {
-      const host = requireHost(context);
-      const result = await host.msp.connection.command(
-        "session/start",
-        { workspaceRoot: WORKSPACE_ROOT },
-        { maxAttempts: 1, commandId: SESSION_START_COMMAND_ID },
+      const client = context.client;
+      if (client === undefined) throw new Error("`spawn-fixture` did not finish");
+      const session = await within(
+        "the session/start result",
+        COMMAND_BUDGET_MS,
+        client.startSession({ workspaceRoot: WORKSPACE_ROOT }),
       );
-      const session = objectAt(result, "session", "session/start result");
-      equals(session["status"], "idle", "a fresh session's status");
-      context.sessionId = stringAt(session, "sessionId", "session/start session");
+      equals(session.opening?.verb, "session/start", "how the session was opened");
+      if (session.opening?.verb === "session/start") {
+        equals(session.opening.result.session.status, "idle", "a fresh session's status");
+      }
+      context.session = session;
     },
   },
   {
     id: "turn-start",
     title: "Start a turn and watch its work stream in",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
-      if (sessionId === undefined) throw new Error("`session` did not finish");
-      const ack = await host.msp.connection.command(
-        "turn/start",
-        { sessionId, input: [{ type: "text", text: PROMPT }] },
-        { maxAttempts: 1, commandId: TURN_START_COMMAND_ID },
-      );
-      equals(ack["status"], "accepted", "turn/start ack status");
-      equals(ack["disposition"], "started", "turn/start ack disposition");
-      const turnId = stringAt(ack, "turnId", "turn/start ack");
-      await host.waitFor(
-        "the turn/started notification",
+      const session = context.session;
+      if (session === undefined) throw new Error("`session` did not finish");
+      const turn = await within(
+        "the turn/start ack",
         COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/started" && notification.params["turnId"] === turnId,
+        session.sendUserTurn({ input: [{ type: "text", text: PROMPT }] }),
       );
-      // The turn is genuinely mid-work when output is still streaming: the
-      // fixture's toolCall item is emitting `item/delta` frames.
-      await host.waitFor(
-        "a streamed item/delta while the turn runs",
+      // `items()` replays what the fold already holds, then tails, so a fast
+      // host cannot slip the running tool call past us.
+      const toolCall = await within(
+        "a running toolCall item",
         COMMAND_BUDGET_MS,
-        (notification) => notification.method === "item/delta",
+        firstRunningToolCall(turn),
       );
-      context.turnId = turnId;
+      // The turn is genuinely mid-work when output is still streaming. Open the
+      // live feed and read the fold in the same tick: the first chunk is in one.
+      const live = turn.deltas();
+      try {
+        const output =
+          session.fold.items.accumulated(toolCall.itemId, "output") ??
+          (await within("a streamed output chunk", COMMAND_BUDGET_MS, live.next())).value?.delta;
+        if (output === undefined || output.length === 0) {
+          throw new Error("the running toolCall streamed no output");
+        }
+      } finally {
+        await live.return?.();
+      }
+      context.turn = turn;
+      context.toolCallId = toolCall.itemId;
     },
   },
   {
     id: "cancel",
     title: "Ask for the cancel, then wait for the turn's own terminal",
     async run(context) {
-      const host = requireHost(context);
-      const sessionId = context.sessionId;
-      const turnId = context.turnId;
-      if (sessionId === undefined || turnId === undefined) {
+      const session = context.session;
+      const turn = context.turn;
+      const toolCallId = context.toolCallId;
+      if (session === undefined || turn === undefined || toolCallId === undefined) {
         throw new Error("`turn-start` did not finish");
       }
-      const ack = await host.msp.connection.command(
-        "turn/cancel",
-        { sessionId, turnId },
-        { maxAttempts: 1, commandId: TURN_CANCEL_COMMAND_ID },
-      );
-      equals(ack["status"], "accepted", "turn/cancel ack status");
+      const ack = await within("the turn/cancel ack", COMMAND_BUDGET_MS, turn.cancel());
+      equals(ack.status, "accepted", "turn/cancel ack status");
       // The ack is a promise to try, not the outcome. The outcome is the
       // turn's terminal.
-      const completed = await host.waitFor(
-        "the cancelled turn/completed notification",
-        COMMAND_BUDGET_MS,
-        (notification) =>
-          notification.method === "turn/completed" && notification.params["turnId"] === turnId,
-      );
-      equals(completed.params["terminal"], "cancelled", "the turn's terminal");
+      const outcome = await within("the cancelled turn's outcome", COMMAND_BUDGET_MS, turn.completed);
+      if (outcome.kind !== "completed") {
+        throw new Error(`the cancelled turn should complete; got ${JSON.stringify(outcome)}`);
+      }
+      equals(outcome.params.terminal, "cancelled", "the turn's terminal");
       // Balanced history: the in-flight toolCall was completed as cancelled,
       // not dropped on the floor.
-      const cancelledItem = host.notifications().find(
-        (notification) =>
-          notification.method === "item/completed" &&
-          (notification.params["item"] as Record<string, unknown> | undefined)?.["status"] ===
-            "cancelled",
-      );
-      if (cancelledItem === undefined) {
-        throw new Error("the cancelled turn left no item/completed with status \"cancelled\"");
-      }
+      equals(session.fold.items.get(toolCallId)?.status, "cancelled", "the toolCall's final status");
     },
   },
   {
     id: "drain",
     title: "Close stdin and let the fixture host exit cleanly",
     async run(context) {
-      const host = requireHost(context);
-      const exit = await host.close(CLOSE_BUDGET_MS);
-      equals(exit.code, 0, "the fixture host's exit code after stdin EOF");
-      context.host = undefined;
+      const client = context.client;
+      if (client === undefined) throw new Error("`spawn-fixture` did not finish");
+      await within("the fixture host's orderly drain and exit", CLOSE_BUDGET_MS, client.close());
+      equals((await client.exit).kind, "cleanShutdown", "the fixture host's exit classification");
+      context.client = undefined;
     },
   },
 ];
+
+async function firstRunningToolCall(turn: Turn): Promise<FoldedItem> {
+  for await (const item of turn.items()) {
+    if (item.kind === "toolCall" && item.status === "inProgress") return item;
+  }
+  throw new Error("the turn ended without a running toolCall");
+}
 
 export const cancelMidTurn: Recipe = {
   id: "cancel-mid-turn",
@@ -171,7 +212,10 @@ export const cancelMidTurn: Recipe = {
       transcript: `${hosts.transcriptRoot}/cancel-mid-turn`,
     };
     return await runJourney(SEGMENTS, context, async (owned) => {
-      await owned.host?.abandon(CLOSE_BUDGET_MS);
+      const client = owned.client;
+      if (client !== undefined) {
+        await drainQuietly("the fixture host", CLOSE_BUDGET_MS, () => client.close());
+      }
     });
   },
 };

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,
+    Callable,
     Generic,
     Iterable,
     List,
@@ -33,27 +34,54 @@ from typing import (
 )
 
 from muse_code_msp import (
+    COMMAND_STATUS_KNOWN_VALUES,
     ITEM_KIND_KNOWN_VALUES,
+    TURN_START_DISPOSITION_KNOWN_VALUES,
+    ApprovalMode,
     ApprovalRequestParams,
     ApprovalUpdatedParams,
+    CommandAcceptedResult,
     FeedbackSubmitParams,
     FeedbackSubmitResult,
     HookListResult,
+    IfBusy,
     Item,
+    ForkCutPoint,
     ItemDeltaParams,
+    ModelSelection,
+    PluginInstallResult,
+    PluginInstallTarget,
+    PluginListResult,
+    ReasoningEffort,
     RecapRequestResult,
-    WorkflowControlResult,
+    SessionCompactResult,
+    SessionForkResult,
+    SessionLeaveResult,
+    SessionRenameResult,
+    SessionSetApprovalModeResult,
+    SessionSetModelResult,
+    SessionSetReasoningEffortResult,
     SessionSideChatResult,
+    SkillActivationScope,
+    SkillActivationState,
     SkillListResult,
+    SkillSetActivationResult,
     TaskListResult,
+    TurnCancelResult,
     TurnCompletedParams,
+    TurnInterruptResult,
+    TurnSteerResult,
     TurnUnqueuedParams,
+    TurnUnqueueResult,
+    TurnUserShell,
     UserInputAnswer,
     UserInputAnswerResult,
+    WorkflowControlResult,
     WorkflowResumeResult,
 )
 
 from ..connection.connection import Connection, ProtocolError
+from ..connection.connection import Params as WireParams
 from ..fold.item_store import IgnoredStaleRevision
 from ..fold.session_fold import (
     ApprovalPending,
@@ -107,13 +135,18 @@ from .host_death import (
     is_item_in_progress,
     survives_host_death,
 )
-from .turn_handle import Turn, TurnHandle
-from .turn_submit import SendUserTurnOptions, TurnSubmitter
+from .run import RunInput, RunResult, input_parts, run_turn
+from .turn_handle import Turn, TurnHandle, TurnUnqueueOutcome
+from .turn_submit import SendUserTurnOptions, SteerTurnOptions, TurnSubmitter
 
 _I = TypeVar("_I")
 
 _USER_MESSAGE = "userMessage"
 assert _USER_MESSAGE in ITEM_KIND_KNOWN_VALUES
+_ACCEPTED = "accepted"
+assert _ACCEPTED in COMMAND_STATUS_KNOWN_VALUES
+_QUEUED = "queued"
+assert _QUEUED in TURN_START_DISPOSITION_KNOWN_VALUES
 
 
 def _is_routable_approval_request(request: Mapping[str, Any]) -> bool:
@@ -393,6 +426,73 @@ class SessionApplyOutcome(Generic[_I]):
     io: Awaitable[tuple[PendingRetirement[_I], ...]]
 
 
+
+def _reason(reason: str | None) -> WireParams:
+    # Optional means omitted, never null.
+    return {} if reason is None else {"reason": reason}
+
+
+class _SessionTurnControls(Generic[_I]):
+    """The wire half of every turn handle's control verbs. Each refuses on a
+    discarded or fold-only session before anything is sent; ``steer`` rides
+    the pending submit path, and an accepted ``unqueue`` retires the queued
+    entry at once (the client's own reclaim ack), so the later
+    ``turn/unqueued`` finds nothing left to retire. When ``turn/unqueued``
+    folds first under ``MuseClient``, the fold's retirement is held for the
+    call instead."""
+
+    def __init__(self, session: "Session[_I]") -> None:
+        self._session = session
+
+    async def cancel(self, turn_id: str) -> TurnCancelResult:
+        """Sends ``turn/cancel``."""
+        ack = await self._session._command("cancel", "turn/cancel", {"turnId": turn_id})
+        return cast(TurnCancelResult, ack)
+
+    async def interrupt(self, turn_id: str, retract: bool | None) -> TurnInterruptResult:
+        """Sends ``turn/interrupt``."""
+        params: WireParams = {"turnId": turn_id}
+        if retract is not None:
+            params["retract"] = retract
+        ack = await self._session._command("interrupt", "turn/interrupt", params)
+        return cast(TurnInterruptResult, ack)
+
+    async def steer(self, turn_id: str, options: SteerTurnOptions[_I]) -> TurnSteerResult:
+        """Sends ``turn/steer`` through the pending submit path."""
+        session = self._session
+        session._require_live_connection("steer")
+        return await session._submit.steer(turn_id, options, session._last_folded_item_id())
+
+    async def unqueue(
+        self, turn_id: str, command_id: str | None = None
+    ) -> TurnUnqueueOutcome[_I]:
+        """Sends ``turn/unqueue``; an accepted ack retires this session's
+        queued entry for the turn. ``command_id`` sends one reclaim again under
+        its first id; ``None`` lets the connection mint one."""
+        session = self._session
+        in_flight = session._unqueues_in_flight
+        in_flight[turn_id] = in_flight.get(turn_id, 0) + 1
+        try:
+            ack = cast(
+                TurnUnqueueResult,
+                await session._command(
+                    "unqueue", "turn/unqueue", {"turnId": turn_id}, command_id=command_id
+                ),
+            )
+            held = session._held_reclaims.pop(turn_id, None)
+            if held is not None:
+                return TurnUnqueueOutcome(ack=ack, retirement=held)
+            if ack.get("status") != _ACCEPTED:
+                return TurnUnqueueOutcome(ack=ack)
+            return TurnUnqueueOutcome(ack=ack, retirement=session._reclaim_queued(turn_id))
+        finally:
+            left = in_flight[turn_id] - 1
+            if left > 0:
+                in_flight[turn_id] = left
+            else:
+                del in_flight[turn_id]
+                session._held_reclaims.pop(turn_id, None)
+
 class Session(Generic[_I]):
     """One conversation with the agent.
 
@@ -466,13 +566,27 @@ class Session(Generic[_I]):
                 ),
             )
         )
-        self._turns: dict[str, TurnHandle] = {}
+        self._turns: dict[str, TurnHandle[_I]] = {}
+        # The wire half of every turn handle's control verbs.
+        self._turn_controls: _SessionTurnControls[_I] = _SessionTurnControls(self)
         # ``item/delta`` frames whose item the fold does not hold yet: the
         # store buffers the delta TEXT but a delta's TURN is equally
         # unknowable until the item lands, so the frames wait here and are
         # attributed when it does. Bounded by the durable ``item/completed``
         # that always lands the item.
         self._unattributed_deltas: dict[str, List[ItemDeltaParams]] = {}
+        # Set by ``MuseClient``, whose pump drops what ``apply`` returns.
+        self._apply_results_dropped = False
+        # This session's own ``unqueue()`` calls awaiting their ack, per turn.
+        self._unqueues_in_flight: dict[str, int] = {}
+        # A reclaim the fold retired while its turn's own ``unqueue()`` was
+        # in flight on a session whose pump drops ``apply``'s return. The
+        # call hands it out; it goes when the last in-flight call for the
+        # turn settles, so this holds at most one entry per in-flight call.
+        self._held_reclaims: dict[str, PendingRetirement[_I]] = {}
+        # ``Session.run``'s stops that outlive a second cancellation, held
+        # until each settles or the client closes.
+        self._held_stops: set[asyncio.Future[None]] = set()
         # The first discharge, replayed verbatim on every later call.
         self._discharge: HostDeathDischarge[_I] | None = None
         # Set on a durable abnormal death, so late handles inherit the failure.
@@ -680,6 +794,12 @@ class Session(Generic[_I]):
                 reclaimed = self._pending.observed_reclaim(command_id)
                 if reclaimed is not None:
                     retirements.append(reclaimed)
+                    # Nobody reads this return under ``MuseClient``, so this
+                    # session's own in-flight unqueue for the turn is where
+                    # it can land.
+                    turn_id = str(params["turnId"])
+                    if self._apply_results_dropped and turn_id in self._unqueues_in_flight:
+                        self._held_reclaims[turn_id] = reclaimed
         elif method == "approval/requested":
             # The rule's outbound half. Gated on the fold's own verdict: a
             # request the fold IGNORED (a redelivery for an approval already
@@ -714,7 +834,7 @@ class Session(Generic[_I]):
             sink.retirements.extend(retirements)
         return outcome
 
-    def turn(self, turn_id: str) -> Turn:
+    def turn(self, turn_id: str) -> Turn[_I]:
         """The handle for a turn, created on first mention from either side.
 
         A turn the fold has already settled returns its settled handle, so a
@@ -734,7 +854,7 @@ class Session(Generic[_I]):
             fresh.fail(self._death_error)
         return fresh
 
-    def _handle(self, turn_id: str) -> TurnHandle:
+    def _handle(self, turn_id: str) -> TurnHandle[_I]:
         # A handle minted because a SERVER FRAME named this turn. Never
         # pre-failed, and that is what makes the post-death behaviour
         # order-independent (a durable death does not stop the fold, the governing rule, so
@@ -744,8 +864,10 @@ class Session(Generic[_I]):
         held = self._turns.get(turn_id)
         return held if held is not None else self._mint(turn_id)
 
-    def _mint(self, turn_id: str) -> TurnHandle:
-        fresh = TurnHandle(turn_id, lambda: self._items_of_turn(turn_id))
+    def _mint(self, turn_id: str) -> TurnHandle[_I]:
+        fresh = TurnHandle(
+            turn_id, lambda: self._items_of_turn(turn_id), self._turn_controls
+        )
         self._turns[turn_id] = fresh
         return fresh
 
@@ -829,7 +951,7 @@ class Session(Generic[_I]):
 
     # ---- the governing rule submit verb ------------------------
 
-    async def send_user_turn(self, options: SendUserTurnOptions[_I]) -> Turn:
+    async def send_user_turn(self, options: SendUserTurnOptions[_I]) -> Turn[_I]:
         """Submit a user turn and hand back THIS session's handle
         for the turn the ack named.
 
@@ -845,6 +967,50 @@ class Session(Generic[_I]):
         """
         ack = await self._submit.submit(options, self._last_folded_item_id())
         return self._handle(ack["turnId"])
+
+    async def run(
+        self,
+        prompt: RunInput,
+        *,
+        display_text: str | None = None,
+        if_busy: IfBusy | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        workspace_roots: List[str] | None = None,
+        user_shell: TurnUserShell | None = None,
+    ) -> RunResult:
+        """Run one turn to its end in a single call: submit ``prompt``, wait
+        for the server to end the turn, and return its outcome, final answer
+        text, items and usage. Use ``send_user_turn`` to stream items or
+        deltas as they arrive.
+
+        Cancelling the awaiting task stops the turn: while it is queued,
+        ``turn/unqueue`` (then ``turn/cancel`` if it launched first); while it
+        runs, ``turn/cancel``. A cancellation during the submit waits for its
+        ack, which names the turn. ``run`` then waits for the server to end the
+        turn and re-raises ``CancelledError``.
+
+        Args:
+            prompt: The input; a string is one text part.
+            display_text: The wire ``displayText``.
+            if_busy: The wire ``ifBusy``.
+            reasoning_effort: The wire ``reasoningEffort``.
+            workspace_roots: The wire ``workspaceRoots``.
+            user_shell: The wire ``userShell``.
+
+        Returns:
+            The turn's result; a failed or cancelled turn still returns.
+        """
+        return await run_turn(
+            self,
+            SendUserTurnOptions(
+                input=input_parts(prompt),
+                display_text=display_text,
+                if_busy=if_busy,
+                reasoning_effort=reasoning_effort,
+                workspace_roots=workspace_roots,
+                user_shell=user_shell,
+            ),
+        )
 
     # ---- the governing rule approval round trip ------------------------------
 
@@ -926,23 +1092,29 @@ class Session(Generic[_I]):
             )
         return self._submit.require_connection(verb)
 
+    # The four read-only lists (here and ``MuseClient.list_sessions``)
+    # ride ``request()``, not ``command()``: their wire params carry no
+    # ``commandId``, and ``command()`` would retain one dedup entry per
+    # call for the whole connection lifetime — a polling caller would
+    # grow it without bound.
+
     async def list_tasks(self) -> TaskListResult:
         """List this session's live tasks (``task/list``)."""
-        ack = await self._require_live_connection("list_tasks").command(
+        ack = await self._require_live_connection("list_tasks").request(
             "task/list", {"sessionId": self.session_id}
         )
         return cast(TaskListResult, ack)
 
     async def list_skills(self) -> SkillListResult:
         """List this session's user-invocable skills (``skill/list``)."""
-        ack = await self._require_live_connection("list_skills").command(
+        ack = await self._require_live_connection("list_skills").request(
             "skill/list", {"sessionId": self.session_id}
         )
         return cast(SkillListResult, ack)
 
     async def list_hooks(self) -> HookListResult:
         """List this session's installed hook rows (``hook/list``)."""
-        ack = await self._require_live_connection("list_hooks").command(
+        ack = await self._require_live_connection("list_hooks").request(
             "hook/list", {"sessionId": self.session_id}
         )
         return cast(HookListResult, ack)
@@ -973,7 +1145,14 @@ class Session(Generic[_I]):
     async def submit_feedback(
         self, input: FeedbackSubmitParams
     ) -> FeedbackSubmitResult:
-        """Submit feedback about this session (``feedback/submit``)."""
+        """Submit feedback about this session (``feedback/submit``).
+
+        The session is facade-owned: ``input``'s ``sessionId`` member, if
+        present, is always replaced with this session's id. The host
+        serves the command only when the spawn requested the ``feedback``
+        capability and install policy allows it; without that grant the
+        host refuses it.
+        """
         ack = await self._require_live_connection("submit_feedback").command(
             "feedback/submit", {**input, "sessionId": self.session_id}
         )
@@ -985,6 +1164,211 @@ class Session(Generic[_I]):
             "session/sideChat", {"sessionId": self.session_id}
         )
         return cast(SessionSideChatResult, ack)
+
+    def _reclaim_queued(self, turn_id: str) -> PendingRetirement[_I] | None:
+        # Retire this session's acked-queued entry for ``turn_id``, if any.
+        for entry in self._pending.list():
+            if (
+                entry.ack is not None
+                and entry.ack["turnId"] == turn_id
+                and entry.ack["disposition"] == _QUEUED
+            ):
+                retired = self._pending.observed_reclaim(entry.command_id)
+                if retired is not None:
+                    self._submit.forget_retired([retired])
+                return retired
+        return None
+
+    # ---- session control verbs ---------------------------------------------------
+
+    async def _command(
+        self, verb: str, method: str, params: WireParams, command_id: str | None = None
+    ) -> WireParams:
+        # One session-scoped command; the connection mints its ``commandId``
+        # unless the caller resends one under its first id.
+        return await self._require_live_connection(verb).command(
+            method, {**params, "sessionId": self.session_id}, command_id=command_id
+        )
+
+    def _hold_stop(self, task: "asyncio.Future[None]") -> None:
+        self._held_stops.add(task)
+        task.add_done_callback(self._held_stops.discard)
+
+    def _end_held_stops(self) -> "list[asyncio.Future[None]]":
+        # The client's close ends the host these stops would send to, so it
+        # cancels them and waits for them: no task outlives the close.
+        held = list(self._held_stops)
+        for task in held:
+            task.cancel()
+        return held
+
+    def _resendable_unqueue(
+        self, turn_id: str
+    ) -> Callable[[], Awaitable[TurnUnqueueOutcome[_I]]]:
+        # ``Session.run``'s abort: one reclaim under one ``commandId``, sent
+        # again while the session runtime does not take it.
+        command_id = self._require_live_connection("unqueue").mint_command_id()
+        return lambda: self._turn_controls.unqueue(turn_id, command_id)
+
+    async def fork(
+        self,
+        *,
+        cut_point: ForkCutPoint | None = None,
+        exclude_items: bool | None = None,
+    ) -> SessionForkResult:
+        """Fork this session into a new one (``session/fork``).
+
+        Returns the wire result for the new session; opening a wired
+        ``Session`` for it stays the caller's composition, as with
+        :meth:`open_side_chat`.
+        """
+        params: WireParams = {}
+        if cut_point is not None:
+            params["cutPoint"] = cut_point
+        if exclude_items is not None:
+            params["excludeItems"] = exclude_items
+        return cast(SessionForkResult, await self._command("fork", "session/fork", params))
+
+    async def compact(self, *, turn_id: str | None = None) -> SessionCompactResult:
+        """Compact this session's context (``session/compact``); admission
+        only, or ``noop``."""
+        params: WireParams = {} if turn_id is None else {"turnId": turn_id}
+        return cast(
+            SessionCompactResult, await self._command("compact", "session/compact", params)
+        )
+
+    async def set_model(self, model: ModelSelection) -> SessionSetModelResult:
+        """Select the model for later model calls (``session/setModel``)."""
+        return cast(
+            SessionSetModelResult,
+            await self._command("set_model", "session/setModel", {"model": model}),
+        )
+
+    async def set_reasoning_effort(
+        self, reasoning_effort: ReasoningEffort
+    ) -> SessionSetReasoningEffortResult:
+        """Set this session's standing reasoning effort
+        (``session/setReasoningEffort``)."""
+        return cast(
+            SessionSetReasoningEffortResult,
+            await self._command(
+                "set_reasoning_effort",
+                "session/setReasoningEffort",
+                {"reasoningEffort": reasoning_effort},
+            ),
+        )
+
+    async def set_approval_mode(self, mode: ApprovalMode) -> SessionSetApprovalModeResult:
+        """Select one of the host's preconfigured approval modes
+        (``session/setApprovalMode``)."""
+        return cast(
+            SessionSetApprovalModeResult,
+            await self._command("set_approval_mode", "session/setApprovalMode", {"mode": mode}),
+        )
+
+    async def rename(self, name: str) -> SessionRenameResult:
+        """Set or change this session's stored name (``session/rename``)."""
+        return cast(
+            SessionRenameResult, await self._command("rename", "session/rename", {"name": name})
+        )
+
+    async def leave(self, *, stop: bool | None = None) -> SessionLeaveResult:
+        """Release this session from the host (``session/leave``).
+
+        ``stop=True`` also cancels unfinished work. Admission only: the host
+        reports the release later as ``session/leaveCompleted``.
+        """
+        params: WireParams = {} if stop is None else {"stop": stop}
+        return cast(SessionLeaveResult, await self._command("leave", "session/leave", params))
+
+    async def _subagent(
+        self, verb: str, method: str, subagent_id: str, extra: WireParams
+    ) -> CommandAcceptedResult:
+        return cast(
+            CommandAcceptedResult,
+            await self._command(verb, method, {**extra, "subagentId": subagent_id}),
+        )
+
+    async def send_subagent_message(self, subagent_id: str, body: str) -> CommandAcceptedResult:
+        """Queue a note into a running subagent (``subagent/sendMessage``)."""
+        return await self._subagent(
+            "send_subagent_message", "subagent/sendMessage", subagent_id, {"body": body}
+        )
+
+    async def followup_subagent_task(self, subagent_id: str, body: str) -> CommandAcceptedResult:
+        """Queue a follow-up task for a subagent (``subagent/followupTask``)."""
+        return await self._subagent(
+            "followup_subagent_task", "subagent/followupTask", subagent_id, {"body": body}
+        )
+
+    async def interrupt_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Ask a subagent to yield at its next boundary (``subagent/interrupt``)."""
+        return await self._subagent(
+            "interrupt_subagent", "subagent/interrupt", subagent_id, _reason(reason)
+        )
+
+    async def stop_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Stop a running subagent (``subagent/stop``)."""
+        return await self._subagent("stop_subagent", "subagent/stop", subagent_id, _reason(reason))
+
+    async def resume_subagent(self, subagent_id: str) -> CommandAcceptedResult:
+        """Resume a paused or recoverable subagent (``subagent/resume``)."""
+        return await self._subagent("resume_subagent", "subagent/resume", subagent_id, {})
+
+    async def reopen_subagent(self, subagent_id: str) -> CommandAcceptedResult:
+        """Reopen a stopped or closed subagent (``subagent/reopen``)."""
+        return await self._subagent("reopen_subagent", "subagent/reopen", subagent_id, {})
+
+    async def close_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Close a subagent as its owner (``subagent/close``)."""
+        return await self._subagent(
+            "close_subagent", "subagent/close", subagent_id, _reason(reason)
+        )
+
+    async def read_subagent_result(self, subagent_id: str) -> CommandAcceptedResult:
+        """Consume a subagent's ready result (``subagent/readResult``)."""
+        return await self._subagent(
+            "read_subagent_result", "subagent/readResult", subagent_id, {}
+        )
+
+    async def list_plugins(self) -> PluginListResult:
+        """List this session's installed plugins (``plugin/list``); a query,
+        like :meth:`list_tasks`."""
+        ack = await self._require_live_connection("list_plugins").request(
+            "plugin/list", {"sessionId": self.session_id}
+        )
+        return cast(PluginListResult, ack)
+
+    async def install_plugin(self, target: PluginInstallTarget) -> PluginInstallResult:
+        """Install one plugin from a marketplace or a host folder
+        (``plugin/install``)."""
+        return cast(
+            PluginInstallResult,
+            await self._command("install_plugin", "plugin/install", {"target": target}),
+        )
+
+    async def set_skill_activation(
+        self,
+        *,
+        selector: str,
+        scope: SkillActivationScope,
+        activation: SkillActivationState,
+    ) -> SkillSetActivationResult:
+        """Turn one skill on or off in one scope (``skill/setActivation``)."""
+        return cast(
+            SkillSetActivationResult,
+            await self._command(
+                "set_skill_activation",
+                "skill/setActivation",
+                {"activation": activation, "scope": scope, "selector": selector},
+            ),
+        )
 
     # ---- consumer-driven pending-retirement verbs ---------------------------------
 

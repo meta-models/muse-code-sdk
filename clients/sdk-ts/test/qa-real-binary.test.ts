@@ -1,5 +1,5 @@
 /**
- * QA-TEST-008/009 — the harness end to end against the REAL `tbh serve`.
+ * QA-TEST-008/009 — the harness end to end against the REAL `muse serve`.
  *
  * QA-TEST-008 proves the harness runs: real `@muse-code/sdk`, real binary, real
  * MSP stdio, real tap, real oracle.
@@ -10,8 +10,8 @@
  * mutation. Without that pairing, a silent oracle is indistinguishable from
  * a blind one.
  *
- * Building `tbh` is a multi-minute Rust build, so the real-binary arm is
- * gated on a discoverable binary rather than being built inside this Node
+ * The real-binary arm is gated on a discoverable binary (an installed
+ * `muse` named by `MUSE_QA_SDK_BIN`) rather than built inside this Node
  * lane. A gate is not a pass: when it cannot run it says so loudly and names
  * the exact command that makes it runnable. The auto-qa `--area sdk`
  * procedure ALWAYS has a built binary, which is where this coverage is
@@ -207,18 +207,18 @@ test("QA-TEST-010: the shipped scenario set runs end to end on the real binary",
     UNKNOWN,
     "every real-host scenario captures an initialize handshake, so the report carries the host's own identity",
   );
-  // The shipped D19764 literal still carries the read-aware observable. The
-  // extracted helpers are unit-tested on synthesized runs; this is the one
-  // assert that fails if the SCENARIO is reverted to the pre-#23111 version.
+  // The shipped D19764 literal still carries the read-aware observable. Its
+  // host-free twin is qa-scenario-contracts.test.ts (#27399); this real-host
+  // arm also proves runOne reports the scenario's contract.
   assert.equal(
     report.scenarios.find((scenario) => scenario.id === "D19764")?.expected,
     D19764_EXPECTED,
     "the shipped D19764 scenario must keep the read-aware contract, not just export it",
   );
-  // Same guard for D19778: QA-TEST-016 exercises the exported helpers on
-  // synthesized runs, so reverting the SCENARIO to its pre-#27227 inline
-  // observe and `"compact:classified"` keeps that whole file green (#27227
-  // review). This is the assert that fails on that revert.
+  // Same guard for D19778, whose host-free twin is also
+  // qa-scenario-contracts.test.ts (#27399): QA-TEST-016 exercises the exported
+  // helpers on synthesized runs, so only a contract pin catches the SCENARIO
+  // reverted to its pre-#27227 `"compact:classified"` (#27227 review).
   assert.equal(
     report.scenarios.find((scenario) => scenario.id === "D19778")?.expected,
     D19778_EXPECTED,

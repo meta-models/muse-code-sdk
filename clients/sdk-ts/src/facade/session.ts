@@ -33,7 +33,7 @@ import type { Connection } from "../connection/connection.js";
 import { ApprovalRouter } from "./approval.js";
 import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
 import { TurnSubmitter } from "./turn-submit.js";
-import type { SendUserTurnOptions } from "./turn-submit.js";
+import type { SendUserTurnOptions, SteerTurnOptions } from "./turn-submit.js";
 import { GapFiller } from "./gap-fill.js";
 import type { DrainSink, GapFillFailureHandler, WireFrame } from "./gap-fill.js";
 import {
@@ -50,26 +50,54 @@ import type {
   SessionDurabilityProfile,
 } from "./host-death.js";
 import { TurnHandle } from "./turn-handle.js";
-import type { FoldedItem, Turn } from "./turn-handle.js";
+import type { FoldedItem, Turn, TurnControls, TurnUnqueueOutcome } from "./turn-handle.js";
+import { runTurn } from "./run.js";
+import type { RunOptions, RunResult } from "./run.js";
 
 import type {
+  ApprovalMode,
   ApprovalRequestParams,
   ApprovalUpdatedParams,
+  CommandAcceptedResult,
+  CommandStatus,
   FeedbackSubmitParams,
   FeedbackSubmitResult,
   HookListResult,
   Item,
   ItemDeltaParams,
   ItemKind,
+  ModelSelection,
+  PluginInstallResult,
+  PluginInstallTarget,
+  PluginListResult,
+  ReasoningEffort,
   RecapRequestResult,
-  WorkflowControlResult,
+  SessionCompactParams,
+  SessionCompactResult,
+  SessionForkParams,
+  SessionForkResult,
+  SessionLeaveParams,
+  SessionLeaveResult,
+  SessionRenameResult,
   SessionResumeResult,
+  SessionSetApprovalModeResult,
+  SessionSetModelResult,
+  SessionSetReasoningEffortResult,
   SessionSideChatResult,
   SessionStartResult,
   SkillListResult,
+  SkillSetActivationParams,
+  SkillSetActivationResult,
+  SubagentOwnerReasonParams,
   TaskListResult,
+  TurnCancelResult,
+  TurnInputPart,
+  TurnStartDisposition,
+  TurnInterruptResult,
+  TurnUnqueueResult,
   UserInputAnswer,
   UserInputAnswerResult,
+  WorkflowControlResult,
   WorkflowResumeResult,
 } from "@muse-code/msp";
 
@@ -96,6 +124,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Bound to the generated vocabulary so a misspelling fails `tsc`. */
 const USER_MESSAGE: Extract<ItemKind, "userMessage"> = "userMessage";
+const ACCEPTED: Extract<CommandStatus, "accepted"> = "accepted";
+const QUEUED: Extract<TurnStartDisposition, "queued"> = "queued";
 
 /**
  * The shared already-settled `io` for an event that triggered no I/O.
@@ -105,6 +135,26 @@ const USER_MESSAGE: Extract<ItemKind, "userMessage"> = "userMessage";
  * neither a pending command nor an approval.
  */
 const NO_IO: Promise<readonly never[]> = Promise.resolve([]);
+
+/**
+ * Module-private friend seam (never on the package barrel, like
+ * `connection.ts`'s `submissionTail`): `MuseClient` marks each session it
+ * opens, because its inbound pump drops what `apply` returns. A reclaim the
+ * fold retires while this session's own `unqueue()` for that turn is in
+ * flight is then held for that call (FR-81734-1).
+ *
+ * @internal
+ */
+export const pumpDropsApplyResults = Symbol("Session.pumpDropsApplyResults");
+
+/**
+ * Module-private friend seam (never on the package barrel): `Session.run`'s
+ * abort takes a queued turn back under one `commandId` and sends that same
+ * reclaim again while the session runtime does not take it (ADR 77912 D1).
+ *
+ * @internal
+ */
+export const resendableUnqueue = Symbol("Session.resendableUnqueue");
 
 /**
  * Which verb opened this session, and what it answered.
@@ -118,6 +168,9 @@ const NO_IO: Promise<readonly never[]> = Promise.resolve([]);
 export type SessionOpening =
   | { readonly verb: "session/start"; readonly result: SessionStartResult }
   | { readonly verb: "session/resume"; readonly result: SessionResumeResult };
+
+/** The optional reason `interruptSubagent`/`stopSubagent`/`closeSubagent` record. */
+export type SubagentReasonOptions = Readonly<Pick<SubagentOwnerReasonParams, "reason">>;
 
 /**
  * Options for constructing a `Session` directly. Sessions opened through
@@ -336,7 +389,7 @@ export class Session<I = unknown> {
   #discharge: HostDeathDischarge<I> | undefined;
   /** Set on a durable abnormal death, so late handles inherit the rejection. */
   #deathError: MuseHostDiedError | undefined;
-  readonly #turns = new Map<string, TurnHandle>();
+  readonly #turns = new Map<string, TurnHandle<I>>();
   /**
    * `item/delta` frames whose item the fold does not hold yet. The store
    * already buffers the delta TEXT against the item's arrival (SS4.7.3, spec
@@ -347,6 +400,88 @@ export class Session<I = unknown> {
    * durable `item/completed` always lands the item.
    */
   readonly #unattributedDeltas = new Map<string, ItemDeltaParams[]>();
+
+  /** Set through {@link pumpDropsApplyResults} by `MuseClient`. */
+  #applyResultsDropped = false;
+  /** This session's own `unqueue()` calls awaiting their ack, counted per turn id. */
+  readonly #unqueuesInFlight = new Map<string, number>();
+  /**
+   * FR-81734-1: a reclaim the fold retired while its turn's own `unqueue()`
+   * was in flight on a session whose pump drops `apply`'s return. The call
+   * hands it out; it goes when the last in-flight call for the turn settles,
+   * so this holds at most one entry per in-flight call.
+   */
+  readonly #heldReclaims = new Map<string, PendingRetirement<I>>();
+
+  /**
+   * The wire half of every turn handle's control verbs (FR-79106-1). Each
+   * refuses on a discarded or fold-only session before anything is sent;
+   * `steer` rides the SS4.13 submit path, and an accepted `unqueue` retires
+   * the queued entry at once (SS4.13 Reclaimed: "its own reclaim ack"); the
+   * later `turn/unqueued` then finds nothing left to retire. When
+   * `turn/unqueued` folds first under `MuseClient`, the fold's retirement is
+   * held for the call instead (FR-81734-1).
+   */
+  readonly #turnControls: TurnControls<I> = {
+    cancel: async (turnId) =>
+      (await this.#command("cancel", "turn/cancel", { turnId })) as unknown as TurnCancelResult,
+    interrupt: async (turnId, options) =>
+      (await this.#command("interrupt", "turn/interrupt", {
+        turnId,
+        ...(options.retract == null ? {} : { retract: options.retract }),
+      })) as unknown as TurnInterruptResult,
+    steer: async (turnId, options: SteerTurnOptions<I>) => {
+      this.#requireLiveConnection("steer");
+      return await this.#submit.steer(turnId, options, this.#lastFoldedItemId());
+    },
+    unqueue: async (turnId, commandId): Promise<TurnUnqueueOutcome<I>> => {
+      this.#unqueuesInFlight.set(turnId, (this.#unqueuesInFlight.get(turnId) ?? 0) + 1);
+      try {
+        const ack = (await this.#command(
+          "unqueue",
+          "turn/unqueue",
+          { turnId },
+          commandId,
+        )) as unknown as TurnUnqueueResult;
+        const held = this.#heldReclaims.get(turnId);
+        if (held !== undefined) {
+          this.#heldReclaims.delete(turnId);
+          return { ack, retirement: held };
+        }
+        return { ack, retirement: ack.status === ACCEPTED ? this.#reclaimQueued(turnId) : undefined };
+      } finally {
+        const left = (this.#unqueuesInFlight.get(turnId) ?? 1) - 1;
+        if (left > 0) {
+          this.#unqueuesInFlight.set(turnId, left);
+        } else {
+          this.#unqueuesInFlight.delete(turnId);
+          this.#heldReclaims.delete(turnId);
+        }
+      }
+    },
+  };
+
+  /** @internal See {@link pumpDropsApplyResults}. */
+  [pumpDropsApplyResults](): void {
+    this.#applyResultsDropped = true;
+  }
+
+  /** @internal See {@link resendableUnqueue}: each call of the result sends the same reclaim. */
+  [resendableUnqueue](turnId: string): () => Promise<TurnUnqueueOutcome<I>> {
+    const commandId = this.#requireLiveConnection("unqueue").mintCommandId();
+    return () => this.#turnControls.unqueue(turnId, commandId);
+  }
+
+  /** Retire this session's acked-queued entry for `turnId`, if it holds one. */
+  #reclaimQueued(turnId: string): PendingRetirement<I> | undefined {
+    const entry = this.#pending
+      .list()
+      .find((held) => held.ack?.turnId === turnId && held.ack.disposition === QUEUED);
+    if (entry === undefined) return undefined;
+    const retired = this.#pending.observedReclaim(entry.commandId);
+    if (retired !== undefined) this.#submit.forgetRetired([retired]);
+    return retired;
+  }
 
   constructor(options: SessionOptions) {
     this.sessionId = options.sessionId;
@@ -567,7 +702,14 @@ export class Session<I = unknown> {
         // later be retired `terminalUnknown` by a discharge, which would be a
         // fabricated annotation about a command whose fate is known.
         const reclaimed = this.#pending.observedReclaim(known.params.commandId);
-        if (reclaimed !== undefined) retirements.push(reclaimed);
+        if (reclaimed !== undefined) {
+          retirements.push(reclaimed);
+          // FR-81734-1: nobody reads this return under `MuseClient`, so this
+          // session's own in-flight unqueue for the turn is where it can land.
+          if (this.#applyResultsDropped && this.#unqueuesInFlight.has(known.params.turnId)) {
+            this.#heldReclaims.set(known.params.turnId, reclaimed);
+          }
+        }
         break;
       }
 
@@ -606,6 +748,7 @@ export class Session<I = unknown> {
       case "turn/retracted": // the turn still reaches its own terminal
       case "turn/retryScheduled": // non-terminal by contract (SS4.5.1)
       case "turn/modelRetryScheduled": // non-terminal by contract (SS4.5.1)
+      case "turn/modelAttemptStarted": // non-terminal by contract (SS4.5.1)
       case "turn/foregroundCompleted": // non-terminal by contract (SS4.5.12)
       case "approval/reviewing": // reviewer-held twin of approval/requested (tdd SS5.5.1): a notice, no decide is open
       case "approval/resolved":
@@ -665,7 +808,7 @@ export class Session<I = unknown> {
    * the fold has already settled returns its settled handle, so a wait
    * registered late resolves instead of hanging on an event that has passed.
    */
-  turn(turnId: string): Turn {
+  turn(turnId: string): Turn<I> {
     const held = this.#turns.get(turnId);
     if (held !== undefined) return held;
     const fresh = this.#mint(turnId);
@@ -693,12 +836,12 @@ export class Session<I = unknown> {
    * so a handle it mints is not a waiter with no answer coming; `turn()` keeps
    * the latch for the case that genuinely is.
    */
-  #handle(turnId: string): TurnHandle {
+  #handle(turnId: string): TurnHandle<I> {
     return this.#turns.get(turnId) ?? this.#mint(turnId);
   }
 
-  #mint(turnId: string): TurnHandle {
-    const fresh = new TurnHandle(turnId, () => this.#itemsOfTurn(turnId));
+  #mint(turnId: string): TurnHandle<I> {
+    const fresh = new TurnHandle<I>(turnId, () => this.#itemsOfTurn(turnId), this.#turnControls);
     this.#turns.set(turnId, fresh);
     return fresh;
   }
@@ -806,9 +949,20 @@ export class Session<I = unknown> {
    * needs the fold: the entry's insertion point, which is the last item this
    * session holds at submission time.
    */
-  async sendUserTurn(options: SendUserTurnOptions<I>): Promise<Turn> {
+  async sendUserTurn(options: SendUserTurnOptions<I>): Promise<Turn<I>> {
     const ack = await this.#submit.submit(options, this.#lastFoldedItemId());
     return this.#handle(ack.turnId);
+  }
+
+  /**
+   * Run one turn to its end in a single call (FR-79108-1): submit `input`
+   * (a string is one text part), wait for the server to end the turn, and
+   * resolve its outcome, final answer text, items and usage. Pass
+   * `options.signal` to stop the turn; see {@link RunOptions}. Use
+   * `sendUserTurn` to stream items or deltas as they arrive.
+   */
+  run(input: string | readonly TurnInputPart[], options?: RunOptions): Promise<RunResult> {
+    return runTurn(this, input, options);
   }
 
   // ---- FR-019 approval round trip (T031) ----------------------------------
@@ -870,9 +1024,14 @@ export class Session<I = unknown> {
     return this.#submit.requireConnection(verb);
   }
 
+  // The four read-only lists (here and `MuseClient.listSessions`) ride
+  // `request()`, not `command()`: their wire params carry no `commandId`,
+  // and `command()` would retain one dedup entry per call for the whole
+  // connection lifetime — a polling caller would grow it without bound.
+
   /** List this session's live background and foreground tasks (`task/list`). */
   async listTasks(): Promise<TaskListResult> {
-    const ack = await this.#requireLiveConnection("listTasks").command("task/list", {
+    const ack = await this.#requireLiveConnection("listTasks").request("task/list", {
       sessionId: this.sessionId,
     });
     return ack as unknown as TaskListResult;
@@ -880,7 +1039,7 @@ export class Session<I = unknown> {
 
   /** List this session's user-invocable skills (`skill/list`). */
   async listSkills(): Promise<SkillListResult> {
-    const ack = await this.#requireLiveConnection("listSkills").command("skill/list", {
+    const ack = await this.#requireLiveConnection("listSkills").request("skill/list", {
       sessionId: this.sessionId,
     });
     return ack as unknown as SkillListResult;
@@ -888,7 +1047,7 @@ export class Session<I = unknown> {
 
   /** List this session's installed hook rows (`hook/list`). */
   async listHooks(): Promise<HookListResult> {
-    const ack = await this.#requireLiveConnection("listHooks").command("hook/list", {
+    const ack = await this.#requireLiveConnection("listHooks").request("hook/list", {
       sessionId: this.sessionId,
     });
     return ack as unknown as HookListResult;
@@ -920,7 +1079,12 @@ export class Session<I = unknown> {
     return ack as unknown as RecapRequestResult;
   }
 
-  /** Submit feedback about this session (`feedback/submit`). */
+  /**
+   * Submit feedback about this session (`feedback/submit`). The host
+   * serves it only when the spawn requested the `feedback` capability
+   * (`requestedCapabilities: ["feedback"]`) and install policy allows
+   * it; without that grant the host refuses the command.
+   */
   async submitFeedback(
     input: Omit<FeedbackSubmitParams, "sessionId">,
   ): Promise<FeedbackSubmitResult> {
@@ -941,6 +1105,141 @@ export class Session<I = unknown> {
       sessionId: this.sessionId,
     });
     return ack as unknown as SessionSideChatResult;
+  }
+
+  // ---- session control verbs (FR-79106-1) ---------------------------------
+
+  /** Send one session-scoped command; the connection mints its `commandId`. */
+  async #command(
+    verb: string,
+    method: string,
+    params: Record<string, unknown>,
+    commandId?: string,
+  ): Promise<Record<string, unknown>> {
+    return await this.#requireLiveConnection(verb).command(
+      method,
+      { ...params, sessionId: this.sessionId },
+      commandId === undefined ? undefined : { commandId },
+    );
+  }
+
+  /**
+   * Fork this session into a new one (`session/fork`). Returns the wire
+   * result for the new session; opening a wired `Session` for it stays the
+   * caller's composition, as with `openSideChat`.
+   */
+  async fork(
+    options: Readonly<Omit<SessionForkParams, "commandId" | "sessionId">> = {},
+  ): Promise<SessionForkResult> {
+    return (await this.#command("fork", "session/fork", { ...options })) as unknown as SessionForkResult;
+  }
+
+  /** Compact this session's context (`session/compact`); admission only, or `noop`. */
+  async compact(
+    options: Readonly<Omit<SessionCompactParams, "commandId" | "sessionId">> = {},
+  ): Promise<SessionCompactResult> {
+    return (await this.#command("compact", "session/compact", { ...options })) as unknown as SessionCompactResult;
+  }
+
+  /** Select the model for later model calls (`session/setModel`). */
+  async setModel(model: ModelSelection): Promise<SessionSetModelResult> {
+    return (await this.#command("setModel", "session/setModel", { model })) as unknown as SessionSetModelResult;
+  }
+
+  /** Set this session's standing reasoning effort (`session/setReasoningEffort`). */
+  async setReasoningEffort(reasoningEffort: ReasoningEffort): Promise<SessionSetReasoningEffortResult> {
+    return (await this.#command("setReasoningEffort", "session/setReasoningEffort", {
+      reasoningEffort,
+    })) as unknown as SessionSetReasoningEffortResult;
+  }
+
+  /** Select one of the host's preconfigured approval modes (`session/setApprovalMode`). */
+  async setApprovalMode(mode: ApprovalMode): Promise<SessionSetApprovalModeResult> {
+    return (await this.#command("setApprovalMode", "session/setApprovalMode", {
+      mode,
+    })) as unknown as SessionSetApprovalModeResult;
+  }
+
+  /** Set or change this session's stored name (`session/rename`). */
+  async rename(name: string): Promise<SessionRenameResult> {
+    return (await this.#command("rename", "session/rename", { name })) as unknown as SessionRenameResult;
+  }
+
+  /**
+   * Release this session from the host (`session/leave`); `stop: true` also
+   * cancels unfinished work. Admission only: the host reports the release
+   * later as `session/leaveCompleted`.
+   */
+  async leave(
+    options: Readonly<Omit<SessionLeaveParams, "commandId" | "sessionId">> = {},
+  ): Promise<SessionLeaveResult> {
+    return (await this.#command("leave", "session/leave", { ...options })) as unknown as SessionLeaveResult;
+  }
+
+  /** Queue a note into a running subagent (`subagent/sendMessage`). */
+  async sendSubagentMessage(subagentId: string, body: string): Promise<CommandAcceptedResult> {
+    return await this.#subagent("sendSubagentMessage", "subagent/sendMessage", { body, subagentId });
+  }
+
+  /** Queue a follow-up task for a subagent (`subagent/followupTask`). */
+  async followupSubagentTask(subagentId: string, body: string): Promise<CommandAcceptedResult> {
+    return await this.#subagent("followupSubagentTask", "subagent/followupTask", { body, subagentId });
+  }
+
+  /** Ask a subagent to yield at its next boundary (`subagent/interrupt`). */
+  async interruptSubagent(subagentId: string, options: SubagentReasonOptions = {}): Promise<CommandAcceptedResult> {
+    return await this.#subagent("interruptSubagent", "subagent/interrupt", { ...options, subagentId });
+  }
+
+  /** Stop a running subagent (`subagent/stop`). */
+  async stopSubagent(subagentId: string, options: SubagentReasonOptions = {}): Promise<CommandAcceptedResult> {
+    return await this.#subagent("stopSubagent", "subagent/stop", { ...options, subagentId });
+  }
+
+  /** Resume a paused or recoverable subagent (`subagent/resume`). */
+  async resumeSubagent(subagentId: string): Promise<CommandAcceptedResult> {
+    return await this.#subagent("resumeSubagent", "subagent/resume", { subagentId });
+  }
+
+  /** Reopen a stopped or closed subagent (`subagent/reopen`). */
+  async reopenSubagent(subagentId: string): Promise<CommandAcceptedResult> {
+    return await this.#subagent("reopenSubagent", "subagent/reopen", { subagentId });
+  }
+
+  /** Close a subagent as its owner (`subagent/close`). */
+  async closeSubagent(subagentId: string, options: SubagentReasonOptions = {}): Promise<CommandAcceptedResult> {
+    return await this.#subagent("closeSubagent", "subagent/close", { ...options, subagentId });
+  }
+
+  /** Consume a subagent's ready result (`subagent/readResult`). */
+  async readSubagentResult(subagentId: string): Promise<CommandAcceptedResult> {
+    return await this.#subagent("readSubagentResult", "subagent/readResult", { subagentId });
+  }
+
+  async #subagent(verb: string, method: string, params: Record<string, unknown>): Promise<CommandAcceptedResult> {
+    return (await this.#command(verb, method, params)) as unknown as CommandAcceptedResult;
+  }
+
+  /** List this session's installed plugins (`plugin/list`); a query, like `listTasks`. */
+  async listPlugins(): Promise<PluginListResult> {
+    const ack = await this.#requireLiveConnection("listPlugins").request("plugin/list", {
+      sessionId: this.sessionId,
+    });
+    return ack as unknown as PluginListResult;
+  }
+
+  /** Install one plugin from a marketplace or a host folder (`plugin/install`). */
+  async installPlugin(target: PluginInstallTarget): Promise<PluginInstallResult> {
+    return (await this.#command("installPlugin", "plugin/install", { target })) as unknown as PluginInstallResult;
+  }
+
+  /** Turn one skill on or off in one scope (`skill/setActivation`). */
+  async setSkillActivation(
+    options: Readonly<Omit<SkillSetActivationParams, "commandId" | "sessionId">>,
+  ): Promise<SkillSetActivationResult> {
+    return (await this.#command("setSkillActivation", "skill/setActivation", {
+      ...options,
+    })) as unknown as SkillSetActivationResult;
   }
 
   // ---- consumer-driven SS4.13 retirement verbs ----------------------------

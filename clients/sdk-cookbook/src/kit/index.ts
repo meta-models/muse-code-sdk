@@ -25,11 +25,13 @@ export type {
 } from "./segments.js";
 
 export {
+  HOST_DRAIN_WINDOW_MS,
   Host,
   SDK_GATE_ENV,
   STUB_VIEW_CURSOR,
   TimeoutError,
   arrayAt,
+  drainQuietly,
   equals,
   isolatedHostEnv,
   objectAt,

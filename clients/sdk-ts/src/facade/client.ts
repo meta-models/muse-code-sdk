@@ -36,45 +36,43 @@
  * it is forwarded (or explicitly allow-listed as unforwardable).
  */
 
-import type { Connection } from "../connection/connection.js";
+import type { CommandOptions, Connection } from "../connection/connection.js";
+import { discoverMuseBin } from "../connection/discovery.js";
 import { initializeAnswered, spawnMspConnection } from "../connection/spawn.js";
 import type {
   ExitClassification,
   MuseServeChild,
   SpawnedMspConnection,
 } from "../connection/spawn.js";
-import { MuseSessionDiscardedError, PermissionProfileNotApplied } from "../errors.js";
+import {
+  MuseCapabilityNotGrantedError,
+  MuseFacadeOwnedMethodError,
+  MuseSessionDiscardedError,
+  PermissionProfileNotApplied,
+} from "../errors.js";
 import { DiscardedSessions } from "./discarded.js";
 import { isAbnormalHostDeath, readSessionDurability } from "./host-death.js";
 import type { SessionDurabilityProfile } from "./host-death.js";
 import { MspError, ProtocolError } from "../connection/connection.js";
 import { hostStartFailure } from "./host-start.js";
 import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
-import { Session } from "./session.js";
+import { pumpDropsApplyResults, Session } from "./session.js";
 import type { SessionOpening } from "./session.js";
 import type {
   InitializeParams,
   InitializeResult,
+  ModelListParams,
+  ModelListResult,
+  MspMethod,
+  SessionConfig,
   SessionListParams,
   SessionListResult,
   SessionResumeParams,
   SessionResumeResult,
   SessionStartParams,
   SessionStartResult,
-  SessionViewHealthChangedParams,
+  UsageReadResult,
 } from "@muse-code/msp";
-
-/**
- * Observes a `session/viewHealthChanged` push: the named session's live
- * view became unavailable, and why. The params ride verbatim, so an
- * unrecognized `health` value stays visible for the consumer to ignore
- * rather than being mistaken for `unavailable`. Registered with
- * {@link MuseClient.onViewHealthChanged}; without a registration the
- * push keeps its current folded answer and nothing observes it.
- */
-export type ViewHealthChangedHandler = (
-  params: SessionViewHealthChangedParams,
-) => void;
 
 /**
  * The params this module builds. `commandId` is excluded because
@@ -90,15 +88,16 @@ type AssertNever<T extends never> = T;
 type ViewFrame = { readonly method: string; readonly params?: unknown };
 
 /**
- * Every `StartParams` member `startSession` forwards. `config` is temporarily
- * excluded until the facade can pair forwarding with the required
- * `sessionMcp` grant check, `previousSessionId` is excluded because the
- * facade starts root sessions (the predecessor link belongs to a client that
- * switches sessions), and `spawnedBy` because the facade does not expose a
- * spawner yet.
+ * Every `StartParams` member `startSession` forwards. `config` is forwarded
+ * only behind the `sessionMcp` grant check (`#forwardConfig`),
+ * `previousSessionId` is excluded because the facade starts root sessions
+ * (the predecessor link belongs to a client that switches sessions, as does
+ * the `switchPolicy` member), and `spawnedBy` because the facade does not
+ * expose a spawner yet.
  */
 const START_FORWARDED = [
   "approvalMode",
+  "config",
   "providerId",
   "sessionId",
   "workspaceRoot",
@@ -108,17 +107,68 @@ const START_FORWARDED = [
   "recoveryMode",
 ] as const;
 type _StartIsExhaustive = AssertNever<
-  Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "config" | "previousSessionId" | "spawnedBy">
+  Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "previousSessionId" | "switchPolicy" | "spawnedBy">
 >;
 
 /**
- * Every `ResumeParams` member `resumeSession` forwards. `config` has the same
- * temporary capability-check boundary as the start facade above.
+ * Every `ResumeParams` member `resumeSession` forwards; `config` rides the
+ * same `sessionMcp` grant check as the start facade above.
  */
-const RESUME_FORWARDED = ["sessionId", "cursor", "excludeItems", "history", "modelId", "permissionProfile", "recoveryMode"] as const;
-type _ResumeIsExhaustive = AssertNever<
-  Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number] | "config">
->;
+const RESUME_FORWARDED = [
+  "sessionId",
+  "config",
+  "cursor",
+  "excludeItems",
+  "history",
+  "modelId",
+  "permissionProfile",
+  "recoveryMode",
+] as const;
+type _ResumeIsExhaustive = AssertNever<Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number]>>;
+
+/**
+ * The wire methods whose state the facade owns, refused by `command`
+ * (FR-79107-2). `initialize` is the handshake `spawn` runs; `session/start` and
+ * `session/resume` register the `Session` the pump routes to; `turn/start`,
+ * `turn/steer`, `turn/unqueue`, `approval/decide`, and `userInput/answer`
+ * carry the pending-command, approval, and answer state their verbs keep (a
+ * steer is a pending submission and an accepted unqueue retires its queued
+ * entry); `view/page` is the gap fill's; and
+ * `view/subscribe`/`view/unsubscribe` change the subscription set the pump
+ * routes by, so a raw unsubscribe would silently starve a live `Session`.
+ */
+const FACADE_OWNED_METHODS = [
+  "initialize",
+  "session/start",
+  "session/resume",
+  "turn/start",
+  "turn/steer",
+  "turn/unqueue",
+  "approval/decide",
+  "userInput/answer",
+  "view/page",
+  "view/subscribe",
+  "view/unsubscribe",
+] as const satisfies readonly MspMethod[];
+type FacadeOwnedMethod = (typeof FACADE_OWNED_METHODS)[number];
+const FACADE_OWNED: ReadonlySet<string> = new Set(FACADE_OWNED_METHODS);
+
+/** Every `SessionListParams` member `listSessions` forwards. */
+const LIST_FORWARDED = ["cursor", "filter", "limit", "updatedAfter", "workspaceRoot"] as const;
+type _ListIsExhaustive = AssertNever<Exclude<keyof SessionListParams, (typeof LIST_FORWARDED)[number]>>;
+
+/**
+ * The caller's capability posture with `sessionMcp` added to its requests,
+ * each requested name once (ADR 32760 D3: the facade requests the grant its
+ * `config` forwarding checks). A host grants only what was requested.
+ */
+function withSessionMcpRequested(
+  capabilities: InitializeParams["capabilities"],
+): NonNullable<InitializeParams["capabilities"]> {
+  const requested = new Set(capabilities?.requestedCapabilities ?? []);
+  requested.add("sessionMcp");
+  return { ...capabilities, requestedCapabilities: [...requested] };
+}
 
 /**
  * The committed profile id a session snapshot claims, or null when the
@@ -138,13 +188,13 @@ function committedProfileId(snapshot: unknown): string | null {
 /**
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
- * `config` is excluded as well as `commandId` until the facade implements the
- * required `sessionMcp` grant check and forwarding; `previousSessionId` is
- * excluded because the facade starts root sessions, and `spawnedBy` because
- * the facade does not expose a spawner yet.
+ * `commandId` is excluded because the connection mints it; `previousSessionId`
+ * and `switchPolicy` because the facade starts root sessions, and `spawnedBy`
+ * because the facade does not expose a spawner yet. `config.mcpServers` needs
+ * the host's `sessionMcp` grant (FR-79107-3).
  */
 export type StartSessionOptions = Readonly<
-  Omit<SessionStartParams, "commandId" | "config" | "previousSessionId" | "spawnedBy"> & {
+  Omit<SessionStartParams, "commandId" | "previousSessionId" | "switchPolicy" | "spawnedBy"> & {
     /**
      * Require the `permissionProfile` selection (TEST-42624-10): when set,
      * the client proves the committed selection equals the requested id —
@@ -160,9 +210,12 @@ export type StartSessionOptions = Readonly<
 /** The resume options' approval members, installed before held frames apply. */
 type ResumeApprovalHandlers = Pick<ResumeSessionOptions, "onApproval" | "onApprovalError">;
 
-/** Caller-facing options for `session/resume` (tdd SS2.5.2). */
+/**
+ * Caller-facing options for `session/resume` (tdd SS2.5.2). `config.mcpServers`
+ * needs the host's `sessionMcp` grant, as at start (FR-79107-3).
+ */
 export type ResumeSessionOptions = Readonly<
-  Omit<SessionResumeParams, "commandId" | "config"> & {
+  Omit<SessionResumeParams, "commandId"> & {
     /**
      * Answers this session's approvals from its first frame, so an approval
      * the host re-sends right after the resume reply reaches it. The same
@@ -203,16 +256,25 @@ export interface MuseClientOptions {
   readonly host?: SpawnedMspConnection;
 }
 
-/** What `MuseClient.spawn` needs: FR-018's `{ museBin, args?, env? }`, plus the handshake. */
+/** What `MuseClient.spawn` needs: FR-018's `{ museBin?, args?, env? }`, plus the handshake. */
 export interface MuseClientSpawnOptions {
-  readonly museBin: string;
+  /**
+   * The host binary. Omitted means the first executable `muse` on the
+   * process's `PATH` (FR-79107-1); with neither, `spawn` rejects with
+   * `MuseHostDiscoveryError` before starting anything.
+   */
+  readonly museBin?: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
   /** REPLACES the child's environment (PATH included) — spread `process.env` to extend it. */
   readonly env?: NodeJS.ProcessEnv;
   /** Client identification, forwarded verbatim into `initialize` (SS1.4). */
   readonly clientInfo: InitializeParams["clientInfo"];
-  /** Capability posture; absent means all defaults. */
+  /**
+   * Capability posture; absent means all defaults. `spawn` adds `sessionMcp`
+   * to `requestedCapabilities` (keeping yours) so per-session MCP servers can
+   * be granted (ADR 32760 D3).
+   */
   readonly capabilities?: InitializeParams["capabilities"];
   /** Raw stderr chunks, drained from process birth and never parsed (INV-010). */
   readonly onStderr?: (chunk: string) => void;
@@ -256,8 +318,6 @@ export class MuseClient {
   #closing = false;
   /** Latched by an abnormal EOF, so a later `resumeSession` can be withheld. */
   #hostDied = false;
-  /** The opt-in view-health observer; see `onViewHealthChanged`. */
-  #viewHealthHandler: ViewHealthChangedHandler | undefined;
 
   constructor(connection: Connection, options: MuseClientOptions) {
     this.#connection = connection;
@@ -319,46 +379,18 @@ export class MuseClient {
    */
   #route(notification: ViewFrame): void {
     const named = (notification.params as { sessionId?: unknown } | undefined)?.sessionId;
-    if (typeof named === "string") {
-      let delivered = false;
-      for (const session of this.#sessions) {
-        if (session.sessionId === named) {
-          session.apply(notification);
-          delivered = true;
-        }
-      }
-      if (!delivered && this.#opening !== 0) {
-        const held = this.#held.get(named);
-        if (held === undefined) this.#held.set(named, [notification]);
-        else held.push(notification);
+    if (typeof named !== "string") return;
+    let delivered = false;
+    for (const session of this.#sessions) {
+      if (session.sessionId === named) {
+        session.apply(notification);
+        delivered = true;
       }
     }
-    // Observed only after session delivery: a faulty observer must never
-    // stall the read pump or starve the session the frame names.
-    this.#notifyViewHealth(notification);
-  }
-
-  /**
-   * Hand a view-health push to the registered observer, if any.
-   *
-   * Answered here rather than in the fold because the push is a
-   * command-plane health note, not view state: the session still
-   * receives the frame exactly as before, and this only adds the
-   * opt-in observation beside that delivery. A frame with no params
-   * object carries nothing to observe and is not handed on.
-   */
-  #notifyViewHealth(notification: ViewFrame): void {
-    if (notification.method !== "session/viewHealthChanged") return;
-    const handler = this.#viewHealthHandler;
-    if (handler === undefined) return;
-    const params = notification.params;
-    if (params === null || typeof params !== "object" || Array.isArray(params)) return;
-    try {
-      handler(params as SessionViewHealthChangedParams);
-    } catch {
-      // Observation is best-effort: a throwing handler is swallowed so it
-      // can never take down delivery for every session on this client.
-    }
+    if (delivered || this.#opening === 0) return;
+    const held = this.#held.get(named);
+    if (held === undefined) this.#held.set(named, [notification]);
+    else held.push(notification);
   }
 
   /**
@@ -370,6 +402,9 @@ export class MuseClient {
    * absent/unrecognized distinction load-bearing, and a caller re-deriving it
    * by hand is a caller that can get it wrong.
    *
+   * Rejects with {@link MuseHostDiscoveryError} before starting anything when
+   * `museBin` is omitted and no executable `muse` is on `PATH`.
+   *
    * Rejects with {@link MuseHostStartError} when the host is lost before the
    * handshake completes (the binary could not be spawned, or the process
    * ended first — exit code or signal plus the bounded stderr tail;
@@ -380,8 +415,11 @@ export class MuseClient {
    * no schema fingerprint.
    */
   static async spawn(options: MuseClientSpawnOptions): Promise<MuseClient> {
+    // The process's own PATH, never `options.env`'s: the host is found the
+    // way the Rust and Python SDKs find it, whatever environment it gets.
+    const command = await discoverMuseBin(options.museBin, process.env["PATH"], process.platform);
     const handshake = spawnMspConnection({
-      command: options.museBin,
+      command,
       ...(options.args === undefined ? {} : { args: options.args }),
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
@@ -394,7 +432,7 @@ export class MuseClient {
     try {
       spawned = await handshake.initialize({
         clientInfo: options.clientInfo,
-        ...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
+        capabilities: withSessionMcpRequested(options.capabilities),
       });
     } catch (error) {
       // A failed handshake must not leak the process it already spawned.
@@ -453,21 +491,6 @@ export class MuseClient {
     return this.#durability;
   }
 
-  /**
-   * Observe `session/viewHealthChanged` pushes for sessions this
-   * client routes (opt-in, #94).
-   *
-   * REPLACES any previous handler rather than adding to a list, for
-   * the same reason `Session.onApproval` replaces: one observer owns
-   * the reaction, so two competing reactions cannot both run. Register
-   * before opening a session to observe a push that arrives while that
-   * open is in flight. With no handler registered, the push keeps its
-   * current folded answer and nothing observes it.
-   */
-  onViewHealthChanged(handler: ViewHealthChangedHandler): void {
-    this.#viewHealthHandler = handler;
-  }
-
   /** Open a new root session (tdd SS2.5.1). */
   async startSession(options: StartSessionOptions = {}): Promise<Session> {
     const params: StartParams = {};
@@ -481,6 +504,7 @@ export class MuseClient {
     // The initial permission-profile selection, forwarded verbatim like the
     // other start members (undefined stays omitted).
     if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
+    if (options.config != null) params.config = this.#forwardConfig("session/start", options.config);
     // TEST-42624-10: a caller that requires its selection proves it, never
     // assuming the host default. The flag without the member is API misuse
     // (plain Error, like the other misuse guards here), raised pre-wire.
@@ -550,6 +574,7 @@ export class MuseClient {
     if (options.modelId != null) params.modelId = options.modelId;
     if (options.recoveryMode != null) params.recoveryMode = options.recoveryMode;
     if (options.permissionProfile != null) params.permissionProfile = options.permissionProfile;
+    if (options.config != null) params.config = this.#forwardConfig("session/resume", options.config);
     return this.#open(
       "session/resume",
       params,
@@ -561,7 +586,11 @@ export class MuseClient {
     );
   }
 
-  /** List stored sessions (`session/list`), including text search via `filter.text`. */
+  /**
+   * List stored sessions (`session/list`), including text search via
+   * `filter.text`. A read-only list: rides `request()`, not `command()`
+   * (see `Session.listTasks`).
+   */
   async listSessions(options: SessionListParams = {}): Promise<SessionListResult> {
     const params: Record<string, unknown> = {};
     if (options.cursor != null) params["cursor"] = options.cursor;
@@ -569,8 +598,56 @@ export class MuseClient {
     if (options.limit != null) params["limit"] = options.limit;
     if (options.updatedAfter != null) params["updatedAfter"] = options.updatedAfter;
     if (options.workspaceRoot != null) params["workspaceRoot"] = options.workspaceRoot;
-    const ack = await this.#connection.command("session/list", params);
+    const ack = await this.#connection.request("session/list", params);
     return ack as unknown as SessionListResult;
+  }
+
+  /**
+   * List the models the host accepts in `Session.setModel` (`model/list`).
+   * With `sessionId`, that session's current model is flagged `isActive`. A
+   * query: rides `request()`, like `listSessions`.
+   */
+  async listModels(options: ModelListParams = {}): Promise<ModelListResult> {
+    const params: Record<string, unknown> = {};
+    if (options.sessionId != null) params["sessionId"] = options.sessionId;
+    const ack = await this.#connection.request("model/list", params);
+    return ack as unknown as ModelListResult;
+  }
+
+  /**
+   * Read the host's last-observed subscription usage (`usage/read`) without a
+   * model call; `usage` is absent when the host has observed nothing.
+   */
+  async readUsage(): Promise<UsageReadResult> {
+    const ack = await this.#connection.request("usage/read");
+    return ack as unknown as UsageReadResult;
+  }
+
+  /**
+   * Send a wire method directly (FR-79107-2), typically one the facade does
+   * not wrap, through the
+   * same `Connection.command()` the verbs use: the connection mints the
+   * `commandId`, retries a nothing-admitted refusal under the same id, and
+   * checks the ack's echo. `options` are that seam's own.
+   *
+   * Refused before anything is written, with `MuseFacadeOwnedMethodError`:
+   * the methods whose state the facade owns (`FACADE_OWNED_METHODS`). Frames
+   * the command causes still reach your sessions through the client's one
+   * inbound pump; this sends and returns the ack, nothing more. Params and
+   * ack stay untyped objects: the generated types carry no method-to-params
+   * map, and restating one here would drift from the schema.
+   *
+   * Each call keeps one fixed-size fingerprint for the connection's lifetime
+   * (FR-45137-1), so prefer a facade verb for a query you poll.
+   */
+  async command(
+    method: Exclude<MspMethod, FacadeOwnedMethod>,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>> {
+    // The type binds TypeScript callers; this binds plain-JS ones.
+    if (FACADE_OWNED.has(method)) throw new MuseFacadeOwnedMethodError(method);
+    return this.#connection.command(method, params, options);
   }
 
   /**
@@ -635,6 +712,8 @@ export class MuseClient {
     // must find the handler, and its failure the observer.
     if (approvals.onApprovalError !== undefined) session.onApprovalError(approvals.onApprovalError);
     if (approvals.onApproval !== undefined) session.onApproval(approvals.onApproval);
+    // `#route` drops what `apply` returns (FR-81734-1).
+    session[pumpDropsApplyResults]();
     this.#sessions.add(session);
     // The frames that named this session while its verb was in flight fold
     // NOW, in arrival order — synchronously, so nothing the pump routes next
@@ -645,6 +724,23 @@ export class MuseClient {
       for (const frame of held) session.apply(frame);
     }
     return session;
+  }
+
+  /**
+   * The `config` to forward, or a typed refusal before anything is sent
+   * (FR-79107-3). Per-session MCP servers need the `sessionMcp` grant in the
+   * handshake this client was built with (`spawn` requests it; a caller's own
+   * handshake must request it too); a client given no handshake cannot show
+   * it. A config naming no server needs no grant, as on the host (ADR 32760 D3).
+   */
+  #forwardConfig(method: "session/start" | "session/resume", config: SessionConfig): SessionConfig {
+    if (config.mcpServers == null || Object.keys(config.mcpServers).length === 0) return config;
+    if (this.#initializeResult?.grantedCapabilities.includes("sessionMcp") === true) return config;
+    throw new MuseCapabilityNotGrantedError(
+      "sessionMcp",
+      method,
+      "config.mcpServers needs the sessionMcp grant, which this connection's handshake does not hold (MuseClient.spawn requests it; a host withholds it when per-session MCP is turned off)",
+    );
   }
 
   #assertReattachAllowed(sessionId: string): void {

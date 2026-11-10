@@ -32,18 +32,58 @@ from typing import (
     Callable,
     Generic,
     Iterator,
+    List,
     Literal,
+    Mapping,
     Sequence,
     TypeVar,
 )
 
 from muse_code_msp import (
+    ApprovalMode,
+    CommandAcceptedResult,
+    FeedbackSubmitParams,
+    FeedbackSubmitResult,
+    ForkCutPoint,
+    HookListResult,
+    IfBusy,
     InitializeResult,
     ItemDeltaParams,
+    ModelListParams,
+    ModelListResult,
+    ModelSelection,
+    PluginInstallResult,
+    PluginInstallTarget,
+    PluginListResult,
+    ReasoningEffort,
+    RecapRequestResult,
+    SessionCompactResult,
+    SessionForkResult,
+    SessionLeaveResult,
+    SessionListParams,
+    SessionListResult,
+    SessionRenameResult,
+    SessionSetApprovalModeResult,
+    SessionSetModelResult,
+    SessionSetReasoningEffortResult,
+    SessionSideChatResult,
+    SkillActivationScope,
+    SkillActivationState,
+    SkillListResult,
+    SkillSetActivationResult,
+    TaskListResult,
+    TurnCancelResult,
+    TurnInterruptResult,
+    TurnSteerResult,
+    TurnUserShell,
+    UsageReadResult,
     UserInputAnswer,
     UserInputAnswerResult,
+    WorkflowControlResult,
+    WorkflowResumeResult,
 )
 
+from .connection.connection import Params, RetryDelay
 from .connection.spawn import ExitClassification
 from .facade.approval import ApprovalFailureHandler, ApprovalHandler
 from .facade.client import (
@@ -54,9 +94,11 @@ from .facade.client import (
 )
 from .facade.gap_fill import GapFillFailureHandler
 from .facade.host_death import SessionDurabilityProfile
+from .facade.run import RunInput, RunResult
 from .facade.session import PendingCommandView, Session, SessionFoldView, SessionOpening
-from .facade.turn_handle import FoldedItem, Turn, TurnOutcome
-from .facade.turn_submit import SendUserTurnOptions
+from .facade.turn_handle import FoldedItem, Turn, TurnOutcome, TurnUnqueueOutcome
+from .facade.turn_handle import _I as _TurnI
+from .facade.turn_submit import SendUserTurnOptions, SteerTurnOptions
 from .pending.pending_command_set import (
     PendingRetirement,
     ReplayAnswer,
@@ -293,6 +335,42 @@ class SyncMuseClient(Generic[_I]):
             self._runner.run(self._client.resume_session(options)), self._runner
         )
 
+    def list_sessions(
+        self, options: SessionListParams | None = None
+    ) -> SessionListResult:
+        """List stored sessions (blocking twin of ``list_sessions``)."""
+        return self._runner.run(self._client.list_sessions(options))
+
+    def list_models(self, options: ModelListParams | None = None) -> ModelListResult:
+        """List the host's model catalog (blocking twin of ``list_models``)."""
+        return self._runner.run(self._client.list_models(options))
+
+    def read_usage(self) -> UsageReadResult:
+        """Read last-observed usage (blocking twin of ``read_usage``)."""
+        return self._runner.run(self._client.read_usage())
+
+    def command(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        command_id: str | None = None,
+        max_attempts: int | None = None,
+        retry_delay: RetryDelay | None = None,
+    ) -> Params:
+        """Send a wire method the facade does not wrap (blocking twin of
+        ``command``); facade-owned methods raise ``MuseFacadeOwnedMethodError``
+        before anything is written."""
+        return self._runner.run(
+            self._client.command(
+                method,
+                params,
+                command_id=command_id,
+                max_attempts=max_attempts,
+                retry_delay=retry_delay,
+            )
+        )
+
     def wait_exit(self) -> ExitClassification:
         """Block until the owned host exits; its exit-classification row (twin of ``exit``)."""
 
@@ -372,14 +450,38 @@ class SyncSession(Generic[_I]):
         :attr:`fold` — read from the verb-driving thread."""
         return self._session.pending
 
-    def send_user_turn(self, options: SendUserTurnOptions[_I]) -> "SyncTurn":
+    def send_user_turn(self, options: SendUserTurnOptions[_I]) -> "SyncTurn[_I]":
         """Submit a user turn and block for its ack (twin of
         ``send_user_turn``)."""
         return SyncTurn(
             self._runner.run(self._session.send_user_turn(options)), self._runner
         )
 
-    def turn(self, turn_id: str) -> "SyncTurn":
+    def run(
+        self,
+        prompt: RunInput,
+        *,
+        display_text: str | None = None,
+        if_busy: IfBusy | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        workspace_roots: List[str] | None = None,
+        user_shell: TurnUserShell | None = None,
+    ) -> RunResult:
+        """Run one turn to its end and block for its result (twin of
+        ``run``). There is no cancel hook here: to stop a turn, use
+        ``send_user_turn`` and ``SyncTurn.cancel``, or the async facade."""
+        return self._runner.run(
+            self._session.run(
+                prompt,
+                display_text=display_text,
+                if_busy=if_busy,
+                reasoning_effort=reasoning_effort,
+                workspace_roots=workspace_roots,
+                user_shell=user_shell,
+            )
+        )
+
+    def turn(self, turn_id: str) -> "SyncTurn[_I]":
         """The handle for a turn, created on first mention from either side."""
         return SyncTurn(
             self._runner.call(lambda: self._session.turn(turn_id)), self._runner
@@ -405,6 +507,137 @@ class SyncSession(Generic[_I]):
             self._session.answer_user_input(user_input_id, answers)
         )
 
+    def list_tasks(self) -> TaskListResult:
+        """Blocking twin of ``list_tasks``."""
+        return self._runner.run(self._session.list_tasks())
+
+    def list_skills(self) -> SkillListResult:
+        """Blocking twin of ``list_skills``."""
+        return self._runner.run(self._session.list_skills())
+
+    def list_hooks(self) -> HookListResult:
+        """Blocking twin of ``list_hooks``."""
+        return self._runner.run(self._session.list_hooks())
+
+    def pause_workflow(self, workflow_run_id: str) -> WorkflowControlResult:
+        """Blocking twin of ``pause_workflow``."""
+        return self._runner.run(self._session.pause_workflow(workflow_run_id))
+
+    def resume_workflow(self, workflow_run_id: str) -> WorkflowResumeResult:
+        """Blocking twin of ``resume_workflow``."""
+        return self._runner.run(self._session.resume_workflow(workflow_run_id))
+
+    def request_recap(self) -> RecapRequestResult:
+        """Blocking twin of ``request_recap``."""
+        return self._runner.run(self._session.request_recap())
+
+    def submit_feedback(
+        self, input: FeedbackSubmitParams
+    ) -> FeedbackSubmitResult:
+        """Blocking twin of ``submit_feedback``."""
+        return self._runner.run(self._session.submit_feedback(input))
+
+    def open_side_chat(self) -> SessionSideChatResult:
+        """Blocking twin of ``open_side_chat``."""
+        return self._runner.run(self._session.open_side_chat())
+
+    def fork(
+        self,
+        *,
+        cut_point: ForkCutPoint | None = None,
+        exclude_items: bool | None = None,
+    ) -> SessionForkResult:
+        """Blocking twin of ``fork``."""
+        return self._runner.run(
+            self._session.fork(cut_point=cut_point, exclude_items=exclude_items)
+        )
+
+    def compact(self, *, turn_id: str | None = None) -> SessionCompactResult:
+        """Blocking twin of ``compact``."""
+        return self._runner.run(self._session.compact(turn_id=turn_id))
+
+    def set_model(self, model: ModelSelection) -> SessionSetModelResult:
+        """Blocking twin of ``set_model``."""
+        return self._runner.run(self._session.set_model(model))
+
+    def set_reasoning_effort(
+        self, reasoning_effort: ReasoningEffort
+    ) -> SessionSetReasoningEffortResult:
+        """Blocking twin of ``set_reasoning_effort``."""
+        return self._runner.run(self._session.set_reasoning_effort(reasoning_effort))
+
+    def set_approval_mode(self, mode: ApprovalMode) -> SessionSetApprovalModeResult:
+        """Blocking twin of ``set_approval_mode``."""
+        return self._runner.run(self._session.set_approval_mode(mode))
+
+    def rename(self, name: str) -> SessionRenameResult:
+        """Blocking twin of ``rename``."""
+        return self._runner.run(self._session.rename(name))
+
+    def leave(self, *, stop: bool | None = None) -> SessionLeaveResult:
+        """Blocking twin of ``leave``."""
+        return self._runner.run(self._session.leave(stop=stop))
+
+    def send_subagent_message(self, subagent_id: str, body: str) -> CommandAcceptedResult:
+        """Blocking twin of ``send_subagent_message``."""
+        return self._runner.run(self._session.send_subagent_message(subagent_id, body))
+
+    def followup_subagent_task(self, subagent_id: str, body: str) -> CommandAcceptedResult:
+        """Blocking twin of ``followup_subagent_task``."""
+        return self._runner.run(self._session.followup_subagent_task(subagent_id, body))
+
+    def interrupt_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Blocking twin of ``interrupt_subagent``."""
+        return self._runner.run(self._session.interrupt_subagent(subagent_id, reason=reason))
+
+    def stop_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Blocking twin of ``stop_subagent``."""
+        return self._runner.run(self._session.stop_subagent(subagent_id, reason=reason))
+
+    def resume_subagent(self, subagent_id: str) -> CommandAcceptedResult:
+        """Blocking twin of ``resume_subagent``."""
+        return self._runner.run(self._session.resume_subagent(subagent_id))
+
+    def reopen_subagent(self, subagent_id: str) -> CommandAcceptedResult:
+        """Blocking twin of ``reopen_subagent``."""
+        return self._runner.run(self._session.reopen_subagent(subagent_id))
+
+    def close_subagent(
+        self, subagent_id: str, *, reason: str | None = None
+    ) -> CommandAcceptedResult:
+        """Blocking twin of ``close_subagent``."""
+        return self._runner.run(self._session.close_subagent(subagent_id, reason=reason))
+
+    def read_subagent_result(self, subagent_id: str) -> CommandAcceptedResult:
+        """Blocking twin of ``read_subagent_result``."""
+        return self._runner.run(self._session.read_subagent_result(subagent_id))
+
+    def list_plugins(self) -> PluginListResult:
+        """Blocking twin of ``list_plugins``."""
+        return self._runner.run(self._session.list_plugins())
+
+    def install_plugin(self, target: PluginInstallTarget) -> PluginInstallResult:
+        """Blocking twin of ``install_plugin``."""
+        return self._runner.run(self._session.install_plugin(target))
+
+    def set_skill_activation(
+        self,
+        *,
+        selector: str,
+        scope: SkillActivationScope,
+        activation: SkillActivationState,
+    ) -> SkillSetActivationResult:
+        """Blocking twin of ``set_skill_activation``."""
+        return self._runner.run(
+            self._session.set_skill_activation(
+                selector=selector, scope=scope, activation=activation
+            )
+        )
+
     def stop_retrying(self, command_id: str) -> PendingRetirement[_I] | None:
         """The "Abandoned" verb: stop one entry's retry loop (sync, locked)."""
         return self._runner.call(lambda: self._session.stop_retrying(command_id))
@@ -428,11 +661,11 @@ class SyncSession(Generic[_I]):
         return self._runner.run(self._session.resolve_reconnect())
 
 
-class SyncTurn:
+class SyncTurn(Generic[_TurnI]):
     """One turn, on the blocking surface — the sync twin of
     :class:`~muse_code.facade.Turn`."""
 
-    def __init__(self, turn: Turn, runner: _LoopRunner) -> None:
+    def __init__(self, turn: Turn[_TurnI], runner: _LoopRunner) -> None:
         """Wraps the async turn view; ``runner`` is the owning loop-runner."""
         self._turn = turn
         self._runner = runner
@@ -478,6 +711,22 @@ class SyncTurn:
         synchronously; released on break/close (and bounded on a never-started
         iterator) exactly like :meth:`items`."""
         return self._drain(self._runner.call(self._turn.deltas))
+
+    def cancel(self) -> TurnCancelResult:
+        """Blocking twin of ``cancel``."""
+        return self._runner.run(self._turn.cancel())
+
+    def interrupt(self, *, retract: bool | None = None) -> TurnInterruptResult:
+        """Blocking twin of ``interrupt``."""
+        return self._runner.run(self._turn.interrupt(retract=retract))
+
+    def steer(self, options: SteerTurnOptions[_TurnI]) -> TurnSteerResult:
+        """Blocking twin of ``steer``."""
+        return self._runner.run(self._turn.steer(options))
+
+    def unqueue(self) -> TurnUnqueueOutcome[_TurnI]:
+        """Blocking twin of ``unqueue``."""
+        return self._runner.run(self._turn.unqueue())
 
     def _drain(self, source: AsyncIterator[_T]) -> Iterator[_T]:
         # A plain generator: `for … break` (or an explicit .close()) runs the

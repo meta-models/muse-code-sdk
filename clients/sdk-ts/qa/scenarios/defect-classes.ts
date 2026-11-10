@@ -47,6 +47,7 @@ const D19649: QaScenario = {
     summary:
       "resume reduces `cursor` to a presence bit, so every cursor — valid, stale, or never-existed — serves full from-genesis inline history and the `notFound`/`missingAnchor` rejection is unreachable (tdd SS2.5.2)",
   },
+  expected: "validCursor:none|bogusCursor:err:notFound",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenAcrossRestart({
       museBin,
@@ -66,7 +67,7 @@ const D19649: QaScenario = {
           });
           await host.command("resumeBogus", "session/resume", {
             sessionId,
-            cursor: "v4:00000000-0000-7000-8000-000000000000:999",
+            cursor: "v9:00000000-0000-7000-8000-000000000000:999",
           });
         },
       observe: (run) => {
@@ -75,7 +76,6 @@ const D19649: QaScenario = {
           : `ok:mode=${historyModeOf(run, "resumeBogus")}`;
         return `validCursor:${historyModeOf(run, "resumeValid")}|bogusCursor:${bogus}`;
       },
-      expected: "validCursor:none|bogusCursor:err:notFound",
     });
   },
 };
@@ -91,8 +91,9 @@ const D18945: QaScenario = {
   defectClass: {
     issue: "#18945",
     summary:
-      "the materialized sidecar freezes and flips to terminal `unavailable`, after which every read and resume returns empty history forever. The MSP-NATIVE arm was fixed by f4aae2ed99a, so this is its regression guard; the CROSS-WRITER arm is expect-blocked as B08 because it needs an out-of-band `tbh exec` writer, outside this harness's MSP-only lens",
+      "the materialized sidecar freezes and flips to terminal `unavailable`, after which every read and resume returns empty history forever. The MSP-NATIVE arm was fixed by f4aae2ed99a, so this is its regression guard; the CROSS-WRITER arm is expect-blocked as B08 because it needs an out-of-band `muse exec` writer, outside this harness's MSP-only lens",
   },
+  expected: "resume:ok|readHistory:available",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenAcrossRestart({
       museBin,
@@ -113,7 +114,6 @@ const D18945: QaScenario = {
         const dead = historyModeOf(run, "read") === "unavailable" || read?.["viewCursor"] === "";
         return `resume:${resume}|readHistory:${dead ? "unavailable" : "available"}`;
       },
-      expected: "resume:ok|readHistory:available",
     });
   },
 };
@@ -148,6 +148,7 @@ const D19535: QaScenario = {
     summary:
       "every production serve-host entry point hardwires `RuntimeBuilderFactory::not_logged_in()`, so any turn dies at model-respond regardless of credentials",
   },
+  expected: "turnTerminal:not-a-credential-failure",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -162,7 +163,6 @@ const D19535: QaScenario = {
         await host.waitForNotification("turn/completed", 20_000);
       },
       observe: observeTurnTerminal,
-      expected: "turnTerminal:not-a-credential-failure",
       // #23537: this scenario's subject is a turn that REACHES a model, so it
       // needs a configured host. Against an unconfigured home the logged-out
       // fallback is correct behaviour, and this scenario reported
@@ -287,6 +287,7 @@ const D19778: QaScenario = {
     summary:
       "the serve host's retained-session event sink was built without the strict-append channel, so durable `session/compact` admission (including persisting a typed rejection) died `-32603 internal` at fact retention instead of reaching tdd SS3.7's typed classification — which on a NO-RUN session is the mandated `commandRejected`/`missing_run` refusal, itself conformance and never this defect (the 2026-09-02 false reopen)",
   },
+  expected: D19778_EXPECTED,
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -319,7 +320,6 @@ const D19778: QaScenario = {
         }
       },
       observe: observeD19778,
-      expected: D19778_EXPECTED,
       configureProvider: "echo",
     });
   },
@@ -338,6 +338,7 @@ const D16620: QaScenario = {
     summary:
       "the `started` disposition is treated as NotRecoverable, so a byte-identical cross-restart replay skips every payload-verifying recovery lane and is answered `command_id_conflict` instead of the original ack (spec 207 INV-006/FR-011)",
   },
+  expected: "replay:original-ack",
   async run(museBin): Promise<ScenarioOutcome> {
     const commandId = uuidV7(1, "16620abcdef");
     return await drivenAcrossRestart({
@@ -361,7 +362,6 @@ const D16620: QaScenario = {
         if (settlement.includes("commandRejected")) return "replay:command_id_conflict";
         return settlement.startsWith("err:") ? `replay:${settlement}` : "replay:original-ack";
       },
-      expected: "replay:original-ack",
     });
   },
 };
@@ -379,6 +379,7 @@ const D20049: QaScenario = {
     summary:
       "`turn/interrupt` with `turnId` omitted, on a session with no foreground turn, answers `accepted` with `turnId` set to the client's own commandId — an identity no event can ever name (tdd SS3.4 requires `missing_run`)",
   },
+  expected: "named:rejected|omitted:rejected",
   async run(museBin): Promise<ScenarioOutcome> {
     const commandId = uuidV7(2, "20049abcdef");
     return await drivenOnce({
@@ -401,7 +402,6 @@ const D20049: QaScenario = {
         const turnId = resultOfStep(run, "omitted")?.["turnId"];
         return `named:${named}|omitted:accepted${turnId === commandId ? "-with-fabricated-turnId" : ""}`;
       },
-      expected: "named:rejected|omitted:rejected",
     });
   },
 };
@@ -419,6 +419,7 @@ const D21861: QaScenario = {
     summary:
       "every production site passes `ApprovalModeCeiling::durable()`, so a wire client on `serve --no-session-log` can raise its own authority to `allowAll` despite the SS2.13.5 ephemeral seal at `promptUnmatched`",
   },
+  expected: "durability:ephemeral|raise:refused|narrow:accepted",
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -441,7 +442,6 @@ const D21861: QaScenario = {
           settledError(run, "raise") ? "refused" : "accepted"
         }|narrow:${settledError(run, "narrow") ? "refused" : "accepted"}`;
       },
-      expected: "durability:ephemeral|raise:refused|narrow:accepted",
     });
   },
 };
@@ -489,6 +489,7 @@ const D19764: QaScenario = {
     summary:
       "CLOSED as completed by PR #22437 (merge `098ccfbecbb2ed9bee32fbd4a4f3baf7049ebad3`, an ancestor of origin/main), so this is a REGRESSION GUARD rather than a live target. The historical break granted the `userShell` capability, acked the command, then failed dispatch as ``unknown tool `shell` `` with the item never reaching `session/read`",
   },
+  expected: D19764_EXPECTED,
   async run(museBin): Promise<ScenarioOutcome> {
     return await drivenOnce({
       museBin,
@@ -519,7 +520,6 @@ const D19764: QaScenario = {
         }
       },
       observe: observeD19764,
-      expected: D19764_EXPECTED,
     });
   },
 };

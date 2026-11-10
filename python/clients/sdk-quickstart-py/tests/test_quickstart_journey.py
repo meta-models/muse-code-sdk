@@ -7,10 +7,11 @@ first-party endpoint, no live provider and no API key — so every segment is
 exercised for real. Nothing is expect-blocked: all twelve are required.
 
 ``MUSE_BIN`` is REQUIRED. This test never skips itself (the TS twin's rule:
-a skipped acceptance artifact reads as proof and is not proof). Build first:
+a skipped acceptance artifact reads as proof and is not proof). Point it at a
+release ``muse`` binary (an installed Muse Code CLI, or a release build of the
+host):
 
-    cargo build --release -p an internal lane --bin tbh
-    MUSE_BIN=$PWD/target/release/tbh python3 -m pytest clients/sdk-quickstart-py/tests
+    MUSE_BIN=$(command -v muse) python3 -m pytest clients/sdk-quickstart-py/tests
 """
 
 from __future__ import annotations

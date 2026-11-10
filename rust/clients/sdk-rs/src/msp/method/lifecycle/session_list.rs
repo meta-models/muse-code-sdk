@@ -31,7 +31,13 @@ pub struct SessionListParams {
     pub filter: Option<SessionListFilter>,
 }
 
-/// `session/list` result. Ordering is `updatedAt` descending.
+/// `session/list` result. The default order is content activity:
+/// `lastActivityAt` descending, then `sessionId` ascending. The order is the
+/// session index's key, so a row's displayed timestamps do not always show its
+/// position: a row the index has not yet derived keeps its `updatedAt`
+/// position, a derived row with no content orders by `createdAt`, and a loaded
+/// row can show newer values. Do not re-sort or validate a page from them.
+/// `updatedAfter` still filters on `updatedAt`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]

@@ -81,6 +81,18 @@ pub enum ToolReceiptOutcome {
 }
 
 impl ToolReceiptOperation {
+    /// The word table `Deserialize` decodes through.
+    fn decode_word(word: &str) -> Self {
+        match word {
+            "create" => Self::Create,
+            "delete" => Self::Delete,
+            "list" => Self::List,
+            "execute" => Self::Execute,
+            "wait" => Self::Wait,
+            _ => Self::Unknown(word.to_owned()),
+        }
+    }
+
     /// The exact wire spelling, including a value this build does not know.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -110,18 +122,29 @@ impl<'de> Deserialize<'de> for ToolReceiptOperation {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "create" => Self::Create,
-            "delete" => Self::Delete,
-            "list" => Self::List,
-            "execute" => Self::Execute,
-            "wait" => Self::Wait,
-            _ => Self::Unknown(value),
-        })
+        Ok(Self::decode_word(&value))
     }
 }
 
 impl ToolReceiptOutcome {
+    /// The word table `Deserialize` decodes through.
+    fn decode_word(word: &str) -> Self {
+        match word {
+            "created" => Self::Created,
+            "duplicate" => Self::Duplicate,
+            "deleted" => Self::Deleted,
+            "missing" => Self::Missing,
+            "listed" => Self::Listed,
+            "rejected" => Self::Rejected,
+            "completed" => Self::Completed,
+            "pending" => Self::Pending,
+            "failed" => Self::Failed,
+            "timedOut" => Self::TimedOut,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Unknown(word.to_owned()),
+        }
+    }
+
     /// The exact wire spelling, including a value this build does not know.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -157,19 +180,6 @@ impl<'de> Deserialize<'de> for ToolReceiptOutcome {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "created" => Self::Created,
-            "duplicate" => Self::Duplicate,
-            "deleted" => Self::Deleted,
-            "missing" => Self::Missing,
-            "listed" => Self::Listed,
-            "rejected" => Self::Rejected,
-            "completed" => Self::Completed,
-            "pending" => Self::Pending,
-            "failed" => Self::Failed,
-            "timedOut" => Self::TimedOut,
-            "cancelled" => Self::Cancelled,
-            _ => Self::Unknown(value),
-        })
+        Ok(Self::decode_word(&value))
     }
 }

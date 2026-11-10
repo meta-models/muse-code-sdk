@@ -4,13 +4,13 @@ The governing rule: the two package manifests carry the chartered shape
 (names, floor, wheel purity, license, ``py.typed``), the dependency posture
 holds (zero runtime deps in ``muse_code_msp``; exactly one exact-pinned
 pydantic plus ``muse-code-msp`` at the facade's own version in ``muse_code``; every dev tool exact-pinned in the committed
-lock), and the schema-fingerprint pin binds to the stable bundle manifest so
-a schema advance that forgets the Python SDK reds this lane.
+lock), and the import-derived schema fingerprints agree with the values
+derived from the bundles' schema bytes, so a drift between the port the
+package vendors and the shared derivation reds this lane.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -81,19 +81,42 @@ def test_facade_package_manifest_shape() -> None:
     assert (SDK_DIR / "src" / "muse_code" / "py.typed").is_file()
 
 
-def test_fingerprint_pin_binds_to_the_stable_manifest() -> None:
-    manifest = json.loads(
-        (PROJECT_ROOT / "schema" / "msp" / "stable" / "manifest.json").read_text()
-    )
+def _derived_fingerprint(variant: str) -> str:
+    sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+    try:
+        import msp_fingerprint
+    finally:
+        sys.path.pop(0)
+    schema_bytes = (
+        PROJECT_ROOT / "schema" / "msp" / variant / "msp.schema.json"
+    ).read_bytes()
+    return msp_fingerprint.bundle_fingerprint(variant, schema_bytes)
+
+
+def test_import_derived_fingerprints_agree_with_the_derivation() -> None:
+    # Nothing is stamped: each generated module derives at import through
+    # the vendored port, and the facade reuses the stable value. A drift
+    # between the vendored copy and the shared derivation fails here.
     generated = _import_generated()
     facade = _import_facade()
-    assert generated.SCHEMA_FINGERPRINT == manifest["fingerprint"], (
-        "generated muse_code_msp is stale against the stable bundle; "
+    sys.path.insert(0, str(MSP_DIR / "src"))
+    try:
+        import muse_code_msp.experimental
+    finally:
+        sys.path.pop(0)
+    expected_stable = _derived_fingerprint("stable")
+    assert generated.SCHEMA_FINGERPRINT == expected_stable, (
+        "generated muse_code_msp disagrees with the stable derivation; "
         "rerun scripts/gen-msp-py.sh"
     )
-    assert facade.EXPECTED_SCHEMA_FINGERPRINT == manifest["fingerprint"], (
-        "muse_code.EXPECTED_SCHEMA_FINGERPRINT is stale against the stable "
-        "bundle manifest; re-pin it with the schema advance"
+    assert facade.EXPECTED_SCHEMA_FINGERPRINT == expected_stable, (
+        "muse_code.EXPECTED_SCHEMA_FINGERPRINT is not the generated stable value"
+    )
+    assert muse_code_msp.experimental.SCHEMA_FINGERPRINT == _derived_fingerprint(
+        "experimental"
+    ), (
+        "generated muse_code_msp.experimental disagrees with the "
+        "experimental derivation; rerun scripts/gen-msp-py.sh"
     )
 
 

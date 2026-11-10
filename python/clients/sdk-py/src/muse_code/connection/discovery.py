@@ -2,10 +2,11 @@
 
 The wheel carries no host binary and no code path assumes one. Exactly the
 two ruled tiers, first hit wins: an explicit ``muse_bin`` argument, then a
-``muse`` on ``PATH``. The LIBRARY reads no environment variable (TS parity:
-the TS spawn module takes a required command; ``MUSE_BIN`` is a knob of the
-quickstart/cookbook HARNESSES, which read it themselves and pass the
-explicit parameter down). No discoverable host fails BEFORE any process is
+``muse`` on ``PATH`` (the same two tiers as the TS and Rust SDKs, and what
+``MuseClient.spawn`` applies when ``muse_bin`` is ``None``). The LIBRARY reads
+no other environment variable: ``MUSE_BIN`` is a knob of the
+quickstart/cookbook HARNESSES, which read it themselves and pass the explicit
+parameter down. No discoverable host fails BEFORE any process is
 spawned, with an exact error naming the parameter and the compatibility
 page.
 """

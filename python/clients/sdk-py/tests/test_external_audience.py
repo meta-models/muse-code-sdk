@@ -764,6 +764,29 @@ def test_the_crate_mode_passes_the_mirrors_commit_record_and_refuses_the_produce
     assert ".cargo_vcs_info.json: dev-loop-path" in result.stderr, result.stderr
 
 
+def test_the_vendored_schema_bytes_ride_unscanned(tmp_path: Path) -> None:
+    # The build-time derivation slice: the fingerprint hashes the vendored
+    # release bytes exactly, so they cannot be sanitized — the crate tier
+    # exempts that one file, like the wheel tier's unscanned data files.
+    crate = _seeded_crate(
+        tmp_path,
+        files={"build/msp.schema.json": '{"defs": "' + LEAKS["adr-citation"] + '"}\n'},
+    )
+    result = _run_checker("--crate", str(crate))
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_leak_in_another_data_file_is_still_refused(tmp_path: Path) -> None:
+    # The exemption names exactly `build/msp.schema.json`: a citation leak
+    # in any other packaged file still refuses.
+    crate = _seeded_crate(
+        tmp_path, files={"notes.json": '{"note": "' + LEAKS["adr-citation"] + '"}\n'}
+    )
+    result = _run_checker("--crate", str(crate))
+    assert result.returncode != 0, "a leak in notes.json passed the crate gate"
+    assert "notes.json" in result.stderr, result.stderr
+
+
 def test_the_crate_mode_refuses_a_crate_missing_its_readme(tmp_path: Path) -> None:
     crate = tmp_path / "muse-code-sdk-1.0.0.crate"
     data = b'[package]\nname = "muse-code-sdk"\nversion = "1.0.0"\n'

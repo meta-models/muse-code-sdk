@@ -45,155 +45,145 @@ real and nothing leaves the machine. See
 
 ### 1. Spawn the host
 
-`spawnMspConnection` starts your own `muse serve` child and returns a handshake
-you have not sent anything on yet. You cannot send traffic before the
-handshake completes — that is enforced by the type, not by convention.
+`MuseClient.spawn` starts your own `muse serve` child and completes the
+handshake in one call. You cannot send anything before the handshake
+completes; the client you get back is ready to use.
 
 ```ts
-const handshake = spawnMspConnection({
-  command: museBin,
+const client = await MuseClient.spawn({
   args: ["serve"],
-  cwd: workspaceRoot,
-  onStderr: (chunk) => stderr.push(chunk),
-});
-```
-
-Pass `env` if you want a specific `HOME`; the journey does, so it never
-touches your real sessions.
-
-### 2. Complete the handshake
-
-```ts
-const msp = await handshake.initialize({
   clientInfo: { name: "my_app", version: "1.0.0" },
 });
 ```
 
-`msp.initializeResult` tells you who answered: `serverInfo`, `museHome`,
-`sessionDurability`, and the protocol `schema.fingerprint`. The SDK compares
-that fingerprint to the one it was built against and sets
-`msp.fingerprintWarning` if they differ. A difference is a **warning, never an
-error** — an older SDK keeps working against a newer host.
+Leave out `museBin` and the SDK runs the first `muse` on your `PATH`; pass
+`museBin` to pick a binary. `args: ["serve"]` starts the protocol host: a bare
+`muse` is the interactive app. The journey also passes `museBin` (the build it
+tests), `cwd`, and an `env` with its own `HOME`, so it never touches your real
+sessions.
 
-From here on you talk through `msp.connection`.
+### 2. Check the handshake
+
+`client.initializeResult` tells you who answered: `serverInfo`, `museHome`,
+`sessionDurability`, and the protocol `schema.fingerprint`. Compare that
+fingerprint with the SDK's `EXPECTED_SCHEMA_FINGERPRINT` if you want to know
+whether the two were built from the same schema. A difference is a **warning,
+never an error**: an older SDK keeps working against a newer host.
 
 ### 3. Start a session
 
 ```ts
-const result = await msp.connection.command(
-  "session/start",
-  { workspaceRoot },
-  { maxAttempts: 1 },
-);
-const sessionId = result.session.sessionId;
+const session = await client.startSession({ workspaceRoot });
 ```
 
-Use `command` rather than `request` for anything that changes state. It mints
-a `commandId` for you and remembers it, so a retry after a dropped reply joins
-the original command instead of starting a second one. `result.viewCursor` is
-your position in the session's event stream.
+`session.sessionId` names the session. The client owns the connection: it
+sends each state-changing call with an id it mints, so a retry after a dropped
+reply joins the original call instead of starting a second one, and it routes
+every event the host pushes to the session it belongs to. The host's reply is
+on `session.opening.result`; a new session starts `idle`.
 
-The host also pushes `session/started` with the same session. Subscribe before
-you need it:
+### 4. Run a turn
 
 ```ts
-msp.connection.onNotification((notification) => { /* ... */ });
+const result = await session.run("Reply with the single word: hello");
+// result.outcome.kind === "completed", result.finalText === "hello"
 ```
 
-### 4. Send a prompt and read the answer as it streams
+`run` sends one prompt and resolves once the turn has ended, with the
+`outcome`, the final answer text (`finalText`), the turn's `items`, and its
+token `usage`. A turn that failed or was cancelled still resolves: read
+`result.outcome` to tell. When `outcome.kind` is `"completed"` (the host
+reported the turn's end), `outcome.params.terminal` is `"completed"`,
+`"cancelled"` or `"failed"`; on `"failed"` it carries
+`error` (`kind`, `message`, `retryable`) and usually a display-only `reason`,
+except a turn the host died during, which carries `reason` and no `error`.
+
+To stop it, pass an `AbortSignal`:
+`session.run(prompt, { signal: AbortSignal.timeout(60_000) })`. A queued turn
+is taken back, a running one is cancelled, and `run` rejects with the signal's
+reason once the turn has ended.
+
+### 5. Read a turn as it streams
+
+To show the answer while it is still being written, send the turn yourself
+and read its items:
 
 ```ts
-const ack = await msp.connection.command(
-  "turn/start",
-  { sessionId, input: [{ type: "text", text: "Reply with the single word: hello" }] },
-  { maxAttempts: 1 },
-);
-// ack.status === "accepted", ack.disposition === "started", ack.turnId
+const turn = await session.sendUserTurn({ input: [{ type: "text", text: prompt }] });
+for await (const item of turn.items()) {
+  // render each item: the prompt, tool calls, the agent's messages
+}
+const outcome = await turn.completed;
 ```
 
-The ack means the turn was admitted, not finished. The answer arrives as
-notifications:
+`turn.items()` replays what the session already holds for the turn, then
+follows it live, and ends when the turn ends. `turn.deltas()` is the live
+text as it arrives. A turn can hold several agent messages, each labelled
+with a `messagePhase`: `"commentary"` while it works, then the final answer.
+`turn.completed` always settles, so an awaited turn cannot hang on a host
+that went away.
 
-| notification     | what it means                                   |
-| ---------------- | ----------------------------------------------- |
-| `turn/started`   | the turn is running                              |
-| `item/started`   | a new item (e.g. the agent's message) has begun  |
-| `item/delta`     | more text for that item                          |
-| `item/completed` | that item is final                               |
-| `turn/completed` | the turn is over; `terminal` says how it ended   |
+### 6. Answer a permission request
 
-Accumulate `item/delta` for live output, and treat the `item/completed` text
-as authoritative. `turn/completed.terminal` is `"completed"`, `"cancelled"` or
-`"failed"`; on `"failed"` the notification carries `error` (`kind`,
-`message`, `retryable`) and usually a display-only `reason`, except a turn the
-host died during, which carries `reason` and no `error`.
-
-### 5. Answer a permission request
-
-When the agent wants to do something that needs your consent, the host pushes
-`approval/requested`. Answer it:
+When the agent wants to do something that needs your consent, the session
+calls your handler. Register it before you send the turn:
 
 ```ts
-const decided = await msp.connection.command(
-  "approval/decide",
-  {
-    sessionId,
-    approvalId,
-    requirementId: { approvalId, sourceIndex: 0 },
-    choiceId: "allow_once",
-    feedback: null,
-  },
-  { maxAttempts: 1 },
-);
-// decided.terminal === true
+session.onApproval(() => ({ choiceId: "allow_once" }));
 ```
 
-`approval/resolved` follows, naming the same `approvalId`. The turn then
-continues.
+The choices are offered by the host on the request
+(`request.availableChoices`); a choice the request did not offer is refused
+and reported to `session.onApprovalError` instead of being sent. The approval
+is settled when the host's `approval/resolved` arrives, which the session
+records in `session.fold.resolvedApprovals()`. The turn then continues.
 
-### 6. Cancel a running turn
+### 7. Cancel a running turn
 
 ```ts
-await msp.connection.command("turn/cancel", { sessionId, turnId }, { maxAttempts: 1 });
+await turn.cancel();
+const outcome = await turn.completed;
+// outcome.params.terminal === "cancelled"
 ```
 
-Cancellation is not instant and it is not an error. Wait for
-`turn/completed`; its `terminal` will be `"cancelled"`.
+Cancellation is not instant and it is not an error. `cancel()` only asks;
+the turn is over when `turn.completed` settles, with the terminal
+`"cancelled"`. `turn.interrupt()` is the stop button's version of the same
+request.
 
-### 7. Shut the host down cleanly
+### 8. Shut the host down cleanly
 
 ```ts
-const exit = await msp.close();   // { code: 0, signal: null }
+await client.close();
+const exit = await client.exit;   // { kind: "cleanShutdown" }
 ```
 
 `close()` closes stdin, and the host drains and exits. The session's writer
 lease is released with it — which is what lets a later process load the same
 session.
 
-### 8. Reload the session in a new process
+### 9. Reload the session in a new process
 
-Spawn and handshake exactly as before, then:
+Spawn exactly as before, then:
 
 ```ts
-const resumed = await msp.connection.command(
-  "session/resume",
-  { sessionId, excludeItems: false },
-  { maxAttempts: 1 },
-);
+const resumed = await client.resumeSession({ sessionId, excludeItems: false });
 ```
 
-You get back:
+The host's reply is on `resumed.opening.result`:
 
-- `resumed.session` — the same `sessionId`, its `workspaceRoot`, `status`,
+- `session` — the same `sessionId`, its `workspaceRoot`, `status`,
   `turnCount`, `providerId` and `modelId`.
-- `resumed.viewCursor` — where the session now is.
-- `resumed.history` — with `excludeItems: false` this is
+- `viewCursor` — where the session now is.
+- `history` — with `excludeItems: false` this is
   `{ mode: "inline", items: [...] }`: the conversation so far.
-- `resumed.pendingRequests` — approvals and questions still waiting for you.
+- `pendingRequests` — approvals and questions still waiting for you. Pass
+  `onApproval` to `resumeSession` itself so a waiting approval reaches your
+  handler.
 
 Pass `cursor` instead to resume from a specific point.
 
-### 9. Shut down again
+### 10. Shut down again
 
 Same `close()`. Same clean exit.
 
@@ -227,7 +217,7 @@ MUSE_BIN=$(command -v muse) npm run journey:test --workspace @muse-code/sdk-quic
 ```
 
 `journey:test` never skips itself. If `MUSE_BIN` is missing it fails and tells
-you the build command, because an acceptance artifact that quietly skips reads
+you how to point `MUSE_BIN` at a `muse` binary, because an acceptance artifact that quietly skips reads
 as proof and is not proof. It runs in the provider-configured mode, so it needs
 no credentials either — the same loopback endpoint, started and torn down by
 the test.
@@ -275,7 +265,7 @@ client against `muse serve` as a supported command.
 | ------------------- | ------------------------------------------------------ |
 | `src/journey.ts`    | the twelve segments, with every assertion, plus the two run modes |
 | `src/provider.ts`   | the loopback fake first-party endpoint and the `HOME` that points the host at it — the TypeScript twin of the host's `FakeMetaEndpoint` test helper |
-| `src/host.ts`       | spawning, the notification recorder, bounded waits — re-exported from the shared kit in `clients/sdk-cookbook/src/kit/` |
+| `src/host.ts`       | the isolated host environment, bounded waits and typed readers — re-exported from the shared kit in `clients/sdk-cookbook/src/kit/` |
 | `src/segments.ts`   | the expect-block contract — re-exported from the same shared kit |
 | `src/main.ts`       | the command-line runner                                 |
 | `test/journey.test.ts`  | the acceptance run                                  |

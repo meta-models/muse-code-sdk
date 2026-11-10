@@ -3,7 +3,10 @@
  * INV-008/INV-009.
  *
  * Three pins that must not drift:
- *  - the schema fingerprint against `schema/msp/stable/manifest.json`;
+ *  - the schema fingerprint: well-formed AND equal to the port's derivation
+ *    over the live stable schema bytes (ADR 77546 D4: the value derives at
+ *    build; the receipt-pins gate proves the committed source carries the
+ *    hook and no literal);
  *  - the TypeScript version against `scripts/check-msp-ts-typecheck.sh`;
  *  - zero runtime dependencies in both workspace packages.
  * Plus the no-copy rule: no vendored `msp.d.ts` under `clients/`.
@@ -11,6 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,31 +28,85 @@ import {
 /** `dist/test/` -> `dist/` -> `clients/sdk-ts/` -> `clients/` -> project root. */
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..", "..", "..", "..");
+/** `dist/test/` -> `dist/` -> `clients/sdk-ts/`. */
+const packageRoot = join(here, "..", "..");
 
 function read(relative: string): string {
   return readFileSync(join(projectRoot, relative), "utf8");
 }
 
-test("the pinned fingerprint equals the stable schema manifest", () => {
-  const manifest = JSON.parse(read("schema/msp/stable/manifest.json")) as {
-    fingerprint: string;
-  };
-  assert.equal(
+/** Run the derivation port's CLI once; the file-arg path (the vector suite covers stdin). */
+function deriveStableOverSchema(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        join(packageRoot, "scripts", "msp-fingerprint.mjs"),
+        "stable",
+        join(projectRoot, "schema", "msp", "stable", "msp.schema.json"),
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`the derivation port refused the live stable schema: ${stderr.trim()}`));
+      } else {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
+
+test("the pinned fingerprint is a well-formed fingerprint", () => {
+  // #77546: no committed copy of the fingerprint remains — the value
+  // derives at build from the schema bytes. This arm keeps the cheap local
+  // half: the derived value is a well-formed fingerprint, and the
+  // mismatch message names the remedy.
+  assert.match(
     EXPECTED_SCHEMA_FINGERPRINT,
-    manifest.fingerprint,
-    fingerprintMismatchMessage(EXPECTED_SCHEMA_FINGERPRINT, manifest.fingerprint),
+    /^sha256:[0-9a-f]{64}$/,
+    "EXPECTED_SCHEMA_FINGERPRINT is malformed; rebuild via `npm run build`",
+  );
+  const message = fingerprintMismatchMessage(
+    EXPECTED_SCHEMA_FINGERPRINT,
+    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  );
+  assert.ok(
+    message.includes(EXPECTED_SCHEMA_FINGERPRINT),
+    "the mismatch message must name the pin",
   );
 });
 
-test("a fingerprint mismatch says re-pin, not 'the SDK is broken'", () => {
+test("the built fingerprint equals the derivation over the live stable schema", async () => {
+  // The stamp-freshness proof: the value the build stamped is exactly what
+  // the port derives from the schema bytes in this tree. A stale `dist/`
+  // (built, then the schema advanced without rebuilding) fails here — the
+  // same staleness-is-never-silent promise the old manifest test kept.
+  assert.equal(
+    EXPECTED_SCHEMA_FINGERPRINT,
+    await deriveStableOverSchema(),
+    "the stamped value drifted from the live stable schema bytes; rebuild",
+  );
+});
+
+test("a fingerprint mismatch says rebuild, not 'the SDK is broken'", () => {
   const message = fingerprintMismatchMessage("sha256:aaa", "sha256:bbb");
   assert.ok(
-    message.includes("re-pin after a schema advance"),
+    message.includes("rebuild after a schema advance"),
     "the message must name the remedy",
   );
   assert.ok(
-    message.includes("scripts/regen-msp-pins.sh"),
-    "the remedy is the one regeneration command (#20521 FR-008), never a hand edit",
+    message.includes("npm run build"),
+    "the remedy is the one build command, never a hand edit",
   );
   assert.ok(
     !message.includes("by updating"),
@@ -59,6 +117,18 @@ test("a fingerprint mismatch says re-pin, not 'the SDK is broken'", () => {
     "the message must rule out the wrong reading that has cost lanes time",
   );
   assert.ok(message.includes("sha256:aaa") && message.includes("sha256:bbb"));
+});
+
+test("the stamped module is gitignored, never committed", () => {
+  // The stamp output carries the derived value: committing it would
+  // reintroduce exactly the content pin the stamp exists to remove (one
+  // shared line every schema advance rewrites). The ignore entry is the
+  // guard; this arm fails if it is ever dropped.
+  const gitignore = read(".gitignore");
+  assert.ok(
+    gitignore.split("\n").some((line) => line.trim() === "/clients/sdk-ts/src/fingerprint.stamped.ts"),
+    "the stamped module must stay gitignored",
+  );
 });
 
 test("a served fingerprint mismatch warns and never throws (SS1.4.1)", () => {

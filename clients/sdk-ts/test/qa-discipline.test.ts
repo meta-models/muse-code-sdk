@@ -96,7 +96,7 @@ test("QA-TEST-005: two-track filing routes violations and gaps differently", () 
 test("QA-TEST-005b: the report states verdicts and the facade-vs-binary split", () => {
   assert.ok(SPEC_BOUND_CHECK !== undefined);
   const report = buildReport({
-    binaryPath: "/tmp/tbh",
+    binaryPath: "/tmp/muse",
     binaryVersion: "0.0.0-test",
     scenarios: [
       { id: "S1", title: "handshake", verdict: "pass", findings: [] },
