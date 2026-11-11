@@ -100,7 +100,7 @@
 <td><code dir="auto">string</code></td>
 <td>Experimental</td>
 <td>required</td>
-<td>The batch’s meaning (ADR 26387-SRL D14.1, ADR 61595 D3.2): the <code dir="auto">sha256-v1:&lt;hex&gt;</code> digest of its own records. The store’s idempotency key is source plus meaning. Every batch is named by its own records, each part of a split transaction included, the last one too.</td>
+<td>The batch’s meaning (owner D170, ADR 61595 D3.4): <code dir="auto">v1-&lt;sequence&gt;-&lt;event_id&gt;</code> of its own last record, each part of a split transaction by its own last record. The store keeps no meaning index: it finds the record at that sequence and compares a resend record by record. <code dir="auto">sha256-v1:&lt;hex&gt;</code> is deprecated but still accepted.</td>
 </tr>
 <tr>
 <td><code dir="auto">records</code></td>
