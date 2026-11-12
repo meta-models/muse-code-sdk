@@ -102,6 +102,13 @@
 <td>The session’s client-supplied shell prefix allow-rules: <code dir="auto">{argvPrefix}</code> objects in the <code dir="auto">ShellPrefixSuggestion.argv_prefix</code> shape. Omitted means no client rules. Explicit <code dir="auto">null</code> is invalid params; an empty array is an explicit empty set. Until the served-handler slice, a host refuses any spelled <code dir="auto">approvalRules</code> on <code dir="auto">session/start</code>/<code dir="auto">fork</code>/<code dir="auto">resume</code> with <code dir="auto">-32602</code>; clients omit it. <strong>Experimental</strong> (<code dir="auto">session/start.approvalRules</code>).</td>
 </tr>
 <tr>
+<td><code dir="auto">clear</code></td>
+<td><code dir="auto">boolean</code></td>
+<td></td>
+<td>optional</td>
+<td>Marks this start as a <code dir="auto">/clear</code>: <code dir="auto">true</code> starts the new session as a clear, so its <code dir="auto">SessionStart</code> hooks get source <code dir="auto">clear</code> instead of <code dir="auto">startup</code>. <code dir="auto">false</code> and omitted are the same plain start (source <code dir="auto">startup</code>). It neither needs nor implies <code dir="auto">previousSessionId</code>. Explicit <code dir="auto">null</code> is invalid params.</td>
+</tr>
+<tr>
 <td><code dir="auto">commandId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>

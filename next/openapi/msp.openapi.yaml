@@ -7354,6 +7354,9 @@ components:
             - "$ref": "#/components/schemas/ApprovalMode"
             - type: "null"
           description: "The session's starting approval mode; server default when omitted or\nexplicit `null` — both spellings select the default.\nSelect, never create — the value names a mode the host's configuration\nalready defines. This is the only surface that\ndeclares a non-interactive run's policy."
+        clear:
+          description: "Marks this start as a `/clear`: `true` starts the new session as a clear, so its\n`SessionStart` hooks get source `clear` instead of `startup`. `false`\nand omitted are the same plain start (source `startup`). It neither\nneeds nor implies `previousSessionId`. Explicit `null` is invalid params."
+          type: boolean
         commandId:
           description: "The idempotency handle (UUIDv7). Required; the server never\nmints one."
           type: string
