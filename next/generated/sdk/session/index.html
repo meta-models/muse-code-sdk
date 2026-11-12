@@ -382,7 +382,7 @@ and <code dir="auto">onApproval</code> to answer permission requests.</p>
 <td><code dir="auto">submitFeedback</code></td>
 <td><code dir="auto">submitFeedback(input: Omit&lt;FeedbackSubmitParams, "sessionId"&gt;): Promise&lt;FeedbackSubmitResult&gt;</code></td>
 <td></td>
-<td>Submit feedback about this session (<code dir="auto">feedback/submit</code>). The host serves it only when the spawn requested the <code dir="auto">feedback</code> capability (<code dir="auto">requestedCapabilities: ["feedback"]</code>) and install policy allows it; without that grant the host refuses the command.</td>
+<td>Submit feedback about this session (<code dir="auto">feedback/submit</code>). The host serves it only when the spawn requested the <code dir="auto">feedback</code> capability (<code dir="auto">requestedCapabilities: ["feedback"]</code>) and install policy allows it; without that grant the host refuses the call. Its wire params define no <code dir="auto">commandId</code> (each call is one submit; the wire contract attaches no dedup), so it rides <code dir="auto">request()</code> and mints none.</td>
 </tr>
 <tr>
 <td><code dir="auto">turn</code></td>
