@@ -100,7 +100,14 @@
 <td><code dir="auto">string</code></td>
 <td>Experimental</td>
 <td>required</td>
-<td>The meaning of the batch to observe (ADR 61595 D3.2).</td>
+<td>The meaning of the batch to observe: <code dir="auto">v1-&lt;sequence&gt;-&lt;event_id&gt;</code> of its last record (owner D170); any other meaning is answered <code dir="auto">unknown</code>.</td>
+</tr>
+<tr>
+<td><code dir="auto">owner</code></td>
+<td><code dir="auto">integer</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The writer’s admitted owner, always the in-doubt commit’s own (owner D170 addendum, D177, D180: a writer observes only its own commits); the store refuses a stale one with the conditions error. Absent: answered as before. Must become required before any writer with derived ids lands.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
