@@ -199,6 +199,13 @@
 <td>optional</td>
 <td>The resumed session’s runtime workspace-root set, with <code dir="auto">session/start.workspaceRoots</code>’s rules (the first root is the working directory; explicit <code dir="auto">null</code> is invalid params). Present, it relocates the session and later resumes keep it; omitted, the latest recorded set (ADR 37313 D4). <strong>Experimental</strong> (<code dir="auto">session/resume.workspaceRoots</code>).</td>
 </tr>
+<tr>
+<td><code dir="auto">worktree</code></td>
+<td><a href="../../types/worktreestartrequest/">WorktreeStartRequest</a></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The <code dir="auto">session/start.worktree</code> ask on a resume (ADR 95570 D1): a resume that loads a session whose log records no worktree creates or attaches it as a start does and runs the session there. A session whose log records a worktree keeps reattaching it, and an attach ignores the member. <strong>Experimental</strong> (<code dir="auto">session/resume.worktree</code>; unopted callers are refused <code dir="auto">-32602</code>). Absent means no worktree ask.</td>
+</tr>
 </tbody>
 </table>
 <details>
