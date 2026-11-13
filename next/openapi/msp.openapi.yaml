@@ -6189,6 +6189,9 @@ components:
     SchemaInfo:
       description: "The `schema` pair in [`InitializeResult`]. `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all."
       properties:
+        compatibilityEpoch:
+          description: "The host's declared compatibility epoch: the count of declared non-additive\nadvances of the stable surface. A client reads a `fingerprint`\nmismatch by comparing this with its own pin: equal, every difference\nis additive; different, a declared non-additive advance lies between.\nAdditive-optional: a host that predates the member omits it, and\nthe reader treats absence as unknown, never a guessed value."
+          type: integer
         experimentalFingerprint:
           description: "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value."
           pattern: "^sha256:[0-9a-f]{64}$"
