@@ -12,6 +12,7 @@ pub use super::item_subagent_workflow::SubagentControlStatus;
 pub use super::item_subagent_workflow::SubagentResult;
 pub use super::item_subagent_workflow::WorkflowChild;
 pub use super::item_subagent_workflow::WorkflowTokenBudget;
+pub use super::item_subagent_workflow::WorkspacePlacement;
 pub use crate::msp::view::subagent_input_phase::SubagentInputPhase;
 pub use crate::msp::view::subagent_result_status::SubagentResultStatus;
 use serde::Deserialize;

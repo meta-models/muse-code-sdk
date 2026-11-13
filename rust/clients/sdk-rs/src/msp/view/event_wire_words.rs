@@ -59,6 +59,8 @@ impl TurnErrorKind {
             Self::LaunchError => "launchError",
             Self::AuthRequired => "authRequired",
             Self::McpLinkError => "mcpLinkError",
+            Self::ReasoningReplayRefused => "reasoningReplayRefused",
+            Self::ContextOverflow => "contextOverflow",
             Self::Unknown(value) => value,
         }
     }
@@ -90,6 +92,8 @@ impl<'de> Deserialize<'de> for TurnErrorKind {
             "launchError" => Self::LaunchError,
             "authRequired" => Self::AuthRequired,
             "mcpLinkError" => Self::McpLinkError,
+            "reasoningReplayRefused" => Self::ReasoningReplayRefused,
+            "contextOverflow" => Self::ContextOverflow,
             _ => Self::Unknown(value),
         })
     }

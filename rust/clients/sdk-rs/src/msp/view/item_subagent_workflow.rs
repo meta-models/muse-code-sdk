@@ -32,6 +32,22 @@ pub enum SubagentControlStatus {
     Unknown(String),
 }
 
+/// A subagent child's workspace placement: `shared` when the spawn requested no
+/// worktree isolation, `isolated` when it did. Open; unknown values read as
+/// unknown. Experimental.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WorkspacePlacement {
+    /// The child shares its parent's workspace.
+    Shared,
+    /// The child runs in its own worktree.
+    Isolated,
+    /// A value from a newer host, kept verbatim so an older client decodes the
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
+    Unknown(String),
+}
+
 /// A subagent's result envelope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +78,13 @@ pub struct SubagentResult {
     /// before the kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drained: Option<bool>,
+    /// `true` once a newer attempt of the child started after this result: the
+    /// result stays, and a client takes the child's status from
+    /// `controlStatus`. Absent, it asserts nothing (a host before this member,
+    /// or a fold state saved before it, never sets it); a newer result replaces
+    /// the whole result, so it carries no mark.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub superseded: Option<bool>,
 }
 
 /// One workflow child's folded state, keyed by `(childId, attempt)`.

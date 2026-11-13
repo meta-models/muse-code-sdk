@@ -87,6 +87,12 @@ pub struct SchemaInfo {
     /// `sha256:<64 lower hex>` content hash of this server binary's
     /// stable-surface bundle. A mismatch is a warning condition, not an error.
     pub fingerprint: String,
+    /// `sha256:<64 lower hex>` content hash of this server binary's
+    /// experimental-surface bundle. Additive-optional: a host that predates the
+    /// member omits it, and the reader treats absence as unknown — never a
+    /// guessed value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experimental_fingerprint: Option<String>,
 }
 
 /// The server runtime's platform family; may differ from the client's. Closed:

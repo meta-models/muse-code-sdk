@@ -210,7 +210,8 @@ echo ""
 # Vendored schema bytes. A crate whose build derives the fingerprint
 # through a build script needs the release schema bytes under its `build/`
 # directory: the packaged crate carries them, so a crates.io build derives
-# without the producing tree. The bytes are never committed (.gitignore);
+# without the producing tree. The bytes are never committed (.gitignore
+# here; in the mirror they stay untracked, and gate 1 vouches for them);
 # a run vendors them from the live bundle when they are missing and reuses
 # a present copy otherwise. A crate without a build script skips this
 # entirely.
@@ -224,7 +225,13 @@ if [[ -f "$CRATE_DIR/$BUILD_SCRIPT_FILENAME" ]]; then
     note "reusing the vendored release schema bytes under build/"
   else
     step "vendor: release schema bytes"
+    # This repository keeps the schema under the script's root. The mirror
+    # carries schema/msp/stable verbatim at its root, beside rust/ where this
+    # script lives, and marks that root with its anchor (#96435).
     SCHEMA_SOURCE="$REPO_ROOT/schema/msp/stable/msp.schema.json"
+    if [[ ! -f "$SCHEMA_SOURCE" && -f "$(dirname "$REPO_ROOT")/publish-anchor.json" ]]; then
+      SCHEMA_SOURCE="$(dirname "$REPO_ROOT")/schema/msp/stable/msp.schema.json"
+    fi
     [[ -f "$SCHEMA_SOURCE" ]] ||
       die "the crate derives its fingerprint at build time but no schema bytes exist to vendor (looked for $SCHEMA_SOURCE); a release must provide them"
     mkdir -p "$CRATE_DIR/build" ||
@@ -246,13 +253,29 @@ ANCHOR_COMMIT=""
 TREE_CLEAN=""
 if git -C "$CRATE_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   ANCHOR_COMMIT="$(git -C "$CRATE_DIR" rev-parse HEAD)"
-  if [[ -n "$(git -C "$CRATE_DIR" status --porcelain -- . 2>/dev/null)" ]]; then
+  # Bytes this run vendored are never committed (ADR 77546 D4), so the
+  # anchor vouches for their source instead, and cargo, which counts any
+  # packaged untracked file as dirty, is told to accept them.
+  ANCHOR_EXCLUDE=()
+  if [[ -n "$VENDORED_BY_US" ]]; then
+    ANCHOR_EXCLUDE=(":(exclude)build/msp.schema.json")
+    if [[ "$MODE" == "publish" ]]; then
+      { git -C "$CRATE_DIR" ls-files --error-unmatch -- "$SCHEMA_SOURCE" >/dev/null 2>&1 &&
+        git -C "$CRATE_DIR" diff --quiet HEAD -- "$SCHEMA_SOURCE"; } ||
+        die "the vendored schema source $SCHEMA_SOURCE is not committed unchanged at the anchor; a publish must name a commit that actually contains what it ships"
+      DIRTY_FLAG=(--allow-dirty)
+    fi
+  fi
+  if [[ -n "$(git -C "$CRATE_DIR" status --porcelain -- . ${ANCHOR_EXCLUDE[@]+"${ANCHOR_EXCLUDE[@]}"} 2>/dev/null)" ]]; then
     [[ "$MODE" == "publish" ]] &&
       die "the crate tree has uncommitted changes; a publish must name a commit that actually contains what it ships"
     ok "anchor $ANCHOR_COMMIT (tree dirty — tolerated in build-only, fatal for --publish)"
   else
     TREE_CLEAN=1
     ok "anchor $ANCHOR_COMMIT, crate tree clean"
+    if [[ "$MODE" == "publish" && -n "$VENDORED_BY_US" ]]; then
+      ok "the vendored schema bytes come from $SCHEMA_SOURCE, committed unchanged at the anchor"
+    fi
   fi
 else
   [[ "$MODE" == "publish" ]] && die "not a git checkout; refusing to publish an unanchored tree"
@@ -484,5 +507,5 @@ if [[ "$MODE" == "build-only" ]]; then
 fi
 
 step "publish: $NAME $VERSION to crates.io"
-"$CARGO" publish --manifest-path "$MANIFEST" || die "cargo publish failed (output above)"
+"$CARGO" publish ${DIRTY_FLAG[@]+"${DIRTY_FLAG[@]}"} --manifest-path "$MANIFEST" || die "cargo publish failed (output above)"
 ok "published $NAME $VERSION"

@@ -19,6 +19,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import (
     Any,
+    AsyncIterator,
     Awaitable,
     Callable,
     Generic,
@@ -136,7 +137,7 @@ from .host_death import (
     survives_host_death,
 )
 from .run import RunInput, RunResult, input_parts, run_turn
-from .turn_handle import Turn, TurnHandle, TurnUnqueueOutcome
+from .turn_handle import FoldedItem, Turn, TurnHandle, TurnUnqueueOutcome, _PushStream
 from .turn_submit import SendUserTurnOptions, SteerTurnOptions, TurnSubmitter
 
 _I = TypeVar("_I")
@@ -426,6 +427,35 @@ class SessionApplyOutcome(Generic[_I]):
     io: Awaitable[tuple[PendingRetirement[_I], ...]]
 
 
+ViewFrame = WireFrame
+"""One inbound frame as a session applies it: a view notification, a frame a
+gap fill spliced in from a page, or the frame a re-sent server request is
+folded as (``approval/request`` as itself, ``userInput/request`` as its
+``userInput/requested`` twin)."""
+
+
+@dataclass(frozen=True)
+class SessionEvent(Generic[_I]):
+    """One event a session folded, as :meth:`Session.events` yields it: the
+    event and what folding it changed, self-contained because the loop body
+    may run after later events folded. Optional attributes
+    may be added; a consumer reads the ones it knows.
+
+    Attributes:
+        frame: The protocol event, as the session applied it.
+        outcome: What it changed: the value :meth:`Session.apply` returned for
+            a live event. An event a gap fill spliced in carries its fold
+            result and no retirements or I/O of its own: those settle on the
+            ``view/gap`` event's ``io``.
+        item: For an item event that changed the item, the item as it stood
+            after this event; otherwise ``None``.
+    """
+
+    frame: ViewFrame
+    outcome: SessionApplyOutcome[_I]
+    item: FoldedItem | None = None
+
+
 
 def _reason(reason: str | None) -> WireParams:
     # Optional means omitted, never null.
@@ -559,7 +589,7 @@ class Session(Generic[_I]):
                 session_id=session_id,
                 connection=connection,
                 fold=self._fold,
-                apply=self._fold_and_route,
+                apply=self._spliced,
                 discarded=lambda: (
                     self._discharge is not None
                     and self._discharge.kind == "discharged"
@@ -567,6 +597,8 @@ class Session(Generic[_I]):
             )
         )
         self._turns: dict[str, TurnHandle[_I]] = {}
+        # The live ``events()`` streams, fed by every folded event.
+        self._event_streams: set[_PushStream[SessionEvent[_I]]] = set()
         # The wire half of every turn handle's control verbs.
         self._turn_controls: _SessionTurnControls[_I] = _SessionTurnControls(self)
         # ``item/delta`` frames whose item the fold does not hold yet: the
@@ -639,6 +671,63 @@ class Session(Generic[_I]):
         Raises:
             MuseForeignSessionError: The frame names a different session.
         """
+        outcome = self._apply_live(event)
+        # A frame held for a fill is yielded when the fill splices it in.
+        if not isinstance(outcome.fold, SessionGapBuffered):
+            self._emit(event, outcome)
+        return outcome
+
+    def events(self) -> AsyncIterator[SessionEvent[_I]]:
+        """Every event this session folds from now on, with what it changed.
+
+        Live from the call, never replayed: read :attr:`fold`, then call this
+        before the next ``await``, and nothing is missed, including the events
+        folded while ``start_session``/``resume_session`` was in flight. Each
+        folded event is yielded once, in arrival order; the events a gap fill
+        splices in are yielded when applied, in order. Buffered like
+        ``turn.items()``, so a slow reader never holds folding up.
+
+        Close it with ``aclose()`` (``contextlib.aclosing`` around an
+        ``async for`` that may ``break``). It finishes the way a turn's
+        ``items()`` does when the host dies: it ends after an ephemeral host's
+        death, and raises :class:`~muse_code.errors.MuseHostDiedError` after a
+        durable one's, once the events it already buffered are read.
+        """
+        stream: _PushStream[SessionEvent[_I]] = _PushStream(
+            lambda: self._event_streams.discard(stream)
+        )
+        if self._death_error is not None:
+            stream.fail(self._death_error)
+        elif self._discharge is not None and self._discharge.kind == "discharged":
+            stream.end()
+        else:
+            self._event_streams.add(stream)
+        return stream
+
+    def _emit(self, frame: WireFrame, outcome: SessionApplyOutcome[_I]) -> None:
+        # Yield one folded event to every live ``events()`` stream.
+        if not self._event_streams:
+            return
+        fold = outcome.fold
+        # The item as of THIS event: the store keeps one object per revision,
+        # so a later revision folding before the consumer reads cannot change it.
+        item = (
+            cast(FoldedItem, self._fold.items.get(fold.outcome.item_id))
+            if isinstance(fold, ItemFold) and not isinstance(fold.outcome, IgnoredStaleRevision)
+            else None
+        )
+        event = SessionEvent(frame=frame, outcome=outcome, item=item)
+        for stream in tuple(self._event_streams):
+            stream.push(event)
+
+    def _spliced(self, frame: WireFrame, sink: DrainSink[_I]) -> FoldOutcome:
+        # Fold one frame a gap fill splices in, and yield it. Its retirements
+        # and I/O settle on the gap frame's ``io``, so the event carries none.
+        fold = self._fold_and_route(frame, sink)
+        self._emit(frame, SessionApplyOutcome(fold=fold, retirements=(), io=_settled_io([])))
+        return fold
+
+    def _apply_live(self, event: Mapping[str, Any]) -> SessionApplyOutcome[_I]:
         # Only enforce when the frame actually NAMES a session: a newer host's
         # unknown notification reaches this at runtime and the protocol tolerates it
         # losslessly, so an unconditional read would throw on it.
@@ -793,13 +882,16 @@ class Session(Generic[_I]):
             if isinstance(command_id, str):
                 reclaimed = self._pending.observed_reclaim(command_id)
                 if reclaimed is not None:
-                    retirements.append(reclaimed)
-                    # Nobody reads this return under ``MuseClient``, so this
-                    # session's own in-flight unqueue for the turn is where
-                    # it can land.
+                    # Under ``MuseClient`` this session's own in-flight unqueue
+                    # for the turn is where it lands. Held INSTEAD of returned,
+                    # so no outcome, live or spliced into a gap's ``io``,
+                    # carries it a second time.
                     turn_id = str(params["turnId"])
                     if self._apply_results_dropped and turn_id in self._unqueues_in_flight:
+                        self._submit.forget_retired([reclaimed])
                         self._held_reclaims[turn_id] = reclaimed
+                    else:
+                        retirements.append(reclaimed)
         elif method == "approval/requested":
             # The rule's outbound half. Gated on the fold's own verdict: a
             # request the fold IGNORED (a redelivery for an approval already
@@ -914,6 +1006,9 @@ class Session(Generic[_I]):
             self._death_error = died
             for handle in self._turns.values():
                 handle.fail(died)
+            for stream in self._event_streams:
+                stream.fail(died)
+            self._event_streams.clear()
             self._discharge = _DurableDeath(profile=profile, exit=exit_notification)
             return self._discharge
 
@@ -923,6 +1018,9 @@ class Session(Generic[_I]):
         )
         for handle in self._turns.values():
             handle.settle_terminal_unknown()
+        for stream in self._event_streams:
+            stream.end()
+        self._event_streams.clear()
         # the protocol "do not attempt to reattach". ``discard_ephemeral`` already
         # wrote the commandIds into the shared set (it holds it by reference);
         # the sessionId is this layer's to record, because the pending set does
@@ -1149,11 +1247,13 @@ class Session(Generic[_I]):
 
         The session is facade-owned: ``input``'s ``sessionId`` member, if
         present, is always replaced with this session's id. The host
-        serves the command only when the spawn requested the ``feedback``
+        serves the call only when the spawn requested the ``feedback``
         capability and install policy allows it; without that grant the
-        host refuses it.
+        host refuses it. Its wire params define no ``commandId`` (each call
+        is one submit; the wire contract attaches no dedup), so it rides
+        ``request()`` and mints none.
         """
-        ack = await self._require_live_connection("submit_feedback").command(
+        ack = await self._require_live_connection("submit_feedback").request(
             "feedback/submit", {**input, "sessionId": self.session_id}
         )
         return cast(FeedbackSubmitResult, ack)

@@ -493,7 +493,7 @@ async def _resume_rejects_unknown_cursor(context: Context) -> None:
         raise AssertionError("`resume` did not finish")
     session_id = _require_session_id(context)
     # A cursor at an impossible sequence: no host can ever have minted it.
-    impossible = f"v9:{session_id}:999999"
+    impossible = f"v10:{session_id}:999999"
     try:
         await within(
             "the session/resume refusal",
@@ -891,7 +891,7 @@ def _sync_resume_rejects_unknown_cursor(context: SyncContext) -> None:
     session_id = context.session_id
     if client is None or session_id is None:
         raise AssertionError("`resume` did not finish")
-    impossible = f"v9:{session_id}:999999"
+    impossible = f"v10:{session_id}:999999"
     try:
         client.resume_session(
             ResumeSessionOptions(

@@ -100,7 +100,7 @@ export class PermissionProfileNotApplied extends Error {
 }
 
 /** The developer-docs compatibility page the host-discovery error cites. */
-export const COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/compatibility/";
+export const COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/latest/compatibility/";
 
 /**
  * No host binary was given and no executable `muse` is on `PATH` (FR-79107-1).
@@ -124,9 +124,10 @@ export class MuseHostDiscoveryError extends Error {
 }
 
 /**
- * `MuseClient.command` was asked to send a method whose state the facade owns
- * (FR-79107-2). Sending it raw would bypass that state, so it is refused
- * before anything is written; use the facade verb instead.
+ * `MuseClient.command` or `MuseClient.request` was asked to send a method
+ * whose state the facade owns (FR-79107-2). Sending it raw would bypass that
+ * state, so it is refused before anything is written; use the facade verb
+ * instead.
  */
 export class MuseFacadeOwnedMethodError extends Error {
   /** The refused wire method. */
@@ -134,8 +135,8 @@ export class MuseFacadeOwnedMethodError extends Error {
 
   constructor(method: string) {
     super(
-      `${method} is sent by the facade itself and cannot go through MuseClient.command; ` +
-        "use the facade verb that owns it",
+      `${method} is sent by the facade itself and cannot go through ` +
+        "MuseClient.command or MuseClient.request; use the facade verb that owns it",
     );
     this.name = "MuseFacadeOwnedMethodError";
     this.method = method;

@@ -95,6 +95,12 @@ pub enum ItemKind {
     /// origin: `hook`. A client renders `text`, or `fallbackText` when it does
     /// not know the origin, and never synthesizes one.
     SystemNotice,
+    /// One body-completion receipt row: a plain additive the protocol spec
+    /// open-enum value, stable from day one — never strip-armed, since `kind`
+    /// is required (the `AuthRequired` precedent). Single-shot only, status
+    /// `completed`, `revision` 1 — a notice has no progress. `turnId` is the
+    /// delivering turn.
+    BodyCompletion,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

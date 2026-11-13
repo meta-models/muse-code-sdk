@@ -72,6 +72,11 @@ const mirrorTextChecker = resolveCheckerPath(
   join(projectRoot, "scripts", "check-public-mirror-text.py"),
   join(projectRoot, "python", "scripts", "check-public-mirror-text.py"),
 );
+// Single layout: TS paths keep their place in the mirror, so the leak
+// checker sits next to the publish script on both sides.
+const leakChecker = resolveCheckerPath(
+  join(projectRoot, "scripts", "check-sdk-experimental-leak.mjs"),
+);
 const realPackageDir = join(projectRoot, "clients", "sdk-ts");
 
 interface RunResult {
@@ -658,6 +663,62 @@ test("the audience gate fails closed when the checker is missing from the tree",
   );
 });
 
+// ---- the experimental-leak gate arms (FR-97527-5) ---------------------------
+//
+// Gate 7 audits the packed tarball for experimental-only names, derived at
+// check time from the two schema bundles. These arms prove THIS script's
+// wiring: the gate fires in pack-only (so the leak reds the PR, not the
+// publish), fails closed when the checker or the bundles are missing, and
+// names the offending entry. The checker's own matching precision is proven
+// in scripts/tests/check-sdk-experimental-leak.test.mjs; the bundles here
+// are synthetic so no real experimental name appears in this suite.
+
+test("the leak gate refuses a tarball carrying an experimental-only name", () => {
+  const fixture = mirrorFixture(null, {
+    bundles: { experimental: LEAK_EXPERIMENTAL_BUNDLE, stable: LEAK_STABLE_BUNDLE },
+  });
+  mkdirSync(join(fixture.pkg, "dist", "src"), { recursive: true });
+  writeFileSync(join(fixture.pkg, "dist", "src", "leak.js"), `export const leaked = "x/beta";\n`);
+  const result = runMirror(fixture, ["--pack-only"]);
+  assert.notEqual(result.status, 0, "a leaking tarball must fail pack-only");
+  assert.match(
+    result.combined,
+    /x\/beta/,
+    `the refusal must name the entry:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /experimental-only method/,
+    `the refusal must name the leak class:\n${result.combined}`,
+  );
+});
+
+test("the leak gate fails closed when the checker is missing from the tree", () => {
+  // Exactly the shape a republish that drops the closure file would produce.
+  const result = runMirror(mirrorFixture(null, { withLeakChecker: false }), ["--pack-only"]);
+  assert.notEqual(result.status, 0, "a missing checker must fail the run");
+  assert.match(
+    result.combined,
+    /check-sdk-experimental-leak\.mjs is missing/,
+    `the message must name the missing file:\n${result.combined}`,
+  );
+  assert.match(
+    result.combined,
+    /sdk-source-closure\.json/,
+    "the message must point at the closure manifest that carries it",
+  );
+});
+
+test("the leak gate fails closed when the schema bundles are missing", () => {
+  const result = runMirror(mirrorFixture(null, { bundles: "omit" }), ["--pack-only"]);
+  assert.notEqual(result.status, 0, "missing bundles must fail the run");
+  assert.match(
+    result.combined,
+    /stable schema bundle is missing/,
+    `the message must name the missing bundle:\n${result.combined}`,
+  );
+});
+
 test("the script handles no credential at all, so none can leak", () => {
   const source = readFileSync(script, "utf8");
   const code = source.replace(/^\s*#.*$/gm, ""); // comments describe, they do not run
@@ -940,6 +1001,7 @@ test("wired checker constants resolve to the shipped scripts", () => {
   for (const [resolved, name] of [
     [audienceChecker, "check-sdk-py-external-audience.py"],
     [mirrorTextChecker, "check-public-mirror-text.py"],
+    [leakChecker, "check-sdk-experimental-leak.mjs"],
   ] as const) {
     assert.equal(basename(resolved), name);
     assert.ok(isFile(resolved), `${resolved} must exist in this layout`);
@@ -989,12 +1051,42 @@ function v2Anchor(root: string, overrides: Record<string, unknown> = {}): Record
   return { host_version: manifest.version, content_sha256: digest, ...overrides };
 }
 
+/** Synthetic bundles for the leak-gate arms: `x/beta` and `xKind` are experimental-only. */
+const LEAK_STABLE_BUNDLE = {
+  $defs: { ItemKind: { enum: ["stableA"] } },
+  methods: {},
+  notifications: {},
+  requests: {},
+};
+const LEAK_EXPERIMENTAL_BUNDLE = {
+  $defs: {
+    ItemKind: {
+      oneOf: [
+        { enum: ["stableA"], type: "string" },
+        { const: "xKind", type: "string", "x-msp-stability": "experimental" },
+      ],
+    },
+  },
+  methods: {
+    "x/beta": { result: {}, "x-msp-stability": "experimental" },
+  },
+  notifications: {},
+  requests: {},
+};
+
 function mirrorFixture(
   anchor: AnchorBody | null | ((root: string) => AnchorBody),
   {
     withAudienceChecker = true,
     withTextChecker = true,
-  }: { withAudienceChecker?: boolean; withTextChecker?: boolean } = {},
+    withLeakChecker = true,
+    bundles = "real",
+  }: {
+    withAudienceChecker?: boolean;
+    withTextChecker?: boolean;
+    withLeakChecker?: boolean;
+    bundles?: "real" | "omit" | { experimental: unknown; stable: unknown };
+  } = {},
 ): {
   script: string;
   pkg: string;
@@ -1004,6 +1096,28 @@ function mirrorFixture(
   fixtureDirs.push(root);
   mkdirSync(join(root, "scripts"), { recursive: true });
   cpSync(script, join(root, "scripts", "publish-sdk-npm.sh"));
+  if (withLeakChecker) {
+    cpSync(leakChecker, join(root, "scripts", "check-sdk-experimental-leak.mjs"));
+  }
+  if (bundles === "real") {
+    // Both bundles travel in the mirror's closure, so the fixture carries
+    // the real ones at the same layout.
+    for (const [from, to] of [
+      ["schema/msp/stable/msp.schema.json", "schema/msp/stable/msp.schema.json"],
+      ["schema/msp/experimental/msp.schema.json", "schema/msp/experimental/msp.schema.json"],
+    ] as const) {
+      mkdirSync(dirname(join(root, to)), { recursive: true });
+      cpSync(join(projectRoot, from), join(root, to));
+    }
+  } else if (bundles !== "omit") {
+    mkdirSync(join(root, "schema", "msp", "stable"), { recursive: true });
+    mkdirSync(join(root, "schema", "msp", "experimental"), { recursive: true });
+    writeFileSync(join(root, "schema", "msp", "stable", "msp.schema.json"), JSON.stringify(bundles.stable));
+    writeFileSync(
+      join(root, "schema", "msp", "experimental", "msp.schema.json"),
+      JSON.stringify(bundles.experimental),
+    );
+  }
   if (withAudienceChecker) {
     // The mirror carries the shared audience checker under its python/ tree
     // (the Python-closure layout), not next to this script; the fixture

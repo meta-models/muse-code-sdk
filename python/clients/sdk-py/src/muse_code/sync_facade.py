@@ -89,13 +89,16 @@ from .facade.approval import ApprovalFailureHandler, ApprovalHandler
 from .facade.client import (
     MuseClient,
     MuseClientSpawnOptions,
+    NotificationFailureHandler,
+    NotificationObserver,
+    ProtocolErrorObserver,
     ResumeSessionOptions,
     StartSessionOptions,
 )
 from .facade.gap_fill import GapFillFailureHandler
 from .facade.host_death import SessionDurabilityProfile
 from .facade.run import RunInput, RunResult
-from .facade.session import PendingCommandView, Session, SessionFoldView, SessionOpening
+from .facade.session import PendingCommandView, Session, SessionEvent, SessionFoldView, SessionOpening
 from .facade.turn_handle import FoldedItem, Turn, TurnOutcome, TurnUnqueueOutcome
 from .facade.turn_handle import _I as _TurnI
 from .facade.turn_submit import SendUserTurnOptions, SteerTurnOptions
@@ -371,6 +374,39 @@ class SyncMuseClient(Generic[_I]):
             )
         )
 
+    def request(self, method: str, params: Mapping[str, Any] | None = None) -> Params:
+        """Send a wire request the facade does not wrap (blocking twin of
+        ``request``); facade-owned methods raise ``MuseFacadeOwnedMethodError``
+        before anything is written."""
+        return self._runner.run(self._client.request(method, params))
+
+    def on_notification(self, listener: NotificationObserver) -> Callable[[], None]:
+        """Hear every server notification (twin of ``on_notification``). The
+        listener runs on the private loop, so only while a blocking verb is
+        pumping it; returns the unsubscribe function."""
+        return self._client.on_notification(listener)
+
+    def on_notification_error(self, handler: NotificationFailureHandler) -> Callable[[], None]:
+        """Hear what a notification listener raised (twin of
+        ``on_notification_error``); returns the unsubscribe function."""
+        return self._client.on_notification_error(handler)
+
+    def on_protocol_error(self, handler: ProtocolErrorObserver) -> Callable[[], None]:
+        """Hear each framing or correlation violation (twin of
+        ``on_protocol_error``); returns the unsubscribe function."""
+        return self._client.on_protocol_error(handler)
+
+    def wait_closed(self) -> None:
+        """Block until the connection closes for any reason (twin of ``closed``)."""
+        if self._runner._closed:
+            # This wrapper's own close() already ended the connection.
+            return
+
+        async def wait() -> None:
+            await self._client.closed
+
+        self._runner.run(wait())
+
     def wait_exit(self) -> ExitClassification:
         """Block until the owned host exits; its exit-classification row (twin of ``exit``)."""
 
@@ -449,6 +485,14 @@ class SyncSession(Generic[_I]):
         """The pending set's read/safe-drive view; same threading caveat as
         :attr:`fold` — read from the verb-driving thread."""
         return self._session.pending
+
+    def events(self) -> Iterator[SessionEvent[_I]]:
+        """Every event this session folds from now on, iterated synchronously
+        (twin of ``events``): read :attr:`fold`, then call this, and nothing
+        is missed. Iterating pumps the private loop; breaking out (or closing
+        the generator) releases the stream, as :meth:`SyncTurn.items` does.
+        Registration happens AT CALL TIME, like the async twin."""
+        return _drain(self._runner, self._runner.call(self._session.events))
 
     def send_user_turn(self, options: SendUserTurnOptions[_I]) -> "SyncTurn[_I]":
         """Submit a user turn and block for its ack (twin of
@@ -729,23 +773,27 @@ class SyncTurn(Generic[_TurnI]):
         return self._runner.run(self._turn.unqueue())
 
     def _drain(self, source: AsyncIterator[_T]) -> Iterator[_T]:
-        # A plain generator: `for … break` (or an explicit .close()) runs the
-        # finally and deregisters the stream, so a consumer that stops early
-        # does not leave the fan-out buffering into a stream nobody reads —
-        # the sync twin of `contextlib.aclosing`.
-        try:
-            while True:
-                try:
-                    yield self._runner.run(source.__anext__())
-                except StopAsyncIteration:
-                    return
-        finally:
-            aclose = getattr(source, "aclose", None)
-            if callable(aclose):
-                try:
-                    self._runner.run(aclose())
-                except RuntimeError:
-                    # A closed wrapper (or a close racing this release) has
-                    # already torn every stream down with the loop; there is
-                    # nothing left to deregister.
-                    pass
+        return _drain(self._runner, source)
+
+
+def _drain(runner: _LoopRunner, source: AsyncIterator[_T]) -> Iterator[_T]:
+    # A plain generator: `for … break` (or an explicit .close()) runs the
+    # finally and deregisters the stream, so a consumer that stops early
+    # does not leave the fan-out buffering into a stream nobody reads —
+    # the sync twin of `contextlib.aclosing`.
+    try:
+        while True:
+            try:
+                yield runner.run(source.__anext__())
+            except StopAsyncIteration:
+                return
+    finally:
+        aclose = getattr(source, "aclose", None)
+        if callable(aclose):
+            try:
+                runner.run(aclose())
+            except RuntimeError:
+                # A closed wrapper (or a close racing this release) has
+                # already torn every stream down with the loop; there is
+                # nothing left to deregister.
+                pass

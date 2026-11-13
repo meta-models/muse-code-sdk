@@ -10,13 +10,16 @@ use super::session_resume_members::MissingPredecessor;
 use super::session_resume_members::ModelIdRefusal;
 use super::session_resume_members::PendingRequestPointer;
 use crate::msp::method::session::Session;
-use crate::msp::method::snapshot::ViewSnapshot;
-use crate::msp::view::item::Item;
 pub use attachments::RestartReceipt;
+pub use history::HistoryMode;
+pub use history::HistoryNoneReason;
+pub use history::HistoryPreference;
+pub use history::SessionHistory;
 use serde::Deserialize;
 use serde::Serialize;
 
 pub(crate) mod attachments;
+pub(crate) mod history;
 
 /// `session/resume` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +39,26 @@ pub struct SessionResumeParams {
     pub recovery_mode: Option<super::RecoveryMode>,
     /// The session to load.
     pub session_id: String,
+    /// Relocate the resumed session to this folder. Same rules as
+    /// `session/start.workspaceRoot`: absolute, existing, and when
+    /// `workspaceRoots` is also present it names the same folder as
+    /// `workspaceRoots[0]` (canonical forms). The session's durable identity
+    /// does not change; Project Trust is evaluated for the relocated folder.
+    /// Omitted: the recorded root, as today. **Experimental**
+    /// (`session/resume.workspaceRoot`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_root: Option<String>,
+    /// The resumed session's runtime workspace-root set, with
+    /// `session/start.workspaceRoots`'s rules (the first root is the working
+    /// directory; explicit `null` is invalid params). Present, it relocates the
+    /// session and later resumes keep it; omitted, the latest recorded set.
+    /// **Experimental** (`session/resume.workspaceRoots`).
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub workspace_roots: Option<Vec<String>>,
     /// A view cursor previously observed by this client — or an observed
     /// `summarizedThrough` compaction anchor. When it names an event the server
     /// still holds, the server returns only the suffix and `history.mode` is
@@ -154,6 +177,20 @@ pub struct SessionResumeParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub limits: Option<crate::msp::method::limits::SessionLimitsChoice>,
+    /// This resume's auto-recover choice (amendment 26387/68619, owner decision
+    /// G-37): omitted or `true` follows the host's `resume_auto_recover` gate,
+    /// which stays the master switch; `false` holds a crash resume under the
+    /// governing rules and reports `autoRecovery` `refused` with reason
+    /// `optedOut`. Decided for this resume only: it is not saved. Only the
+    /// resume that loads the session reads it; an attach ignores it. Explicit
+    /// `null` is invalid params. **Experimental**
+    /// (`session/resume.autoRecover`).
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auto_recover: Option<bool>,
 }
 
 /// the governing rules explicit continuation object on `session/resume`:
@@ -164,116 +201,6 @@ pub struct SessionResumeParams {
 pub struct ContinuePausedSource {
     /// The loaded source actor to continue.
     pub source_instance_id: String,
-}
-
-/// The `history` request preference of `session/resume`. The forced values
-/// downgrade `anchored` → `inline` → `snapshot` → `none`; under `auto` the full
-/// rung order is anchoredSnapshot → anchored pending cut → inline → snapshot →
-/// pending cut → elided snapshot → elided pending cut → none, a pending cut
-/// being the snapshot with its `monitorInbox` cut to the entries still awaiting
-/// delivery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum HistoryPreference {
-    /// Serve the best rung that fits, anchored first.
-    Auto,
-    /// Prefer the full folded item array.
-    Inline,
-    /// Prefer a folded view state plus suffix.
-    Snapshot,
-    /// Prefer a snapshot anchored at the latest installed compaction boundary.
-    Anchored,
-}
-
-/// The `history` envelope shared by `session/resume`, `session/fork`, and
-/// `session/read`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct SessionHistory {
-    /// What was actually served — never what was asked for.
-    pub mode: HistoryMode,
-    /// The full folded item array when `mode` is `inline`; `null` otherwise.
-    pub items: Option<Vec<Item>>,
-    /// The folded view state when `mode` is `snapshot` or `anchoredSnapshot`;
-    /// `null` otherwise.
-    pub snapshot: Option<ViewSnapshot>,
-    /// Why no history was served — sent exactly when `mode` is `"none"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub none_reason: Option<HistoryNoneReason>,
-    /// The checkpoint-prune boundary: rows for served items at-or-before
-    /// `through_item_id` in served order predate the selected checkpoint.
-    /// Additive-optional; absence is a non-assertion.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint_boundary: Option<CheckpointBoundary>,
-}
-
-/// A served checkpoint-prune boundary: `through_item_id` names the last
-/// first-opened item that opened strictly before the boundary checkpoint event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct CheckpointBoundary {
-    /// The last pre-boundary item's id, in served (first-opened) order.
-    pub through_item_id: String,
-}
-
-/// Why a result served `history.mode: "none"` — the server's typed reason for
-/// serving no history, with one push-only exception: `projectionRebuildFailed`
-/// rides only a `session/viewHealthChanged` notification; no resume or read
-/// result carries it (see its variant doc). Open on the client side: an
-/// absent (older server) or unknown (newer server) value decodes
-/// conservatively as an unknown reason, and `viewCursor` text never
-/// substitutes for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum HistoryNoneReason {
-    /// The request's effective `excludeItems` was `true` (the
-    /// `session/read` default; explicit on resume/fork).
-    Excluded,
-    /// A retained cursor was supplied; the streamed suffix carries the
-    /// history.
-    CursorSuffix,
-    /// Every rung through the elided pending cut exceeded the history budget;
-    /// page via `view/page` from the result's `viewCursor`.
-    HistoryBudget,
-    /// No trustworthy materialized projection exists; paging cannot recover it.
-    ProjectionUnavailable,
-    /// The projection exists but the aggregate materialized read exceeded
-    /// its bounded read cap; page in bounded chunks.
-    ProjectionReadLimit,
-    /// One value is push-only: `projectionRebuildFailed` rides only a
-    /// `session/viewHealthChanged` notification, after the host's one re-load
-    /// of a failed live view fails or right after a fork child's live
-    /// fail-close; no resume or read result carries it. The view stays
-    /// unavailable for this load; never followed by `healthy`.
-    ProjectionRebuildFailed,
-    /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Excluded from the generated schema while the enum
-    /// stays declared open; never construct it with a known word.
-    Unknown(String),
-}
-
-/// What history a lifecycle result actually served. Open on the client side:
-/// report-what-was-served means a client treats an unknown mode as "page it
-/// yourself".
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum HistoryMode {
-    /// `snapshot` holds a folded view state anchored at the latest installed
-    /// compaction boundary; `snapshot.anchor` names it.
-    AnchoredSnapshot,
-    /// `items` is the full folded item array.
-    Inline,
-    /// `snapshot` holds a folded view state at `snapshot.viewCursor`.
-    Snapshot,
-    /// No history was served — page it via `view/page` from the result's
-    /// `viewCursor`.
-    None,
-    /// A value from a newer host, kept verbatim so an older client decodes the
-    /// rest of the message. Excluded from the generated schema while the enum
-    /// stays declared open; never construct it with a known word.
-    Unknown(String),
 }
 
 /// `session/resume` result.
@@ -363,8 +290,32 @@ pub struct SessionResumeResult {
     /// The auto-recover outcome of this resume's own load (amendment
     /// 26387/68619, G-23). **Experimental** (`session/resume.autoRecovery`;
     /// stripped for unopted connections); absent unless the load ran with
-    /// the `resume_auto_recover` gate on and an effective `recoveryMode` of
-    /// ON, so a gate-off host's result is unchanged.
+    /// the `resume_auto_recover` gate on (whatever the session's
+    /// `recoveryMode`, G-37), so a gate-off host's result is unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_recovery: Option<AutoRecovery>,
+    /// What the host did not apply. **Experimental**
+    /// (`session/resume.warnings`). Absent when there is nothing to warn about,
+    /// never an empty array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<super::session_start::SessionLoadWarning>>,
+    /// The built-in tool set this resume runs with, when the request
+    /// spelled `config.allowedBuiltInTools` and the host serves the
+    /// restriction (design kt-2n1z N3): the post-intersection set, `[]`
+    /// when applied-to-empty. Absent = not requested or a pre-feature
+    /// host; an absent echo on a spelled input means unapplied. Declared
+    /// here (P5, kt-kqr8), never filled until the last enforcing piece
+    /// (P8). **Experimental** (`session/resume.appliedBuiltInTools`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_built_in_tools: Option<Vec<String>>,
+    /// The session MCP servers this resume admitted, on the start echo's
+    /// discipline. **Experimental**
+    /// (`session/resume.admittedSessionMcpServers`). Present iff the
+    /// request spelled `config.admitSessionMcpServers` and the admission
+    /// gate is open; the value is the effective admitted set — names
+    /// joined and not withheld, `[]` when applied-to-empty. Absent means
+    /// not requested or a pre-feature host. Never filled before the last
+    /// enforcing piece lands, so no host can read "applied" early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admitted_session_mcp_servers: Option<Vec<String>>,
 }

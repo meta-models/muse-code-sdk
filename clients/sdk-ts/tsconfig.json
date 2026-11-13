@@ -10,17 +10,12 @@
     "declaration": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": false,
     "stripInternal": true
   },
-  "include": ["src/**/*.ts", "qa/**/*.ts", "test/**/*.ts", "test/**/*.d.ts"],
-  // #32029 B-1: disclosed staging, the TypeScript analogue of the Rust tests'
-  // cfg(any()) gate. This test reads config.developerPrompt, which the
-  // stable MSP types (schema/msp/msp.d.ts) do not carry: the member is
-  // experimental (ADR 32029 D38) until the switch PR promotes it to stable,
-  // regenerates the declarations and removes this exclusion.
-  "exclude": ["test/developer-prompt-real-binary.test.ts"]
+  "include": ["src/**/*.ts", "qa/**/*.ts", "test/**/*.ts", "test/**/*.d.ts"]
 }

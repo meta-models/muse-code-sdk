@@ -22,6 +22,8 @@ here rather than on ``Session``:
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 from dataclasses import dataclass, fields
 from typing import (
     Any,
@@ -52,10 +54,17 @@ from muse_code_msp import (
     UsageReadResult,
 )
 
-from ..connection.connection import Connection, MspError, Params, RetryDelay
+from ..connection.connection import (
+    Connection,
+    MspError,
+    Params,
+    ProtocolError,
+    RetryDelay,
+)
 from ..connection.discovery import discover_muse_bin
 from ..connection.spawn import (
     DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    SIGTERM_GRACE_MS,
     ExitClassification,
     MuseServeChild,
     OnStderr,
@@ -71,6 +80,7 @@ from ..errors import (
 from .discarded import DiscardedSessions
 from .host_start import MuseHostStartError, keeps_its_own_error
 from .host_death import (
+    MuseHostDiedError,
     SessionDurabilityProfile,
     TransportEof,
     is_abnormal_host_death,
@@ -82,6 +92,7 @@ from .session import Session, SessionOpening, _ResumeOpening, _StartOpening
 from .turn_submit import _camel
 
 _I = TypeVar("_I")
+_H = TypeVar("_H")
 
 # Every SessionListParams member list_sessions forwards; the wire-query
 # suite asserts this set equals the generated type's members, so a
@@ -95,14 +106,17 @@ LIST_FORWARDED: tuple[str, ...] = (
 )
 
 # The wire methods whose state the facade owns, refused by
-# ``MuseClient.command``: ``initialize`` is the handshake ``spawn`` runs;
-# ``session/start``/``session/resume`` register the ``Session`` the pump routes
-# to; ``turn/start``, ``turn/steer``, ``turn/unqueue``, ``approval/decide`` and
-# ``userInput/answer`` carry the pending-command, approval and answer state
-# their verbs keep (a steer is a pending submission and an accepted unqueue
-# retires its queued entry); ``view/page`` is
-# the gap fill's; and ``view/subscribe``/``view/unsubscribe`` change the
-# subscription set the pump routes by. Same list as the TS twin.
+# ``MuseClient.command`` and ``MuseClient.request``: ``initialize`` is the
+# handshake ``spawn`` runs; ``session/start``/``session/resume`` register the
+# ``Session`` the pump routes to; ``turn/start``, ``turn/steer``,
+# ``turn/unqueue``, ``approval/decide`` and ``userInput/answer`` carry the
+# pending-command, approval and answer state their verbs keep (a steer is a
+# pending submission and an accepted unqueue retires its queued entry);
+# ``view/page`` is the gap fill's; and ``view/subscribe``/``view/unsubscribe`` change the
+# subscription set the pump routes by. ``host/shutdown`` (experimental) is
+# the orderly stop ``close()`` owns: sent raw, the client would report the
+# stop it asked for as a host death. The TS twin lists the stable eleven
+# only: its public build may name no experimental-only method.
 FACADE_OWNED_METHODS: frozenset[str] = frozenset(
     {
         "initialize",
@@ -116,6 +130,7 @@ FACADE_OWNED_METHODS: frozenset[str] = frozenset(
         "view/page",
         "view/subscribe",
         "view/unsubscribe",
+        "host/shutdown",
     }
 )
 
@@ -129,9 +144,9 @@ class StartSessionOptions:
     """Caller-facing options for ``session/start``.
 
     Composed from the generated ``SessionStartParams``. ``commandId`` is
-    excluded because the connection mints it; ``previousSessionId`` because the
-    facade starts root sessions, and ``spawnedBy`` because the facade does not
-    expose a spawner yet.
+    excluded because the connection mints it; ``previousSessionId`` and
+    ``clear`` because the facade starts root sessions, and ``spawnedBy``
+    because the facade does not expose a spawner yet.
     Experimental-only members (``switchPolicy``) are invisible here: the
     exclusion set tracks the stable ``SessionStartParams`` below, and a
     graduation reds the drift assert until the facade forwards or
@@ -233,15 +248,16 @@ class ResumeSessionOptions:
 # every test), so a regenerated member cannot silently fail to reach the wire.
 # The excluded members are the ones the facade owns rather than forwards:
 # `commandId` (the connection is the single minter) and
-# `previousSessionId` (the facade starts root sessions; the predecessor link
-# belongs to a client that switches sessions) and `spawnedBy` (the facade
+# `previousSessionId` and `clear` (the facade starts root sessions; the
+# predecessor link and the `/clear` marker belong to a client that switches
+# sessions) and `spawnedBy` (the facade
 # does not expose a spawner yet). The owned
 # members are options-only posture the wire never carries (client-local
 # `requirePermissionProfile`, the required-selection check): subtracted from
 # the options side, so a regen that adds a same-named wire member reds here.
 # Experimental-only members stay out: this set tracks stable
 # `SessionStartParams`, and a graduation reds the assert below.
-_START_EXCLUDED = {"commandId", "previousSessionId", "spawnedBy"}
+_START_EXCLUDED = {"commandId", "previousSessionId", "clear", "spawnedBy"}
 _START_OWNED = {"requirePermissionProfile"}
 assert (
     {_camel(f.name) for f in fields(StartSessionOptions)} - _START_OWNED
@@ -342,6 +358,18 @@ class MuseClientSpawnOptions:
     shutdown_timeout_ms: int | None = None
 
 
+NotificationObserver = Callable[[Mapping[str, Any]], "None | Awaitable[None]"]
+"""Hears one server notification frame. Read-only at the top level, and do not
+change nested values: the session folds the same frame, possibly after the
+listener runs. An ``async def`` listener is run as a task."""
+
+NotificationFailureHandler = Callable[[Exception, Mapping[str, Any]], "None | Awaitable[None]"]
+"""Hears what an ``on_notification`` listener raised, with the notification it was handed."""
+
+ProtocolErrorObserver = Callable[[ProtocolError], "None | Awaitable[None]"]
+"""Hears one framing or correlation violation the connection detected."""
+
+
 class MuseClient(Generic[_I]):
     """Your entry point to the SDK.
 
@@ -389,7 +417,7 @@ class MuseClient(Generic[_I]):
         # event entry point and ``_connection`` is private, so without this a
         # spawn-built consumer hears no view frame. ``Connection`` holds ONE
         # notification handler — this client claims it.
-        connection.on_notification(self._route)
+        connection.on_notification(self._pump)
         # A question or approval still open when a session is resumed is
         # re-sent as a ``userInput/request`` or ``approval/request`` server
         # request. Each is routed and answered with the empty receipt ``{}``:
@@ -401,6 +429,19 @@ class MuseClient(Generic[_I]):
         # Registered at construction, not at the first session: an EOF can land
         # before any session exists, and the flag has to be read at that moment.
         self._closed_watch = asyncio.ensure_future(self._watch_closed())
+        # A call the connection fails because the host died says how it ended;
+        # read at the EOF, so a close() of ours leaves the bare error.
+        connection._peer_end_cause(self._host_death_cause)
+        # Caller observers, one entry per subscription (keyed by a fresh token,
+        # so a function added twice unsubscribes once per call).
+        self._listeners: dict[object, NotificationObserver] = {}
+        self._notification_failure_handlers: dict[object, NotificationFailureHandler] = {}
+        self._protocol_error_listeners: dict[object, ProtocolErrorObserver] = {}
+        # Claimed on the first ``on_protocol_error``, so a client nobody
+        # observes leaves a handler the caller set on the connection alone.
+        self._protocol_errors_claimed = False
+        # Strong refs to running async observers until they settle.
+        self._observer_tasks: Set["asyncio.Future[Any]"] = set()
 
     @staticmethod
     async def spawn(options: MuseClientSpawnOptions) -> "MuseClient[Any]":
@@ -520,6 +561,64 @@ class MuseClient(Generic[_I]):
     def durability(self) -> SessionDurabilityProfile:
         """The durability profile every session this client opens inherits."""
         return self._durability
+
+    @property
+    def closed(self) -> Awaitable[None]:
+        """Settles when the connection closes for any reason: :meth:`close`,
+        the host hanging up, or a transport failure. Pending while it is live."""
+        return self._connection.closed
+
+    def on_notification(self, listener: NotificationObserver) -> Callable[[], None]:
+        """Hear every server notification frame in wire order, including those
+        naming no session (``usage/changed``, ``account/loginCompleted``) or a
+        session this client did not open.
+
+        A frame naming a session this client has opened reaches the listener
+        after that session has applied it: folded, or, while the session fills
+        a gap, buffered and folded when the fill completes. One that arrives
+        while its session's start/resume is still in flight reaches the
+        listener first, and the session folds it before the verb returns.
+        Re-sent ``approval/request`` / ``userInput/request`` server requests
+        are not notifications and never reach it.
+
+        The frame is read-only: it is the one the session folds, which for a
+        held or buffered frame happens after the listener runs. The listener
+        runs in the connection's read loop, so it must not block;
+        an ``async def`` listener is run as a task. An exception it raises goes
+        to every :meth:`on_notification_error` handler; the other listeners
+        still hear the frame and the connection stays open.
+
+        Returns:
+            A function that removes this one subscription (a function added
+            twice is two subscriptions).
+        """
+        return _subscribe(self._listeners, listener)
+
+    def on_notification_error(self, handler: NotificationFailureHandler) -> Callable[[], None]:
+        """Hear what an :meth:`on_notification` listener raised. With no
+        handler the failure is dropped; either way the pump keeps running. A
+        handler's own failure is swallowed: there is no one left to tell.
+
+        Returns:
+            A function that removes this one subscription.
+        """
+        return _subscribe(self._notification_failure_handlers, handler)
+
+    def on_protocol_error(self, handler: ProtocolErrorObserver) -> Callable[[], None]:
+        """Hear each framing or correlation violation the connection detects
+        (``Connection.on_protocol_error``). A handler's own failure is
+        swallowed rather than ending the connection. The first call takes over
+        ``Connection.on_protocol_error``, replacing a handler set there
+        directly (and a later direct ``connection.on_protocol_error(...)``
+        silences these subscribers).
+
+        Returns:
+            A function that removes this one subscription.
+        """
+        if not self._protocol_errors_claimed:
+            self._protocol_errors_claimed = True
+            self._connection.on_protocol_error(self._protocol_error)
+        return _subscribe(self._protocol_error_listeners, handler)
 
     async def start_session(
         self, options: StartSessionOptions | None = None
@@ -676,15 +775,19 @@ class MuseClient(Generic[_I]):
         max_attempts: int | None = None,
         retry_delay: RetryDelay | None = None,
     ) -> Params:
-        """Send a wire method directly, typically one the facade does not wrap.
+        """Send a wire method directly, typically one the facade does not
+        wrap, experimental ones included.
 
         It rides the same ``Connection.command()`` the verbs use: the
         connection mints the ``commandId``, retries a nothing-admitted refusal
         under the same id, and checks the ack's echo. Frames the command
         causes still reach your sessions through the client's one inbound
         pump; this sends and returns the ack, nothing more. Each call keeps
-        one fixed-size fingerprint for the connection's lifetime, so prefer a
-        facade verb for a query you poll.
+        one fixed-size fingerprint for the connection's lifetime, so prefer
+        ``request`` for a query you poll. An experimental method needs a
+        client spawned with ``capabilities={"experimentalApi": True}``
+        (otherwise the host refuses it with an ``MspError`` of kind
+        ``experimentalRequired``, code -32601) and may change without notice.
 
         Args:
             method: The wire method.
@@ -708,6 +811,33 @@ class MuseClient(Generic[_I]):
             command_id=command_id,
             max_attempts=max_attempts,
             retry_delay=retry_delay,
+        )
+
+    async def request(
+        self, method: str, params: Mapping[str, Any] | None = None
+    ) -> Params:
+        """Send a wire request directly, typically a query the facade does
+        not wrap, experimental ones included.
+
+        It rides ``Connection.request()``: no ``commandId``, no retry, and
+        omitted ``params`` stay off the frame. An experimental method needs
+        the same ``experimentalApi`` opt-in as ``command``.
+
+        Args:
+            method: The wire method.
+            params: Its params, omitted from the frame when ``None``.
+
+        Returns:
+            The host's result.
+
+        Raises:
+            MuseFacadeOwnedMethodError: ``method`` is one whose state the
+                facade owns (``FACADE_OWNED_METHODS``); nothing is written.
+        """
+        if method in FACADE_OWNED_METHODS:
+            raise MuseFacadeOwnedMethodError(method)
+        return await self._connection.request(
+            method, None if params is None else dict(params)
         )
 
     async def close(self) -> None:
@@ -865,6 +995,56 @@ class MuseClient(Generic[_I]):
             }
         )
 
+    def _pump(self, notification: Mapping[str, Any]) -> None:
+        # Sessions first, so a listener reading a session's fold sees the frame.
+        self._route(notification)
+
+        def failed(error: Exception) -> None:
+            for handler in list(self._notification_failure_handlers.values()):
+                self._observe(functools.partial(handler, error, notification), _ignore)
+
+        for listener in list(self._listeners.values()):
+            self._observe(functools.partial(listener, notification), failed)
+
+    def _protocol_error(self, error: ProtocolError) -> None:
+        for handler in list(self._protocol_error_listeners.values()):
+            self._observe(functools.partial(handler, error), _ignore)
+
+    def _observe(
+        self, call: Callable[[], object], on_failure: Callable[[Exception], None]
+    ) -> None:
+        # Neither a caller observer's exception nor an async observer's
+        # failure may escape: in the read loop it would end the connection
+        # every session on this host shares.
+        try:
+            result = call()
+        except Exception as error:  # noqa: BLE001 — routed to the observer
+            on_failure(error)
+            return
+        except BaseException as interrupt:
+            # Not a listener failure (Ctrl-C, sys.exit(), a cancellation):
+            # hand it back to the loop instead of letting the read loop end a
+            # live connection and report the host dead.
+            asyncio.get_running_loop().call_soon(_reraise, interrupt)
+            return
+        if not inspect.isawaitable(result):
+            return
+        task = asyncio.ensure_future(result)
+        self._observer_tasks.add(task)
+
+        def settled(done: "asyncio.Future[Any]") -> None:
+            self._observer_tasks.discard(done)
+            if done.cancelled():
+                return
+            error = done.exception()
+            if isinstance(error, Exception):
+                on_failure(error)
+            elif error is not None and not isinstance(error, (KeyboardInterrupt, SystemExit)):
+                # As on the sync path; asyncio already lets these two out itself.
+                asyncio.get_running_loop().call_soon(_reraise, error)
+
+        task.add_done_callback(settled)
+
     def _route(self, notification: Mapping[str, Any]) -> None:
         # Deliver one view notification to the session(s) it names. A frame
         # naming NO session is dropped here rather than fed to every session
@@ -894,6 +1074,27 @@ class MuseClient(Generic[_I]):
             return
         self._transport_closed()
 
+    def _host_death_cause(self) -> asyncio.Future[BaseException | None] | None:
+        # Waits for the exit at most SIGTERM_GRACE_MS: a host that closed
+        # stdout but keeps running must not hold the failed calls past today's
+        # bare error.
+        child = self._child
+        if self._closing or child is None:
+            return None
+
+        async def read() -> BaseException | None:
+            try:
+                exit_classification = await asyncio.wait_for(
+                    child.exit, SIGTERM_GRACE_MS / 1000
+                )
+            except Exception:
+                return None
+            if is_abnormal_host_death(exit_classification):
+                return MuseHostDiedError(exit_classification)
+            return None
+
+        return asyncio.ensure_future(read())
+
     def _transport_closed(self) -> None:
         # The transport reached EOF. If this client did not cause it, that is
         # the protocol's second death notification, and every
@@ -905,3 +1106,24 @@ class MuseClient(Generic[_I]):
         self._host_died = True
         for session in self._sessions:
             session.host_exited(TransportEof())
+
+
+def _subscribe(registry: "dict[object, _H]", handler: "_H") -> Callable[[], None]:
+    token = object()
+    registry[token] = handler
+
+    def unsubscribe() -> None:
+        registry.pop(token, None)
+
+    return unsubscribe
+
+
+def _ignore(_: Exception) -> None:
+    return None
+
+
+def _reraise(interrupt: BaseException) -> None:
+    # asyncio lets KeyboardInterrupt/SystemExit out of a callback, so those
+    # end the caller's run_until_complete / asyncio.run; any other
+    # BaseException goes to the loop's exception handler.
+    raise interrupt

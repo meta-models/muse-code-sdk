@@ -8,6 +8,8 @@ wrapper for scripts and notebooks.
   one you already run.
 - Stream a turn's items and text deltas as async iterators; await the turn's
   server-authored outcome.
+- Stream what each incoming event changed in a session with
+  `session.events()`, to update a view incrementally.
 - Answer tool-approval requests with a handler you register, or pass it as
   `ResumeSessionOptions(on_approval=...)`, with `on_approval_error=...` for
   its failures, so approvals still pending at resume reach it.
@@ -17,6 +19,9 @@ wrapper for scripts and notebooks.
 - A client-side fold keeps a live, typed view of the session — items, session
   state, pending commands — with gap recovery after reconnects, and safe
   same-command retry that can never double-submit.
+- Observe the connection itself: every notification the host sends (including
+  ones that name no session, such as `usage/changed`), messages the SDK
+  rejects as malformed, and the connection closing.
 - `SyncMuseClient` mirrors the same surface with blocking verbs.
 
 Status: developer preview. Experimental protocol surfaces may change.
@@ -92,6 +97,29 @@ The session itself can `fork`, `compact`, `rename`, and `leave`, and switch its
 model, reasoning effort, or approval mode (`set_model`, `set_reasoning_effort`,
 `set_approval_mode`); `client.list_models()` lists the models it accepts.
 
+To render incrementally, read `session.events()`: every event the session
+folds from then on, with what it changed. Read the current state first, then
+subscribe before the next `await`, and nothing is missed, including the events
+that arrived before `start_session` or `resume_session` returned:
+
+```python
+import contextlib
+
+render_all(session.fold)  # the state so far
+async with contextlib.aclosing(session.events()) as events:
+    async for event in events:
+        # `event.item` is the item as of this event; `session.fold` may be ahead.
+        render(event.frame["method"], event.outcome.fold, event.item)
+```
+
+Each event arrives once, in order, including events the SDK fetches to fill a
+gap in delivery. `aclosing` stops listening when the loop ends or breaks (or
+call `aclose()`). The stream ends when an ephemeral host dies and raises
+`MuseHostDiedError` when a durable one does, as `turn.items()` does. Reading
+it changes nothing else: `turn.unqueue()` still returns the queued input it
+takes back, and that input is not repeated on an event. `SyncSession.events()`
+is the blocking version: `for event in session.events(): ...`.
+
 To run a session and the child agents it starts without approval prompts,
 start it under the built-in `:unrestricted` permission profile. Current
 releases admit every child of such a session without prompts; a child admitted
@@ -132,6 +160,30 @@ pick was applied (seen with Muse Code 1.4.12). Resume has no
 mode, but its child agents are capped by the session's permission profile.
 Under a prompting profile (such as `:ask-me`, whose approval is `on_request`),
 the children still ask.
+
+## Observe the connection
+
+The client routes each event to its session, and also lets you listen to the
+raw feed. Each `on_*` call returns a function that removes that one listener:
+
+```python
+unsubscribe = client.on_notification(
+    lambda notification: print(notification["method"], notification.get("params"))
+)
+client.on_notification_error(lambda error, notification: print("listener failed:", error))
+client.on_protocol_error(lambda error: print("rejected frame:", error.line))
+await client.closed  # resolves when the connection closes, for any reason
+unsubscribe()
+```
+
+A notification for a session you opened reaches your listener after the
+session has applied it, except during a gap fill (the event is folded when
+the fill completes) or while `start_session`/`resume_session` is still running
+(it is folded before the call returns). Listeners run as frames are read, so keep them quick;
+an `async def` listener runs as a task. An exception from a listener goes to
+`on_notification_error` and never disconnects the client. `SyncMuseClient`
+has the same three `on_*` methods (listeners run while a blocking call is in
+progress) and `wait_closed()` in place of `closed`.
 
 ## Documentation
 

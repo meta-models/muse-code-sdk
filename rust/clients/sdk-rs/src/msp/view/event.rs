@@ -378,6 +378,13 @@ pub enum TurnErrorKind {
     /// stopped before contacting the model. A plain stable additive open-enum
     /// value, like `AuthRequired`.
     McpLinkError,
+    /// Earlier hidden reasoning cannot be proven to come from the active model,
+    /// so the run refused to send the conversation. Stable additive, like
+    /// `AuthRequired`.
+    ReasoningReplayRefused,
+    /// The request does not fit the provider window, so the run refused to send
+    /// it. Stable additive, like `AuthRequired`.
+    ContextOverflow,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.

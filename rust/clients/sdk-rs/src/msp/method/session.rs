@@ -6,6 +6,7 @@ pub use super::session_satellites::AttentionFlag;
 pub use super::session_satellites::EffectiveApprovalModeState;
 pub use super::session_satellites::EffectivePermissionState;
 pub use super::session_satellites::ForkProvenance;
+pub use super::session_satellites::NeedsInputReason;
 pub use super::session_satellites::SessionSpawnedBy;
 pub use super::session_satellites::SideProvenance;
 use crate::msp::method::worktree::SessionWorktree;
@@ -53,13 +54,13 @@ pub struct Session {
     /// Load state as this host knows it; `session/list` reports `notLoaded` for
     /// sessions loaded by *other* hosts.
     pub status: SessionStatus,
-    /// The `turnId` of the current foreground turn when `status` is `running`,
-    /// and `null` when the session is idle.
+    /// The `turnId` of the current foreground turn when a turn is in flight
+    /// (parked under `needsInput` included), and `null` otherwise.
     ///
     /// **Required-nullable.** Every served `Session` carries the member: `null`
-    /// when the session is idle or not loaded, the turn id when it is running.
-    /// An optional-absent shape would publish it as plain `string` and reject
-    /// every idle `Session` frame the host sends.
+    /// when no turn is in flight or the session is not loaded, the turn id
+    /// when one is. An optional-absent shape would publish it as plain
+    /// `string` and reject every idle `Session` frame the host sends.
     pub active_turn_id: Option<String>,
     /// RFC3339. For a fork this is the fork session id's UUIDv7 mint instant.
     pub created_at: String,
@@ -91,6 +92,14 @@ pub struct Session {
     /// non-empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<Vec<AttentionFlag>>,
+    /// Why the session's input is needed. **Additive-optional**, present only
+    /// when non-empty; `status` is `needsInput` exactly when this set is
+    /// non-empty (loaded sessions). Absence is a NON-assertion, on the
+    /// `attention` discipline. Loaded sessions only: a `notLoaded` row omits it
+    /// even while its durable pending set is non-empty. **Experimental**:
+    /// stripped per-connection for unopted callers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_input_reasons: Option<Vec<NeedsInputReason>>,
     /// Content-activity recency, RFC3339. **Additive-optional**: omitted when
     /// no content record exists. Never advanced by lifecycle bookkeeping (the
     /// resume marker, re-stamps) or a fork's copied seed-replay records, and

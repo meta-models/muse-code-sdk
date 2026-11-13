@@ -6,6 +6,7 @@ pub use recovery::RecoveryObservation;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
+pub use session_config_mt_providers::SessionEndpointProviders;
 pub use session_read::PrunedSubagent;
 pub use session_resume::HistoryNoneReason;
 pub use session_resume::SessionHistory;
@@ -18,15 +19,18 @@ pub(crate) mod recovery;
 pub(crate) mod runtime_worktree;
 pub(crate) mod runtime_worktree_wire_words;
 pub(crate) mod session_config_mt;
+pub(crate) mod session_config_mt_providers;
 pub(crate) mod session_leave;
 pub(crate) mod session_list;
 pub(crate) mod session_mcp;
+pub(crate) mod session_mcp_server;
 pub(crate) mod session_read;
 pub(crate) mod session_resume;
 pub(crate) mod session_resume_input_assets;
 pub(crate) mod session_resume_members;
 pub(crate) mod session_resume_wire_words;
 pub(crate) mod session_start;
+pub(crate) mod session_start_nodes;
 pub(crate) mod session_start_switch_policy;
 
 pub(crate) fn deserialize_non_null_optional<'de, D, T>(

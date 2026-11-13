@@ -82,7 +82,7 @@ pub enum TurnInputPartType {
     /// `inputTooLarge` and must be shrunk client-side.
     Image,
     /// An explicit skill invocation the host expands. `turn/start` only; at
-    /// most one per submission, combinable only with `image` parts.
+    /// most one per submission, combinable only with `image` and `video` parts.
     Skill,
     /// A video attachment by reference. The part carries the `uploadId` receipt
     /// only; the host joins metadata from the stored upload. An unknown or

@@ -138,9 +138,14 @@ impl MuseClient {
             limits: None,
             // The SDK starts plain sessions, with no predecessor.
             previous_session_id: None,
+            // The SDK starts plain sessions, never a `/clear`.
+            clear: None,
             // The SDK starts root sessions; the switch policy belongs to
             // a client that switches sessions.
             switch_policy: None,
+            // The SDK starts sessions on the host's own machine.
+            nodes: None,
+            default_node: None,
         };
         let result = match self
             .shared
@@ -290,6 +295,12 @@ impl MuseClient {
             missing_input_assets: None,
             // Not exposed by the facade yet.
             limits: None,
+            // Not exposed by the facade yet.
+            auto_recover: None,
+            // Not exposed by the facade yet.
+            workspace_root: None,
+            // Not exposed by the facade yet.
+            workspace_roots: None,
         };
         // Kept raw too: the fold seeds history from the raw item objects.
         let mut raw = match self

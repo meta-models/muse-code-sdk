@@ -31,6 +31,10 @@ ACCOUNT_STATE_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("loggedOut", "envKey"
 AdmissionDecision = str  # open enum: unknown values stay representable
 ADMISSION_DECISION_KNOWN_VALUES: Final[tuple[str, ...]] = ("allow_once", "reject_once", "allow_connected", "block_connected", "timedOut",)
 
+# Trigger reason of a live admission/request. Open: clients treat an unknown value as an absent hint.
+AdmissionRuntimeBoundary = str  # open enum: unknown values stay representable
+ADMISSION_RUNTIME_BOUNDARY_KNOWN_VALUES: Final[tuple[str, ...]] = ("background_task_terminal",)
+
 # How long a rule created by an approval decision lasts. The set is open, so newer hosts may send other values.
 ApprovalAmendmentDurability = str  # open enum: unknown values stay representable
 APPROVAL_AMENDMENT_DURABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("session", "localPersistent",)
@@ -84,7 +88,7 @@ AUTO_RECOVERY_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("continued", "notC
 
 # Why `autoRecovery` was `refused`. Open enum.
 AutoRecoveryReason = str  # open enum: unknown values stay representable
-AUTO_RECOVERY_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("continuationUnavailable", "goalResumeUnavailable", "goalUnavailable", "resumeFallback", "staleSteerNotWithdrawn", "steerNotSaved",)
+AUTO_RECOVERY_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("continuationUnavailable", "goalResumeUnavailable", "goalUnavailable", "resumeFallback", "staleSteerNotWithdrawn", "steerNotSaved", "optedOut",)
 
 # Whether this feature holds the current source.
 AutomaticContinuation = Literal["enabled", "paused", "unloaded", "unavailable"]
@@ -102,6 +106,10 @@ BackgroundTasks = Literal["keep", "stop"]
 
 # The closed census state.
 BackgroundWorkState = Literal["known", "unavailable"]
+
+# Whether the origin call join held at delivery.
+BodyCompletionCorrelation = str  # open enum: unknown values stay representable
+BODY_COMPLETION_CORRELATION_KNOWN_VALUES: Final[tuple[str, ...]] = ("resolved", "unresolved",)
 
 # A grantable capability name. Open: the experimental-only `rawLog` entry joins the stable domain as an additive open-enum extension when it graduates — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
@@ -219,7 +227,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory", "peerMessage", "subagentInput", "subagentResult", "systemNotice", "skillRead",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory", "peerMessage", "subagentInput", "subagentResult", "systemNotice", "bodyCompletion", "skillRead",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -227,6 +235,9 @@ ItemReadOutputEncoding = Literal["utf8", "base64"]
 # Item status. Open; terminal = anything other than `"inProgress"`, and unknown values are terminal-unknown, rendered generically.
 ItemStatus = str  # open enum: unknown values stay representable
 ITEM_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("inProgress", "completed", "failed", "cancelled", "rejected", "timedOut",)
+
+# What an admission means to open. `resume` of a session the store does not hold is refused `notFound` and creates nothing; `new` of a held session is answered as that session when its descriptor is the same, and refused `conflict` when it differs.
+JournalAdmissionIntent = Literal["new", "resume"]
 
 # The kind of a child session that has its own journal. Reminder children stay local and never have one.
 JournalChildKind = Literal["subagent", "agentTreeChild", "workflowChild", "fork", "side"]
@@ -299,9 +310,13 @@ ModelCompleteRole = Literal["user", "assistant"]
 ModelCompleteStopReason = str  # open enum: unknown values stay representable
 MODEL_COMPLETE_STOP_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("end", "maxTokens",)
 
-# `systemNotice`: the producing family, so a client routes a notice without parsing its text. Open. The v1 vocabulary is the Monitor notice and the three system-chrome producers plus the hook-run producer and the paused-Workflow checkpoint producer; absent means the server named no origin, and a client never infers one.
+# One `needsInputReasons` reason: why a loaded session's input is needed. Open on the wire — clients MUST ignore unknown values; future reasons are additive. The reasons are a pure projection of the pending-request fold's answer in PR 1 (the same read that derives `attention`); `admissionPending` is deliberately not a reason.
+NeedsInputReason = str  # open enum: unknown values stay representable
+NEEDS_INPUT_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("approvalPending", "inputPending",)
+
+# `systemNotice`: the producing family, so a client routes a notice without parsing its text. Open. The v1 vocabulary is the Monitor notice and the three system-chrome producers plus the hook-run producer, the paused-Workflow checkpoint producer and the continued-child tools producer; absent means the server named no origin, and a client never infers one.
 NoticeOrigin = str  # open enum: unknown values stay representable
-NOTICE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("monitor", "skillsStartup", "scheduledFire", "incompleteGeneration", "hook", "workflowCheckpoint",)
+NOTICE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("monitor", "skillsStartup", "scheduledFire", "incompleteGeneration", "hook", "workflowCheckpoint", "continuedChildTools",)
 
 # `systemNotice`: the notice's level. Open; an unknown value is an unknown-but-present level, rendered generically.
 NoticeSeverity = str  # open enum: unknown values stay representable
@@ -402,6 +417,9 @@ PluginMarketplaceChange = Literal["added", "updated", "removed"]
 PluginSource = str  # open enum: unknown values stay representable
 PLUGIN_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("curated", "marketplaceUserAdded", "foreignImport", "nativeLocal",)
 
+# Why a points page is empty.
+PointsEmptyReason = Literal["notRewindUnit", "inputsPredateRewindSupport"]
+
 # Where a session policy rule came from.
 PolicyRuleOrigin = Literal["client", "server"]
 
@@ -453,8 +471,15 @@ RETRACT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("accepted", "declined",)
 ReviewerAuthority = str  # open enum: unknown values stay representable
 REVIEWER_AUTHORITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("autoReview", "human", "none",)
 
+# `session/rewind` admission status.
+RewindAdmissionStatus = Literal["accepted"]
+
 # The closed availability state.
 RewindAvailabilityState = Literal["available", "empty", "unavailable"]
+
+# What acting on a candidate requires.
+RewindCapability = str  # open enum: unknown values stay representable
+REWIND_CAPABILITY_KNOWN_VALUES: Final[tuple[str, ...]] = ("exact", "reviewRequired", "blocked",)
 
 # Which kind of process runs a session elsewhere on this machine. **Open**: a new origin is additive evolution, and a client MUST treat an unknown value as an unknown-but-present origin rather than rejecting the row.
 RunningElsewhereOrigin = str  # open enum: unknown values stay representable
@@ -531,7 +556,7 @@ SessionSettingsOverrideValue = str | bool | None
 
 # A session's load state.
 SessionStatus = str  # open enum: unknown values stay representable
-SESSION_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("notLoaded", "idle", "running",)
+SESSION_STATUS_KNOWN_VALUES: Final[tuple[str, ...]] = ("notLoaded", "idle", "running", "needsInput",)
 
 # The view-health state. Open enum (`x-msp-openness: open`): a client MUST ignore an unrecognized value. `Healthy` is the re-arm value reserved by the governing rules, emitted after a host re-load; openness still reserves additive room for the durable-degraded axis.
 SessionViewHealth = str  # open enum: unknown values stay representable
@@ -597,7 +622,7 @@ TOOL_RECEIPT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("created", "duplica
 
 # Turn failure classes. Open.
 TurnErrorKind = str  # open enum: unknown values stay representable
-TURN_ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("stepLimit", "configError", "projectionError", "logError", "workflowLaunchError", "environmentError", "modelError", "launchError", "authRequired", "mcpLinkError",)
+TURN_ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("stepLimit", "configError", "projectionError", "logError", "workflowLaunchError", "environmentError", "modelError", "launchError", "authRequired", "mcpLinkError", "reasoningReplayRefused", "contextOverflow",)
 
 # The `type` discriminator of a turn input part. Closed: an unknown part type is `invalidParams`.
 TurnInputPartType = Literal["text", "image", "skill", "video"]
@@ -637,6 +662,10 @@ ViewPageDirection = Literal["forward", "backward"]
 
 # Which control to apply to the child's current attempt. Closed on the wire: an unknown value is `-32602 invalidParams`.
 WorkflowChildAction = Literal["skip", "retry"]
+
+# A subagent child's workspace placement: `shared` when the spawn requested no worktree isolation, `isolated` when it did. Open; unknown values read as unknown. Experimental.
+WorkspacePlacement = str  # open enum: unknown values stay representable
+WORKSPACE_PLACEMENT_KNOWN_VALUES: Final[tuple[str, ...]] = ("shared", "isolated",)
 
 # Where a session's worktree came from: `created` means the host allocated it for the session, `attached` means the host bound a caller-provided worktree.
 WorktreeOrigin = str  # open enum: unknown values stay representable
@@ -748,10 +777,11 @@ class _AdmissionRequestParamsBase(TypedDict):
 
 
 class AdmissionRequestParams(_AdmissionRequestParamsBase, total=False):
-    """`admission/request` + `admission/requested` payload: the server→client prompt and its cursor-bearing durable fold carry the same payload, so a gapped client recovers it via `view/page`."""
+    """Live `admission/request` payload. An optional trigger hint describes the live source; the durable `admission/requested` view keeps its old shape."""
 
     heldBody: str
     requesterWorkspace: str
+    runtimeBoundary: AdmissionRuntimeBoundary
 
 
 class _AdmissionRequestedViewParamsBase(TypedDict):
@@ -766,7 +796,7 @@ class _AdmissionRequestedViewParamsBase(TypedDict):
 
 
 class AdmissionRequestedViewParams(_AdmissionRequestedViewParamsBase, total=False):
-    """`admission/requested` view event: the cursor-bearing durable fold of the prompt, so a gapped client recovers the identical payload via `view/page`."""
+    """`admission/requested` view event: the cursor-bearing durable fold of the prompt, so a gapped client recovers the durable payload via `view/page`; it never carries the live-only `runtimeBoundary` hint."""
 
     heldBody: str
     requesterWorkspace: str
@@ -963,6 +993,7 @@ class ApprovalRequestParams(_ApprovalRequestParamsBase, total=False):
     """Full params shared by `approval/request` and `approval/requested`."""
 
     cuaCardFacts: ApprovalCuaCardFacts
+    node: str
     reviewerReason: str
     subagentOrigin: ApprovalSubagentOrigin
 
@@ -1100,7 +1131,7 @@ class _AutoRecoveryBase(TypedDict):
 
 
 class AutoRecovery(_AutoRecoveryBase, total=False):
-    """`autoRecovery` on `session/resume` (amendment 26387/68619, owner decision G-23): the outcome of this resume's own load when it ran with the `resume_auto_recover` gate on and the session's effective `recoveryMode` ON. Output only; no request member asks for it."""
+    """`autoRecovery` on `session/resume` (amendment 26387/68619, owner decision G-23): the outcome of this resume's own load when it ran with the `resume_auto_recover` gate on (G-37: whatever the session's `recoveryMode`). A resume's `autoRecover: false` is reported here as `refused` with reason `optedOut`."""
 
     reason: AutoRecoveryReason
     turnId: str
@@ -1171,6 +1202,19 @@ class BlockedPrompt(TypedDict):
     """The cold recall seed on `session/resume` and `session/read` results: at most one, the latest blocked Main prompt — exactly the host's mirror of `prompt_recovery::replay::ReplayInput`'s choice."""
 
     text: str
+
+
+class _BodyCompletionMembersBase(TypedDict):
+    correlation: BodyCompletionCorrelation
+    receipt: bool
+    resultSummary: str
+    status: str
+
+
+class BodyCompletionMembers(_BodyCompletionMembersBase, total=False):
+    """`bodyCompletion`: the facts one receipt row renders. The fold reads them from the inbox terminal record and the backgrounded call it names. `status`, `result_summary`, and `correlation` are required; `origin_call_id` is absent exactly when the join is unresolved."""
+
+    originCallId: str
 
 
 class _BranchStateBase(TypedDict):
@@ -1566,6 +1610,7 @@ class ErrorData(_ErrorDataBase, total=False):
     selector: str
     sessionId: str
     settlement: UserInputSettlementSummary
+    stopRefusal: str
     stream: StreamRef
     uploadId: str
     userInputId: str
@@ -1854,7 +1899,9 @@ class Item(_ItemBase, total=False):
     backgroundStatus: BackgroundStatus
     backgroundTarget: BackgroundTarget
     backgroundTerminalCompletion: BackgroundTerminalCompletion
+    bashTitle: str
     blocking: bool
+    bodyCompletion: BodyCompletionMembers
     byClient: ClientInfo
     callId: str
     childPromptRefs: list[OutputRef]
@@ -1896,6 +1943,7 @@ class Item(_ItemBase, total=False):
     monitorDescription: str
     monitorId: str
     nextFireAtMs: int
+    node: str
     noticeKind: str
     noticeOrigin: NoticeOrigin
     noticeSeverity: NoticeSeverity
@@ -1960,6 +2008,7 @@ class Item(_ItemBase, total=False):
     wakeSourceDescriptions: list[str]
     workId: str
     workflowRunId: str
+    workspacePlacement: WorkspacePlacement
 
 
 class ItemCompletedParams(TypedDict):
@@ -2059,8 +2108,8 @@ class JournalAnchor(TypedDict):
 
     floor: int
     next: int
+    throughMeaning: str
     throughPosition: int
-    throughWriteId: str
 
 
 class JournalBatchStamp(TypedDict):
@@ -2070,19 +2119,15 @@ class JournalBatchStamp(TypedDict):
     id: str
 
 
-class _JournalCommitBatchParamsBase(TypedDict):
+class JournalCommitBatchParams(TypedDict):
+    """`journal/commitBatch` params (host -> client)."""
+
     conditions: JournalCommitConditions
     meaning: str
     records: list[JournalRecord]
     sessionId: str
     source: str
     sourceGeneration: int
-
-
-class JournalCommitBatchParams(_JournalCommitBatchParamsBase, total=False):
-    """`journal/commitBatch` params (host -> client)."""
-
-    closesJournal: bool
 
 
 class JournalCommitBatchResult(TypedDict):
@@ -2124,13 +2169,17 @@ class JournalLimits(TypedDict):
     maxRecords: int
 
 
-class JournalObserveOriginalParams(TypedDict):
-    """`journal/observeOriginal` params (host -> client)."""
-
+class _JournalObserveOriginalParamsBase(TypedDict):
     budget: JournalReadBudget
     meaning: str
     sessionId: str
     source: str
+
+
+class JournalObserveOriginalParams(_JournalObserveOriginalParamsBase, total=False):
+    """`journal/observeOriginal` params (host -> client)."""
+
+    owner: int
 
 
 class JournalObserveOriginalResult(TypedDict):
@@ -2208,15 +2257,16 @@ class JournalRecord(_JournalRecordBase, total=False):
 
 
 class _JournalSessionDescriptorBase(TypedDict):
-    createdAt: int
-    kind: JournalChildKind
-    parentSessionId: str
     schemaVersion: int
 
 
 class JournalSessionDescriptor(_JournalSessionDescriptorBase, total=False):
-    """How a child session's journal was created and which journal it links to. Storage-level only: the store creates and links the child's journal from it and never parses records."""
+    """A session's storage descriptor: the admission intent and, for a child, how its journal was created and which journal it links to. Storage-level only: the store creates and links the child's journal from it and never parses records. `kind`, `parentSessionId` and `createdAt` come together or not at all, and only without `resume`: a root, and any resume, sends no child field; a child's `new` sends them all. Child fields with no intent are today's child create."""
 
+    createdAt: int
+    intent: JournalAdmissionIntent
+    kind: JournalChildKind
+    parentSessionId: str
     subagentId: str
 
 
@@ -2519,6 +2569,19 @@ class McpServerReadInventoryResult(_McpServerReadInventoryResultBase, total=Fals
     error: str
 
 
+class McpServerReadStartupNoticesParams(TypedDict):
+    """Read the addressed loaded session's MCP startup notices."""
+
+    sessionId: str
+
+
+class McpServerReadStartupNoticesResult(TypedDict):
+    """The notices the startup produced so far; `settled` once it has finished."""
+
+    notices: list[McpStartupNotice]
+    settled: bool
+
+
 class McpServerReconnectParams(TypedDict):
     """`mcpServer/reconnect` params: the holder's explicit instruction to reconnect one server. Serve reconnects only when told."""
 
@@ -2530,6 +2593,13 @@ class McpServerReconnectResult(TypedDict):
     """`mcpServer/reconnect` result: whether a restart happened. Idempotent: an already-live server answers `reconnected: false` without restarting."""
 
     reconnected: bool
+
+
+class McpStartupNotice(TypedDict):
+    """One notice as the gate-off TUI shows it. `severity` is open: `error`, `warning` and `optionalServerSkip` today."""
+
+    severity: str
+    text: str
 
 
 class McpToolDisplayMetadata(TypedDict):
@@ -3555,6 +3625,18 @@ class RestartReceipt(_RestartReceiptBase, total=False):
     targetStream: StreamRef
 
 
+class _RewindAttachParamsBase(TypedDict):
+    attemptId: str
+    commandId: str
+    sessionId: str
+
+
+class RewindAttachParams(_RewindAttachParamsBase, total=False):
+    """the governing rules attach params (`session/rewindAttach`): prepare the published child and conditionally commit this client's attachment. The result is the existing `SessionResumeResult`."""
+
+    excludeItems: bool
+
+
 class RewindAttempt(TypedDict):
     """One passively observed Keep/Stop attempt. The nested `source_instance_id` binds the attempt's actor, so a reload cannot conflate it with the current top-level instance."""
 
@@ -3579,7 +3661,40 @@ class _RewindAvailabilityBase(TypedDict):
 class RewindAvailability(_RewindAvailabilityBase, total=False):
     """The rewind availability summary: a flat object, not a tagged union (the `PendingRequestPointer` precedent — v1 names no object-variant union). Producer obligation: `reason` is present exactly when `state` is `unavailable`; the `session/rewindRead` serve layer (T-50280-078) refuses a mispaired summary as invalidParams."""
 
+    inputsPredateRewindSupport: bool
     reason: str
+
+
+class RewindCandidate(TypedDict):
+    """One full current rewind candidate."""
+
+    capability: RewindCapability
+    displayText: str
+    losses: list[RewindLoss]
+    selection: str
+    unitId: str
+
+
+class RewindLoss(TypedDict):
+    """One blocked explanation with its backend count."""
+
+    count: int
+    reason: str
+
+
+class _RewindParamsBase(TypedDict):
+    backgroundTasks: BackgroundTasks
+    childSessionId: str
+    commandId: str
+    publicationCommandId: str
+    sessionId: str
+    sourceInstanceId: str
+
+
+class RewindParams(_RewindParamsBase, total=False):
+    """`session/rewind` params: admit Keep/Stop and publish through the existing rewind engine when needed. The small response acknowledges actual existing rewind intake admission."""
+
+    selection: str
 
 
 class _RewindPointsParamsBase(TypedDict):
@@ -3593,6 +3708,17 @@ class RewindPointsParams(_RewindPointsParamsBase, total=False):
     limit: int
 
 
+class RewindPointsResult(TypedDict):
+    """`session/rewindPoints` result: newest first. A shortened preview never changes selection or exact refill."""
+
+    candidates: list[RewindCandidate]
+    emptyReason: PointsEmptyReason | None
+    nextCursor: str | None
+    olderHistoryUnavailable: bool
+    sessionId: str
+    sourceInstanceId: str
+
+
 class _RewindReadInputParamsBase(TypedDict):
     selection: str
     sessionId: str
@@ -3604,6 +3730,16 @@ class RewindReadInputParams(_RewindReadInputParamsBase, total=False):
 
     cursor: str | None
     lengthBytes: int
+
+
+class RewindReadInputResult(TypedDict):
+    """`session/rewindReadInput` result: one chunk of the exact current refill. Concatenating `refillText` chunks in order yields the exact refill; empty refill is one EOF response with empty text and zero bytes."""
+
+    byteLen: int
+    eof: bool
+    nextCursor: str | None
+    offsetBytes: int
+    refillText: str
 
 
 class _RewindReadParamsBase(TypedDict):
@@ -3626,6 +3762,13 @@ class RewindReadResult(TypedDict):
     rewindAvailability: RewindAvailability
     sessionId: str
     sourceInstanceId: str | None
+
+
+class RewindResult(TypedDict):
+    """`session/rewind` result: intake admission only, not publication or task completion."""
+
+    commandId: str
+    status: RewindAdmissionStatus
 
 
 class RulesChangedSource(TypedDict):
@@ -3680,11 +3823,15 @@ class ScheduleRow(TypedDict):
     recurring: bool
 
 
-class SchemaInfo(TypedDict):
-    """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
-
+class _SchemaInfoBase(TypedDict):
     fingerprint: str
     version: int
+
+
+class SchemaInfo(_SchemaInfoBase, total=False):
+    """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
+
+    experimentalFingerprint: str
 
 
 class _ServeIsIdleResultBase(TypedDict):
@@ -3736,6 +3883,7 @@ class Session(_SessionBase, total=False):
     logBytes: int
     name: str
     nameOrigin: SessionNameOrigin
+    needsInputReasons: list[NeedsInputReason]
     parentSessionId: str
     permissionState: EffectivePermissionState
     probeDegradedReason: ProbeDegradedReason
@@ -3746,6 +3894,28 @@ class Session(_SessionBase, total=False):
     spawnedBy: SessionSpawnedBy
     title: str
     worktree: SessionWorktree
+
+
+class _SessionActivationChangedEntryBase(TypedDict):
+    id: str
+    kind: str
+    provenance: str
+    state: str
+
+
+class SessionActivationChangedEntry(_SessionActivationChangedEntryBase, total=False):
+    """One item of the recomposed selection. **Experimental.**"""
+
+    reason: str
+
+
+class SessionActivationChangedParams(TypedDict):
+    """`session/activationChanged` params. One notice per resume that recorded a changed selection."""
+
+    digest: str
+    effective: list[SessionActivationChangedEntry]
+    previousDigest: str
+    sessionId: str
 
 
 class _SessionApprovalModeChangedParamsBase(TypedDict):
@@ -3823,6 +3993,8 @@ class SessionCompactResult(_SessionCompactResultBase, total=False):
 class SessionConfig(TypedDict, total=False):
     """The open configuration extension object shared by `session/start` and `session/resume`. Unknown keys are ignored on the wire, never rejected: the live decoder tolerates them, and no exported bundle carries `additionalProperties: false`. The Rust typed model's `deny_unknown_fields` is internal and never exported — the closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism stays inert. Recognized `mcpServers` values are typed and validated before they leave the wire boundary."""
 
+    admitSessionMcpServers: bool
+    allowedBuiltInTools: list[str]
     developerPrompt: str | None
     maxToolOutputBytes: int
     mcpServers: dict[str, SessionMcpServerConfig]
@@ -3875,6 +4047,26 @@ class SessionDriveChangedParams(_SessionDriveChangedParamsBase, total=False):
 
     driveHolder: ClientInfo
     previousDriveHolder: ClientInfo
+
+
+class SessionEndpointProviderOverride(TypedDict, total=False):
+    """One provider's endpoint: the top level's transport fields, under the same wire names, without `allowOpenai`. Closed: an unknown field fails the decode."""
+
+    auth: SessionEndpointTransportAuthMode
+    baseUrl: str
+    caBundle: str
+    clientCert: str
+    clientKey: str
+    envHttpHeaders: dict[str, str]
+    httpHeaders: dict[str, str]
+    proxy: str
+
+
+class SessionEndpointProviders(TypedDict, total=False):
+    """AC-D5: `providers` of the transport override. Closed: a provider this version does not name fails the decode."""
+
+    anthropic: SessionEndpointProviderOverride
+    meta: SessionEndpointProviderOverride
 
 
 class _SessionEventLogDegradedParamsBase(TypedDict):
@@ -4041,6 +4233,25 @@ class SessionListTextFilter(_SessionListTextFilterBase, total=False):
     anyOf: list[str]
 
 
+class _SessionLoadWarningBase(TypedDict):
+    code: str
+    message: str
+
+
+class SessionLoadWarning(_SessionLoadWarningBase, total=False):
+    """One `session/start` or `session/resume` result warning. **Experimental.** The command succeeded; the warning names what the host did not apply."""
+
+    items: list[SessionLoadWarningItem]
+    keys: list[str]
+
+
+class SessionLoadWarningItem(TypedDict):
+    """One `selection_unavailable` item. **Experimental.**"""
+
+    id: str
+    reason: str
+
+
 class _SessionLogFlushDegradedParamsBase(TypedDict):
     sessionId: str
 
@@ -4076,6 +4287,7 @@ class SessionModelEndpointTransportOverride(TypedDict, total=False):
     clientKey: str
     envHttpHeaders: dict[str, str]
     httpHeaders: dict[str, str]
+    providers: SessionEndpointProviders
     proxy: str
 
 
@@ -4173,6 +4385,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
     blockedPrompt: BlockedPrompt
     deliveredInputs: list[DeliveredInput]
     lastTurn: LastTurn
+    modelTurnRunning: bool
     prunedSubagents: list[PrunedSubagent]
     queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
@@ -4271,6 +4484,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     """`session/resume` params."""
 
     approvalRules: list[ClientApprovalRule]
+    autoRecover: bool
     config: SessionConfig
     continuePausedSource: ContinuePausedSource | None
     cursor: str | None
@@ -4281,6 +4495,8 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     modelId: str
     permissionProfile: str
     recoveryMode: RecoveryMode
+    workspaceRoot: str
+    workspaceRoots: list[str]
 
 
 class _SessionResumeResultBase(TypedDict):
@@ -4294,6 +4510,8 @@ class SessionResumeResult(_SessionResumeResultBase, total=False):
     """`session/resume` result."""
 
     abnormalEnd: AbnormalEnd
+    admittedSessionMcpServers: list[str]
+    appliedBuiltInTools: list[str]
     autoRecovery: AutoRecovery
     blockedPrompt: BlockedPrompt
     cronQuarantine: CronQuarantine
@@ -4304,6 +4522,7 @@ class SessionResumeResult(_SessionResumeResultBase, total=False):
     restartReceipts: list[RestartReceipt]
     tightenedAxes: list[str]
     unavailableInputAssets: list[UnavailableInputAsset]
+    warnings: list[SessionLoadWarning]
 
 
 class SessionRulesChangedParams(TypedDict):
@@ -4426,6 +4645,21 @@ class SessionSpawnedBy(_SessionSpawnedByBase, total=False):
     thread: str
 
 
+class SessionStartNode(TypedDict):
+    """One node a `session/start` names: where the session's tool calls run. The host validates the three strings; this shape only carries them."""
+
+    name: str
+    root: str
+    target: str
+
+
+class SessionStartNodeRoster(TypedDict):
+    """The roster a session started with, echoed on the `session/start` result. A client that named nodes and reads no echo sends no turn: the host did not attach them, or no longer holds the roster it started with."""
+
+    defaultNode: str
+    nodes: list[SessionStartRosterNode]
+
+
 class _SessionStartParamsBase(TypedDict):
     commandId: str
 
@@ -4435,9 +4669,12 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
 
     approvalMode: ApprovalMode | None
     approvalRules: list[ClientApprovalRule]
+    clear: bool
     config: SessionConfig
+    defaultNode: str
     limits: SessionLimitsChoice
     modelId: str
+    nodes: list[SessionStartNode]
     permissionProfile: str
     previousSessionId: str
     providerId: str | None
@@ -4450,11 +4687,27 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     worktree: WorktreeStartRequest
 
 
-class SessionStartResult(TypedDict):
-    """`session/start` result."""
-
+class _SessionStartResultBase(TypedDict):
     session: Session
     viewCursor: str
+
+
+class SessionStartResult(_SessionStartResultBase, total=False):
+    """`session/start` result."""
+
+    admittedSessionMcpServers: list[str]
+    appliedBuiltInTools: list[str]
+    nodeRoster: SessionStartNodeRoster
+    warnings: list[SessionLoadWarning]
+
+
+class SessionStartRosterNode(TypedDict):
+    """One attached node of a [`SessionStartNodeRoster`]."""
+
+    name: str
+    resolvedTarget: str
+    root: str
+    target: str
 
 
 class SessionStartedParams(TypedDict):
@@ -4470,9 +4723,10 @@ class _SessionStatusChangedParamsBase(TypedDict):
 
 
 class SessionStatusChangedParams(_SessionStatusChangedParamsBase, total=False):
-    """`session/statusChanged` params: a loaded session's projected `(status, attention)` value flipped. A command-plane broadcast — delivered to every connection regardless of its view subscription set, never gated, no `sourceRange`; the same facts live on the Session object, which is how a client seeds its table (no initial burst on connect)."""
+    """`session/statusChanged` params: a loaded session's projected `(status, attention, needsInputReasons)` value flipped. A command-plane broadcast — delivered to every connection regardless of its view subscription set, never gated, no `sourceRange`; the same facts live on the Session object, which is how a client seeds its table (no initial burst on connect)."""
 
     attention: list[AttentionFlag]
+    needsInputReasons: list[NeedsInputReason]
     permissionState: EffectivePermissionState
 
 
@@ -4892,6 +5146,7 @@ class SubagentResult(_SubagentResultBase, total=False):
     drained: bool
     errorKind: str
     structuredData: dict[str, Any]
+    superseded: bool
     text: str
 
 
@@ -4924,6 +5179,49 @@ class SubagentTargetParams(TypedDict):
     commandId: str
     sessionId: str
     subagentId: str
+
+
+class _SubagentWorkStopItemBase(TypedDict):
+    commandId: str
+    workId: str
+
+
+class SubagentWorkStopItem(_SubagentWorkStopItemBase, total=False):
+    """One frozen subagent stop of `subagent/workStop`."""
+
+    observedRevision: int
+
+
+class _SubagentWorkStopItemResultBase(TypedDict):
+    commandId: str
+
+
+class SubagentWorkStopItemResult(_SubagentWorkStopItemResultBase, total=False):
+    """One item's answer in a bulk `subagent/workStop` ack."""
+
+    reason: str
+
+
+class _SubagentWorkStopParamsBase(TypedDict):
+    items: list[SubagentWorkStopItem]
+    sessionId: str
+
+
+class SubagentWorkStopParams(_SubagentWorkStopParamsBase, total=False):
+    """Params for `subagent/workStop`: a Work Stop of direct subagents through the coordinator the client-off TUI uses; one item is the Tasks drawer's confirmed `s stop`, and `bulkRequestId` makes the items one confirmed `/stop all`."""
+
+    bulkRequestId: str
+
+
+class _SubagentWorkStopResultBase(TypedDict):
+    commandId: str
+    status: CommandAckStatus
+
+
+class SubagentWorkStopResult(_SubagentWorkStopResultBase, total=False):
+    """The `subagent/workStop` ack: admission only; each stop still settles as its subagent item's view events."""
+
+    items: list[SubagentWorkStopItemResult]
 
 
 class SubmittedToolCall(TypedDict):
@@ -5936,6 +6234,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "mcpServer/oauthLogout": {"description": "Deletes one server's stored MCP OAuth credential (best-effort upstream revocation, authoritative local delete) and answers what was removed.", "params": "McpServerOAuthLogoutParams", "result": "McpServerOAuthLogoutResult"},
     "mcpServer/readDisplayCatalog": {"description": "Reads the addressed loaded session's retained MCP display catalog, preserving pinned identities without MCP discovery.", "params": "McpServerReadDisplayCatalogParams", "result": "McpServerReadDisplayCatalogResult"},
     "mcpServer/readInventory": {"description": "Reads the addressed loaded session's MCP runtime snapshot; includeTools selects raw tool names. Performs no MCP discovery.", "params": "McpServerReadInventoryParams", "result": "McpServerReadInventoryResult"},
+    "mcpServer/readStartupNotices": {"description": "Reads the addressed loaded session's MCP startup notices, each with the severity and text the gate-off TUI shows, and whether the startup has settled.", "params": "McpServerReadStartupNoticesParams", "result": "McpServerReadStartupNoticesResult"},
     "mcpServer/reconnect": {"description": "Reconnects one forfeited stdio MCP server in one loaded session, on the holder's explicit instruction: serve reconnects only when told. Idempotent: an already-live server answers reconnected false without restarting. The timed-out call is never replayed; the reconnect never refills the retry allowance.", "params": "McpServerReconnectParams", "result": "McpServerReconnectResult"},
     "media/upload": {"description": "Moves one video chunk into the session's video store; answers the `uploadId` receipt on every chunk.", "params": "MediaUploadParams", "result": "MediaUploadResult"},
     "model/cancel": {"description": "Cancels the sending connection's `model/complete` call, which settles `cancelled`; any other id answers `{}` and changes nothing.", "params": "ModelCancelParams", "result": "ModelCancelResult"},
@@ -5949,6 +6248,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "plugin/marketplaceAdd": {"description": "Add a marketplace from `owner/repo`, git URL, `file://` URL, or local path (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceAddParams", "result": "PluginMarketplaceRecordResult"},
     "plugin/marketplaceRemove": {"description": "Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name).", "params": "PluginMarketplaceRemoveParams", "result": "PluginMarketplaceRemoveResult"},
     "plugin/marketplaceUpdate": {"description": "Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceUpdateParams", "result": "PluginMarketplaceRecordResult"},
+    "pluginData/read": {"description": "Read a page of project, turn or tool-call records from the host's local projection.", "params": "PluginDataReadParams", "result": "PluginDataReadResult"},
     "projection/list": {"description": "Lists the registered server-side read projections.", "params": "ProjectionListParams", "result": "ProjectionListResult"},
     "projection/read": {"description": "Reads one named projection's snapshot with its fold basis.", "params": "ProjectionReadParams", "result": "ProjectionReadResult"},
     "recap/cancel": {"description": "Cancels the session's in-flight recap, which settles `cancelled`; idle is an accepted no-op.", "params": "RecapCancelParams", "result": "RecapCancelResult"},
@@ -5969,7 +6269,11 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/reportStartupPhases": {"description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer.", "params": "SessionReportStartupPhasesParams", "result": "SessionReportStartupPhasesResult"},
     "session/requestDrive": {"description": "Asks for a loaded session's drive: `granted` at once and stopping nothing — when no turn runs, and to another connection while a turn runs or input waits, which run on under the caller (the drive moves and `session/driveChanged` tells every connection); `busy` while the caller's own turn runs or its input waits, while a live holder is idle and its queue cannot be read (no `turn/completed` is promised then), or for a live holder not opted into `experimentalApi` while it is not quiet (a result; nothing parked; ask again later, after `turn/completed` when a turn runs).", "params": "SessionRequestDriveParams", "result": "SessionRequestDriveResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},
+    "session/rewind": {"description": "Admits one rewind attempt against the loaded source and starts its publication; the ack is admission only. The Keep-only first activation answers backgroundTasks \"stop\" with invalidParams.", "params": "RewindParams", "result": "RewindResult"},
+    "session/rewindAttach": {"description": "Attaches this connection to a rewind attempt's published child through a guarded commit, answering as session/resume does.", "params": "RewindAttachParams", "result": "SessionResumeResult"},
+    "session/rewindPoints": {"description": "Pages through the loaded source's current rewind points, newest first: no lease, no load, no resume.", "params": "RewindPointsParams", "result": "RewindPointsResult"},
     "session/rewindRead": {"description": "Reads rewind availability/source state, with an optional work census and passive attempt observation: no lease, no load, no resume, no selection change.", "params": "RewindReadParams", "result": "RewindReadResult"},
+    "session/rewindReadInput": {"description": "Reads the selected rewind point's exact current text refill in bounded chunks: no lease, no load, no resume.", "params": "RewindReadInputParams", "result": "RewindReadInputResult"},
     "session/setApprovalMode": {"description": "Selects a preconfigured approval enforcement mode mid-session; select, never create.", "params": "SessionSetApprovalModeParams", "result": "SessionSetApprovalModeResult"},
     "session/setModel": {"description": "Reconfigures the session's model; the selection is durable and applies to subsequent model calls.", "params": "SessionSetModelParams", "result": "SessionSetModelResult"},
     "session/setPermissionProfile": {"description": "Selects a preconfigured permission profile mid-session; select, never create.", "params": "SessionSetPermissionProfileParams", "result": "SessionSetPermissionProfileResult"},
@@ -5993,6 +6297,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "subagent/resume": {"description": "Resume a paused/recoverable child as a durable later attempt.", "params": "SubagentTargetParams", "result": "CommandAcceptedResult"},
     "subagent/sendMessage": {"description": "Queue a user note into a running child; admission-only ack, the note settles on the child session's view stream.", "params": "SubagentInputParams", "result": "CommandAcceptedResult"},
     "subagent/stop": {"description": "Stop a running child; outcome folds to the parent's subagent item.", "params": "SubagentOwnerReasonParams", "result": "CommandAcceptedResult"},
+    "subagent/workStop": {"description": "Stop direct subagents through the Work Stop core the client-off TUI uses (a `TuiItem`, or one `TuiBulk` with `bulkRequestId`), so the parent model gets the Work Stop Notice.", "params": "SubagentWorkStopParams", "result": "SubagentWorkStopResult"},
     "task/background": {"description": "Durably sends a running foreground tool task to the background; the `TaskBackgrounded` record lands before the ack and the `toolCall` item's `item/updated` folds the flip.", "params": "TaskBackgroundParams", "result": "TaskCommandResult"},
     "task/list": {"description": "Lists the loaded session's background-task inventory: one row per stoppable workload at admission, ordered oldest-start first.", "params": "TaskListParams", "result": "TaskListResult"},
     "task/readTail": {"description": "Reads the latest output of one running background command, at most 128 KiB from the host runtime's retained tail, so a follow view keeps showing output past the 64 KiB streamed budget.", "params": "TaskReadTailParams", "result": "TaskReadTailResult"},
@@ -6052,6 +6357,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
     "recap/completed": {"description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream.", "params": "RecapCompletedParams"},
+    "session/activationChanged": {"description": "A resume recomposed the session's skill and plugin selection and it differs from the one the session recorded (a plugin uninstalled, a policy or settings change). The resume proceeded; the params name what the session has now.", "params": "SessionActivationChangedParams"},
     "session/approvalModeChanged": {"description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact.", "params": "SessionApprovalModeChangedParams"},
     "session/branchChanged": {"description": "A durable workspace-branch observation landed; null branch is a detached-HEAD fact.", "params": "SessionBranchChangedParams"},
     "session/closed": {"description": "A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection.", "params": "SessionClosedParams"},

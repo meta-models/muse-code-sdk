@@ -123,7 +123,7 @@ export function isLaunchFailure(outcome: TurnOutcome): boolean {
  * buffer over before reporting an end or a failure, so a consumer never loses
  * events it was already owed.
  */
-class PushStream<T> implements AsyncIterableIterator<T> {
+export class PushStream<T> implements AsyncIterableIterator<T> {
   readonly #buffer: T[] = [];
   readonly #onFinished: () => void;
   /**

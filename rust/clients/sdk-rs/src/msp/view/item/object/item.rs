@@ -1,10 +1,12 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::BodyCompletionMembers;
 use super::NoticeOrigin;
 use super::NoticeSeverity;
 use super::NoticeSubject;
 use super::ReplayHint;
 use super::ScheduledFireMembers;
+use super::SubagentMembers;
 use super::ToolCallMembers;
 use crate::msp::method::hook::HookEventName;
 use crate::msp::view::item_content::BackgroundTerminalCompletion;
@@ -171,6 +173,9 @@ pub struct Item {
     /// `subagent`: role as spawned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// `subagent` members, flattened beside the other optional members.
+    #[serde(flatten)]
+    pub subagent: SubagentMembers,
     /// `subagent`: objective as spawned, bounded on the wire at the 64 KiB
     /// retained-text budget; a cut sets `truncated`. The durable record stays
     /// verbatim.
@@ -266,7 +271,8 @@ pub struct Item {
     /// `reminderChild`: the reminder generation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_id: Option<u64>,
-    /// `reminderChild`: the linked task id.
+    /// `reminderChild`: the linked task id. Unresolved `bodyCompletion` items
+    /// also set it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// `reminderChild`: parent-session-dir-relative child log path; absent
@@ -399,6 +405,9 @@ pub struct Item {
     /// renders.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_terminal_completion: Option<BackgroundTerminalCompletion>,
+    /// `bodyCompletion`: the facts one receipt row renders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_completion: Option<BodyCompletionMembers>,
     /// `earlierHistory`: the boundary checkpoint's transcript tail.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub earlier_history: Option<EarlierHistory>,

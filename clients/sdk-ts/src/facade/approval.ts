@@ -43,7 +43,8 @@ const DECIDE_FORWARDED = [
   "sessionId",
   "feedback",
 ] as const;
-type _DecideIsExhaustive = AssertNever<
+/** @internal */
+export type _DecideIsExhaustive = AssertNever<
   Exclude<keyof DecideParams, (typeof DECIDE_FORWARDED)[number]>
 >;
 
@@ -78,7 +79,8 @@ const REFRESH_FROM_REQUEST = [
   "toolName",
   "turnId",
 ] as const;
-type _RefreshIsExhaustive = AssertNever<
+/** @internal */
+export type _RefreshIsExhaustive = AssertNever<
   Exclude<
     keyof ApprovalRequestParams,
     (typeof REFRESH_FROM_UPDATE)[number] | (typeof REFRESH_FROM_REQUEST)[number]

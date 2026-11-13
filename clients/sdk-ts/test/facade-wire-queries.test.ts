@@ -47,6 +47,8 @@ test("listSkills and listHooks send skill/list and hook/list", async () => {
     const pending = call(session);
     const sent = await exchange(transport, method === "skill/list" ? { skills: [] } : { hooks: [] });
     assert.equal(sent["method"], method);
+    const sentParams = sent["params"] as Record<string, unknown>;
+    assert.deepEqual(sentParams, { sessionId: "s-1" }, `${method} sends only this session's id: a read-only list mints no commandId`);
     await pending;
   }
 });
@@ -59,6 +61,8 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
     result: Record<string, unknown>;
     ackField: string;
     ackValue: unknown;
+    /** Rides `command()` and so mints a `commandId`; `feedback/submit` defines none, so it rides `request()`. */
+    mints: boolean;
   }> = [
     {
       method: "workflow/pause",
@@ -67,6 +71,7 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
       result: { commandId: "c", status: "accepted" },
       ackField: "status",
       ackValue: "accepted",
+      mints: true,
     },
     {
       method: "workflow/resume",
@@ -75,6 +80,7 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
       result: { commandId: "c", status: "accepted", turnId: "t-9" },
       ackField: "turnId",
       ackValue: "t-9",
+      mints: true,
     },
     {
       method: "recap/request",
@@ -83,6 +89,7 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
       result: { commandId: "c", status: "accepted" },
       ackField: "status",
       ackValue: "accepted",
+      mints: true,
     },
     {
       method: "feedback/submit",
@@ -91,6 +98,7 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
       result: { bundlePath: "/b", outcome: "recorded", sessionRecordAttached: false, sessionRecordTruncated: false },
       ackField: "bundlePath",
       ackValue: "/b",
+      mints: false,
     },
     {
       method: "session/sideChat",
@@ -99,19 +107,27 @@ test("pauseWorkflow/resumeWorkflow/requestRecap/submitFeedback/openSideChat send
       result: { session: { sessionId: "side-1", status: "idle" }, history: { mode: "none", items: [] }, pendingRequests: [], viewCursor: "v" },
       ackField: "viewCursor",
       ackValue: "v",
+      mints: true,
     },
   ];
-  for (const { method, call, params, result, ackField, ackValue } of cases) {
+  for (const { method, call, params, result, ackField, ackValue, mints } of cases) {
     const { session, transport } = wiredSession();
     const pending = call(session);
     await waitForWrites(transport, 1);
     const sent = JSON.parse(transport.writes[0] as string) as Record<string, unknown>;
-    const echoed = { ...result, commandId: (sent["params"] as Record<string, unknown>)["commandId"] };
-    transport.chunks.push(frame({ jsonrpc: "2.0", id: sent["id"], result: echoed }));
     assert.equal(sent["method"], method);
     const sentParams = { ...(sent["params"] as Record<string, unknown>) };
-    delete sentParams["commandId"];
+    const echoed: Record<string, unknown> = { ...result };
+    if (mints) {
+      const commandId = sentParams["commandId"];
+      assert.equal(typeof commandId === "string" && commandId.length > 0, true, `${method} mints a non-empty commandId`);
+      delete sentParams["commandId"];
+      echoed["commandId"] = commandId;
+    } else {
+      assert.equal("commandId" in sentParams, false, `${method} mints no commandId: its wire params define none`);
+    }
     assert.deepEqual(sentParams, params, `${method} sends the full params`);
+    transport.chunks.push(frame({ jsonrpc: "2.0", id: sent["id"], result: echoed }));
     const ack = (await pending) as Record<string, unknown>;
     assert.deepEqual(ack[ackField], ackValue, `${method} resolves its ack`);
   }

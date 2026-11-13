@@ -10,6 +10,7 @@ import { approveOrDeny } from "./recipes/approve-or-deny.js";
 import { cancelMidTurn } from "./recipes/cancel-mid-turn.js";
 import { classifyServeExits } from "./recipes/classify-serve-exits.js";
 import { fingerprintMismatch } from "./recipes/fingerprint-mismatch.js";
+import { handleErrorsByClass } from "./recipes/handle-errors-by-class.js";
 import { listModelsAndSwitchMidSession } from "./recipes/list-models-and-switch-mid-session.js";
 import { queueSteerReclaim } from "./recipes/queue-steer-reclaim.js";
 import { resumeAndVerify } from "./recipes/resume-and-verify.js";
@@ -31,4 +32,5 @@ export const RECIPES: readonly Recipe[] = [
   retryWithoutDoubleSubmitting,
   answerUserInput,
   queueSteerReclaim,
+  handleErrorsByClass,
 ];

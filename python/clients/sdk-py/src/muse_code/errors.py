@@ -117,9 +117,10 @@ class PermissionProfileNotApplied(Exception):
 
 
 class MuseFacadeOwnedMethodError(Exception):
-    """``MuseClient.command`` was asked to send a method whose state the
-    facade owns. Sending it raw would bypass that state, so it is refused
-    before anything is written; use the facade verb instead.
+    """``MuseClient.command`` or ``MuseClient.request`` was asked to send a
+    method whose state the facade owns. Sending it raw would bypass that
+    state, so it is refused before anything is written; use the facade verb
+    instead.
 
     Attributes:
         method: The refused wire method.
@@ -133,7 +134,8 @@ class MuseFacadeOwnedMethodError(Exception):
         """
         super().__init__(
             f"{method} is sent by the facade itself and cannot go through "
-            "MuseClient.command; use the facade verb that owns it"
+            "MuseClient.command or MuseClient.request; use the facade verb that "
+            "owns it"
         )
         self.method: str = method
 
@@ -205,7 +207,7 @@ class MuseValidationError(ValueError):
         self.__cause__ = cause
 
 
-COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/compatibility/"
+COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/latest/compatibility/"
 """The developer-docs compatibility page the discovery errors cite.
 
 The Python row there is the customer-facing statement of the supported

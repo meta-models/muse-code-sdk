@@ -11,6 +11,7 @@ from .recipes.approve_or_deny import RECIPE as approve_or_deny
 from .recipes.cancel_mid_turn import RECIPE as cancel_mid_turn
 from .recipes.classify_serve_exits import RECIPE as classify_serve_exits
 from .recipes.fingerprint_mismatch import RECIPE as fingerprint_mismatch
+from .recipes.handle_errors_by_class import RECIPE as handle_errors_by_class
 from .recipes.list_models_and_switch_mid_session import (
     RECIPE as list_models_and_switch_mid_session,
 )
@@ -35,4 +36,5 @@ RECIPES: tuple[Recipe, ...] = (
     retry_without_double_submitting,
     answer_user_input,
     queue_steer_reclaim,
+    handle_errors_by_class,
 )

@@ -36,12 +36,18 @@
  * it is forwarded (or explicitly allow-listed as unforwardable).
  */
 
-import type { CommandOptions, Connection } from "../connection/connection.js";
+import type {
+  CommandOptions,
+  Connection,
+  ProtocolErrorHandler,
+} from "../connection/connection.js";
+import type { DeepReadonly } from "../fold/session-fold.js";
 import { discoverMuseBin } from "../connection/discovery.js";
-import { initializeAnswered, spawnMspConnection } from "../connection/spawn.js";
+import { initializeAnswered, SIGTERM_GRACE_MS, spawnMspConnection } from "../connection/spawn.js";
 import type {
   ExitClassification,
   MuseServeChild,
+  MuseServeChildOptions,
   SpawnedMspConnection,
 } from "../connection/spawn.js";
 import {
@@ -51,9 +57,11 @@ import {
   PermissionProfileNotApplied,
 } from "../errors.js";
 import { DiscardedSessions } from "./discarded.js";
-import { isAbnormalHostDeath, readSessionDurability } from "./host-death.js";
+import type { FoldExtension } from "../fold/extension.js";
+import { fireExtensions } from "../fold/extension.js";
+import { isAbnormalHostDeath, MuseHostDiedError, readSessionDurability } from "./host-death.js";
 import type { SessionDurabilityProfile } from "./host-death.js";
-import { MspError, ProtocolError } from "../connection/connection.js";
+import { MspError, peerEndCause, ProtocolError } from "../connection/connection.js";
 import { hostStartFailure } from "./host-start.js";
 import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
 import { pumpDropsApplyResults, Session } from "./session.js";
@@ -61,6 +69,7 @@ import type { SessionOpening } from "./session.js";
 import type {
   InitializeParams,
   InitializeResult,
+  Notification,
   ModelListParams,
   ModelListResult,
   MspMethod,
@@ -81,6 +90,33 @@ import type {
 type StartParams = Omit<SessionStartParams, "commandId">;
 type ResumeParams = Omit<SessionResumeParams, "commandId">;
 
+/**
+ * Hears one server notification. Read-only: the frame is the one the session
+ * folds, possibly after the listener runs.
+ */
+export type NotificationObserver = (notification: DeepReadonly<Notification>) => void;
+
+/** Hears what an `onNotification` listener threw or rejected with, with the notification it was handed. */
+export type NotificationFailureHandler = (error: unknown, notification: DeepReadonly<Notification>) => void;
+
+/**
+ * Run a caller's observer so neither its throw nor an async observer's
+ * rejection escapes: in the read loop a throw ends the connection every session
+ * shares, and an unhandled rejection kills the embedder.
+ */
+function observe(call: () => unknown, onFailure: (error: unknown) => void): void {
+  let result: unknown;
+  try {
+    result = call();
+  } catch (error) {
+    onFailure(error);
+    return;
+  }
+  if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+    (result as PromiseLike<unknown>).then(undefined, onFailure);
+  }
+}
+
 /** Errors (TS2344) when `T` is inhabited — i.e. when a member is unforwarded. */
 type AssertNever<T extends never> = T;
 
@@ -90,10 +126,10 @@ type ViewFrame = { readonly method: string; readonly params?: unknown };
 /**
  * Every `StartParams` member `startSession` forwards. `config` is forwarded
  * only behind the `sessionMcp` grant check (`#forwardConfig`),
- * `previousSessionId` is excluded because the facade starts root sessions
- * (the predecessor link belongs to a client that switches sessions, as does
- * the `switchPolicy` member), and `spawnedBy` because the facade does not
- * expose a spawner yet.
+ * `previousSessionId` and `clear` are excluded because the facade starts root
+ * sessions (the predecessor link and the `/clear` marker belong to a client
+ * that switches sessions, as does the `switchPolicy` member), and `spawnedBy`
+ * because the facade does not expose a spawner yet.
  */
 const START_FORWARDED = [
   "approvalMode",
@@ -106,8 +142,12 @@ const START_FORWARDED = [
   "permissionProfile",
   "recoveryMode",
 ] as const;
-type _StartIsExhaustive = AssertNever<
-  Exclude<keyof StartParams, (typeof START_FORWARDED)[number] | "previousSessionId" | "switchPolicy" | "spawnedBy">
+/** @internal */
+export type _StartIsExhaustive = AssertNever<
+  Exclude<
+    keyof StartParams,
+    (typeof START_FORWARDED)[number] | "previousSessionId" | "clear" | "switchPolicy" | "spawnedBy"
+  >
 >;
 
 /**
@@ -124,7 +164,8 @@ const RESUME_FORWARDED = [
   "permissionProfile",
   "recoveryMode",
 ] as const;
-type _ResumeIsExhaustive = AssertNever<Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number]>>;
+/** @internal */
+export type _ResumeIsExhaustive = AssertNever<Exclude<keyof ResumeParams, (typeof RESUME_FORWARDED)[number]>>;
 
 /**
  * The wire methods whose state the facade owns, refused by `command`
@@ -151,11 +192,29 @@ const FACADE_OWNED_METHODS = [
   "view/unsubscribe",
 ] as const satisfies readonly MspMethod[];
 type FacadeOwnedMethod = (typeof FACADE_OWNED_METHODS)[number];
+/**
+ * The stable facade-owned methods, and only those. The experimental host
+ * stop (`host/shutdown`) is the orderly stop `close()` owns too, and the
+ * Python twin refuses it, but this package names no experimental-only
+ * method: FR-97527-5's leak gate derives that set from the two schema
+ * bundles at check time, and a refusal list counts as naming (#99842). A
+ * caller that sends it raw owns the host exit that follows.
+ */
 const FACADE_OWNED: ReadonlySet<string> = new Set(FACADE_OWNED_METHODS);
+
+/**
+ * The names `command`/`request` offer: the stable methods the facade does not
+ * own, plus any other string, because the generated types this package ships
+ * name stable methods only and experimental ones must still go through.
+ */
+type RawMethodName = Exclude<MspMethod, FacadeOwnedMethod> | (string & {});
+/** `M`, or `never` when `M` is a facade-owned literal: keeps the compile-time refusal the `string` fallback would lose. */
+type RawMethod<M extends string> = M & (M extends FacadeOwnedMethod ? never : unknown);
 
 /** Every `SessionListParams` member `listSessions` forwards. */
 const LIST_FORWARDED = ["cursor", "filter", "limit", "updatedAfter", "workspaceRoot"] as const;
-type _ListIsExhaustive = AssertNever<Exclude<keyof SessionListParams, (typeof LIST_FORWARDED)[number]>>;
+/** @internal */
+export type _ListIsExhaustive = AssertNever<Exclude<keyof SessionListParams, (typeof LIST_FORWARDED)[number]>>;
 
 /**
  * The caller's capability posture with `sessionMcp` added to its requests,
@@ -188,13 +247,13 @@ function committedProfileId(snapshot: unknown): string | null {
 /**
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
- * `commandId` is excluded because the connection mints it; `previousSessionId`
- * and `switchPolicy` because the facade starts root sessions, and `spawnedBy`
- * because the facade does not expose a spawner yet. `config.mcpServers` needs
- * the host's `sessionMcp` grant (FR-79107-3).
+ * `commandId` is excluded because the connection mints it; `previousSessionId`,
+ * `clear` and `switchPolicy` because the facade starts root sessions, and
+ * `spawnedBy` because the facade does not expose a spawner yet.
+ * `config.mcpServers` needs the host's `sessionMcp` grant (FR-79107-3).
  */
 export type StartSessionOptions = Readonly<
-  Omit<SessionStartParams, "commandId" | "previousSessionId" | "switchPolicy" | "spawnedBy"> & {
+  Omit<SessionStartParams, "commandId" | "previousSessionId" | "clear" | "switchPolicy" | "spawnedBy"> & {
     /**
      * Require the `permissionProfile` selection (TEST-42624-10): when set,
      * the client proves the committed selection equals the requested id —
@@ -254,6 +313,12 @@ export interface MuseClientOptions {
    * is why `close()` falls back to closing just the connection.
    */
   readonly host?: SpawnedMspConnection;
+  /**
+   * Fold extensions (FR-97527-3), consulted for session-less frames here and
+   * forwarded to every session this client opens — one registration covers
+   * both connection-level state and the per-session fold.
+   */
+  readonly extensions?: readonly FoldExtension[];
 }
 
 /** What `MuseClient.spawn` needs: FR-018's `{ museBin?, args?, env? }`, plus the handshake. */
@@ -280,6 +345,18 @@ export interface MuseClientSpawnOptions {
   readonly onStderr?: (chunk: string) => void;
   /** See `MuseServeChildOptions.shutdownTimeoutMs`. */
   readonly shutdownTimeoutMs?: number;
+  /**
+   * See `MuseServeChildOptions.spawnFn`: lets an embedder run the handshake
+   * and its sessions against an in-memory fake host. Host discovery still
+   * runs first, so pass `museBin` (any string; it becomes `spawnFn`'s
+   * command) when no `muse` is on `PATH`.
+   */
+  readonly spawnFn?: MuseServeChildOptions["spawnFn"];
+  /**
+   * Fold extensions (FR-97527-3): connection-level state plus every
+   * session this client opens. See `MuseClientOptions.extensions`.
+   */
+  readonly extensions?: readonly FoldExtension[];
 }
 
 /**
@@ -294,8 +371,18 @@ export class MuseClient {
   readonly #connection: Connection;
   readonly #durability: SessionDurabilityProfile;
   readonly #discarded: DiscardedSessions;
+  readonly #extensions: readonly FoldExtension[];
   /** Sessions this client opened, so one death notification reaches them all. */
   readonly #sessions = new Set<Session>();
+  /** `onNotification` subscriptions, one entry each so a function added twice unsubscribes once per call. */
+  readonly #listeners = new Set<{ readonly listener: NotificationObserver }>();
+  readonly #notificationFailureHandlers = new Set<{ readonly handler: NotificationFailureHandler }>();
+  readonly #protocolErrorHandlers = new Set<{ readonly handler: ProtocolErrorHandler }>();
+  /**
+   * Set on the first `onProtocolError`, which then claims the connection's one
+   * handler: a client nobody observes leaves the caller's own handler alone.
+   */
+  #protocolErrorsClaimed = false;
   /**
    * Frames naming a session this client has not registered YET, held only
    * while a `session/start`/`session/resume` is in flight (#49790): the host
@@ -326,6 +413,7 @@ export class MuseClient {
     // no current consumer spans two clients over one host lineage, so a
     // sharing knob would be declared-ahead surface (Constitution XI).
     this.#discarded = new DiscardedSessions();
+    this.#extensions = options.extensions ?? [];
     this.#child = options.host?.child;
     this.#initializeResult = options.host?.initializeResult;
     // THE ONE INBOUND PUMP (FR-018/FR-019). `Session.apply` is the only event
@@ -333,9 +421,13 @@ export class MuseClient {
     // consumer has no way to hear a single view frame: every turn wait hangs
     // (SS3.1.4) and `onApproval` can never fire. `Connection.onNotification`
     // holds ONE handler — this client claims it, which is part of what
-    // "MuseClient owns the connection" means; a consumer that needs the raw
-    // feed builds around a bare `Connection` and `Session` instead.
-    this.#connection.onNotification((notification) => this.#route(notification));
+    // "MuseClient owns the connection" means; a caller hears the feed through
+    // `onNotification`, after `#route` has handed each frame to its session
+    // (a frame held while that session's open is in flight is heard first).
+    this.#connection.onNotification((notification) => {
+      this.#route(notification);
+      for (const entry of [...this.#listeners]) this.#notify(entry.listener, notification);
+    });
     // A question or approval still open at resume is re-sent as a
     // `userInput/request` or `approval/request` server request (tdd SS5.6,
     // SS5.10). Each is routed in arrival order and answered with the SS5.3.3
@@ -363,23 +455,32 @@ export class MuseClient {
     // Registered at construction, not at the first session: an EOF can land
     // before any session exists, and the flag has to be read at that moment.
     void this.#connection.closed.then(() => this.#transportClosed());
+    // A call the connection fails because the host died says how it ended;
+    // read at the EOF, so a close() of ours leaves the bare error.
+    this.#connection[peerEndCause](() => this.#hostDeathCause());
   }
 
   /**
    * Deliver one view notification to the session(s) it names.
    *
-   * A frame naming NO session is dropped here rather than fed to every
-   * session: `Session.apply` already tolerates unknown methods, but only the
-   * frames that name a `sessionId` have an owner to route to. A frame naming
-   * an UNKNOWN session is dropped for the same reason — routing it anywhere
-   * would trip the foreign-frame throw on a session it does not belong to —
-   * UNLESS an open is in flight, when it may be that open's own session named
-   * by the server before the awaiting promise has run (#49790): then it is
-   * held for `#openSession` to fold, or for `#open` to clear.
+   * A frame naming NO session goes to the connection extensions (FR-97527-3:
+   * host-wide state names no session) rather than to every session:
+   * `Session.apply` already tolerates unknown methods, but only the
+   * frames that name a `sessionId` have a session owner to route to. A frame
+   * naming an UNKNOWN session is dropped for the same reason — routing it
+   * anywhere would trip the foreign-frame throw on a session it does not
+   * belong to — UNLESS an open is in flight, when it may be that open's own
+   * session named by the server before the awaiting promise has run (#49790):
+   * then it is held for `#openSession` to fold, or for `#open` to clear.
    */
   #route(notification: ViewFrame): void {
     const named = (notification.params as { sessionId?: unknown } | undefined)?.sessionId;
-    if (typeof named !== "string") return;
+    if (typeof named !== "string") {
+      // FR-97527-3: connection extensions share the fold's call-and-report
+      // loop, objects-only guard included.
+      fireExtensions(this.#extensions, notification.method, notification.params);
+      return;
+    }
     let delivered = false;
     for (const session of this.#sessions) {
       if (session.sessionId === named) {
@@ -391,6 +492,20 @@ export class MuseClient {
     const held = this.#held.get(named);
     if (held === undefined) this.#held.set(named, [notification]);
     else held.push(notification);
+  }
+
+  /** Call one listener, sending its throw or rejection to every `onNotificationError` handler. */
+  #notify(listener: NotificationObserver, notification: Notification): void {
+    observe(
+      () => listener(notification),
+      (error) => {
+        // A failure observer failing too is swallowed: like
+        // `ApprovalRouter.#report`, there is no one left to tell.
+        for (const entry of [...this.#notificationFailureHandlers]) {
+          observe(() => entry.handler(error, notification), () => undefined);
+        }
+      },
+    );
   }
 
   /**
@@ -427,6 +542,7 @@ export class MuseClient {
       ...(options.shutdownTimeoutMs === undefined
         ? {}
         : { shutdownTimeoutMs: options.shutdownTimeoutMs }),
+      ...(options.spawnFn === undefined ? {} : { spawnFn: options.spawnFn }),
     });
     let spawned;
     try {
@@ -457,6 +573,7 @@ export class MuseClient {
     }
     return new MuseClient(spawned.connection, {
       durability: readSessionDurability(spawned.initializeResult),
+      ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
       host: spawned,
     });
   }
@@ -484,6 +601,76 @@ export class MuseClient {
       throw new Error("exit is only available on a client built by MuseClient.spawn");
     }
     return this.#child.exit;
+  }
+
+  /**
+   * Settles when the connection closes for any reason: `close()`, the host
+   * hanging up, or a transport failure.
+   */
+  get closed(): Promise<void> {
+    return this.#connection.closed;
+  }
+
+  /**
+   * Hear every server notification in wire order, including those naming no
+   * session (`usage/changed`, `account/loginCompleted`) or a session this
+   * client did not open. A frame naming a session this client has opened
+   * reaches the listener after that session has applied it: folded, or, while
+   * the session fills a gap, buffered and folded when the fill completes. One
+   * that arrives while its session's start/resume is still in flight reaches
+   * the listener first, and the session folds it before the verb returns.
+   * Returns the unsubscribe function.
+   *
+   * The frame is read-only: it is the one the session folds, which for a held
+   * or buffered frame happens after the listener runs. Like a `Connection`
+   * handler, the listener runs in the read loop, so it must not block. A throw, or an async listener's rejection, goes to every
+   * `onNotificationError` handler; the other listeners still hear the frame
+   * and the connection stays open.
+   */
+  onNotification(listener: NotificationObserver): () => void {
+    const entry = { listener };
+    this.#listeners.add(entry);
+    return () => {
+      this.#listeners.delete(entry);
+    };
+  }
+
+  /**
+   * Hear what an `onNotification` listener threw or rejected with. With no
+   * handler the failure is dropped; either way the pump keeps running.
+   * Returns a function that removes this one subscription.
+   */
+  onNotificationError(handler: NotificationFailureHandler): () => void {
+    const entry = { handler };
+    this.#notificationFailureHandlers.add(entry);
+    return () => {
+      this.#notificationFailureHandlers.delete(entry);
+    };
+  }
+
+  /**
+   * Hear each framing or correlation violation the connection detects
+   * (`Connection.onProtocolError`). The handler's own throw or rejection is
+   * swallowed rather than ending the connection; it is already the observer
+   * of failures, so there is no one left to tell. The first call takes over
+   * `Connection.onProtocolError`, replacing a handler set there directly (and
+   * a later direct `connection.onProtocolError(...)` silences these
+   * subscribers). Returns a function that removes this one subscription.
+   */
+  onProtocolError(handler: ProtocolErrorHandler): () => void {
+    if (!this.#protocolErrorsClaimed) {
+      this.#protocolErrorsClaimed = true;
+      this.#connection.onProtocolError((error) => {
+        for (const entry of [...this.#protocolErrorHandlers]) {
+          observe(() => entry.handler(error), () => undefined);
+        }
+      });
+    }
+    const entry = { handler };
+    this.#protocolErrorHandlers.add(entry);
+    return () => {
+      this.#protocolErrorHandlers.delete(entry);
+    };
   }
 
   /** The durability profile every session this client opens inherits. */
@@ -592,12 +779,13 @@ export class MuseClient {
    * (see `Session.listTasks`).
    */
   async listSessions(options: SessionListParams = {}): Promise<SessionListResult> {
+    // One list drives both the exhaustiveness pin and the forwarding, so a
+    // regenerated member cannot compile yet be dropped on the wire (#76737).
     const params: Record<string, unknown> = {};
-    if (options.cursor != null) params["cursor"] = options.cursor;
-    if (options.filter != null) params["filter"] = options.filter;
-    if (options.limit != null) params["limit"] = options.limit;
-    if (options.updatedAfter != null) params["updatedAfter"] = options.updatedAfter;
-    if (options.workspaceRoot != null) params["workspaceRoot"] = options.workspaceRoot;
+    for (const member of LIST_FORWARDED) {
+      const value = options[member];
+      if (value != null) params[member] = value;
+    }
     const ack = await this.#connection.request("session/list", params);
     return ack as unknown as SessionListResult;
   }
@@ -625,29 +813,51 @@ export class MuseClient {
 
   /**
    * Send a wire method directly (FR-79107-2), typically one the facade does
-   * not wrap, through the
+   * not wrap, experimental ones included, through the
    * same `Connection.command()` the verbs use: the connection mints the
    * `commandId`, retries a nothing-admitted refusal under the same id, and
-   * checks the ack's echo. `options` are that seam's own.
+   * checks the ack's echo. `options` are that seam's own. An experimental
+   * method needs a client spawned with `capabilities: { experimentalApi: true }`
+   * (otherwise the host refuses it with an `MspError` of kind
+   * `experimentalRequired`, code -32601) and may change without notice.
    *
    * Refused before anything is written, with `MuseFacadeOwnedMethodError`:
-   * the methods whose state the facade owns (`FACADE_OWNED_METHODS`). Frames
+   * the methods whose state the facade owns (`FACADE_OWNED_METHODS`); the
+   * experimental host stop is not among them (this package names no
+   * experimental-only method), so sent raw it is the caller's own, and the
+   * exit it causes reaches your sessions as a host death; `close()` is the
+   * orderly stop. Frames
    * the command causes still reach your sessions through the client's one
    * inbound pump; this sends and returns the ack, nothing more. Params and
    * ack stay untyped objects: the generated types carry no method-to-params
    * map, and restating one here would drift from the schema.
    *
    * Each call keeps one fixed-size fingerprint for the connection's lifetime
-   * (FR-45137-1), so prefer a facade verb for a query you poll.
+   * (FR-45137-1), so prefer `request` for a query you poll.
    */
-  async command(
-    method: Exclude<MspMethod, FacadeOwnedMethod>,
+  async command<M extends RawMethodName>(
+    method: RawMethod<M>,
     params: Record<string, unknown>,
     options?: CommandOptions,
   ): Promise<Record<string, unknown>> {
     // The type binds TypeScript callers; this binds plain-JS ones.
     if (FACADE_OWNED.has(method)) throw new MuseFacadeOwnedMethodError(method);
     return this.#connection.command(method, params, options);
+  }
+
+  /**
+   * Send a wire request directly (FR-79107-2), typically a query the facade
+   * does not wrap, experimental ones included, through `Connection.request()`:
+   * no `commandId`, no retry, and omitted `params` stay off the frame.
+   * Refuses the same facade-owned methods as `command`, the same way, and
+   * needs the same `experimentalApi` opt-in for an experimental method.
+   */
+  async request<M extends RawMethodName>(
+    method: RawMethod<M>,
+    params?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (FACADE_OWNED.has(method)) throw new MuseFacadeOwnedMethodError(method);
+    return this.#connection.request(method, params);
   }
 
   /**
@@ -705,6 +915,7 @@ export class MuseClient {
       connection: this.#connection,
       discarded: this.#discarded,
       durability: this.#durability,
+      extensions: this.#extensions,
       opening,
       sessionId,
     });
@@ -761,6 +972,23 @@ export class MuseClient {
 
   #survivesHostDeath(): boolean {
     return this.#durability.kind === "durable";
+  }
+
+  /**
+   * Waits for the exit at most `SIGTERM_GRACE_MS`: a host that closed stdout
+   * but keeps running must not hold the failed calls past today's bare error.
+   */
+  #hostDeathCause(): Promise<MuseHostDiedError | undefined> | undefined {
+    if (this.#closing || this.#child === undefined) return undefined;
+    const died = this.#child.exit.then(
+      (exit) => (isAbnormalHostDeath(exit) ? new MuseHostDiedError(exit) : undefined),
+      () => undefined,
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const grace = new Promise<undefined>((resolve) => {
+      timer = setTimeout(resolve, SIGTERM_GRACE_MS, undefined);
+    });
+    return Promise.race([died, grace]).finally(() => clearTimeout(timer));
   }
 
   /**

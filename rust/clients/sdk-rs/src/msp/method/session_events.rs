@@ -2,15 +2,16 @@
 
 use super::session::AttentionFlag;
 use super::session::EffectivePermissionState;
+use super::session::NeedsInputReason;
 use super::session::Session;
 use serde::Deserialize;
 use serde::Serialize;
 
 /// `session/statusChanged` params: a loaded session's projected `(status,
-/// attention)` value flipped. A command-plane broadcast — delivered to every
-/// connection regardless of its view subscription set, never gated, no
-/// `sourceRange`; the same facts live on the Session object, which is how a
-/// client seeds its table (no initial burst on connect).
+/// attention, needsInputReasons)` value flipped. A command-plane broadcast —
+/// delivered to every connection regardless of its view subscription set, never
+/// gated, no `sourceRange`; the same facts live on the Session object, which is
+/// how a client seeds its table (no initial burst on connect).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -23,15 +24,20 @@ pub struct SessionStatusChangedParams {
     /// flag is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<Vec<AttentionFlag>>,
+    /// Why the session's input is needed after the transition; present only
+    /// when non-empty. `status` is `needsInput` exactly when this set is
+    /// non-empty. **Experimental**.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_input_reasons: Option<Vec<NeedsInputReason>>,
     /// The folded effective permission state — the same object the `Session`
     /// carries as `permissionState`. **Additive- optional**: a loaded session
     /// carries it; a `"notLoaded"` unload frame and an older host omit it (the
     /// `attention` precedent), and absence is unknown, never active. A
     /// projection of the ONE stored attach face `session/read` and the
     /// `session/list` rows serve, never a restatement. Part of the change gate:
-    /// a change in ONLY this answer — with `(status, attention)` unchanged — is
-    /// a publishable change, deduped only when value-identical, carried on the
-    /// next `session/statusChanged` frame.
+    /// a change in ONLY this answer — with `(status, attention,
+    /// needsInputReasons)` unchanged — is a publishable change, deduped only
+    /// when value-identical, carried on the next `session/statusChanged` frame.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_state: Option<EffectivePermissionState>,
     /// The causing record's view cursor. Required-nullable: `null` exactly when
@@ -46,10 +52,15 @@ pub struct SessionStatusChangedParams {
 pub enum SessionStatus {
     /// A durable log exists and no host has it loaded.
     NotLoaded,
-    /// Loaded, no active run.
+    /// Loaded, no active run, no input needed.
     Idle,
-    /// Loaded, a run in flight.
+    /// Loaded, a run in flight, no input needed.
     Running,
+    /// Loaded, the session's input is needed: at least one `needsInputReasons`
+    /// reason is present. Wins over `idle` / `running`, including while a turn
+    /// is parked on the request. **Experimental**: a connection that did not
+    /// opt in receives the `"idle"` fallback for this value.
+    NeedsInput,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.

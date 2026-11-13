@@ -99,8 +99,9 @@ pub struct ModelIdRefusal {
 
 /// `autoRecovery` on `session/resume` (amendment 26387/68619, owner decision
 /// G-23): the outcome of this resume's own load when it ran with the
-/// `resume_auto_recover` gate on and the session's effective `recoveryMode`
-/// ON. Output only; no request member asks for it.
+/// `resume_auto_recover` gate on (G-37: whatever the session's
+/// `recoveryMode`). A resume's `autoRecover: false` is reported here as
+/// `refused` with reason `optedOut`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -130,7 +131,8 @@ pub enum AutoRecoveryOutcome {
     GoalResumed,
     /// An answerable question is pending and keeps waiting.
     AwaitingUser,
-    /// Auto-recover could not proceed; the governing rules hold applies.
+    /// Auto-recover did not proceed (it failed, or the resume opted out); the
+    /// governing rules hold applies.
     Refused,
     /// A value introduced by a newer server, kept verbatim so an older
     /// client can report it without failing the parse.
@@ -193,6 +195,9 @@ pub enum AutoRecoveryReason {
     StaleSteerNotWithdrawn,
     /// The recovery steer could not be saved.
     SteerNotSaved,
+    /// The resume asked for no automatic recovery (`autoRecover: false`,
+    /// owner decision G-37); nothing failed.
+    OptedOut,
     /// A value introduced by a newer server, kept verbatim so an older
     /// client can report it without failing the parse.
     Unknown(String),
@@ -209,6 +214,7 @@ impl AutoRecoveryReason {
             Self::ResumeFallback => "resumeFallback",
             Self::StaleSteerNotWithdrawn => "staleSteerNotWithdrawn",
             Self::SteerNotSaved => "steerNotSaved",
+            Self::OptedOut => "optedOut",
             Self::Unknown(value) => value,
         }
     }
@@ -230,6 +236,7 @@ impl<'de> Deserialize<'de> for AutoRecoveryReason {
             "resumeFallback" => Self::ResumeFallback,
             "staleSteerNotWithdrawn" => Self::StaleSteerNotWithdrawn,
             "steerNotSaved" => Self::SteerNotSaved,
+            "optedOut" => Self::OptedOut,
             _ => Self::Unknown(value),
         })
     }

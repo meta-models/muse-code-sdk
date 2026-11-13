@@ -158,6 +158,7 @@ impl RetiredApprovals {
             reviewer_reason: None,
             subagent_origin: update.subagent_origin.clone(),
             cua_card_facts: None,
+            node: None,
         })
     }
 }

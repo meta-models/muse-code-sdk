@@ -67,6 +67,15 @@ export const submissionTail = Symbol("Connection.submissionTail");
  */
 export const requestWithFrame = Symbol("Connection.requestWithFrame");
 
+/**
+ * Module-private friend seam, like {@link submissionTail}: the owner of the
+ * peer process says, once when the connection finishes, why the peer is gone.
+ * A promise it returns settles (never rejects) with the `cause` given to
+ * every call the connection then fails; `undefined` keeps the bare error and
+ * its timing.
+ */
+export const peerEndCause = Symbol("Connection.peerEndCause");
+
 /** What {@link requestWithFrame} resolves with: the result and its wire line. */
 export interface FramedResult {
   readonly result: Record<string, unknown>;
@@ -134,7 +143,13 @@ export class MspError extends Error {
   }
 }
 
-/** A local framing/correlation violation, never a server-authored MSP error. */
+/**
+ * A local framing/correlation violation, never a server-authored MSP error.
+ * When a call fails because a host `MuseClient.spawn` started died, the error
+ * it rejects with (usually this class; the transport's own error when a write
+ * failed) has a `MuseHostDiedError` `cause` saying how the host ended, so
+ * check `cause` alone.
+ */
 export class ProtocolError extends Error {
   /**
    * The inbound frame (wire line) the violation was detected on, when there
@@ -248,9 +263,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * responses, enforces the frame-size limit, and hands inbound notifications
  * and server requests to the handlers you register. It is transport-agnostic:
  * pair it with any `DuplexTransport`. Most applications never build one
- * directly — `MuseClient.spawn` or `spawnMspConnection` does it for you;
- * reach for a bare `Connection` when you need the raw notification feed or
- * your own transport.
+ * directly — `MuseClient.spawn` or `spawnMspConnection` does it for you, and
+ * `MuseClient.onNotification` hears the notification feed. Reach for a bare
+ * `Connection` only for your own transport or to handle frames before session
+ * routing.
  */
 export class Connection {
   readonly #transport: DuplexTransport;
@@ -264,6 +280,8 @@ export class Connection {
   #serverRequestHandler: ServerRequestHandler | undefined;
   #notificationHandler: NotificationHandler | undefined;
   #protocolErrorHandler: ProtocolErrorHandler | undefined;
+  #peerEndCause: (() => Promise<unknown> | undefined) | undefined;
+  #endCause: Promise<unknown> | undefined;
   #writeTail: Promise<void> = Promise.resolve();
   // Settles when every accepted frame has been HANDED to the transport, as
   // opposed to #writeTail, which settles when the peer has taken it.
@@ -309,13 +327,24 @@ export class Connection {
     return this.#request(method, params).then((framed) => framed.result);
   }
 
+  /** See {@link peerEndCause}. */
+  [peerEndCause](read: () => Promise<unknown> | undefined): void {
+    this.#peerEndCause = read;
+    // The host can die between the handshake and this registration.
+    if (this.#finished && this.#endCause === undefined) this.#endCause = read();
+  }
+
   /** See {@link requestWithFrame}. */
   [requestWithFrame](method: string, params?: Record<string, unknown>): Promise<FramedResult> {
     return this.#request(method, params);
   }
 
   #request(method: string, params?: Record<string, unknown>): Promise<FramedResult> {
-    if (this.#finished) return Promise.reject(new ProtocolError("connection is closed"));
+    if (this.#finished) {
+      return new Promise<FramedResult>((_, reject) =>
+        this.#rejectWithEndCause(reject, new ProtocolError("connection is closed")),
+      );
+    }
     const id = this.#mintRequestId();
     if (typeof id !== "string" && (typeof id !== "number" || !Number.isInteger(id))) {
       return Promise.reject(new ProtocolError("request id must be a string or integer"));
@@ -336,7 +365,7 @@ export class Connection {
       });
       void this.#write(request).catch((error: unknown) => {
         this.#pending.delete(requestKey(id));
-        reject(error);
+        this.#rejectWithEndCause(reject, error);
       });
     });
   }
@@ -422,8 +451,11 @@ export class Connection {
         remembered.ack = ackFingerprint;
         return ack;
       } catch (error) {
+        // A present data.retryable overrides the code's table default, so an
+        // explicit false stops the retry; absent keeps it.
         const retryableNothingAdmitted =
           error instanceof MspError &&
+          error.retryable !== false &&
           ((error.code === -32001 && error.kind === "overloaded") ||
             (error.code === -32031 && error.kind === "backpressured"));
         if (!retryableNothingAdmitted || attempt === maxAttempts) throw error;
@@ -700,6 +732,19 @@ export class Connection {
     }
   }
 
+  /** Reject with `error`, first giving it the peer's end cause when the owner reported one. */
+  #rejectWithEndCause(reject: (error: unknown) => void, error: unknown): void {
+    const endCause = this.#endCause;
+    if (endCause === undefined || !(error instanceof Error) || error.cause !== undefined) {
+      reject(error);
+      return;
+    }
+    void endCause.then((cause) => {
+      if (cause !== undefined) error.cause = cause;
+      reject(error);
+    });
+  }
+
   #protocolError(error: ProtocolError): void {
     this.#protocolErrorHandler?.(error);
   }
@@ -708,7 +753,8 @@ export class Connection {
     if (this.#finished) return;
     this.#finished = true;
     const error = reason instanceof Error ? reason : new ProtocolError(String(reason));
-    for (const pending of this.#pending.values()) pending.reject(error);
+    this.#endCause = this.#peerEndCause?.();
+    for (const pending of this.#pending.values()) this.#rejectWithEndCause(pending.reject, error);
     this.#pending.clear();
     this.#resolveClosed?.();
     this.#resolveClosed = undefined;

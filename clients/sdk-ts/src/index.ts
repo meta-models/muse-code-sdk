@@ -45,6 +45,8 @@ export type {
 export { SessionStateStore } from "./fold/state-store.js";
 export type { StateApplyOutcome, StateValue } from "./fold/state-store.js";
 
+export type { FoldExtension } from "./fold/extension.js";
+
 export { SessionFold } from "./fold/session-fold.js";
 export type {
   /**
@@ -109,6 +111,8 @@ export { MuseClient } from "./facade/client.js";
 export type {
   MuseClientOptions,
   MuseClientSpawnOptions,
+  NotificationFailureHandler,
+  NotificationObserver,
   ResumeSessionOptions,
   StartSessionOptions,
 } from "./facade/client.js";
@@ -167,12 +171,15 @@ export type {
   PendingCommandView,
   SessionApplyOutcome,
   SessionApplyRefusal,
+  SessionEvent,
+  SessionEventsOptions,
   SessionFoldView,
   SessionGapBuffered,
   SessionGapOverlap,
   SessionOpening,
   SessionOptions,
   SubagentReasonOptions,
+  ViewFrame,
 } from "./facade/session.js";
 
 // The two submit-side modules `Session` composes. `ApprovalRouter` and

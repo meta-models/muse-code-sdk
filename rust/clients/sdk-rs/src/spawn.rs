@@ -23,7 +23,7 @@ pub const HOST_BINARY_NAME: &str = "muse";
 
 /// The compatibility matrix cited by discovery errors.
 pub const COMPATIBILITY_PAGE_URL: &str =
-    "https://meta-models.github.io/muse-code-sdk/compatibility/";
+    "https://meta-models.github.io/muse-code-sdk/latest/compatibility/";
 
 /// Maximum retained host stderr evidence for exit classification.
 pub const STDERR_TAIL_LIMIT: usize = 16 * 1024;

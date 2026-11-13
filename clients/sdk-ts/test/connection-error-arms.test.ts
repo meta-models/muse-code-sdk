@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Connection, MspError, ProtocolError } from "../src/index.js";
+import { Connection, ProtocolError } from "../src/index.js";
 import type { DuplexTransport } from "../src/index.js";
 
 class AsyncChunks implements AsyncIterable<string> {

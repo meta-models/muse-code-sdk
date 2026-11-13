@@ -84,6 +84,13 @@ pub struct ApprovalRequestParams {
     /// approval.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cua_card_facts: Option<crate::msp::view::approval_card_facts::ApprovalCuaCardFacts>,
+    /// The name of the node the action would run on. **Experimental**
+    /// (`approval/requested.node`). Absent means the action would run on the
+    /// host's own machine: every action in a session that never had a remote
+    /// node, and an action bound for the host's own machine in a session that
+    /// has had one. Never `local`, and absence never means the default node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
 }
 
 /// `approval/updated` params: the refreshed pending view plus one change.

@@ -71,7 +71,8 @@ const TURN_START_FORWARDED = [
   // v1 stable member, forwarded like any other.
   "userShell",
 ] as const;
-type _TurnStartIsExhaustive = AssertNever<
+/** @internal */
+export type _TurnStartIsExhaustive = AssertNever<
   Exclude<
     keyof Omit<TurnStartParams, "commandId" | "sessionId">,
     (typeof TURN_START_FORWARDED)[number]
@@ -93,7 +94,8 @@ export type SteerTurnOptions<I> = Readonly<
 
 /** Every `turn/steer` member forwarded; a regenerated member fails the build. */
 const TURN_STEER_FORWARDED = ["input", "reasoningEffort"] as const;
-type _TurnSteerIsExhaustive = AssertNever<
+/** @internal */
+export type _TurnSteerIsExhaustive = AssertNever<
   Exclude<
     keyof Omit<TurnSteerParams, "commandId" | "sessionId" | "expectedTurnId">,
     (typeof TURN_STEER_FORWARDED)[number]

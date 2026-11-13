@@ -2,6 +2,8 @@
 
 use super::RecoveryMode;
 use super::session_mcp::SessionConfig;
+use super::session_start_nodes::SessionStartNode;
+use super::session_start_nodes::SessionStartNodeRoster;
 use super::session_start_switch_policy::SwitchPolicy;
 use crate::msp::method::approval::ClientApprovalRule;
 use crate::msp::method::limits::SessionLimitsChoice;
@@ -153,6 +155,17 @@ pub struct SessionStartParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub previous_session_id: Option<String>,
+    /// Marks this start as a `/clear`: `true` starts the new session as a
+    /// clear, so its `SessionStart` hooks get source `clear` instead of
+    /// `startup`. `false` and omitted are the same plain start (source
+    /// `startup`). It neither needs nor implies `previousSessionId`. Explicit
+    /// `null` is invalid params.
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clear: Option<bool>,
     /// What happens to the `previousSessionId` predecessor's unfinished
     /// background work. **Experimental** (`session/start.switchPolicy`; unopted
     /// callers are refused `-32602`). `kill` cancels the predecessor's
@@ -166,6 +179,33 @@ pub struct SessionStartParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub switch_policy: Option<SwitchPolicy>,
+    /// The nodes this session's tool calls run on, in the order that sets the
+    /// default. **Experimental** (`session/start.nodes`; unopted callers are
+    /// refused `-32602`). Each is attached before the start answers; a start in
+    /// which one fails to attach is refused `commandRejected`
+    /// (`node_attach_refused`) and leaves no session. A host with the nodes
+    /// feature off refuses the member (`nodes_feature_off`), and so does a host
+    /// that does not offer nodes (`nodes_not_offered`). Omitted means the
+    /// session runs on the host's own machine, exactly as today. Explicit
+    /// `null` is invalid params.
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub nodes: Option<Vec<SessionStartNode>>,
+    /// The name of the default node, one of `nodes`. **Experimental**
+    /// (`session/start.defaultNode`; unopted callers are refused `-32602`).
+    /// Omitted means the first node. Without `nodes`, a host that would refuse
+    /// `nodes` refuses it the same way (`nodes_feature_off`,
+    /// `nodes_not_offered`) and a host that attaches nodes answers invalid
+    /// params. Explicit `null` is invalid params.
+    #[serde(
+        default,
+        deserialize_with = "super::deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_node: Option<String>,
 }
 
 /// `session/start` result.
@@ -179,4 +219,70 @@ pub struct SessionStartResult {
     /// and receives every view event after this cursor. A deduplicated retry
     /// returns this same result.
     pub view_cursor: String,
+    /// What the host did not apply. **Experimental**
+    /// (`session/start.warnings`). Absent when there is nothing to warn about,
+    /// never an empty array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<SessionLoadWarning>>,
+    /// The roster the session started with. **Experimental**
+    /// (`session/start.nodeRoster`; stripped per-connection for unopted
+    /// callers). Present when the start named nodes, the host attached them and
+    /// the session is still loaded with that roster; a retry answered after
+    /// that omits it. A client that named nodes and reads no echo sends no turn
+    /// to the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_roster: Option<SessionStartNodeRoster>,
+    /// The built-in tool set this start runs with, when the request
+    /// spelled `config.allowedBuiltInTools` and the host serves the
+    /// restriction (design kt-2n1z N3): the post-intersection set, `[]`
+    /// when applied-to-empty. Absent = not requested or a pre-feature
+    /// host; an absent echo on a spelled input means unapplied. Declared
+    /// here (P5, kt-kqr8), never filled until the last enforcing piece
+    /// (P8). **Experimental** (`session/start.appliedBuiltInTools`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_built_in_tools: Option<Vec<String>>,
+    /// The session MCP servers this start admitted. **Experimental**
+    /// (`session/start.admittedSessionMcpServers`). Present iff the
+    /// request spelled `config.admitSessionMcpServers` and the admission
+    /// gate is open; the value is the effective admitted set — names
+    /// joined and not withheld, `[]` when applied-to-empty. Absent means
+    /// not requested or a pre-feature host. Never filled before the last
+    /// enforcing piece lands, so no host can read "applied" early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admitted_session_mcp_servers: Option<Vec<String>>,
+}
+
+/// One `session/start` or `session/resume` result warning. **Experimental.**
+/// The command succeeded; the warning names what the host did not apply.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct SessionLoadWarning {
+    /// Machine code. `setting_ignored`: this host composes no
+    /// `config.settingsOverrides`, so the named keys were ignored.
+    /// `selection_unavailable`: the session's selection names items it
+    /// cannot have; the session started without them (`items`).
+    pub code: String,
+    /// Human-readable text.
+    pub message: String,
+    /// The `config.settingsOverrides` keys the warning names, as sent, in
+    /// ascending string order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<String>,
+    /// For `selection_unavailable`: each selected item with the reason it is
+    /// unavailable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<SessionLoadWarningItem>,
+}
+
+/// One `selection_unavailable` item. **Experimental.**
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct SessionLoadWarningItem {
+    /// The selected item: `plugin:<plugin id>`.
+    pub id: String,
+    /// `not_installed`, `host_disabled`, `enterprise_refused`, or
+    /// `managed_disabled`.
+    pub reason: String,
 }

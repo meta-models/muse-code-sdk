@@ -36,9 +36,11 @@ pub use self::envelope::{
 };
 
 pub use self::error::{
-    AdmissionResolutionSummary, ApprovalRequirementRef, ApprovalResolutionSummary, ErrorData,
-    ErrorObject, UserInputSettlementSummary,
+    AdmissionResolutionSummary, ApprovalRequirementRef, ApprovalResolutionSummary, ErrorObject,
+    UserInputSettlementSummary,
 };
+
+pub use self::error::data::ErrorData;
 
 pub use self::error::kind::ErrorKind;
 
@@ -103,6 +105,10 @@ pub use self::method::lifecycle::session_config_mt::{
     SessionSettingsOverrideValue, SessionSettingsOverrides,
 };
 
+pub use self::method::lifecycle::session_config_mt_providers::{
+    SessionEndpointProviderOverride, SessionEndpointProviders,
+};
+
 pub use self::method::lifecycle::session_leave::{
     SessionLeaveCompletedParams, SessionLeaveFailureReason, SessionLeaveOutcome,
     SessionLeaveParams, SessionLeaveResult,
@@ -113,8 +119,10 @@ pub use self::method::lifecycle::session_list::{
     SessionListSessionIdFilter, SessionListTextField, SessionListTextFilter,
 };
 
-pub use self::method::lifecycle::session_mcp::{
-    SessionConfig, SessionMcpServerConfig, SessionMcpServerMode, SessionMcpStdioFraming,
+pub use self::method::lifecycle::session_mcp::SessionConfig;
+
+pub use self::method::lifecycle::session_mcp_server::{
+    SessionMcpServerConfig, SessionMcpServerMode, SessionMcpStdioFraming,
 };
 
 pub use self::method::lifecycle::session_read::{
@@ -122,11 +130,14 @@ pub use self::method::lifecycle::session_read::{
 };
 
 pub use self::method::lifecycle::session_resume::{
-    CheckpointBoundary, ContinuePausedSource, HistoryMode, HistoryNoneReason, HistoryPreference,
-    SessionHistory, SessionResumeParams, SessionResumeResult,
+    ContinuePausedSource, SessionResumeParams, SessionResumeResult,
 };
 
 pub use self::method::lifecycle::session_resume::attachments::RestartReceipt;
+
+pub use self::method::lifecycle::session_resume::history::{
+    CheckpointBoundary, HistoryMode, HistoryNoneReason, HistoryPreference, SessionHistory,
+};
 
 pub use self::method::lifecycle::session_resume_input_assets::{
     ClientRef, MissingInputAssets, UnavailableInputAsset, UnavailableInputAssetReason,
@@ -138,7 +149,13 @@ pub use self::method::lifecycle::session_resume_members::{
     PendingRequestPointer,
 };
 
-pub use self::method::lifecycle::session_start::{SessionStartParams, SessionStartResult};
+pub use self::method::lifecycle::session_start::{
+    SessionLoadWarning, SessionLoadWarningItem, SessionStartParams, SessionStartResult,
+};
+
+pub use self::method::lifecycle::session_start_nodes::{
+    SessionStartNode, SessionStartNodeRoster, SessionStartRosterNode,
+};
 
 pub use self::method::lifecycle::session_start_switch_policy::SwitchPolicy;
 
@@ -200,7 +217,7 @@ pub use self::method::session_external_wait::{
 
 pub use self::method::session_satellites::{
     AttentionFlag, EffectiveApprovalModeState, EffectivePermissionState, ForkProvenance,
-    SessionListChangedParams, SessionSpawnedBy, SideProvenance,
+    NeedsInputReason, SessionListChangedParams, SessionSpawnedBy, SideProvenance,
 };
 
 pub use self::method::skill::{
@@ -288,6 +305,10 @@ pub use self::view::gap::ViewGapParams;
 
 pub use self::view::health::{SessionViewHealth, SessionViewHealthChangedParams};
 
+pub use self::view::item::object::body_completion::{
+    BodyCompletionCorrelation, BodyCompletionMembers,
+};
+
 pub use self::view::item::object::item::Item;
 
 pub use self::view::item::object::notice::{NoticeOrigin, NoticeSeverity, NoticeSubject};
@@ -295,6 +316,8 @@ pub use self::view::item::object::notice::{NoticeOrigin, NoticeSeverity, NoticeS
 pub use self::view::item::object::replay_hint::ReplayHint;
 
 pub use self::view::item::object::scheduled_fire::ScheduledFireMembers;
+
+pub use self::view::item::object::subagent_members::SubagentMembers;
 
 pub use self::view::item::object::tool_call::{BackgroundTarget, ToolCallMembers};
 
@@ -322,7 +345,7 @@ pub use self::view::item_status::{
 };
 
 pub use self::view::item_subagent_workflow::{
-    SubagentControlStatus, SubagentResult, WorkflowChild, WorkflowTokenBudget,
+    SubagentControlStatus, SubagentResult, WorkflowChild, WorkflowTokenBudget, WorkspacePlacement,
 };
 
 pub use self::view::message_phase::MessagePhase;

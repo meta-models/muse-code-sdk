@@ -183,7 +183,11 @@ def is_item_in_progress(item: Item) -> bool:
 
 
 class MuseHostDiedError(Exception):
-    """A durable host died abnormally: its terminals arrive on resume.
+    """The host died abnormally.
+
+    On a session it means a durable host died and its terminals arrive on
+    resume; as the ``__cause__`` of a failed call, it reports how any host
+    ended.
 
     Attributes:
         exit: The abnormal notification (never a ``cleanShutdown``).

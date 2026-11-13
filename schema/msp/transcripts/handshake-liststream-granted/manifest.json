@@ -3,6 +3,11 @@
   "schemaVersion": 1,
   "scenario": "handshake-liststream-granted",
   "provenance": "host-generated",
+  "regenerationJustification": {
+    "cite": "ADR 97527 D5; OWNER-DECISION https://github.com/mslsrc/tbh/issues/97527#issuecomment-6785009129 (exact member ack)",
+    "rationale": "Re-record the owner-acked additive SchemaInfo.experimentalFingerprint member in the handshake frame; no other wire byte changes.",
+    "trackingIssue": "#97527"
+  },
   "viewSchemaVersion": 1,
   "serverConfig": {
     "frameLimitBytes": 10485760

@@ -59,6 +59,10 @@ ATTENTION_FLAG_KNOWN_VALUES: Final[tuple[str, ...]] = ("approvalPending", "input
 BackgroundInitiator = str  # open enum: unknown values stay representable
 BACKGROUND_INITIATOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "timeout",)
 
+# Whether the origin call join held at delivery.
+BodyCompletionCorrelation = str  # open enum: unknown values stay representable
+BODY_COMPLETION_CORRELATION_KNOWN_VALUES: Final[tuple[str, ...]] = ("resolved", "unresolved",)
+
 # A grantable capability name. Open: the experimental-only `rawLog` entry joins the stable domain as an additive open-enum extension when it graduates — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
 CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename",)
@@ -157,7 +161,7 @@ IfBusy = Literal["queue", "steer", "replace"]
 
 # The eleven v1 item kinds plus post-v1 kinds. Open: a new kind is additive evolution, and clients MUST render unknown kinds generically.
 ItemKind = str  # open enum: unknown values stay representable
-ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory", "peerMessage", "subagentInput", "subagentResult", "systemNotice",)
+ITEM_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("userMessage", "agentMessage", "reasoning", "toolCall", "userShell", "subagent", "workflow", "reminderChild", "compaction", "hookRun", "sideChat", "webSearch", "monitorFeed", "damagedRange", "scheduledFire", "backgroundTerminalCompletion", "overdueNotice", "earlierHistory", "peerMessage", "subagentInput", "subagentResult", "systemNotice", "bodyCompletion",)
 
 # The `item/readOutput` content encoding. Closed: text media is ALWAYS `utf8` and binary media `base64`; a third value would change the client's decode contract.
 ItemReadOutputEncoding = Literal["utf8", "base64"]
@@ -196,9 +200,9 @@ ModelCompleteRole = Literal["user", "assistant"]
 ModelCompleteStopReason = str  # open enum: unknown values stay representable
 MODEL_COMPLETE_STOP_REASON_KNOWN_VALUES: Final[tuple[str, ...]] = ("end", "maxTokens",)
 
-# `systemNotice`: the producing family, so a client routes a notice without parsing its text. Open. The v1 vocabulary is the Monitor notice and the three system-chrome producers plus the hook-run producer and the paused-Workflow checkpoint producer; absent means the server named no origin, and a client never infers one.
+# `systemNotice`: the producing family, so a client routes a notice without parsing its text. Open. The v1 vocabulary is the Monitor notice and the three system-chrome producers plus the hook-run producer, the paused-Workflow checkpoint producer and the continued-child tools producer; absent means the server named no origin, and a client never infers one.
 NoticeOrigin = str  # open enum: unknown values stay representable
-NOTICE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("monitor", "skillsStartup", "scheduledFire", "incompleteGeneration", "hook", "workflowCheckpoint",)
+NOTICE_ORIGIN_KNOWN_VALUES: Final[tuple[str, ...]] = ("monitor", "skillsStartup", "scheduledFire", "incompleteGeneration", "hook", "workflowCheckpoint", "continuedChildTools",)
 
 # `systemNotice`: the notice's level. Open; an unknown value is an unknown-but-present level, rendered generically.
 NoticeSeverity = str  # open enum: unknown values stay representable
@@ -388,7 +392,7 @@ TOOL_RECEIPT_OUTCOME_KNOWN_VALUES: Final[tuple[str, ...]] = ("created", "duplica
 
 # Turn failure classes. Open.
 TurnErrorKind = str  # open enum: unknown values stay representable
-TURN_ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("stepLimit", "configError", "projectionError", "logError", "workflowLaunchError", "environmentError", "modelError", "launchError", "authRequired", "mcpLinkError",)
+TURN_ERROR_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("stepLimit", "configError", "projectionError", "logError", "workflowLaunchError", "environmentError", "modelError", "launchError", "authRequired", "mcpLinkError", "reasoningReplayRefused", "contextOverflow",)
 
 # The `type` discriminator of a turn input part. Closed: an unknown part type is `invalidParams`.
 TurnInputPartType = Literal["text", "image", "skill", "video"]
@@ -753,6 +757,19 @@ class BlockedPrompt(TypedDict):
     text: str
 
 
+class _BodyCompletionMembersBase(TypedDict):
+    correlation: BodyCompletionCorrelation
+    receipt: bool
+    resultSummary: str
+    status: str
+
+
+class BodyCompletionMembers(_BodyCompletionMembersBase, total=False):
+    """`bodyCompletion`: the facts one receipt row renders. The fold reads them from the inbox terminal record and the backgrounded call it names. `status`, `result_summary`, and `correlation` are required; `origin_call_id` is absent exactly when the join is unresolved."""
+
+    originCallId: str
+
+
 class _BranchStateBase(TypedDict):
     branch: str | None
     workspaceRoot: str
@@ -1070,6 +1087,7 @@ class ErrorData(_ErrorDataBase, total=False):
     selector: str
     sessionId: str
     settlement: UserInputSettlementSummary
+    stopRefusal: str
     uploadId: str
     userInputId: str
     viewCursor: str
@@ -1282,7 +1300,9 @@ class Item(_ItemBase, total=False):
     backgroundInitiator: BackgroundInitiator
     backgroundTarget: BackgroundTarget
     backgroundTerminalCompletion: BackgroundTerminalCompletion
+    bashTitle: str
     blocking: bool
+    bodyCompletion: BodyCompletionMembers
     callId: str
     childPromptRefs: list[OutputRef]
     childSessionId: str
@@ -2080,11 +2100,15 @@ class RuntimeWorktree(_RuntimeWorktreeBase, total=False):
     cleanupReason: RuntimeWorktreeCleanupReason
 
 
-class SchemaInfo(TypedDict):
-    """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
-
+class _SchemaInfoBase(TypedDict):
     fingerprint: str
     version: int
+
+
+class SchemaInfo(_SchemaInfoBase, total=False):
+    """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
+
+    experimentalFingerprint: str
 
 
 class ServerInfo(TypedDict):
@@ -2204,6 +2228,7 @@ class SessionCompactResult(_SessionCompactResultBase, total=False):
 class SessionConfig(TypedDict, total=False):
     """The open configuration extension object shared by `session/start` and `session/resume`. Unknown keys are ignored on the wire, never rejected: the live decoder tolerates them, and no exported bundle carries `additionalProperties: false`. The Rust typed model's `deny_unknown_fields` is internal and never exported — the closedness export applies nowhere, and the `x-msp-closed` opt-in mechanism stays inert. Recognized `mcpServers` values are typed and validated before they leave the wire boundary."""
 
+    developerPrompt: str | None
     mcpServers: dict[str, SessionMcpServerConfig]
 
 
@@ -2433,6 +2458,7 @@ class SessionReadResult(_SessionReadResultBase, total=False):
     blockedPrompt: BlockedPrompt
     deliveredInputs: list[DeliveredInput]
     lastTurn: LastTurn
+    modelTurnRunning: bool
     prunedSubagents: list[PrunedSubagent]
     queuedInputs: list[QueuedInput]
     recoveryObservation: RecoveryObservation
@@ -2582,6 +2608,7 @@ class SessionStartParams(_SessionStartParamsBase, total=False):
     """`session/start` params."""
 
     approvalMode: ApprovalMode | None
+    clear: bool
     config: SessionConfig
     modelId: str
     permissionProfile: str
@@ -2614,7 +2641,7 @@ class _SessionStatusChangedParamsBase(TypedDict):
 
 
 class SessionStatusChangedParams(_SessionStatusChangedParamsBase, total=False):
-    """`session/statusChanged` params: a loaded session's projected `(status, attention)` value flipped. A command-plane broadcast — delivered to every connection regardless of its view subscription set, never gated, no `sourceRange`; the same facts live on the Session object, which is how a client seeds its table (no initial burst on connect)."""
+    """`session/statusChanged` params: a loaded session's projected `(status, attention, needsInputReasons)` value flipped. A command-plane broadcast — delivered to every connection regardless of its view subscription set, never gated, no `sourceRange`; the same facts live on the Session object, which is how a client seeds its table (no initial burst on connect)."""
 
     attention: list[AttentionFlag]
 
@@ -2939,6 +2966,7 @@ class SubagentResult(_SubagentResultBase, total=False):
     drained: bool
     errorKind: str
     structuredData: dict[str, Any]
+    superseded: bool
     text: str
 
 

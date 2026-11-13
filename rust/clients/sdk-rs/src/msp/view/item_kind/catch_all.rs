@@ -30,6 +30,7 @@ impl ItemKind {
             Self::SubagentInput => "subagentInput",
             Self::SubagentResult => "subagentResult",
             Self::SystemNotice => "systemNotice",
+            Self::BodyCompletion => "bodyCompletion",
             Self::Unknown(word) => word,
         }
     }
@@ -68,6 +69,7 @@ impl<'de> Deserialize<'de> for ItemKind {
             "subagentInput" => Self::SubagentInput,
             "subagentResult" => Self::SubagentResult,
             "systemNotice" => Self::SystemNotice,
+            "bodyCompletion" => Self::BodyCompletion,
             _ => Self::Unknown(word),
         })
     }

@@ -101,6 +101,11 @@ class MspError(Exception):
 class ProtocolError(Exception):
     """A local framing/correlation violation, never a server-authored error.
 
+    When a call fails because a host ``MuseClient.spawn`` started died, the
+    error it raises (usually this class; the transport's own error when a
+    write failed) has a ``MuseHostDiedError`` ``__cause__`` saying how the
+    host ended, so check ``__cause__`` alone.
+
     Attributes:
         line: The offending inbound line, preserved as evidence and bounded
             in UTF-8 bytes, when one exists.
@@ -296,6 +301,10 @@ class Connection:
         self._buffer_bytes = 0
         self._dropping_oversized = False
         self._finished = False
+        self._read_peer_end_cause: (
+            Callable[[], asyncio.Future[BaseException | None] | None] | None
+        ) = None
+        self._end_cause: asyncio.Future[BaseException | None] | None = None
         self._closed: asyncio.Future[None] = self._loop.create_future()
         self._read_task = self._loop.create_task(self._read_loop())
 
@@ -323,6 +332,22 @@ class Connection:
         way :meth:`close` does.
         """
         return self._submit_tail
+
+    def _peer_end_cause(
+        self, read: Callable[[], asyncio.Future[BaseException | None] | None]
+    ) -> None:
+        """Friend seam: lets the owner of the peer process say, once when the
+        connection finishes, why the peer is gone.
+
+        Module-private, like the TS twin's Symbol fence. A future ``read``
+        returns settles (never with an exception) with the ``__cause__`` given
+        to every call the connection then fails; ``None`` keeps the bare error
+        and its timing.
+        """
+        self._read_peer_end_cause = read
+        # The host can die between the handshake and this registration.
+        if self._finished and self._end_cause is None:
+            self._end_cause = read()
 
     def mint_command_id(self) -> str:
         """Takes one id from THIS connection's single command-id minter.
@@ -352,7 +377,7 @@ class Connection:
         """
         outcome: asyncio.Future[Params] = self._loop.create_future()
         if self._finished:
-            outcome.set_exception(ProtocolError("connection is closed"))
+            self._fail_with_end_cause(outcome, ProtocolError("connection is closed"))
             return outcome
         request_id = self._mint_request_id()
         if not _valid_request_id(request_id):
@@ -376,8 +401,7 @@ class Connection:
             error = done.exception()
             if error is not None:
                 self._pending.pop(key, None)
-                if not outcome.done():
-                    outcome.set_exception(error)
+                self._fail_with_end_cause(outcome, error)
 
         write_outcome.add_done_callback(on_write_done)
         return outcome
@@ -440,7 +464,8 @@ class Connection:
         """Sends one logical command with the same-``commandId`` retry contract.
 
         Same-id retries on the retryable pair (``backpressured`` /
-        ``overloaded``) with the bounded full-jitter budget; a value-identical
+        ``overloaded``) with the bounded full-jitter budget, unless the error
+        carries an explicit ``retryable: false``; a value-identical
         ack settles a replay; ``inputTooLarge`` (and every other error) is
         never auto-retried.
 
@@ -529,9 +554,12 @@ class Connection:
                 remembered.ack = dict(ack)
                 return ack
             except MspError as error:
-                retryable_nothing_admitted = (
-                    error.code == -32001 and error.kind == "overloaded"
-                ) or (error.code == -32031 and error.kind == "backpressured")
+                # A present data.retryable overrides the code's table default,
+                # so an explicit False stops the retry; absent keeps it.
+                retryable_nothing_admitted = error.retryable is not False and (
+                    (error.code == -32001 and error.kind == "overloaded")
+                    or (error.code == -32031 and error.kind == "backpressured")
+                )
                 if not retryable_nothing_admitted or attempt == attempts:
                     raise
                 await delay(attempt, error)
@@ -878,6 +906,27 @@ class Connection:
         if error is not None:
             self._finish(error)
 
+    def _fail_with_end_cause(
+        self, outcome: asyncio.Future[Any], error: BaseException
+    ) -> None:
+        """Fails ``outcome`` with ``error``, first giving it the peer's end
+        cause when the owner reported one."""
+        end_cause = self._end_cause
+        if end_cause is None or error.__cause__ is not None:
+            if not outcome.done():
+                outcome.set_exception(error)
+            return
+
+        def settle(done: asyncio.Future[BaseException | None]) -> None:
+            if not done.cancelled():
+                cause = done.result()
+                if cause is not None:
+                    error.__cause__ = cause
+            if not outcome.done():
+                outcome.set_exception(error)
+
+        end_cause.add_done_callback(settle)
+
     def _protocol_error(self, error: ProtocolError) -> None:
         if self._protocol_error_handler is not None:
             self._protocol_error_handler(error)
@@ -891,9 +940,10 @@ class Connection:
             if isinstance(reason, BaseException)
             else ProtocolError(str(reason))
         )
+        if self._read_peer_end_cause is not None:
+            self._end_cause = self._read_peer_end_cause()
         for pending in self._pending.values():
-            if not pending.future.done():
-                pending.future.set_exception(error)
+            self._fail_with_end_cause(pending.future, error)
         self._pending.clear()
         if not self._closed.done():
             self._closed.set_result(None)

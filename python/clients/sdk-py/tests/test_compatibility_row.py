@@ -10,8 +10,8 @@ page. Two properties, each an arm:
   two package manifests, the stable schema's bytes, and the stable-bundle
   manifest) — one derivation, never a restated copy;
 * citation parity: ``muse_code.errors.COMPATIBILITY_PAGE_URL`` equals the
-  site's own public identity plus the
-  compatibility page's path, and that page actually carries the generated
+  site's own public identity plus the compatibility page's path under the
+  versioned site's ``/latest/`` alias, and that page actually carries the generated
   Python row (the ``PythonCompatibilityRow`` component).
 
 The PER-WHEEL half (host version per published wheel) is release-cut
@@ -117,7 +117,9 @@ def test_the_mismatch_error_citation_matches_the_page() -> None:
         sys.path.pop(0)
     origin = _site_constant("SITE_ORIGIN")
     public_path = _site_constant("PUBLIC_PATH")
-    assert COMPATIBILITY_PAGE_URL == f"{origin}{public_path}/compatibility/", (
+    # The docs site serves each release line in its own folder plus a
+    # `/latest/` alias; the old flat path is no longer served.
+    assert COMPATIBILITY_PAGE_URL == f"{origin}{public_path}/latest/compatibility/", (
         "the host-mismatch error cites a URL that is not the site's "
         "compatibility page"
     )

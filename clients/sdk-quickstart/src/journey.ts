@@ -486,7 +486,7 @@ const SEGMENTS: ReadonlyArray<Segment<Context>> = [
       const sessionId = requireSessionId(context);
       // A cursor for this session at an impossible sequence. No host can
       // ever have minted it.
-      const impossible = `v9:${sessionId}:999999`;
+      const impossible = `v10:${sessionId}:999999`;
       try {
         await within(
           "the refused session/resume reply",

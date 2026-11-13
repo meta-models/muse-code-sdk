@@ -22,6 +22,7 @@ pub(crate) mod item_kind;
 pub(crate) mod item_peer_message;
 pub(crate) mod item_status;
 pub(crate) mod item_subagent_workflow;
+pub(crate) mod item_subagent_workflow_wire_words;
 pub(crate) mod message_phase;
 pub(crate) mod monitor_inbox;
 pub(crate) mod state;

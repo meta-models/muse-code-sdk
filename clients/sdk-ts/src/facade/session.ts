@@ -20,6 +20,7 @@
  * verbs loudly rather than dropping a caller's input on the floor.
  */
 
+import type { FoldExtension } from "../fold/extension.js";
 import { SessionFold } from "../fold/session-fold.js";
 import type { DeepReadonly, FoldOutcome, ViewEvent } from "../fold/session-fold.js";
 import { PendingCommandSet } from "../pending/pending-command-set.js";
@@ -49,7 +50,7 @@ import type {
   HostDeathNotification,
   SessionDurabilityProfile,
 } from "./host-death.js";
-import { TurnHandle } from "./turn-handle.js";
+import { PushStream, TurnHandle } from "./turn-handle.js";
 import type { FoldedItem, Turn, TurnControls, TurnUnqueueOutcome } from "./turn-handle.js";
 import { runTurn } from "./run.js";
 import type { RunOptions, RunResult } from "./run.js";
@@ -202,6 +203,12 @@ export interface SessionOptions {
   readonly discarded?: DiscardedSessions;
   /** Set by `MuseClient`; see {@link SessionOpening}. */
   readonly opening?: SessionOpening;
+  /**
+   * Fold extensions for this session (FR-97527-3), consulted inside the
+   * one apply path. `MuseClient` forwards its own list here for every
+   * session it opens, so one registration covers both planes.
+   */
+  readonly extensions?: readonly FoldExtension[];
 }
 
 /**
@@ -356,6 +363,39 @@ export interface SessionApplyOutcome<I> {
 }
 
 /**
+ * One inbound frame as a session applies it: a view notification, a frame an
+ * SS4.8 fill spliced in from a page, or the frame a re-sent server request is
+ * folded as (`approval/request` as itself, `userInput/request` as its
+ * `userInput/requested` twin).
+ */
+export type ViewFrame = WireFrame;
+
+/**
+ * One event a session folded, as `Session.events()` yields it: the event and
+ * what folding it changed, self-contained because the loop body may run after
+ * later events folded (FR-97336-1). Optional members may be added; a consumer
+ * reads the ones it knows.
+ */
+export interface SessionEvent<I = unknown> {
+  /** The protocol event, as the session applied it. */
+  readonly frame: ViewFrame;
+  /**
+   * What it changed: the value `Session.apply` returned for a live event. An
+   * event a gap fill spliced in carries its fold result and no retirements or
+   * I/O of its own: those settle on the `view/gap` event's `io`.
+   */
+  readonly outcome: SessionApplyOutcome<I>;
+  /** For an item event that changed the item: the item as it stood after this event. */
+  readonly item?: FoldedItem;
+}
+
+/** Options for `Session.events()`. */
+export interface SessionEventsOptions {
+  /** Aborting it ends the stream, as `return()` does. */
+  readonly signal?: AbortSignal;
+}
+
+/**
  * One conversation with the agent.
  *
  * A session folds every server event into readable state — items, turns,
@@ -377,7 +417,7 @@ export class Session<I = unknown> {
   /** The FR-020 splice-fill (`gap-fill.ts`). */
   readonly #gaps: GapFiller<I>;
 
-  readonly #fold = new SessionFold();
+  readonly #fold: SessionFold;
   /**
    * Approvals the fold holds a durable terminal for. Read by a re-sent
    * `approval/request`, which skips the fold, so it authors nothing for an
@@ -401,6 +441,8 @@ export class Session<I = unknown> {
    */
   readonly #unattributedDeltas = new Map<string, ItemDeltaParams[]>();
 
+  /** The live `events()` streams, fed by every folded event. */
+  readonly #eventStreams = new Set<PushStream<SessionEvent<I>>>();
   /** Set through {@link pumpDropsApplyResults} by `MuseClient`. */
   #applyResultsDropped = false;
   /** This session's own `unqueue()` calls awaiting their ack, counted per turn id. */
@@ -466,6 +508,29 @@ export class Session<I = unknown> {
     this.#applyResultsDropped = true;
   }
 
+  /** Yield one folded event to every live `events()` stream. */
+  #emit(frame: WireFrame, outcome: SessionApplyOutcome<I>): void {
+    if (this.#eventStreams.size === 0) return;
+    const fold = outcome.fold;
+    // The item as of THIS event: the store keeps one object per revision, so
+    // a later revision folding before the consumer reads cannot change it.
+    const item =
+      fold.kind === "item" && fold.outcome.kind !== "ignoredStaleRevision"
+        ? this.#fold.items.get(fold.outcome.itemId)
+        : undefined;
+    const event: SessionEvent<I> = item === undefined ? { frame, outcome } : { frame, item, outcome };
+    for (const stream of this.#eventStreams) stream.push(event);
+  }
+
+  /**
+   * Fold one frame an SS4.8 fill splices in, and yield it. Its retirements
+   * and I/O settle on the gap frame's `io`, so the event carries none.
+   */
+  #spliced(frame: WireFrame, into: DrainSink<I>): void {
+    const fold = this.#foldAndRoute(frame, into);
+    this.#emit(frame, { fold, io: NO_IO, retirements: [] });
+  }
+
   /** @internal See {@link resendableUnqueue}: each call of the result sends the same reclaim. */
   [resendableUnqueue](turnId: string): () => Promise<TurnUnqueueOutcome<I>> {
     const commandId = this.#requireLiveConnection("unqueue").mintCommandId();
@@ -486,6 +551,7 @@ export class Session<I = unknown> {
   constructor(options: SessionOptions) {
     this.sessionId = options.sessionId;
     this.#durability = options.durability;
+    this.#fold = new SessionFold(options.extensions);
     this.#discarded = options.discarded;
     this.opening = options.opening;
     this.#pending = new PendingCommandSet<I>(
@@ -496,7 +562,7 @@ export class Session<I = unknown> {
     this.#submit = new TurnSubmitter<I>(options.sessionId, options.connection, this.#pending);
     this.#approvals = new ApprovalRouter(options.sessionId, options.connection);
     this.#gaps = new GapFiller<I>({
-      apply: (frame, into) => this.#foldAndRoute(frame, into),
+      apply: (frame, into) => this.#spliced(frame, into),
       connection: options.connection,
       discarded: () => this.#discharge?.kind === "discharged",
       fold: this.#fold,
@@ -550,6 +616,43 @@ export class Session<I = unknown> {
   apply(
     event: ViewEvent | { readonly method: string; readonly params?: unknown },
   ): SessionApplyOutcome<I> {
+    const outcome = this.#applyLive(event);
+    // A frame held for a fill is yielded when the fill splices it in.
+    if (outcome.fold.kind !== "bufferedDuringGap") this.#emit(event, outcome);
+    return outcome;
+  }
+
+  /**
+   * Every event this session folds from now on, with what it changed
+   * (FR-97336-1). Live from the call, never replayed: read `fold`, then call
+   * this in the same tick, and nothing is missed, including the events
+   * folded while `startSession`/`resumeSession` was in flight. Each folded
+   * event is yielded once, in arrival order; the events a gap fill splices in
+   * are yielded when applied, in order. Buffered like `turn.items()`, so a slow
+   * reader never holds folding up.
+   *
+   * `break`, `return()` or `options.signal` ends it. It finishes the way a
+   * turn's `items()` does when the host dies: it ends after an ephemeral
+   * host's death, and rejects with `MuseHostDiedError` after a durable one's,
+   * once the events it already buffered are read.
+   */
+  events(options: SessionEventsOptions = {}): AsyncIterableIterator<SessionEvent<I>> {
+    const stream: PushStream<SessionEvent<I>> = new PushStream<SessionEvent<I>>(() => {
+      this.#eventStreams.delete(stream);
+      options.signal?.removeEventListener("abort", onAbort);
+    });
+    const onAbort = (): void => void stream.return();
+    if (options.signal?.aborted === true) stream.end();
+    else if (this.#deathError !== undefined) stream.fail(this.#deathError);
+    else if (this.#discharge?.kind === "discharged") stream.end();
+    else {
+      this.#eventStreams.add(stream);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }
+    return stream;
+  }
+
+  #applyLive(event: WireFrame): SessionApplyOutcome<I> {
     // Only enforce when the frame actually NAMES a session. `ViewEvent`'s
     // members all declare `sessionId`, but a newer host's unknown notification
     // reaches this method at runtime and SS1.5.4 says it is tolerated
@@ -702,13 +805,15 @@ export class Session<I = unknown> {
         // later be retired `terminalUnknown` by a discharge, which would be a
         // fabricated annotation about a command whose fate is known.
         const reclaimed = this.#pending.observedReclaim(known.params.commandId);
-        if (reclaimed !== undefined) {
+        if (reclaimed === undefined) break;
+        // FR-81734-1: under `MuseClient` this session's own in-flight unqueue
+        // for the turn is where it lands. Held INSTEAD of returned, so no
+        // outcome, live or spliced into a gap's `io`, carries it a second time.
+        if (this.#applyResultsDropped && this.#unqueuesInFlight.has(known.params.turnId)) {
+          this.#submit.forgetRetired([reclaimed]);
+          this.#heldReclaims.set(known.params.turnId, reclaimed);
+        } else {
           retirements.push(reclaimed);
-          // FR-81734-1: nobody reads this return under `MuseClient`, so this
-          // session's own in-flight unqueue for the turn is where it can land.
-          if (this.#applyResultsDropped && this.#unqueuesInFlight.has(known.params.turnId)) {
-            this.#heldReclaims.set(known.params.turnId, reclaimed);
-          }
         }
         break;
       }
@@ -895,6 +1000,8 @@ export class Session<I = unknown> {
       const died = new MuseHostDiedError(exit);
       this.#deathError = died;
       for (const handle of this.#turns.values()) handle.fail(died);
+      for (const stream of this.#eventStreams) stream.fail(died);
+      this.#eventStreams.clear();
       this.#discharge = { exit, kind: "durableDeath", profile };
       return this.#discharge;
     }
@@ -902,6 +1009,8 @@ export class Session<I = unknown> {
     const retiredCommands = this.#pending.discardEphemeral();
     const terminalUnknownItems = this.#fold.markEphemeralHostDeath(isItemInProgress);
     for (const handle of this.#turns.values()) handle.settleTerminalUnknown();
+    for (const stream of this.#eventStreams) stream.end();
+    this.#eventStreams.clear();
     // SS2.13.3b "do not attempt to reattach". `discardEphemeral` already wrote
     // the commandIds into the shared set (it holds it by reference); the
     // sessionId is this layer's to record, because the pending set does not
@@ -1083,12 +1192,14 @@ export class Session<I = unknown> {
    * Submit feedback about this session (`feedback/submit`). The host
    * serves it only when the spawn requested the `feedback` capability
    * (`requestedCapabilities: ["feedback"]`) and install policy allows
-   * it; without that grant the host refuses the command.
+   * it; without that grant the host refuses the call. Its wire params
+   * define no `commandId` (each call is one submit; the wire contract
+   * attaches no dedup), so it rides `request()` and mints none.
    */
   async submitFeedback(
     input: Omit<FeedbackSubmitParams, "sessionId">,
   ): Promise<FeedbackSubmitResult> {
-    const ack = await this.#requireLiveConnection("submitFeedback").command("feedback/submit", {
+    const ack = await this.#requireLiveConnection("submitFeedback").request("feedback/submit", {
       ...input,
       sessionId: this.sessionId,
     });

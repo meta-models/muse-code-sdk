@@ -56,15 +56,12 @@ import type {
 } from "@muse-code/msp";
 
 import { SessionFold } from "../src/index.js";
+import type { FoldItems, SessionStateMethod, ViewEvent } from "../src/index.js";
 // `DeepReadonly` comes from the package index, not a deep `dist/` path —
-// which is only possible because #23556 item 4 re-exported it. This import
-// is itself the consumer-surface proof for that item.
-import type {
-  DeepReadonly,
-  FoldItems,
-  SessionStateMethod,
-  ViewEvent,
-} from "../src/index.js";
+// which is only possible because #23556 item 4 re-exported it. This
+// re-export is itself the consumer-surface proof for that item (a re-export,
+// not an import, so `noUnusedLocals` keeps it).
+export type { DeepReadonly } from "../src/index.js";
 
 const SOURCE: SourceRange = {
   first: { id: "e-1", sequence: 1 },

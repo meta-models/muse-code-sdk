@@ -128,6 +128,13 @@ pub struct ToolCallMembers {
     /// `toolCall`: the tool's own words for this call; absent = none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<Box<crate::msp::view::tool_label::ToolDisplayLabel>>,
+    /// `toolCall`: the call's Bash Title — its `description` argument through
+    /// the shared Bash Title normalizer, for a managed Bash call, served only
+    /// while the host's `bash_titles` gate is on. The host adds it when it
+    /// serves the item and never stores it; absent for any other call. Old
+    /// clients ignore it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bash_title: Option<String>,
     /// `toolCall`: the task's registered Work ID, verbatim
     /// (`work.v2.managed_bash.sha256.…`); present only when the task registered
     /// a ManagedBash id, absent otherwise. Stable from day one: no
@@ -144,6 +151,15 @@ pub struct ToolCallMembers {
     /// it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_target: Option<BackgroundTarget>,
+    /// `toolCall`: the name of the remote node this call is dispatched to.
+    /// **Experimental** (`Item.node`). Present once a dispatch to that node is
+    /// recorded for the call. Absent while none is: a call on the host's own
+    /// machine (in a session that never had a remote node this keeps today's
+    /// bytes), or a remote call that is not dispatched yet, or was refused or
+    /// failed before its dispatch; its approval request, when one was made,
+    /// names the node. Never `local`, and absence never means the default node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
 }
 
 /// One call's live background-target record: exactly the runtime snapshot's

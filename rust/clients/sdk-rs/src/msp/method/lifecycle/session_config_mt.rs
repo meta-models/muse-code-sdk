@@ -264,6 +264,11 @@ pub struct SessionModelEndpointTransportOverride {
     /// Auth mode. Absent = `bearer` (the default transport behavior).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<SessionEndpointTransportAuthMode>,
+    /// Provider-scoped endpoints. `meta` merges over the fields above;
+    /// `anthropic` is the session's own Anthropic endpoint. Absent: the fields
+    /// above, and the host's Anthropic route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<super::SessionEndpointProviders>,
 }
 
 impl fmt::Debug for SessionModelEndpointTransportOverride {
@@ -279,6 +284,7 @@ impl fmt::Debug for SessionModelEndpointTransportOverride {
             .field("client_key_present", &self.client_key.is_some())
             .field("ca_bundle_present", &self.ca_bundle.is_some())
             .field("auth", &self.auth)
+            .field("providers", &self.providers)
             .finish()
     }
 }
@@ -309,6 +315,8 @@ impl<'de> Deserialize<'de> for SessionModelEndpointTransportOverride {
             ca_bundle: Option<String>,
             #[serde(default)]
             auth: Option<SessionEndpointTransportAuthMode>,
+            #[serde(default)]
+            providers: Option<super::SessionEndpointProviders>,
         }
 
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -322,18 +330,10 @@ impl<'de> Deserialize<'de> for SessionModelEndpointTransportOverride {
                 "session config modelEndpointTransportOverride has a field with the wrong type or an unknown option",
             )
         })?;
-        for name in wire.http_headers.keys().chain(wire.env_http_headers.keys()) {
-            if name.trim().is_empty() {
-                return Err(D::Error::custom(
-                    "session config modelEndpointTransportOverride header name must not be blank",
-                ));
-            }
-            if name.trim() != name {
-                return Err(D::Error::custom(
-                    "session config modelEndpointTransportOverride header name must not contain surrounding whitespace",
-                ));
-            }
-        }
+        super::session_config_mt_providers::check_header_names(
+            wire.http_headers.keys().chain(wire.env_http_headers.keys()),
+        )
+        .map_err(D::Error::custom)?;
         Ok(Self {
             base_url: wire.base_url,
             allow_openai: wire.allow_openai,
@@ -344,6 +344,7 @@ impl<'de> Deserialize<'de> for SessionModelEndpointTransportOverride {
             client_key: wire.client_key,
             ca_bundle: wire.ca_bundle,
             auth: wire.auth,
+            providers: wire.providers,
         })
     }
 }

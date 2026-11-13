@@ -67,6 +67,8 @@ import type {
   ViewGapParams,
 } from "@muse-code/msp";
 
+import type { FoldExtension } from "./extension.js";
+import { fireExtensions } from "./extension.js";
 import { ItemStore } from "./item-store.js";
 import type {
   DeltaApplyOutcome,
@@ -467,6 +469,12 @@ export type FoldOutcome =
         | MonitorInboxItemVoidedParams;
     }
   | { readonly kind: "ignoredUnrecognizedMethod"; readonly method: string }
+  /**
+   * An otherwise-unrecognized method a registered extension handled
+   * (FR-97527-3). Ids only, like its ignored twin: the extension keeps
+   * its own state in its own instance, so nothing here needs sealing.
+   */
+  | { readonly kind: "extension"; readonly method: string }
   | {
       /**
        * A frame that carried no `params`. The generated `Notification`
@@ -598,6 +606,11 @@ export interface FoldSessionState {
 export class SessionFold {
   readonly #itemStore = new ItemStore<Item>();
   readonly #sessionStateStore = new SessionStateStore<SessionStateParams>();
+  readonly #extensions: readonly FoldExtension[];
+
+  constructor(extensions: readonly FoldExtension[] = []) {
+    this.#extensions = extensions;
+  }
 
   /** Items, snapshot-only: the mutators are `apply()`'s, not the consumer's. */
   get items(): FoldItems {
@@ -743,6 +756,12 @@ export class SessionFold {
     if (event.params === null || typeof event.params !== "object" || Array.isArray(event.params)) {
       return { kind: "ignoredMissingParams", method: event.method };
     }
+    // FR-97527-3: extensions registered for this frame's method run first,
+    // in registration order — for known methods they observe alongside the
+    // stable arm below (experimental fields ride here); for unknown methods
+    // they are the only handler. Inside this one apply path, never a second
+    // pump, so gap buffering and resume behave exactly as today.
+    const extensionsFired = fireExtensions(this.#extensions, event.method, event.params);
     const typed = event as ViewEvent;
     switch (typed.method) {
       case "item/started":
@@ -821,6 +840,7 @@ export class SessionFold {
 
       default: {
         const unrecognized = event as { readonly method: string };
+        if (extensionsFired > 0) return { kind: "extension", method: unrecognized.method };
         return { kind: "ignoredUnrecognizedMethod", method: unrecognized.method };
       }
     }

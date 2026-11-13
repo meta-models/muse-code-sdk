@@ -132,7 +132,11 @@ export function isItemInProgress(item: Item): boolean {
  */
 export type AbnormalExit = Exclude<HostDeathNotification, { kind: "cleanShutdown" }>;
 
-/** A durable host died abnormally: its terminals arrive on resume (FM-001). */
+/**
+ * The host died abnormally. On a session it means a durable host died and its
+ * terminals arrive on resume (FM-001); as the `cause` of a failed call, it
+ * reports how any host ended.
+ */
 export class MuseHostDiedError extends Error {
   readonly exit: AbnormalExit;
 

@@ -42,6 +42,24 @@ pub enum AttentionFlag {
     Unknown(String),
 }
 
+/// One `needsInputReasons` reason: why a loaded session's input is needed. Open
+/// on the wire — clients MUST ignore unknown values; future reasons are
+/// additive. The reasons are a pure projection of the pending-request fold's
+/// answer in PR 1 (the same read that derives `attention`); `admissionPending`
+/// is deliberately not a reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NeedsInputReason {
+    /// At least one approval request is open and unresolved.
+    ApprovalPending,
+    /// At least one user-input request is open.
+    InputPending,
+    /// A value from a newer host, kept verbatim so an older client decodes the
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
+    Unknown(String),
+}
+
 /// The effective approval-mode projection: the same object
 /// `session/setApprovalMode` returns as `effectiveMode` and the `Session`
 /// object carries as `approvalMode`.

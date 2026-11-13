@@ -26,7 +26,7 @@ import type { FingerprintWarning } from "../fingerprint.js";
 /**
  * What `spawnMspConnection` needs to launch a host: the command to run, plus
  * optional arguments, working directory, environment, connection tuning, a
- * stderr tap, and the shutdown drain budget.
+ * stderr tap, the shutdown drain budget, and a replacement for the spawn call.
  */
 export interface SpawnMspConnectionOptions {
   readonly command: string;
@@ -38,6 +38,8 @@ export interface SpawnMspConnectionOptions {
   readonly onStderr?: (chunk: string) => void;
   /** See {@link MuseServeChildOptions.shutdownTimeoutMs}. */
   readonly shutdownTimeoutMs?: number;
+  /** See {@link MuseServeChildOptions.spawnFn}. */
+  readonly spawnFn?: MuseServeChildOptions["spawnFn"];
 }
 
 /**
@@ -106,9 +108,19 @@ export interface MuseServeChildOptions {
    */
   readonly shutdownTimeoutMs?: number;
   /**
-   * Deterministic-test seam; production always uses `child_process.spawn`.
-   * A stub here observes the exact options the call site passes, so a
-   * `windowsHide` override at the call site fails the pin (FR-45141-1).
+   * Replaces `child_process.spawn`, e.g. with an in-memory fake host. It is
+   * called once as `spawnFn(museBin, args, options)` with the exact options
+   * production passes, so a `windowsHide` override at the call site fails the
+   * pin (FR-45141-1).
+   *
+   * The returned child must provide what the SDK reads from a real one:
+   * `stdout` and `stderr` as readable streams, one MSP frame per `stdout`
+   * line; `stdin` as a writable stream, which the SDK ends to start shutdown;
+   * a `close` event with `(code, signal)` once the host has exited, or an
+   * `error` event if it never started; and `kill(signal)`, called with
+   * SIGTERM then SIGKILL when the host outlives the drain window. Leave `pid`
+   * undefined on an in-memory fake: on POSIX a set `pid` is signalled as a
+   * process group (`-pid`), which would reach a real one.
    */
   readonly spawnFn?: typeof spawn;
 }
@@ -120,9 +132,11 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 /**
  * SIGTERM → SIGKILL grace. Not a knob: by the time it runs the host has
  * already had its whole drain window, so this covers only a signal handler's
- * final flush. Codex's stdio launcher uses the same two seconds.
+ * final flush. Codex's stdio launcher uses the same two seconds. Also bounds
+ * how long a call failed by a host death waits for the exit (FR-97948-1).
+ * Exported from this module only, never the package barrel.
  */
-const SIGTERM_GRACE_MS = 2_000;
+export const SIGTERM_GRACE_MS = 2_000;
 /** Node's own `setTimeout` ceiling; past it a delay silently clamps to 1 ms. */
 const MAX_SHUTDOWN_TIMEOUT_MS = 2_147_483_647;
 const ownedTransport = Symbol("MuseServeChild.transport");
@@ -592,6 +606,7 @@ export class MspHandshake {
       ...(options.shutdownTimeoutMs === undefined
         ? {}
         : { shutdownTimeoutMs: options.shutdownTimeoutMs }),
+      ...(options.spawnFn === undefined ? {} : { spawnFn: options.spawnFn }),
     });
     this.#transport = this.child[ownedTransport]();
     this.#connection = new Connection(this.#transport, options.connection);

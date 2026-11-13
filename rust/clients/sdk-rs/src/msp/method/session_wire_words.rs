@@ -1,5 +1,6 @@
 // @generated from the MSP stable schema and protocol sources; do not edit by hand.
 
+use super::session::NeedsInputReason;
 use super::session::ProbeDegradedReason;
 use super::session::RunningElsewhereOrigin;
 use super::session::SessionKind;
@@ -53,8 +54,44 @@ impl SessionStatus {
             Self::NotLoaded => "notLoaded",
             Self::Idle => "idle",
             Self::Running => "running",
+            Self::NeedsInput => "needsInput",
             Self::Unknown(value) => value,
         }
+    }
+}
+
+impl NeedsInputReason {
+    /// The exact wire spelling, including a value from a newer host.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::ApprovalPending => "approvalPending",
+            Self::InputPending => "inputPending",
+            Self::Unknown(value) => value,
+        }
+    }
+}
+
+impl Serialize for NeedsInputReason {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for NeedsInputReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "approvalPending" => Self::ApprovalPending,
+            "inputPending" => Self::InputPending,
+            _ => Self::Unknown(value),
+        })
     }
 }
 
@@ -77,6 +114,7 @@ impl<'de> Deserialize<'de> for SessionStatus {
             "notLoaded" => Self::NotLoaded,
             "idle" => Self::Idle,
             "running" => Self::Running,
+            "needsInput" => Self::NeedsInput,
             _ => Self::Unknown(value),
         })
     }

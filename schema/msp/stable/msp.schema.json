@@ -1045,6 +1045,47 @@
       ],
       "type": "object"
     },
+    "BodyCompletionCorrelation": {
+      "description": "Whether the origin call join held at delivery.",
+      "enum": [
+        "resolved",
+        "unresolved"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "BodyCompletionMembers": {
+      "description": "`bodyCompletion`: the facts one receipt row renders (ADR 87062\nD2). The fold reads them from the inbox terminal record and the\nbackgrounded call it names. `status`, `result_summary`, and\n`correlation` are required; `origin_call_id` is absent exactly\nwhen the join is unresolved.",
+      "properties": {
+        "correlation": {
+          "$ref": "#/$defs/BodyCompletionCorrelation",
+          "description": "Whether the origin call join held at delivery."
+        },
+        "originCallId": {
+          "description": "The originating call's provider call id, opaque — the join\nkey back to the original row. Absent when the join is\nunresolved (compaction).",
+          "type": "string"
+        },
+        "receipt": {
+          "description": "True for the Manual semantic receipt (`◆`); false for the\nordinary completion row.",
+          "type": "boolean"
+        },
+        "resultSummary": {
+          "description": "Bounded transcript-visible result text; empty when the\nterminal carries none. Full bytes stay behind outputRef.",
+          "type": "string"
+        },
+        "status": {
+          "description": "One fixed wire word per Task terminal (`completed`,\n`failed`, `cancelled`, `timedOut`, `rejected`) — never\ndisplay text; gate-off display words derive client-side.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correlation",
+        "receipt",
+        "resultSummary",
+        "status"
+      ],
+      "type": "object"
+    },
     "BranchState": {
       "description": "The latest branch observation in the snapshot (tdd SS4.6.4, SS4.9.1).",
       "properties": {
@@ -2027,6 +2068,10 @@
           "$ref": "#/$defs/UserInputSettlementSummary",
           "description": "Winning settlement on `userInputAlreadySettled`."
         },
+        "stopRefusal": {
+          "description": "The stop's refusal kind on a `workflow/cancel` `commandRejected`\nwhose stop was refused or whose settlement read failed (SS3.19, spec\n14410 FR-92884-1): `stale_revision`, `policy_rejected`,\n`actor_authority_mismatch`, `authority_index_conflict`,\n`admission_failed`, `persistence_failed`, `control_not_signalled`,\n`post_marker_not_cancellable`, `control_outcome_uncertain`,\n`adapter_contract_violation`, `transport_lost` or `reply_lost`.",
+          "type": "string"
+        },
         "uploadId": {
           "description": "The rejected upload id on `uploadNotFound` (`-32038`, SS3.33).",
           "type": "string"
@@ -2761,9 +2806,17 @@
           "$ref": "#/$defs/BackgroundTerminalCompletion",
           "description": "`backgroundTerminalCompletion`: the five facts the Finished\ncell renders (ADR 50041 D4)."
         },
+        "bashTitle": {
+          "description": "`toolCall`: the call's Bash Title — its `description` argument\nthrough the shared Bash Title normalizer, for a managed Bash call,\nserved only while the host's `bash_titles` gate is on. The host adds\nit when it serves the item and never stores it; absent for any other\ncall (tdd SS4.5.5; ADR 31406 D26). Old clients ignore it.",
+          "type": "string"
+        },
         "blocking": {
           "description": "`reminderChild`: `true` when this child is a blocking reminder (it holds\nthe turn open until it settles); absent otherwise, never `false` (ADR\n41191 D4). The status word stays off the wire; clients name the\nreminder from `reminderAgentId`.",
           "type": "boolean"
+        },
+        "bodyCompletion": {
+          "$ref": "#/$defs/BodyCompletionMembers",
+          "description": "`bodyCompletion`: the facts one receipt row renders (ADR\n87062 D2, accepted names)."
         },
         "callId": {
           "description": "`toolCall`: the provider call id (`call_...`), opaque.",
@@ -3106,7 +3159,7 @@
           "type": "array"
         },
         "taskId": {
-          "description": "`reminderChild`: the linked task id.",
+          "description": "`reminderChild`: the linked task id. Unresolved\n`bodyCompletion` items also set it (FR-87062-1: the\ndiagnostic names the task whose join did not hold).",
           "type": "string"
         },
         "terminalRowAfterItemId": {
@@ -3272,7 +3325,8 @@
         "peerMessage",
         "subagentInput",
         "subagentResult",
-        "systemNotice"
+        "systemNotice",
+        "bodyCompletion"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -4240,14 +4294,15 @@
       "type": "object"
     },
     "NoticeOrigin": {
-      "description": "`systemNotice`: the producing family, so a client routes a notice without\nparsing its text (tdd SS4.5.23). Open. The v1 vocabulary is the Monitor\nnotice and the three system-chrome producers (ADR 42729 D1) plus the\nhook-run producer (ADR 75121 D2) and the paused-Workflow checkpoint\nproducer (ADR 39490 D5); absent means the server named no\norigin, and a client never infers one.",
+      "description": "`systemNotice`: the producing family, so a client routes a notice without\nparsing its text (tdd SS4.5.23). Open. The v1 vocabulary is the Monitor\nnotice and the three system-chrome producers (ADR 42729 D1) plus the\nhook-run producer (ADR 75121 D2), the paused-Workflow checkpoint\nproducer (ADR 39490 D5) and the continued-child tools producer\n(ADR 42729 D5); absent means the server named no\norigin, and a client never infers one.",
       "enum": [
         "monitor",
         "skillsStartup",
         "scheduledFire",
         "incompleteGeneration",
         "hook",
-        "workflowCheckpoint"
+        "workflowCheckpoint",
+        "continuedChildTools"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -5469,6 +5524,11 @@
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
       "properties": {
+        "experimentalFingerprint": {
+          "description": "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value (SS1.5.4).",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
         "fingerprint": {
           "description": "`sha256:<64 lower hex>` content hash of this server binary's\nstable-surface bundle (INV-003). A mismatch is a warning condition,\nnot an error (SS1.4.1).",
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -5507,7 +5567,7 @@
       "description": "The session object every lifecycle method returns or lists (tdd SS2.4).\n\nAdditive-optional evolution applies: clients must ignore unknown fields.",
       "properties": {
         "activeTurnId": {
-          "description": "The `turnId` of the current foreground turn when `status` is\n`running`, and `null` when the session is idle (tdd SS2.4).\n\n**Required-nullable.** Every served `Session` carries the member: `null`\nwhen the session is idle or not loaded, the turn id when it is running.\nAn optional-absent shape would publish it as plain `string` and reject\nevery idle `Session` frame the host sends.",
+          "description": "The `turnId` of the current foreground turn when a turn is in\nflight (parked under `needsInput` included), and `null` otherwise\n(tdd SS2.4, ADR 95605 D1).\n\n**Required-nullable.** Every served `Session` carries the member: `null`\nwhen no turn is in flight or the session is not loaded, the turn id\nwhen one is. An optional-absent shape would publish it as plain\n`string` and reject every idle `Session` frame the host sends.",
           "type": [
             "string",
             "null"
@@ -5867,6 +5927,13 @@
     "SessionConfig": {
       "description": "The open configuration extension object shared by `session/start` and\n`session/resume` (ADR 32760 D1).\n\nUnknown keys are ignored on the wire, never rejected: the live decoder\ntolerates them, and no exported bundle carries `additionalProperties:\nfalse`. The Rust typed model's `deny_unknown_fields` is internal and never\nexported — the closedness export applies nowhere, and the `x-msp-closed`\nopt-in mechanism stays inert. Recognized `mcpServers` values are typed and\nvalidated before they leave the wire boundary.",
       "properties": {
+        "developerPrompt": {
+          "description": "Developer instructions for this session only (ADR 32029 D38, stable\nfrom switch piece F2), on `session/start` and `session/resume`. The\ntext is trimmed. A nonblank value replaces the settings-derived\ndeveloper instructions; an omitted member is no override and keeps\nthe full developer context. Explicit `null` and blank text are the\nexplicit clear (the Rust value is an empty string): no override, and\non a host that serves developer instructions they also turn off the\nsession's suppressible developer context (the agent catalog and the\nmemory snapshot). Any other type fails the decode. A host that does\nnot serve developer instructions ignores a valid member.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "mcpServers": {
           "additionalProperties": {
             "$ref": "#/$defs/SessionMcpServerConfig"
@@ -6624,6 +6691,10 @@
           "$ref": "#/$defs/LastTurn",
           "description": "Same member as `session/resume` (tdd SS2.5.5, ADR 36635 D2)."
         },
+        "modelTurnRunning": {
+          "description": "Whether a native child read session's model turn runs (tdd SS2.5.5,\nADR 89202 D1): served on a read of a `subagent` session whose\ncontaining session this host holds loaded, from that session's\nruntime at serve time. Absent for every other read and when the\nruntime cannot answer; absence asserts nothing.",
+          "type": "boolean"
+        },
         "pendingRequests": {
           "description": "The same pointer shape as `session/resume`. Because `session/read`\nnever subscribes this is a point-in-time log read only: no requests\nare re-issued after it (tdd SS2.5.5).",
           "items": {
@@ -7060,6 +7131,10 @@
           ],
           "description": "The session's starting approval mode; server default when omitted or\nexplicit `null` — both spellings select the default (#23468).\nSelect, never create — the value names a mode the host's configuration\nalready defines (tdd SS2.5.1, SS5.12). This is the only surface that\ndeclares a non-interactive run's policy (tdd SS5.11, D-008)."
         },
+        "clear": {
+          "description": "Marks this start as a `/clear` (spec 207 amendment 93195, FR-93195-1,\nADR 93195 D1): `true` starts the new session as a clear, so its\n`SessionStart` hooks get source `clear` instead of `startup`. `false`\nand omitted are the same plain start (source `startup`). It neither\nneeds nor implies `previousSessionId`. Explicit `null` is invalid params.",
+          "type": "boolean"
+        },
         "commandId": {
           "description": "The SS2.5 idempotency handle (UUIDv7). Required; the server never\nmints one.",
           "type": "string"
@@ -7158,7 +7233,7 @@
       "x-msp-openness": "open"
     },
     "SessionStatusChangedParams": {
-      "description": "`session/statusChanged` params (tdd SS4.6.10, ADR 31983 D2): a loaded\nsession's projected `(status, attention)` value flipped. A command-plane\nbroadcast — delivered to every connection regardless of its view\nsubscription set, never gated, no `sourceRange`; the same facts live on\nthe Session object, which is how a client seeds its table (no initial\nburst on connect).",
+      "description": "`session/statusChanged` params (tdd SS4.6.10, ADR 31983 D2): a loaded\nsession's projected `(status, attention, needsInputReasons)` value flipped. A command-plane\nbroadcast — delivered to every connection regardless of its view\nsubscription set, never gated, no `sourceRange`; the same facts live on\nthe Session object, which is how a client seeds its table (no initial\nburst on connect).",
       "properties": {
         "attention": {
           "description": "Attention flags after the transition; present only when at least one\nflag is set (tdd SS2.4, ADR 31983 D3).",
@@ -7173,7 +7248,7 @@
         },
         "status": {
           "$ref": "#/$defs/SessionStatus",
-          "description": "Load state after the transition (the closed SS2.4 enum, unchanged)."
+          "description": "Load state after the transition (the open SS2.4 enum, including\n`needsInput` since ADR 95605 D1/D4)."
         },
         "viewCursor": {
           "description": "The causing record's view cursor (ADR 31983 D4). Required-nullable:\n`null` exactly when the paired `session/closed`'s cursor is `null`\n(the unload fold-failure arm); a definite cursor everywhere else.",
@@ -8246,6 +8321,10 @@
           "description": "Result summary, bounded on the wire at the 64 KiB retained-text budget\n(tdd SS4.5.4 and SS4.5.7, ADR 35691 D9); a cut sets the item's\n`truncated`. The durable record stays verbatim.",
           "type": "string"
         },
+        "superseded": {
+          "description": "`true` once a newer attempt of the child started after this result\n(ADR 92325 D1): the result stays, and a client takes the child's\nstatus from `controlStatus`. Absent, it asserts nothing (a host\nbefore this member, or a fold state saved before it, never sets it);\na newer result replaces the whole result, so it carries no mark.",
+          "type": "boolean"
+        },
         "text": {
           "description": "Result text, when present, bounded on the wire at the same 64 KiB\nbudget (ADR 35691 D9); a cut sets the item's `truncated`.",
           "type": "string"
@@ -9034,7 +9113,9 @@
         "modelError",
         "launchError",
         "authRequired",
-        "mcpLinkError"
+        "mcpLinkError",
+        "reasoningReplayRefused",
+        "contextOverflow"
       ],
       "type": "string",
       "x-msp-openness": "open"

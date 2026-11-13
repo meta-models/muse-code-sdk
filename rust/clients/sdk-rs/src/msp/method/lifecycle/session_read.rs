@@ -74,6 +74,12 @@ pub struct SessionReadResult {
     /// nothing pruned, never an error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pruned_subagents: Option<Vec<PrunedSubagent>>,
+    /// Whether a native child read session's model turn runs: served on a read
+    /// of a `subagent` session whose containing session this host holds loaded,
+    /// from that session's runtime at serve time. Absent for every other read
+    /// and when the runtime cannot answer; absence asserts nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_turn_running: Option<bool>,
 }
 
 /// One child session pruned below a checkpoint boundary: the restored row's

@@ -55,7 +55,8 @@ SIGTERM_GRACE_MS = 2_000
 its whole drain window, so this covers only a signal handler's final flush.
 Also bounds ``_classified``'s post-exit stderr-drain wait (py3.10 settles
 ``wait()`` at the reap, before pipe EOF), so tuning it down also shrinks the
-window for capturing a host's final stderr evidence."""
+window for capturing a host's final stderr evidence. And it bounds how long a
+call failed by a host death waits for the exit."""
 OnStderr = Callable[[str], None]
 
 

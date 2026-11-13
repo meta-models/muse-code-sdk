@@ -494,6 +494,34 @@ python3 "$AUDIENCE_CHECKER" --npm-tarball "$TARBALL" ||
   die "the packed tarball's README/description reference private repository artifacts. Rewrite them for an npm reader; the findings above name each leak class."
 ok "no private repository references in the packed README/description"
 
+# ---------------------------------------------------------------------------
+# Gate 7 — experimental leak. The packed tarball must name no
+# experimental-only surface (method, notification, item kind, definition,
+# field): the public package gains neutral hooks only, and the typed
+# experimental surface ships solely in the private add-on. The checker
+# derives the set at check time from the two schema bundles — never from a
+# committed list — and audits the PACKED tarball, so what is gated is what
+# the upload step would actually ship. It runs in pack-only too, on
+# purpose: pack-only rides CI on every sdk-lane PR, which reds a new leak
+# before merge instead of at publish time.
+#
+# Both bundles travel in the public mirror's closure (the schema is public
+# protocol documentation; the SDK surface built on it is not), so this gate
+# enforces in the mirror exactly as here. A missing checker or a missing
+# bundle fails closed.
+# ---------------------------------------------------------------------------
+step "gate: experimental leak (no experimental-only names in the tarball)"
+LEAK_CHECKER="$REPO_ROOT/scripts/check-sdk-experimental-leak.mjs"
+[[ -f "$LEAK_CHECKER" ]] ||
+  die "check-sdk-experimental-leak.mjs is missing from this tree (looked at scripts/check-sdk-experimental-leak.mjs). It is a closure path in scripts/sdk-source-closure.json; a republish must carry it, and publishing without the leak audit would risk shipping experimental-only names in the public package."
+STABLE_BUNDLE="$REPO_ROOT/schema/msp/stable/msp.schema.json"
+EXPERIMENTAL_BUNDLE="$REPO_ROOT/schema/msp/experimental/msp.schema.json"
+[[ -f "$STABLE_BUNDLE" ]] || die "the stable schema bundle is missing at $STABLE_BUNDLE; the leak audit cannot derive the experimental-only set without it."
+[[ -f "$EXPERIMENTAL_BUNDLE" ]] || die "the experimental schema bundle is missing at $EXPERIMENTAL_BUNDLE; the leak audit cannot derive the experimental-only set without it."
+node "$LEAK_CHECKER" --stable "$STABLE_BUNDLE" --experimental "$EXPERIMENTAL_BUNDLE" --tarball "$TARBALL" ||
+  die "the packed tarball names experimental-only surface. Remove the reference from the public package (the findings above name each entry and file); the typed experimental surface ships only in the private add-on."
+ok "no experimental-only names in the packed tarball"
+
 echo ""
 echo "would publish: $NAME@$VERSION  ($(wc -c <"$TARBALL" | tr -d ' ') bytes)"
 printf '    %s\n' "${ENTRIES[@]}"

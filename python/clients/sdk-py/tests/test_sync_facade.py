@@ -458,6 +458,32 @@ def test_the_call_lock_serializes_sync_delegates_with_a_pumping_verb() -> None:
     client.close()
 
 
+def test_sync_session_events_iterate_the_live_events_and_close_releases_the_stream() -> None:
+    # The blocking twin of `session.events()`: read the
+    # fold, then subscribe; iteration pumps the private loop, yields each
+    # folded event once in wire order, and closing it deregisters the stream.
+    host, client = scripted_client(auto_stream=False)
+    session = client.start_session()
+    turn = session.send_user_turn(
+        SendUserTurnOptions(input=[{"text": "hi", "type": "text"}], composer_input="hi")
+    )
+    assert session.fold.turns() == [], "nothing folded yet"
+    events = session.events()
+    host.stream(_turn_events()[:2])  # turn/started + item/started
+    seen = []
+    for event in events:
+        seen.append((event.frame["method"], event.item["revision"] if event.item else None))
+        if len(seen) == 2:
+            break
+    assert seen == [("turn/started", None), ("item/started", 1)]
+    getattr(events, "close")()  # what a dropped generator gets on collection
+    inner = session._session  # the async session; observability only
+    assert len(getattr(inner, "_event_streams")) == 0, "a closed sync iterator deregisters its stream"
+    host.stream(_turn_events()[2:])
+    assert turn.completed().kind == "completed"
+    client.close()
+
+
 def test_a_closed_generator_releases_its_stream_and_the_turn_still_settles() -> None:
     # The stream-release `finally` has its own guard (a prior review round
     # 2): take one item from an UNSETTLED turn, close the generator, and the

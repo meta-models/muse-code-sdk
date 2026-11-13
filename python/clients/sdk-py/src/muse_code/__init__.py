@@ -58,15 +58,19 @@ __all__ = [
     "MuseHostDiscoveryError",
     "MuseHostStartError",
     "MuseSessionDiscardedError",
+    "NotificationFailureHandler",
+    "NotificationObserver",
     "PendingCommandSet",
     "PendingCommandView",
     "PermissionProfileNotApplied",
+    "ProtocolErrorObserver",
     "ResumeSessionOptions",
     "RunResult",
     "SendUserTurnOptions",
     "Session",
     "SessionApplyOutcome",
     "SessionDurabilityProfile",
+    "SessionEvent",
     "SessionFold",
     "SessionFoldView",
     "SessionGapBuffered",
@@ -82,6 +86,7 @@ __all__ = [
     "Turn",
     "TurnOutcome",
     "TurnUnqueueOutcome",
+    "ViewFrame",
     "is_abnormal_host_death",
     "is_launch_failure",
     "load_transcript",
@@ -103,7 +108,7 @@ that lane instead of passing silently.
 # The lockstep rule: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
 # time.
-__version__: Final[str] = "1.4.15"
+__version__: Final[str] = "1.4.20"
 
 # The facade is imported last so the constants above are already bound: the
 # spawn path reads ``EXPECTED_SCHEMA_FINGERPRINT`` (lazily, at initialize
@@ -123,13 +128,17 @@ from .facade import (  # noqa: E402
     MuseClientSpawnOptions,
     MuseHostDiedError,
     MuseHostStartError,
+    NotificationFailureHandler,
+    NotificationObserver,
     PendingCommandView,
+    ProtocolErrorObserver,
     ResumeSessionOptions,
     RunResult,
     SendUserTurnOptions,
     Session,
     SessionApplyOutcome,
     SessionDurabilityProfile,
+    SessionEvent,
     SessionFoldView,
     SessionGapBuffered,
     SessionGapOverlap,
@@ -139,6 +148,7 @@ from .facade import (  # noqa: E402
     Turn,
     TurnOutcome,
     TurnUnqueueOutcome,
+    ViewFrame,
     is_abnormal_host_death,
     is_launch_failure,
     read_session_durability,

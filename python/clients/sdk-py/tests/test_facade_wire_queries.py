@@ -10,6 +10,7 @@ time-based: every wait is a bounded loop-turn pump.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -75,14 +76,17 @@ async def test_list_skills_and_list_hooks_send_skill_list_and_hook_list() -> Non
         pending = asyncio.ensure_future(call(session))
         await wait_for_writes(transport, 1)
         assert sent_frame(transport, 0)["method"] == method
-        assert sent_params(transport, 0)["sessionId"] == "s-1"
+        assert sent_params(transport, 0) == {"sessionId": "s-1"}, (
+            f"{method} sends only this session's id: a read-only list mints no commandId")
         answer(transport, 0, result)
         await pending
 
 
 @pytest.mark.asyncio
 async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolve_acks() -> None:
-    cases: list[tuple[str, Any, Params, Params, str, Any]] = [
+    # The last member says whether the verb rides ``command()`` and so mints a
+    # ``commandId``; ``feedback/submit`` defines none, so it rides ``request()``.
+    cases: list[tuple[str, Any, Params, Params, str, Any, bool]] = [
         (
             "workflow/pause",
             lambda s: s.pause_workflow("run-1"),
@@ -90,6 +94,7 @@ async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolv
             {"status": "accepted"},
             "status",
             "accepted",
+            True,
         ),
         (
             "workflow/resume",
@@ -98,6 +103,7 @@ async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolv
             {"status": "accepted", "turnId": "t-9"},
             "turnId",
             "t-9",
+            True,
         ),
         (
             "recap/request",
@@ -106,6 +112,7 @@ async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolv
             {"status": "accepted"},
             "status",
             "accepted",
+            True,
         ),
         (
             "feedback/submit",
@@ -126,6 +133,7 @@ async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolv
             },
             "bundlePath",
             "/b",
+            False,
         ),
         (
             "session/sideChat",
@@ -139,17 +147,23 @@ async def test_pause_resume_recap_feedback_side_chat_send_full_params_and_resolv
             },
             "viewCursor",
             "v",
+            True,
         ),
     ]
-    for method, call, params, result, ack_field, ack_value in cases:
+    for method, call, params, result, ack_field, ack_value, mints in cases:
         session, transport = _wired_session()
         pending = asyncio.ensure_future(call(session))
         await wait_for_writes(transport, 1)
         assert sent_frame(transport, 0)["method"] == method
         sent = dict(sent_params(transport, 0))
-        sent.pop("commandId", None)
+        echoed = dict(result)
+        if mints:
+            command_id = sent.pop("commandId", None)
+            assert isinstance(command_id, str) and command_id, f"{method} mints a non-empty commandId"
+            echoed["commandId"] = command_id
+        else:
+            assert "commandId" not in sent, f"{method} mints no commandId: its wire params define none"
         assert sent == params, f"{method} sends the full params"
-        echoed = {**result, "commandId": sent_params(transport, 0).get("commandId")}
         answer(transport, 0, echoed)
         assert (await pending)[ack_field] == ack_value, f"{method} resolves its ack"
 
@@ -256,7 +270,23 @@ class _AutoHost:
                 "viewCursor": "v:0",
             },
             "task/list": {"tasks": [{"taskId": "t-1"}]},
+            "skill/list": {"skills": [{"name": "review"}]},
+            "hook/list": {"hooks": [{"event": "preToolUse"}]},
             "workflow/pause": {"status": "accepted"},
+            "workflow/resume": {"status": "accepted", "turnId": "t-9"},
+            "recap/request": {"status": "accepted"},
+            "feedback/submit": {
+                "bundlePath": "/b",
+                "outcome": "recorded",
+                "sessionRecordAttached": False,
+                "sessionRecordTruncated": False,
+            },
+            "session/sideChat": {
+                "session": {"sessionId": "side-1", "status": "idle"},
+                "history": {"mode": "none", "items": []},
+                "pendingRequests": [],
+                "viewCursor": "v",
+            },
             "session/list": {"sessions": [], "nextCursor": None},
         }
         if method in results:
@@ -284,9 +314,33 @@ def test_sync_twins_run_the_wire_verbs() -> None:
 
     client: SyncMuseClient[Any] = SyncMuseClient.create(factory)
     session = client.start_session()
+    # All nine blocking twins, each delegating to its own async verb: the ack
+    # field read below belongs to that verb's method alone.
     assert session.list_tasks()["tasks"][0]["taskId"] == "t-1"
+    assert session.list_skills()["skills"][0]["name"] == "review"
+    assert session.list_hooks()["hooks"][0]["event"] == "preToolUse"
     assert session.pause_workflow("run-1")["status"] == "accepted"
+    assert session.resume_workflow("run-1")["turnId"] == "t-9"
+    assert session.request_recap()["status"] == "accepted"
+    feedback = session.submit_feedback(
+        {"classification": "bug", "note": "n", "withFiles": False}
+    )
+    assert feedback["bundlePath"] == "/b"
+    assert session.open_side_chat()["viewCursor"] == "v"
     assert client.list_sessions() == {"sessions": [], "nextCursor": None}
+    methods = [json.loads(chunk)["method"] for chunk in host.writes]
+    assert methods == [
+        "session/start",
+        "task/list",
+        "skill/list",
+        "hook/list",
+        "workflow/pause",
+        "workflow/resume",
+        "recap/request",
+        "feedback/submit",
+        "session/sideChat",
+        "session/list",
+    ], "each twin sends its own method, once, in call order"
     client.close()
 
 

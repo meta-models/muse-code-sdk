@@ -61,9 +61,9 @@ impl<'de> Deserialize<'de> for NoticeSeverity {
 
 /// `systemNotice`: the producing family, so a client routes a notice without
 /// parsing its text. Open. The v1 vocabulary is the Monitor notice and the
-/// three system-chrome producers plus the hook-run producer and the
-/// paused-Workflow checkpoint producer; absent means the server named no
-/// origin, and a client never infers one.
+/// three system-chrome producers plus the hook-run producer, the
+/// paused-Workflow checkpoint producer and the continued-child tools producer;
+/// absent means the server named no origin, and a client never infers one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum NoticeOrigin {
@@ -81,6 +81,9 @@ pub enum NoticeOrigin {
     /// `workflowCheckpoint`: a compaction left a paused Workflow out of its
     /// checkpoint, so that Workflow cannot resume after a restart.
     WorkflowCheckpoint,
+    /// `continuedChildTools`: a continued child run's tools notice, projected
+    /// from the governing rules durable fact.
+    ContinuedChildTools,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Excluded from the generated schema while the enum
     /// stays declared open; never construct it with a known word.
@@ -98,6 +101,7 @@ impl NoticeOrigin {
             Self::IncompleteGeneration => "incompleteGeneration",
             Self::Hook => "hook",
             Self::WorkflowCheckpoint => "workflowCheckpoint",
+            Self::ContinuedChildTools => "continuedChildTools",
             Self::Unknown(value) => value,
         }
     }
@@ -125,6 +129,7 @@ impl<'de> Deserialize<'de> for NoticeOrigin {
             "incompleteGeneration" => Self::IncompleteGeneration,
             "hook" => Self::Hook,
             "workflowCheckpoint" => Self::WorkflowCheckpoint,
+            "continuedChildTools" => Self::ContinuedChildTools,
             _ => Self::Unknown(value),
         })
     }

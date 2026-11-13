@@ -275,7 +275,7 @@
       "x-msp-stability": "experimental"
     },
     "AdmissionRequestParams": {
-      "description": "`admission/request` + `admission/requested` payload (FR-45445-6): the\nserver→client prompt and its cursor-bearing durable fold carry the same\npayload, so a gapped client recovers it via `view/page`.",
+      "description": "Live `admission/request` payload (FR-45445-6). An optional trigger hint\ndescribes the live source; the durable `admission/requested` view keeps its old shape.",
       "properties": {
         "admissionId": {
           "description": "Server-minted UUIDv7 durable identity (required) — all correlation\nkeys on it, never on the JSON-RPC id.",
@@ -308,6 +308,10 @@
           "description": "Omitted when empty.",
           "type": "string"
         },
+        "runtimeBoundary": {
+          "$ref": "#/$defs/AdmissionRuntimeBoundary",
+          "description": "Trigger reason from the exact request's live owner; never sender identity."
+        },
         "sessionId": {
           "description": "The receiving session (required).",
           "type": "string"
@@ -331,7 +335,7 @@
       "x-msp-stability": "experimental"
     },
     "AdmissionRequestedViewParams": {
-      "description": "`admission/requested` view event (FR-45445-6): the cursor-bearing\ndurable fold of the prompt, so a gapped client recovers the identical\npayload via `view/page`.",
+      "description": "`admission/requested` view event (FR-45445-6): the cursor-bearing\ndurable fold of the prompt, so a gapped client recovers the durable payload\nvia `view/page`; it never carries the live-only `runtimeBoundary` hint.",
       "properties": {
         "admissionId": {
           "type": "string"
@@ -445,6 +449,16 @@
       ],
       "type": "object",
       "x-msp-descriptor": "admission/resolved",
+      "x-msp-stability": "experimental"
+    },
+    "AdmissionRuntimeBoundary": {
+      "description": "Trigger reason of a live admission/request. Open: clients treat an unknown value as an absent hint.",
+      "enum": [
+        "background_task_terminal"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "admission/request",
+      "x-msp-openness": "open",
       "x-msp-stability": "experimental"
     },
     "ApprovalAmendment": {
@@ -923,6 +937,12 @@
         "judgeEscalated": {
           "description": "`true` when the automated LLM judge saw this request first and handed it\nto a person without deciding. A display hint only. The host sends it\nas `false` when it re-issues the request after a restart or on\n`session/resume`; a re-send for a later stage keeps it.",
           "type": "boolean"
+        },
+        "node": {
+          "description": "The name of the node the action would run on (spec 96166 FR-046, ADR\n96166 D5 item 7). **Experimental** (`approval/requested.node`).\nAbsent means the action would run on the host's own machine: every\naction in a session that never had a remote node, and an action\nbound for the host's own machine in a session that has had one.\nNever `local`, and absence never means the default node.",
+          "type": "string",
+          "x-msp-descriptor": "approval/requested.node",
+          "x-msp-stability": "experimental"
         },
         "protectedWrite": {
           "description": "`true` when this approval guards a write to a protected file. Only\nallow-once and reject choices are offered, and a decision is accepted\nonly while at least one client is subscribed to the session.",
@@ -1447,7 +1467,7 @@
       "x-msp-openness": "open"
     },
     "AutoRecovery": {
-      "description": "`autoRecovery` on `session/resume` (amendment 26387/68619, owner decision\nG-23): the outcome of this resume's own load when it ran with the\n`resume_auto_recover` gate on and the session's effective `recoveryMode`\nON. Output only; no request member asks for it.",
+      "description": "`autoRecovery` on `session/resume` (amendment 26387/68619, owner decision\nG-23): the outcome of this resume's own load when it ran with the\n`resume_auto_recover` gate on (G-37: whatever the session's\n`recoveryMode`). A resume's `autoRecover: false` is reported here as\n`refused` with reason `optedOut`.",
       "properties": {
         "outcome": {
           "$ref": "#/$defs/AutoRecoveryOutcome",
@@ -1492,7 +1512,8 @@
         "goalUnavailable",
         "resumeFallback",
         "staleSteerNotWithdrawn",
-        "steerNotSaved"
+        "steerNotSaved",
+        "optedOut"
       ],
       "type": "string",
       "x-msp-descriptor": "session/resume.autoRecovery",
@@ -1722,6 +1743,47 @@
       },
       "required": [
         "text"
+      ],
+      "type": "object"
+    },
+    "BodyCompletionCorrelation": {
+      "description": "Whether the origin call join held at delivery.",
+      "enum": [
+        "resolved",
+        "unresolved"
+      ],
+      "type": "string",
+      "x-msp-openness": "open"
+    },
+    "BodyCompletionMembers": {
+      "description": "`bodyCompletion`: the facts one receipt row renders (ADR 87062\nD2). The fold reads them from the inbox terminal record and the\nbackgrounded call it names. `status`, `result_summary`, and\n`correlation` are required; `origin_call_id` is absent exactly\nwhen the join is unresolved.",
+      "properties": {
+        "correlation": {
+          "$ref": "#/$defs/BodyCompletionCorrelation",
+          "description": "Whether the origin call join held at delivery."
+        },
+        "originCallId": {
+          "description": "The originating call's provider call id, opaque — the join\nkey back to the original row. Absent when the join is\nunresolved (compaction).",
+          "type": "string"
+        },
+        "receipt": {
+          "description": "True for the Manual semantic receipt (`◆`); false for the\nordinary completion row.",
+          "type": "boolean"
+        },
+        "resultSummary": {
+          "description": "Bounded transcript-visible result text; empty when the\nterminal carries none. Full bytes stay behind outputRef.",
+          "type": "string"
+        },
+        "status": {
+          "description": "One fixed wire word per Task terminal (`completed`,\n`failed`, `cancelled`, `timedOut`, `rejected`) — never\ndisplay text; gate-off display words derive client-side.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correlation",
+        "receipt",
+        "resultSummary",
+        "status"
       ],
       "type": "object"
     },
@@ -3044,6 +3106,10 @@
           "$ref": "#/$defs/UserInputSettlementSummary",
           "description": "Winning settlement on `userInputAlreadySettled`."
         },
+        "stopRefusal": {
+          "description": "The stop's refusal kind on a `workflow/cancel` `commandRejected`\nwhose stop was refused or whose settlement read failed (SS3.19, spec\n14410 FR-92884-1): `stale_revision`, `policy_rejected`,\n`actor_authority_mismatch`, `authority_index_conflict`,\n`admission_failed`, `persistence_failed`, `control_not_signalled`,\n`post_marker_not_cancellable`, `control_outcome_uncertain`,\n`adapter_contract_violation`, `transport_lost` or `reply_lost`.",
+          "type": "string"
+        },
         "stream": {
           "$ref": "#/$defs/StreamRef",
           "description": "The rejected raw-log stream, on the SS6.9 anchor arms\n(`missingAnchor`, `prunedPrefix`, `unknownStream`).",
@@ -4123,9 +4189,17 @@
           "$ref": "#/$defs/BackgroundTerminalCompletion",
           "description": "`backgroundTerminalCompletion`: the five facts the Finished\ncell renders (ADR 50041 D4)."
         },
+        "bashTitle": {
+          "description": "`toolCall`: the call's Bash Title — its `description` argument\nthrough the shared Bash Title normalizer, for a managed Bash call,\nserved only while the host's `bash_titles` gate is on. The host adds\nit when it serves the item and never stores it; absent for any other\ncall (tdd SS4.5.5; ADR 31406 D26). Old clients ignore it.",
+          "type": "string"
+        },
         "blocking": {
           "description": "`reminderChild`: `true` when this child is a blocking reminder (it holds\nthe turn open until it settles); absent otherwise, never `false` (ADR\n41191 D4). The status word stays off the wire; clients name the\nreminder from `reminderAgentId`.",
           "type": "boolean"
+        },
+        "bodyCompletion": {
+          "$ref": "#/$defs/BodyCompletionMembers",
+          "description": "`bodyCompletion`: the facts one receipt row renders (ADR\n87062 D2, accepted names)."
         },
         "byClient": {
           "$ref": "#/$defs/ClientInfo",
@@ -4311,6 +4385,12 @@
         "nextFireAtMs": {
           "description": "`scheduledFire`: the next scheduled epoch in milliseconds;\nabsent on a final delivery (tdd SS4.5.17; ADR 45446 D2).",
           "type": "integer"
+        },
+        "node": {
+          "description": "`toolCall`: the name of the remote node this call is dispatched to (spec\n96166 FR-046, ADR 96166 D5 item 7). **Experimental** (`Item.node`).\nPresent once a dispatch to that node is recorded for the call.\nAbsent while none is: a call on the host's own machine (in a\nsession that never had a remote node this keeps today's bytes), or\na remote call that is not dispatched yet, or was refused or failed\nbefore its dispatch; its approval request, when one was made, names\nthe node. Never `local`, and absence never means the default node.",
+          "type": "string",
+          "x-msp-descriptor": "Item.node",
+          "x-msp-stability": "experimental"
         },
         "noticeKind": {
           "description": "`systemNotice`: an optional open machine code for what happened, minted\nper origin by the slice that adds its producer; omitted for `monitor`\nand for `hook` (tdd SS4.5.23).",
@@ -4525,7 +4605,7 @@
           "type": "array"
         },
         "taskId": {
-          "description": "`reminderChild`: the linked task id.",
+          "description": "`reminderChild`: the linked task id. Unresolved\n`bodyCompletion` items also set it (FR-87062-1: the\ndiagnostic names the task whose join did not hold).",
           "type": "string"
         },
         "terminalRowAfterItemId": {
@@ -4603,6 +4683,12 @@
         "workflowRunId": {
           "description": "`subagent`/`workflow`: the owning durable workflow run id (opaque\nstring — not a UUID family).",
           "type": "string"
+        },
+        "workspacePlacement": {
+          "$ref": "#/$defs/WorkspacePlacement",
+          "description": "`subagent`: the spawn's workspace placement (ADR\n88808-subagent-workspace-placement D2) — `shared` when the spawn\nrequested no worktree isolation, `isolated` when it did, the same\nread gate-off uses. Served from the item's first emission;\nabsent when the host cannot read the spawn record. Clients treat\nan absent member and an unknown value as unknown.",
+          "x-msp-descriptor": "Item.workspacePlacement",
+          "x-msp-stability": "experimental"
         }
       },
       "required": [
@@ -4699,7 +4785,8 @@
             "peerMessage",
             "subagentInput",
             "subagentResult",
-            "systemNotice"
+            "systemNotice",
+            "bodyCompletion"
           ],
           "type": "string",
           "x-msp-openness": "open"
@@ -4868,7 +4955,7 @@
         },
         "descriptor": {
           "$ref": "#/$defs/JournalSessionDescriptor",
-          "description": "Create-only storage descriptor of a child session's journal (ADR\n61595 D5): sent on its first admission ever; a later open omits it or\nrepeats it unchanged. Absent, never null, for a root session."
+          "description": "The session's storage descriptor (ADR 61595 D5, owner D176): its\nadmission intent, and for a child's first admission the create-only\nchild fields. Absent, never null: answered as before."
         },
         "proposedLimits": {
           "$ref": "#/$defs/JournalLimits"
@@ -4940,6 +5027,17 @@
       "x-msp-descriptor": "journal/admissionContext",
       "x-msp-stability": "experimental"
     },
+    "JournalAdmissionIntent": {
+      "description": "What an admission means to open (owner D172 addendum, D176; ADR 61595\nD5). `resume` of a session the store does not hold is refused `notFound`\nand creates nothing; `new` of a held session is answered as that session\nwhen its descriptor is the same, and refused `conflict` when it differs.",
+      "enum": [
+        "new",
+        "resume"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "journal/admissionContext",
+      "x-msp-openness": "closed",
+      "x-msp-stability": "experimental"
+    },
     "JournalAnchor": {
       "description": "A journal anchor: bare per-source ordinals plus the qualified binding.",
       "properties": {
@@ -4949,19 +5047,19 @@
         "next": {
           "type": "integer"
         },
+        "throughMeaning": {
+          "description": "The meaning of the batch at the qualified cut (ADR 61595 D3.2), named\nfor what it carries (owner D166; formerly `throughWriteId`).",
+          "type": "string"
+        },
         "throughPosition": {
           "type": "integer"
-        },
-        "throughWriteId": {
-          "description": "The meaning of the batch at the qualified cut (ADR 61595 D3.2). The\nfield's name and shape are decided with the S4 anchors; until then it\nkeeps its name and carries the meaning.",
-          "type": "string"
         }
       },
       "required": [
         "floor",
         "next",
-        "throughPosition",
-        "throughWriteId"
+        "throughMeaning",
+        "throughPosition"
       ],
       "type": "object",
       "x-msp-descriptor": "journal/readPage",
@@ -5002,15 +5100,11 @@
     "JournalCommitBatchParams": {
       "description": "`journal/commitBatch` params (host -> client).",
       "properties": {
-        "closesJournal": {
-          "description": "The transaction carries a child run's terminal record, so the store\nmarks the child's journal closed once the transaction qualifies (ADR\n61595 D5). The host decides it from its own records; the store never\nparses them. A later qualified commit (a successor attempt, an owed\nabort) reopens the journal. Absent, never false, otherwise, so other\ncommits' bytes are unchanged.",
-          "type": "boolean"
-        },
         "conditions": {
           "$ref": "#/$defs/JournalCommitConditions"
         },
         "meaning": {
-          "description": "The batch's meaning (ADR 26387-SRL D14.1, ADR 61595 D3.2): the\n`sha256-v1:<hex>` digest of its own records. The store's idempotency\nkey is source plus meaning. Every batch is named by its own records,\neach part of a split transaction included, the last one too.",
+          "description": "The batch's meaning (owner D170, ADR 61595 D3.4):\n`v1-<sequence>-<event_id>` of its own last record, each part of a\nsplit transaction by its own last record. The store keeps no meaning\nindex: it finds the record at that sequence and compares a resend\nrecord by record. `sha256-v1:<hex>` is deprecated but still accepted.",
           "type": "string"
         },
         "records": {
@@ -5050,7 +5144,7 @@
           "type": "string"
         },
         "ids": {
-          "description": "Record ids this request admitted, in sequence order. Every request,\na split transaction's closing request included, is named by the\ndigest of its own records and reports its own ids; the store tracks\nno runs, and the client adapter assembles the run (ADR 61595 D3.2,\nowner D120).",
+          "description": "Record ids this request admitted, in sequence order. Every request,\na split transaction's closing request included, is named by its own\nlast record (owner D170) and reports its own ids; the store tracks\nno runs, and the client adapter assembles the run (ADR 61595 D3.2,\nowner D120).",
           "items": {
             "type": "string"
           },
@@ -5180,8 +5274,12 @@
           "$ref": "#/$defs/JournalReadBudget"
         },
         "meaning": {
-          "description": "The meaning of the batch to observe (ADR 61595 D3.2).",
+          "description": "The meaning of the batch to observe: `v1-<sequence>-<event_id>` of its\nlast record (owner D170); any other meaning is answered `unknown`.",
           "type": "string"
+        },
+        "owner": {
+          "description": "The writer's admitted owner, always the in-doubt commit's own (owner\nD170 addendum, D177, D180: a writer observes only its own commits);\nthe store refuses a stale one with the conditions error. Absent:\nanswered as before. Must become required before any writer with\nderived ids lands (TLA #5521).",
+          "type": "integer"
         },
         "sessionId": {
           "type": "string"
@@ -5204,10 +5302,11 @@
       "description": "`journal/observeOriginal` result.",
       "properties": {
         "disposition": {
+          "description": "The id stored at the v1 meaning's sequence against the meaning's own\n(owner D177): `qualified` (the same), `conflict` (another id),\n`notAdmitted` (nothing stored there) or `unknown` (not a v1 meaning).",
           "type": "string"
         },
         "ids": {
-          "description": "Record ids admitted under the observed meaning, in sequence order:\nthat request's own ids, a split transaction's closing request\nincluded; the client adapter assembles the run (ADR 61595 D3.2,\nowner D120).",
+          "description": "Deprecated (owner D177): unused, always empty.",
           "items": {
             "type": "string"
           },
@@ -5220,6 +5319,7 @@
           ]
         },
         "position": {
+          "description": "Deprecated (owner D177): unused, always absent.",
           "type": [
             "integer",
             "null"
@@ -5272,6 +5372,7 @@
           "type": "integer"
         },
         "records": {
+          "description": "The most records the call may return: a page holds at most this many\nrows (#99213).",
           "type": "integer"
         },
         "work": {
@@ -5324,9 +5425,11 @@
       "description": "`journal/readPage` result.",
       "properties": {
         "atCut": {
+          "description": "This page reached the store's log end (owner D177).",
           "type": "boolean"
         },
         "completeThrough": {
+          "description": "The last closed transaction end this page crossed; it may pass the\nanchor's cut and is never an anchor or a floor (owner D177).",
           "type": [
             "integer",
             "null"
@@ -5339,7 +5442,8 @@
           ]
         },
         "next": {
-          "$ref": "#/$defs/JournalAnchor"
+          "$ref": "#/$defs/JournalAnchor",
+          "description": "Where to continue: `floor`, `throughMeaning` and `throughPosition`\necho the request's anchor unchanged and never pass the cut; `next` may\nrun past `throughPosition` up to the store's log end (owner D177)."
         },
         "records": {
           "items": {
@@ -5452,11 +5556,15 @@
       "x-msp-stability": "experimental"
     },
     "JournalSessionDescriptor": {
-      "description": "How a child session's journal was created and which journal it links to\n(ADR 61595 D5). Storage-level only: the store creates and links the\nchild's journal from it and never parses records.",
+      "description": "A session's storage descriptor (ADR 61595 D5, owner D176): the admission\nintent and, for a child, how its journal was created and which journal it\nlinks to. Storage-level only: the store creates and links the child's\njournal from it and never parses records. `kind`, `parentSessionId` and\n`createdAt` come together or not at all, and only without `resume`: a\nroot, and any resume, sends no child field; a child's `new` sends them\nall. Child fields with no intent are today's child create.",
       "properties": {
         "createdAt": {
           "description": "The time recorded in the parent's record that started the child (never\na live clock read, so a repeat after restore is identical), in the unit\nof `JournalRecord.recordedAt`.",
           "type": "integer"
+        },
+        "intent": {
+          "$ref": "#/$defs/JournalAdmissionIntent",
+          "description": "Whether this admission opens a new journal or resumes a held one.\nAbsent: answered as before."
         },
         "kind": {
           "$ref": "#/$defs/JournalChildKind"
@@ -5473,9 +5581,6 @@
         }
       },
       "required": [
-        "createdAt",
-        "kind",
-        "parentSessionId",
         "schemaVersion"
       ],
       "type": "object",
@@ -6446,6 +6551,41 @@
       "x-msp-descriptor": "mcpServer/readInventory",
       "x-msp-stability": "experimental"
     },
+    "McpServerReadStartupNoticesParams": {
+      "description": "Read the addressed loaded session's MCP startup notices (ADR 79187 D4).",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "mcpServer/readStartupNotices",
+      "x-msp-stability": "experimental"
+    },
+    "McpServerReadStartupNoticesResult": {
+      "description": "The notices the startup produced so far; `settled` once it has finished.",
+      "properties": {
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/McpStartupNotice"
+          },
+          "type": "array"
+        },
+        "settled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "notices",
+        "settled"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "mcpServer/readStartupNotices",
+      "x-msp-stability": "experimental"
+    },
     "McpServerReconnectParams": {
       "description": "`mcpServer/reconnect` params (ADR 74052 D3): the holder's explicit\ninstruction to reconnect one server. Serve reconnects only when told.",
       "properties": {
@@ -6479,6 +6619,24 @@
       ],
       "type": "object",
       "x-msp-descriptor": "mcpServer/reconnect",
+      "x-msp-stability": "experimental"
+    },
+    "McpStartupNotice": {
+      "description": "One notice as the gate-off TUI shows it. `severity` is open: `error`,\n`warning` and `optionalServerSkip` today.",
+      "properties": {
+        "severity": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "text"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "mcpServer/readStartupNotices",
       "x-msp-stability": "experimental"
     },
     "McpToolDisplayMetadata": {
@@ -7323,15 +7481,27 @@
       ],
       "type": "object"
     },
+    "NeedsInputReason": {
+      "description": "One `needsInputReasons` reason (tdd SS2.4, ADR 95605 D2): why a loaded\nsession's input is needed. Open on the wire — clients MUST ignore\nunknown values; future reasons (the D6 turn-end reasons) are additive.\nThe reasons are a pure projection of the pending-request fold's answer\nin PR 1 (the same read that derives `attention`); `admissionPending`\nis deliberately not a reason.",
+      "enum": [
+        "approvalPending",
+        "inputPending"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "Session.needsInputReasons",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
     "NoticeOrigin": {
-      "description": "`systemNotice`: the producing family, so a client routes a notice without\nparsing its text (tdd SS4.5.23). Open. The v1 vocabulary is the Monitor\nnotice and the three system-chrome producers (ADR 42729 D1) plus the\nhook-run producer (ADR 75121 D2) and the paused-Workflow checkpoint\nproducer (ADR 39490 D5); absent means the server named no\norigin, and a client never infers one.",
+      "description": "`systemNotice`: the producing family, so a client routes a notice without\nparsing its text (tdd SS4.5.23). Open. The v1 vocabulary is the Monitor\nnotice and the three system-chrome producers (ADR 42729 D1) plus the\nhook-run producer (ADR 75121 D2), the paused-Workflow checkpoint\nproducer (ADR 39490 D5) and the continued-child tools producer\n(ADR 42729 D5); absent means the server named no\norigin, and a client never infers one.",
       "enum": [
         "monitor",
         "skillsStartup",
         "scheduledFire",
         "incompleteGeneration",
         "hook",
-        "workflowCheckpoint"
+        "workflowCheckpoint",
+        "continuedChildTools"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -9269,6 +9439,17 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "PointsEmptyReason": {
+      "description": "Why a points page is empty (D7, closed).",
+      "enum": [
+        "notRewindUnit",
+        "inputsPredateRewindSupport"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-openness": "closed",
+      "x-msp-stability": "experimental"
+    },
     "PolicyRuleOrigin": {
       "description": "Where a session policy rule came from (tdd SS5.16, ADR 47712 D5/D6).",
       "enum": [
@@ -9966,6 +10147,45 @@
       "x-msp-openness": "open",
       "x-msp-stability": "experimental"
     },
+    "RewindAdmissionStatus": {
+      "description": "`session/rewind` admission status (D7, closed).",
+      "enum": [
+        "accepted"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "session/rewind",
+      "x-msp-openness": "closed",
+      "x-msp-stability": "experimental"
+    },
+    "RewindAttachParams": {
+      "description": "D7 attach params (`session/rewindAttach`): prepare the published child\nand conditionally commit this client's attachment. The result is the\nexisting `SessionResumeResult`.",
+      "properties": {
+        "attemptId": {
+          "description": "The attempt to attach (child derived only from the attempt).",
+          "type": "string"
+        },
+        "commandId": {
+          "description": "This attach command's id (atomic replay).",
+          "type": "string"
+        },
+        "excludeItems": {
+          "description": "Keeps ordinary resume meaning. Omit-only.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The source session under existing identity resolution.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "commandId",
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewindAttach",
+      "x-msp-stability": "experimental"
+    },
     "RewindAttempt": {
       "description": "One passively observed Keep/Stop attempt (D7). The nested\n`source_instance_id` binds the attempt's actor, so a reload cannot\nconflate it with the current top-level instance.",
       "properties": {
@@ -10063,6 +10283,10 @@
     "RewindAvailability": {
       "description": "The rewind availability summary (D7): a flat object, not a tagged\nunion (the `PendingRequestPointer` precedent — v1 names no\nobject-variant union). Producer obligation: `reason` is present\nexactly when `state` is `unavailable`; the `session/rewindRead`\nserve layer (T-50280-078) refuses a mispaired summary as\ninvalidParams.",
       "properties": {
+        "inputsPredateRewindSupport": {
+          "description": "Whether the summary reports inputs that predate rewind support (ADR\n50280 D7.2, experimental): `true` or `false` when the summary is\nreadable; absent when it is unavailable or the server predates the\nmember. Absent means unknown, never `false`.",
+          "type": "boolean"
+        },
         "reason": {
           "description": "Why the summary is unavailable. Present exactly when `state` is\n`unavailable`; an open string.",
           "type": "string"
@@ -10091,6 +10315,120 @@
       "x-msp-openness": "closed",
       "x-msp-stability": "experimental"
     },
+    "RewindCandidate": {
+      "description": "One full current rewind candidate (D7).",
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/RewindCapability",
+          "description": "What acting on this candidate requires. Open: unknown values stay\nvisible and never create an actionable unsupported choice."
+        },
+        "displayText": {
+          "description": "Display text for the picker row.",
+          "type": "string"
+        },
+        "losses": {
+          "description": "Blocked explanations with backend counts.",
+          "items": {
+            "$ref": "#/$defs/RewindLoss"
+          },
+          "type": "array"
+        },
+        "selection": {
+          "description": "The opaque, untrusted selection locator.",
+          "type": "string"
+        },
+        "unitId": {
+          "description": "A Rewind Unit identity, not an inclusive fork turn cut.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "displayText",
+        "losses",
+        "selection",
+        "unitId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-stability": "experimental"
+    },
+    "RewindCapability": {
+      "description": "What acting on a candidate requires (D7, open).",
+      "enum": [
+        "exact",
+        "reviewRequired",
+        "blocked"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
+    "RewindLoss": {
+      "description": "One blocked explanation with its backend count (D7).",
+      "properties": {
+        "count": {
+          "description": "The backend count for this reason.",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "The loss reason spelling; an open string. Unknown reasons stay\nvisible and do not create an actionable unsupported choice.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "reason"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-stability": "experimental"
+    },
+    "RewindParams": {
+      "description": "`session/rewind` params (D7): admit Keep/Stop and publish through the\nexisting rewind engine when needed. The small response acknowledges\nactual existing rewind intake admission.",
+      "properties": {
+        "backgroundTasks": {
+          "$ref": "#/$defs/BackgroundTasks",
+          "description": "Keep or Stop (D7's closed request choice). ADR 50280 D7.1's first\nactivation serves Keep only and answers `stop` with `invalidParams`."
+        },
+        "childSessionId": {
+          "description": "The published child session; must differ from the source.",
+          "type": "string"
+        },
+        "commandId": {
+          "description": "The attempt id (a new id for an explicit Stop retry).",
+          "type": "string"
+        },
+        "publicationCommandId": {
+          "description": "The publication this attempt coordinates.",
+          "type": "string"
+        },
+        "selection": {
+          "description": "The opaque selection locator. Required for a new publication; an\nexplicit retry omits it. Omit-only.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The source session under existing identity resolution.",
+          "type": "string"
+        },
+        "sourceInstanceId": {
+          "description": "The loaded source actor; a loaded replacement rejects the old id\nwith `commandRejected`/`rewind_source_changed` before admitting.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backgroundTasks",
+        "childSessionId",
+        "commandId",
+        "publicationCommandId",
+        "sessionId",
+        "sourceInstanceId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewind",
+      "x-msp-stability": "experimental"
+    },
     "RewindPointsParams": {
       "description": "`session/rewindPoints` params (D7): one page of full current rewind\ncandidates. The source must already be loaded. Command-ID-free.",
       "properties": {
@@ -10112,6 +10450,59 @@
       },
       "required": [
         "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-stability": "experimental"
+    },
+    "RewindPointsResult": {
+      "description": "`session/rewindPoints` result (D7): newest first. A shortened preview\nnever changes selection or exact refill.",
+      "properties": {
+        "candidates": {
+          "description": "The page of candidates, newest first.",
+          "items": {
+            "$ref": "#/$defs/RewindCandidate"
+          },
+          "type": "array"
+        },
+        "emptyReason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointsEmptyReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page is empty, null when candidates exist.\nRequired-nullable."
+        },
+        "nextCursor": {
+          "description": "The next paging cursor, null at the end. Required-nullable.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "olderHistoryUnavailable": {
+          "description": "Whether the page extends below the preserved history head.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The source session read.",
+          "type": "string"
+        },
+        "sourceInstanceId": {
+          "description": "The loaded source actor's opaque instance (loaded-only method).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidates",
+        "emptyReason",
+        "nextCursor",
+        "olderHistoryUnavailable",
+        "sessionId",
+        "sourceInstanceId"
       ],
       "type": "object",
       "x-msp-descriptor": "session/rewindPoints",
@@ -10153,6 +10544,44 @@
       "x-msp-descriptor": "session/rewindReadInput",
       "x-msp-stability": "experimental"
     },
+    "RewindReadInputResult": {
+      "description": "`session/rewindReadInput` result (D7): one chunk of the exact current\nrefill. Concatenating `refillText` chunks in order yields the exact\nrefill; empty refill is one EOF response with empty text and zero bytes.",
+      "properties": {
+        "byteLen": {
+          "description": "Bytes returned in this chunk.",
+          "type": "integer"
+        },
+        "eof": {
+          "description": "Whether this chunk ends the read.",
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "description": "The next chunk cursor, null at EOF. Required-nullable.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offsetBytes": {
+          "description": "The UTF-8 byte offset of this chunk.",
+          "type": "integer"
+        },
+        "refillText": {
+          "description": "This chunk's exact text (concatenated stored text blocks, no added\nseparators or trimming; empty whenever the selected input contains\nan asset).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "byteLen",
+        "eof",
+        "nextCursor",
+        "offsetBytes",
+        "refillText"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewindReadInput",
+      "x-msp-stability": "experimental"
+    },
     "RewindReadParams": {
       "description": "`session/rewindRead` params (D7): cheap availability/source state,\noptional work census, and passive attempt observation. Command-ID-free.",
       "properties": {
@@ -10177,7 +10606,7 @@
       "x-msp-stability": "experimental"
     },
     "RewindReadResult": {
-      "description": "`session/rewindRead` result (D7). A successful read establishes\nwhole-family support; missing required full-mode fields is unsupported.",
+      "description": "`session/rewindRead` result (D7). A successful read establishes\nwhole-family support (Keep-only support under ADR 50280 D7.1's first\nactivation); missing required full-mode fields is unsupported.",
       "properties": {
         "attempt": {
           "anyOf": [
@@ -10231,6 +10660,26 @@
       ],
       "type": "object",
       "x-msp-descriptor": "session/rewindRead",
+      "x-msp-stability": "experimental"
+    },
+    "RewindResult": {
+      "description": "`session/rewind` result (D7): intake admission only, not publication\nor task completion.",
+      "properties": {
+        "commandId": {
+          "description": "The admitted attempt id.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RewindAdmissionStatus",
+          "description": "Intake admission (D7's closed single word)."
+        }
+      },
+      "required": [
+        "commandId",
+        "status"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/rewind",
       "x-msp-stability": "experimental"
     },
     "RulesChangedSource": {
@@ -10456,6 +10905,11 @@
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
       "properties": {
+        "experimentalFingerprint": {
+          "description": "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value (SS1.5.4).",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
         "fingerprint": {
           "description": "`sha256:<64 lower hex>` content hash of this server binary's\nstable-surface bundle (INV-003). A mismatch is a warning condition,\nnot an error (SS1.4.1).",
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -10513,7 +10967,7 @@
       "description": "The session object every lifecycle method returns or lists (tdd SS2.4).\n\nAdditive-optional evolution applies: clients must ignore unknown fields.",
       "properties": {
         "activeTurnId": {
-          "description": "The `turnId` of the current foreground turn when `status` is\n`running`, and `null` when the session is idle (tdd SS2.4).\n\n**Required-nullable.** Every served `Session` carries the member: `null`\nwhen the session is idle or not loaded, the turn id when it is running.\nAn optional-absent shape would publish it as plain `string` and reject\nevery idle `Session` frame the host sends.",
+          "description": "The `turnId` of the current foreground turn when a turn is in\nflight (parked under `needsInput` included), and `null` otherwise\n(tdd SS2.4, ADR 95605 D1).\n\n**Required-nullable.** Every served `Session` carries the member: `null`\nwhen no turn is in flight or the session is not loaded, the turn id\nwhen one is. An optional-absent shape would publish it as plain\n`string` and reject every idle `Session` frame the host sends.",
           "type": [
             "string",
             "null"
@@ -10605,6 +11059,15 @@
         "nameOrigin": {
           "$ref": "#/$defs/SessionNameOrigin",
           "description": "How the served `name` was set (tdd SS2.4/SS2.14.1, #50048; ADR 50048\nD1/D2). **Additive-optional**, **fold-only**: the snapshot fold\n(`session/read`, the resume/start/fork-ack snapshot) derives and\ncarries it from the log; `session/list` rows never carry it. Absent —\nand any value the client does not recognize — reads as unknown,\nnever fabricated."
+        },
+        "needsInputReasons": {
+          "description": "Why the session's input is needed (tdd SS2.4, ADR 95605 D2).\n**Additive-optional**, present only when non-empty; `status` is\n`needsInput` exactly when this set is non-empty (loaded sessions).\nAbsence is a NON-assertion, on the `attention` discipline. Loaded\nsessions only: a `notLoaded` row omits it even while its durable\npending set is non-empty. **Experimental** (ADR 95605 D4): stripped\nper-connection for unopted callers (SS1.5.1).",
+          "items": {
+            "$ref": "#/$defs/NeedsInputReason"
+          },
+          "type": "array",
+          "x-msp-descriptor": "Session.needsInputReasons",
+          "x-msp-stability": "experimental"
         },
         "parentSessionId": {
           "description": "The containing session's id when `kind` is `\"subagent\"` (FR-002,\nINV-002) — the id of the TOP-LEVEL session whose home holds this\nchild, which is **not necessarily the session that spawned it**:\nnative-child homes are physical siblings under the outer session's\n`subagent/` directory, so a subagent spawned by another subagent\nresolves to the outer session, not to its spawner. A client building\na tree from this field gets one level, not a chain.\nFlat rather than nested: there is exactly one fact to\ncarry, unlike `forkedFrom`'s structured `ForkProvenance`.\n**Additive-optional**; a root carries none.",
@@ -10710,6 +11173,72 @@
         "workspaceRoot"
       ],
       "type": "object"
+    },
+    "SessionActivationChangedEntry": {
+      "description": "One item of the recomposed selection. **Experimental.**",
+      "properties": {
+        "id": {
+          "description": "The plugin id, the skill's activation key, or `default` for a\nsection's default rule.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "`skill` or `plugin` today; an open set, so a client ignores a kind it\ndoes not know.",
+          "type": "string"
+        },
+        "provenance": {
+          "description": "Where the state came from: `source_default`, `enterprise_defaults`,\n`user`, `project`, `client_request`, `managed`, `enterprise_policy`,\nor `host_record`.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why a selected item is unavailable: `not_installed`, `host_disabled`,\n`enterprise_refused`, or `managed_disabled`.",
+          "type": "string"
+        },
+        "state": {
+          "description": "`on`, `off`, `forced`, or `user_invocable_only`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "provenance",
+        "state"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/activationChanged",
+      "x-msp-stability": "experimental"
+    },
+    "SessionActivationChangedParams": {
+      "description": "`session/activationChanged` params. One notice per resume that recorded a\nchanged selection.",
+      "properties": {
+        "digest": {
+          "description": "The digest of `effective`.",
+          "type": "string"
+        },
+        "effective": {
+          "description": "The recomposed selection: only the items whose state differs from\ntheir source default, sorted by kind then id.",
+          "items": {
+            "$ref": "#/$defs/SessionActivationChangedEntry"
+          },
+          "type": "array"
+        },
+        "previousDigest": {
+          "description": "The digest the session recorded before this resume.",
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "effective",
+        "previousDigest",
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/activationChanged",
+      "x-msp-stability": "experimental"
     },
     "SessionApprovalModeChangedParams": {
       "description": "`session/approvalModeChanged` params (tdd SS5.12): the fold of the\ndurable approval-mode reconfigure audit fact — every accepted change\nwrites one; a mode flip without an audit fact is a runtime bug by design.",
@@ -10921,14 +11450,27 @@
     "SessionConfig": {
       "description": "The open configuration extension object shared by `session/start` and\n`session/resume` (ADR 32760 D1).\n\nUnknown keys are ignored on the wire, never rejected: the live decoder\ntolerates them, and no exported bundle carries `additionalProperties:\nfalse`. The Rust typed model's `deny_unknown_fields` is internal and never\nexported — the closedness export applies nowhere, and the `x-msp-closed`\nopt-in mechanism stays inert. Recognized `mcpServers` values are typed and\nvalidated before they leave the wire boundary.",
       "properties": {
+        "admitSessionMcpServers": {
+          "description": "Experimental: per-session admission of this session's\n`config.mcpServers` roster. Spelled `true` admits exactly that\nroster; spelled `false` is withheld, spelled. Omitted keeps\ntoday's withheld behaviour. Explicit `null` and any non-boolean\nfail the decode. Until the admission gate and its enforcing\npieces land, the doors refuse every spelled value\nunconditionally, so no host can believe a roster was admitted.",
+          "type": "boolean",
+          "x-msp-descriptor": "SessionConfig.admitSessionMcpServers",
+          "x-msp-stability": "experimental"
+        },
+        "allowedBuiltInTools": {
+          "description": "Experimental (owner decision: build tools and MCP first, design kt-2n1z):\nthe per-session built-in tool restriction on `session/start` and\n`session/resume`: omitted = no restriction, `[]` = no built-in\ntools, a non-empty list = exactly those tools. Names are exact,\ncase-sensitive built-in names; order is insignificant. This\ndecoder checks the SHAPE only. Until the last enforcing piece\nlands, a host refuses any spelled member (P5, kt-kqr8).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "SessionConfig.allowedBuiltInTools",
+          "x-msp-stability": "experimental"
+        },
         "developerPrompt": {
-          "description": "Experimental (ADR 32029 D38): developer instructions for this session\nonly, on `session/start` and `session/resume`. The text is trimmed. A\nnonblank value replaces the settings-derived developer instructions;\nan omitted member is no override and keeps the full developer context.\nExplicit `null` and blank text are the explicit clear (the Rust value\nis an empty string): no override, and on a host that serves developer\ninstructions they also turn off the session's suppressible developer\ncontext (the agent catalog and the memory snapshot). Any other type\nfails the decode. A host that does not serve developer instructions\nignores a valid member.",
+          "description": "Developer instructions for this session only (ADR 32029 D38, stable\nfrom switch piece F2), on `session/start` and `session/resume`. The\ntext is trimmed. A nonblank value replaces the settings-derived\ndeveloper instructions; an omitted member is no override and keeps\nthe full developer context. Explicit `null` and blank text are the\nexplicit clear (the Rust value is an empty string): no override, and\non a host that serves developer instructions they also turn off the\nsession's suppressible developer context (the agent catalog and the\nmemory snapshot). Any other type fails the decode. A host that does\nnot serve developer instructions ignores a valid member.",
           "type": [
             "string",
             "null"
-          ],
-          "x-msp-descriptor": "SessionConfig.developerPrompt",
-          "x-msp-stability": "experimental"
+          ]
         },
         "maxToolOutputBytes": {
           "description": "Experimental (#76374): this session's tool-output byte budget, as\n`muse exec --max-tool-output-bytes` sets it for a headless run. `0`\nmeans no limit; a positive value must be at least 9. The budget\napplies only on a host whose default-off `tool_output_budget` gate\nserves it (ADR 76374 D2): there, each model-visible tool result, from\nworkspace and MCP tools alike, is bounded at this many bytes from the\nruntime's construction. Other hosts accept a valid value and ignore it.",
@@ -11070,6 +11612,68 @@
       ],
       "type": "string",
       "x-msp-openness": "open"
+    },
+    "SessionEndpointProviderOverride": {
+      "description": "One provider's endpoint: the top level's transport fields, under the\nsame wire names, without `allowOpenai`. Closed: an unknown field fails\nthe decode.",
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/SessionEndpointTransportAuthMode",
+          "description": "Auth mode. Absent = `bearer`."
+        },
+        "baseUrl": {
+          "description": "Endpoint base URL. Configuration diagnostics never echo it.",
+          "type": "string"
+        },
+        "caBundle": {
+          "description": "Optional CA bundle (PEM) to trust for the server side.",
+          "type": "string"
+        },
+        "clientCert": {
+          "description": "Path to the mTLS client certificate (PEM).",
+          "type": "string"
+        },
+        "clientKey": {
+          "description": "Path to the mTLS client private key (PEM).",
+          "type": "string"
+        },
+        "envHttpHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Provider header name -> environment variable name.",
+          "type": "object"
+        },
+        "httpHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Literal provider request headers.",
+          "type": "object"
+        },
+        "proxy": {
+          "description": "An explicit HTTP proxy URL. Diagnostics never echo it.",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "x-msp-descriptor": "SessionConfig.modelEndpointTransportOverride",
+      "x-msp-stability": "experimental"
+    },
+    "SessionEndpointProviders": {
+      "description": "AC-D5: `providers` of the transport override. Closed: a provider this\nversion does not name fails the decode.",
+      "properties": {
+        "anthropic": {
+          "$ref": "#/$defs/SessionEndpointProviderOverride",
+          "description": "The session's own Anthropic endpoint, which serves its Claude\nmodels; it inherits nothing from the top level and needs a\n`baseUrl`. Absent: the host's Anthropic route."
+        },
+        "meta": {
+          "$ref": "#/$defs/SessionEndpointProviderOverride",
+          "description": "Merged field by field over the top-level fields for the session's\nMeta endpoint."
+        }
+      },
+      "type": "object",
+      "x-msp-descriptor": "SessionConfig.modelEndpointTransportOverride",
+      "x-msp-stability": "experimental"
     },
     "SessionEndpointTransportAuthMode": {
       "description": "How a request to the overridden endpoint authenticates, mirroring the\n`tbh-config` `TransportAuthMode` spellings. Closed: an undeclared\nmode fails the decode rather than degrading to a default.",
@@ -11582,6 +12186,60 @@
       ],
       "type": "object"
     },
+    "SessionLoadWarning": {
+      "description": "One `session/start` or `session/resume` result warning (ADR 94800 D5,\nspec 94800 FR-94800-6). **Experimental.** The command succeeded; the\nwarning names what the host did not apply.",
+      "properties": {
+        "code": {
+          "description": "Machine code. `setting_ignored`: this host composes no\n`config.settingsOverrides`, so the named keys were ignored.\n`selection_unavailable`: the session's selection names items it\ncannot have; the session started without them (`items`).",
+          "type": "string"
+        },
+        "items": {
+          "description": "For `selection_unavailable`: each selected item with the reason it is\nunavailable.",
+          "items": {
+            "$ref": "#/$defs/SessionLoadWarningItem"
+          },
+          "type": "array"
+        },
+        "keys": {
+          "description": "The `config.settingsOverrides` keys the warning names, as sent, in\nascending string order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "message": {
+          "description": "Human-readable text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/start.warnings",
+      "x-msp-stability": "experimental"
+    },
+    "SessionLoadWarningItem": {
+      "description": "One `selection_unavailable` item (ADR 94800 D5). **Experimental.**",
+      "properties": {
+        "id": {
+          "description": "The selected item: `plugin:<plugin id>`.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "`not_installed`, `host_disabled`, `enterprise_refused`, or\n`managed_disabled`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/start.warnings",
+      "x-msp-stability": "experimental"
+    },
     "SessionLogFlushDegradedParams": {
       "description": "`session/logFlushDegraded` params (ADR 78845 D1, experimental): a run's\nturn-end session-log flush on the host left records failed or waiting for\nretry, or failed itself. Outside the view stream, like\n`session/eventLogDegraded`: no `viewCursor` and no `sourceRange`. Either\nthe counts (with an optional `cause`) or, exactly when the flush itself\nfailed, only `error`.",
       "properties": {
@@ -11786,6 +12444,10 @@
           },
           "description": "Literal provider request headers.",
           "type": "object"
+        },
+        "providers": {
+          "$ref": "#/$defs/SessionEndpointProviders",
+          "description": "Provider-scoped endpoints (owner AC-D5, #88975). `meta` merges over\nthe fields above; `anthropic` is the session's own Anthropic\nendpoint. Absent: the fields above, and the host's Anthropic route."
         },
         "proxy": {
           "description": "An explicit HTTP proxy URL. Diagnostics never echo it.",
@@ -12069,6 +12731,10 @@
         "lastTurn": {
           "$ref": "#/$defs/LastTurn",
           "description": "Same member as `session/resume` (tdd SS2.5.5, ADR 36635 D2)."
+        },
+        "modelTurnRunning": {
+          "description": "Whether a native child read session's model turn runs (tdd SS2.5.5,\nADR 89202 D1): served on a read of a `subagent` session whose\ncontaining session this host holds loaded, from that session's\nruntime at serve time. Absent for every other read and when the\nruntime cannot answer; absence asserts nothing.",
+          "type": "boolean"
         },
         "pendingRequests": {
           "description": "The same pointer shape as `session/resume`. Because `session/read`\nnever subscribes this is a point-in-time log read only: no requests\nare re-issued after it (tdd SS2.5.5).",
@@ -12368,6 +13034,12 @@
           "x-msp-descriptor": "session/resume.approvalRules",
           "x-msp-stability": "experimental"
         },
+        "autoRecover": {
+          "description": "This resume's auto-recover choice (amendment 26387/68619, owner\ndecision G-37): omitted or `true` follows the host's\n`resume_auto_recover` gate, which stays the master switch; `false`\nholds a crash resume under ADR 58330 D8 and reports `autoRecovery`\n`refused` with reason `optedOut`. Decided for this resume only: it is\nnot saved. Only the resume that loads the session reads it; an attach\nignores it. Explicit `null` is invalid params. **Experimental**\n(`session/resume.autoRecover`).",
+          "type": "boolean",
+          "x-msp-descriptor": "session/resume.autoRecover",
+          "x-msp-stability": "experimental"
+        },
         "commandId": {
           "description": "The SS2.5 idempotency handle (UUIDv7). A resume that loads a session\nwrites a durable `SessionResumed` record.",
           "type": "string"
@@ -12431,6 +13103,21 @@
         "sessionId": {
           "description": "The session to load.",
           "type": "string"
+        },
+        "workspaceRoot": {
+          "description": "Relocate the resumed session to this folder (#95860, ADR 37313 D11).\nSame rules as `session/start.workspaceRoot`: absolute, existing, and\nwhen `workspaceRoots` is also present it names the same folder as\n`workspaceRoots[0]` (canonical forms). The session's durable identity\ndoes not change; Project Trust is evaluated for the relocated folder.\nOmitted: the recorded root, as today. **Experimental**\n(`session/resume.workspaceRoot`).",
+          "type": "string",
+          "x-msp-descriptor": "session/resume.workspaceRoot",
+          "x-msp-stability": "experimental"
+        },
+        "workspaceRoots": {
+          "description": "The resumed session's runtime workspace-root set (#95860, ADR 37313\nD11), with `session/start.workspaceRoots`'s rules (the first root is\nthe working directory; explicit `null` is invalid params). Present,\nit relocates the session and later resumes keep it; omitted, the\nlatest recorded set (ADR 37313 D4). **Experimental**\n(`session/resume.workspaceRoots`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/resume.workspaceRoots",
+          "x-msp-stability": "experimental"
         }
       },
       "required": [
@@ -12448,9 +13135,27 @@
           "x-msp-descriptor": "session/resume.abnormalEnd",
           "x-msp-stability": "experimental"
         },
+        "admittedSessionMcpServers": {
+          "description": "The session MCP servers this resume admitted, on the start echo's\ndiscipline. **Experimental**\n(`session/resume.admittedSessionMcpServers`). Present iff the\nrequest spelled `config.admitSessionMcpServers` and the admission\ngate is open; the value is the effective admitted set — names\njoined and not withheld, `[]` when applied-to-empty. Absent means\nnot requested or a pre-feature host. Never filled before the last\nenforcing piece lands, so no host can read \"applied\" early.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/resume.admittedSessionMcpServers",
+          "x-msp-stability": "experimental"
+        },
+        "appliedBuiltInTools": {
+          "description": "The built-in tool set this resume runs with, when the request\nspelled `config.allowedBuiltInTools` and the host serves the\nrestriction (design kt-2n1z N3): the post-intersection set, `[]`\nwhen applied-to-empty. Absent = not requested or a pre-feature\nhost; an absent echo on a spelled input means unapplied. Declared\nhere (P5, kt-kqr8), never filled until the last enforcing piece\n(P8). **Experimental** (`session/resume.appliedBuiltInTools`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/resume.appliedBuiltInTools",
+          "x-msp-stability": "experimental"
+        },
         "autoRecovery": {
           "$ref": "#/$defs/AutoRecovery",
-          "description": "The auto-recover outcome of this resume's own load (amendment\n26387/68619, G-23). **Experimental** (`session/resume.autoRecovery`;\nstripped for unopted connections); absent unless the load ran with\nthe `resume_auto_recover` gate on and an effective `recoveryMode` of\nON, so a gate-off host's result is unchanged.",
+          "description": "The auto-recover outcome of this resume's own load (amendment\n26387/68619, G-23). **Experimental** (`session/resume.autoRecovery`;\nstripped for unopted connections); absent unless the load ran with\nthe `resume_auto_recover` gate on (whatever the session's\n`recoveryMode`, G-37), so a gate-off host's result is unchanged.",
           "x-msp-descriptor": "session/resume.autoRecovery",
           "x-msp-stability": "experimental"
         },
@@ -12532,6 +13237,15 @@
         "viewCursor": {
           "description": "The session view head; the connection is subscribed after it. A\nstill-loaded session a prior `view/unsubscribe` detached is\nRE-ATTACHED by this resume (spec 208 FR-002a, #28920): live delivery\nresumes from this head. Explicit-cursor re-attach with `(after, head]`\nengine replay stays `view/subscribe` (SS4.7.1).",
           "type": "string"
+        },
+        "warnings": {
+          "description": "What the host did not apply (ADR 94800 D5). **Experimental**\n(`session/resume.warnings`). Absent when there is nothing to warn\nabout, never an empty array.",
+          "items": {
+            "$ref": "#/$defs/SessionLoadWarning"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/resume.warnings",
+          "x-msp-stability": "experimental"
         }
       },
       "required": [
@@ -12895,6 +13609,54 @@
       ],
       "type": "object"
     },
+    "SessionStartNode": {
+      "description": "One node a `session/start` names: where the session's tool calls run.\nThe host validates the three strings; this shape only carries them.",
+      "properties": {
+        "name": {
+          "description": "The node's name in this session's roster.",
+          "type": "string"
+        },
+        "root": {
+          "description": "The absolute workspace root on the node.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The SSH target, `[user@]host[:port]`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "root",
+        "target"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/start.nodes",
+      "x-msp-stability": "experimental"
+    },
+    "SessionStartNodeRoster": {
+      "description": "The roster a session started with, echoed on the `session/start`\nresult. A client that named nodes and reads no echo sends no turn: the\nhost did not attach them, or no longer holds the roster it started with.",
+      "properties": {
+        "defaultNode": {
+          "description": "The name of the node a call runs on when it names none.",
+          "type": "string"
+        },
+        "nodes": {
+          "description": "The attached nodes, in the order the start named them.",
+          "items": {
+            "$ref": "#/$defs/SessionStartRosterNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "defaultNode",
+        "nodes"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/start.nodeRoster",
+      "x-msp-stability": "experimental"
+    },
     "SessionStartParams": {
       "description": "`session/start` params (tdd SS2.5.1).",
       "properties": {
@@ -12918,6 +13680,10 @@
           "x-msp-descriptor": "session/start.approvalRules",
           "x-msp-stability": "experimental"
         },
+        "clear": {
+          "description": "Marks this start as a `/clear` (spec 207 amendment 93195, FR-93195-1,\nADR 93195 D1): `true` starts the new session as a clear, so its\n`SessionStart` hooks get source `clear` instead of `startup`. `false`\nand omitted are the same plain start (source `startup`). It neither\nneeds nor implies `previousSessionId`. Explicit `null` is invalid params.",
+          "type": "boolean"
+        },
         "commandId": {
           "description": "The SS2.5 idempotency handle (UUIDv7). Required; the server never\nmints one.",
           "type": "string"
@@ -12925,6 +13691,12 @@
         "config": {
           "$ref": "#/$defs/SessionConfig",
           "description": "Reserved for future per-session overrides; only its `mcpServers` member\nis admitted."
+        },
+        "defaultNode": {
+          "description": "The name of the default node, one of `nodes` (spec 96166 FR-014,\nFR-044). **Experimental** (`session/start.defaultNode`; unopted\ncallers are refused `-32602`). Omitted means the first node. Without\n`nodes`, a host that would refuse `nodes` refuses it the same way\n(`nodes_feature_off`, `nodes_not_offered`) and a host that attaches\nnodes answers invalid params. Explicit `null` is invalid params.",
+          "type": "string",
+          "x-msp-descriptor": "session/start.defaultNode",
+          "x-msp-stability": "experimental"
         },
         "limits": {
           "$ref": "#/$defs/SessionLimitsChoice",
@@ -12935,6 +13707,15 @@
         "modelId": {
           "description": "Initial model; server default when omitted.",
           "type": "string"
+        },
+        "nodes": {
+          "description": "The nodes this session's tool calls run on (spec 96166 FR-044, ADR\n96166 D5 item 7), in the order that sets the default.\n**Experimental** (`session/start.nodes`; unopted callers are refused\n`-32602`). Each is attached before the start answers; a start in\nwhich one fails to attach is refused `commandRejected`\n(`node_attach_refused`) and leaves no session. A host with the nodes\nfeature off refuses the member (`nodes_feature_off`), and so does a\nhost that does not offer nodes (`nodes_not_offered`). Omitted means\nthe session runs on the host's own machine, exactly as today.\nExplicit `null` is invalid params.",
+          "items": {
+            "$ref": "#/$defs/SessionStartNode"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/start.nodes",
+          "x-msp-stability": "experimental"
         },
         "permissionProfile": {
           "description": "The new session's initial permission profile (amendment 42624\nFR-42624-1, ADR 42197 D2): a profile id the host catalog already\nadmits — the rows `permissionProfile/list` serves without\n`sessionId`. Select, never create. Omitted means today's behavior: the\nhost's configured default under native admission, unchanged. An id\nthe catalog does not carry, or one it serves unavailable, refuses the\nstart `commandRejected` (-32030; `permission_profile_unknown` /\n`permission_profile_unavailable`) before any durable byte, and an\nephemeral host refuses any id (`permission_profile_ephemeral_fixed`).\n`session/fork` does not admit the member; `session/resume` admits it\nas the launch pick (FR-42624-1, #50054). Explicit `null` is invalid\nparams: the set of members that tolerate `null` is\nclosed and excludes this one, exactly as it excludes `workspaceRoots`.",
@@ -12995,6 +13776,30 @@
     "SessionStartResult": {
       "description": "`session/start` result (tdd SS2.5.1).",
       "properties": {
+        "admittedSessionMcpServers": {
+          "description": "The session MCP servers this start admitted. **Experimental**\n(`session/start.admittedSessionMcpServers`). Present iff the\nrequest spelled `config.admitSessionMcpServers` and the admission\ngate is open; the value is the effective admitted set — names\njoined and not withheld, `[]` when applied-to-empty. Absent means\nnot requested or a pre-feature host. Never filled before the last\nenforcing piece lands, so no host can read \"applied\" early.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/start.admittedSessionMcpServers",
+          "x-msp-stability": "experimental"
+        },
+        "appliedBuiltInTools": {
+          "description": "The built-in tool set this start runs with, when the request\nspelled `config.allowedBuiltInTools` and the host serves the\nrestriction (design kt-2n1z N3): the post-intersection set, `[]`\nwhen applied-to-empty. Absent = not requested or a pre-feature\nhost; an absent echo on a spelled input means unapplied. Declared\nhere (P5, kt-kqr8), never filled until the last enforcing piece\n(P8). **Experimental** (`session/start.appliedBuiltInTools`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/start.appliedBuiltInTools",
+          "x-msp-stability": "experimental"
+        },
+        "nodeRoster": {
+          "$ref": "#/$defs/SessionStartNodeRoster",
+          "description": "The roster the session started with (spec 96166 FR-044).\n**Experimental** (`session/start.nodeRoster`; stripped per-connection\nfor unopted callers). Present when the start named nodes, the host\nattached them and the session is still loaded with that roster; a\nretry answered after that omits it. A client that named nodes and\nreads no echo sends no turn to the session.",
+          "x-msp-descriptor": "session/start.nodeRoster",
+          "x-msp-stability": "experimental"
+        },
         "session": {
           "$ref": "#/$defs/Session",
           "description": "The new session."
@@ -13002,6 +13807,15 @@
         "viewCursor": {
           "description": "The session view head after the start fold; the connection is\nsubscribed and receives every view event after this cursor. A\ndeduplicated retry returns this same result (tdd SS2.5.1).",
           "type": "string"
+        },
+        "warnings": {
+          "description": "What the host did not apply (ADR 94800 D5). **Experimental**\n(`session/start.warnings`). Absent when there is nothing to warn\nabout, never an empty array.",
+          "items": {
+            "$ref": "#/$defs/SessionLoadWarning"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/start.warnings",
+          "x-msp-stability": "experimental"
         }
       },
       "required": [
@@ -13009,6 +13823,36 @@
         "viewCursor"
       ],
       "type": "object"
+    },
+    "SessionStartRosterNode": {
+      "description": "One attached node of a [`SessionStartNodeRoster`].",
+      "properties": {
+        "name": {
+          "description": "The node's name.",
+          "type": "string"
+        },
+        "resolvedTarget": {
+          "description": "The target as `ssh` resolved it: `user@host:port`.",
+          "type": "string"
+        },
+        "root": {
+          "description": "The workspace root as the start gave it.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The target as the start gave it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "resolvedTarget",
+        "root",
+        "target"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/start.nodeRoster",
+      "x-msp-stability": "experimental"
     },
     "SessionStartedParams": {
       "description": "`session/started` params (tdd SS2.6.1; enrolled by #33065): a session\nbecame newly loaded on this host via `session/start`, `session/fork`, or\n`session/sideChat` (never `session/resume` — Appendix C, OQ-F),\nbroadcast to every initialized connection.\n\nThe one member is the same `$defs/Session` object the\n`session/start`/`session/fork` results carry, so the broadcast and the\nresult describe one fact through one type — the host builds the broadcast\npayload as a `$defs/Session` — the fresh-start arm reuses the result's\n`session` member, the start-replay arm builds the live attach snapshot —\nand the emission is\nparity-gated against this type at the producer\n(`session-server` prod-assembly capture) and over the committed\ntranscript corpus (conformance `session_lifecycle_enrollment`).",
@@ -13025,16 +13869,28 @@
     },
     "SessionStatus": {
       "description": "A session's load state (tdd SS2.4).",
-      "enum": [
-        "notLoaded",
-        "idle",
-        "running"
+      "oneOf": [
+        {
+          "enum": [
+            "notLoaded",
+            "idle",
+            "running"
+          ],
+          "type": "string",
+          "x-msp-openness": "open"
+        },
+        {
+          "const": "needsInput",
+          "description": "Loaded, the session's input is needed (ADR 95605 D1/D2): at least\none `needsInputReasons` reason is present. Wins over `idle` /\n`running`, including while a turn is parked on the request.\n**Experimental** (ADR 95605 D4): a connection that did not opt in\nreceives the `\"idle\"` fallback for this value (SS1.5.1, ADR 59770\nD10).",
+          "type": "string",
+          "x-msp-descriptor": "SessionStatus.needsInput",
+          "x-msp-stability": "experimental"
+        }
       ],
-      "type": "string",
       "x-msp-openness": "open"
     },
     "SessionStatusChangedParams": {
-      "description": "`session/statusChanged` params (tdd SS4.6.10, ADR 31983 D2): a loaded\nsession's projected `(status, attention)` value flipped. A command-plane\nbroadcast — delivered to every connection regardless of its view\nsubscription set, never gated, no `sourceRange`; the same facts live on\nthe Session object, which is how a client seeds its table (no initial\nburst on connect).",
+      "description": "`session/statusChanged` params (tdd SS4.6.10, ADR 31983 D2): a loaded\nsession's projected `(status, attention, needsInputReasons)` value flipped. A command-plane\nbroadcast — delivered to every connection regardless of its view\nsubscription set, never gated, no `sourceRange`; the same facts live on\nthe Session object, which is how a client seeds its table (no initial\nburst on connect).",
       "properties": {
         "attention": {
           "description": "Attention flags after the transition; present only when at least one\nflag is set (tdd SS2.4, ADR 31983 D3).",
@@ -13043,9 +13899,18 @@
           },
           "type": "array"
         },
+        "needsInputReasons": {
+          "description": "Why the session's input is needed after the transition; present only\nwhen non-empty (tdd SS2.4, ADR 95605 D2). `status` is `needsInput`\nexactly when this set is non-empty. **Experimental** (ADR 95605 D4).",
+          "items": {
+            "$ref": "#/$defs/NeedsInputReason"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/statusChanged.needsInputReasons",
+          "x-msp-stability": "experimental"
+        },
         "permissionState": {
           "$ref": "#/$defs/EffectivePermissionState",
-          "description": "The folded effective permission state (amendment 42624 FR-42624-5) — the\nsame object the `Session` carries as `permissionState`. **Additive-\noptional**: a loaded session carries it; a `\"notLoaded\"` unload frame and\nan older host omit it (the `attention` precedent), and absence is unknown,\nnever active (INV-42624-1). A projection of the ONE stored attach face\n`session/read` and the `session/list` rows serve, never a restatement.\nPart of the change gate (FR-42624-5): a change in ONLY this answer — with\n`(status, attention)` unchanged — is a publishable change, deduped only\nwhen value-identical, carried on the next `session/statusChanged` frame.",
+          "description": "The folded effective permission state (amendment 42624 FR-42624-5) — the\nsame object the `Session` carries as `permissionState`. **Additive-\noptional**: a loaded session carries it; a `\"notLoaded\"` unload frame and\nan older host omit it (the `attention` precedent), and absence is unknown,\nnever active (INV-42624-1). A projection of the ONE stored attach face\n`session/read` and the `session/list` rows serve, never a restatement.\nPart of the change gate (FR-42624-5): a change in ONLY this answer — with\n`(status, attention, needsInputReasons)` unchanged — is a publishable change, deduped only\nwhen value-identical, carried on the next `session/statusChanged` frame.",
           "x-msp-descriptor": "session/statusChanged.permissionState",
           "x-msp-stability": "experimental"
         },
@@ -13055,7 +13920,7 @@
         },
         "status": {
           "$ref": "#/$defs/SessionStatus",
-          "description": "Load state after the transition (the closed SS2.4 enum, unchanged)."
+          "description": "Load state after the transition (the open SS2.4 enum, including\n`needsInput` since ADR 95605 D1/D4)."
         },
         "viewCursor": {
           "description": "The causing record's view cursor (ADR 31983 D4). Required-nullable:\n`null` exactly when the paired `session/closed`'s cursor is `null`\n(the unload fold-failure arm); a definite cursor everywhere else.",
@@ -14412,6 +15277,10 @@
           "description": "Result summary, bounded on the wire at the 64 KiB retained-text budget\n(tdd SS4.5.4 and SS4.5.7, ADR 35691 D9); a cut sets the item's\n`truncated`. The durable record stays verbatim.",
           "type": "string"
         },
+        "superseded": {
+          "description": "`true` once a newer attempt of the child started after this result\n(ADR 92325 D1): the result stays, and a client takes the child's\nstatus from `controlStatus`. Absent, it asserts nothing (a host\nbefore this member, or a fold state saved before it, never sets it);\na newer result replaces the whole result, so it carries no mark.",
+          "type": "boolean"
+        },
         "text": {
           "description": "Result text, when present, bounded on the wire at the same 64 KiB\nbudget (ADR 35691 D9); a cut sets the item's `truncated`.",
           "type": "string"
@@ -14529,6 +15398,103 @@
         "subagentId"
       ],
       "type": "object"
+    },
+    "SubagentWorkStopItem": {
+      "description": "One frozen subagent stop of `subagent/workStop` (ADR 92042 D1,\nexperimental).",
+      "properties": {
+        "commandId": {
+          "description": "Client-minted UUIDv7 command id of this row's stop (SS3.1.1).",
+          "type": "string"
+        },
+        "observedRevision": {
+          "description": "The row revision the client observed; absent when the client derived\nthe row's stop view itself, and the host then takes the\nregistration's current revision.",
+          "type": "integer"
+        },
+        "workId": {
+          "description": "The subagent row's Work ID, verbatim.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "workId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "subagent/workStop",
+      "x-msp-stability": "experimental"
+    },
+    "SubagentWorkStopItemResult": {
+      "description": "One item's answer in a bulk `subagent/workStop` ack (ADR 92042 D1,\nexperimental).",
+      "properties": {
+        "commandId": {
+          "description": "Echo of the item's `commandId`.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "The `commandRejected` reason a one-item request would answer with;\nabsent when the host accepted the item's stop.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "subagent/workStop",
+      "x-msp-stability": "experimental"
+    },
+    "SubagentWorkStopParams": {
+      "description": "Params for `subagent/workStop` (ADR 92042 D1, experimental): a Work Stop\nof direct subagents through the coordinator the client-off TUI uses; one\nitem is the Tasks drawer's confirmed `s stop`, and `bulkRequestId` makes\nthe items one confirmed `/stop all`.",
+      "properties": {
+        "bulkRequestId": {
+          "description": "The confirmed `/stop all`'s client-minted UUIDv7 bulk id; absent for\none drawer stop.",
+          "type": "string"
+        },
+        "items": {
+          "description": "The frozen stops, in order; exactly one without `bulkRequestId`.",
+          "items": {
+            "$ref": "#/$defs/SubagentWorkStopItem"
+          },
+          "type": "array"
+        },
+        "sessionId": {
+          "description": "Target session (UUIDv7 string; SS3 preamble): the subagents' parent.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "subagent/workStop",
+      "x-msp-stability": "experimental"
+    },
+    "SubagentWorkStopResult": {
+      "description": "The `subagent/workStop` ack (ADR 92042 D1, experimental): admission only;\neach stop still settles as its subagent item's view events.",
+      "properties": {
+        "commandId": {
+          "description": "Echo of `bulkRequestId`, or of the one item's `commandId`.",
+          "type": "string"
+        },
+        "items": {
+          "description": "Each item's answer, in request order, when `bulkRequestId` is present;\nempty otherwise, because one refused item answers as the request's\n`commandRejected` error.",
+          "items": {
+            "$ref": "#/$defs/SubagentWorkStopItemResult"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandAckStatus",
+          "description": "`\"accepted\"`: the host received the request; in a bulk request, only\nitems without `reason` were submitted."
+        }
+      },
+      "required": [
+        "commandId",
+        "status"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "subagent/workStop",
+      "x-msp-stability": "experimental"
     },
     "SubmittedToolCall": {
       "description": "One call of a submitted batch: the `callId`, `tool` and `args` its\n`toolCall` item carries once it starts, so a client matches the two by\n`callId`.",
@@ -15281,7 +16247,9 @@
         "modelError",
         "launchError",
         "authRequired",
-        "mcpLinkError"
+        "mcpLinkError",
+        "reasoningReplayRefused",
+        "contextOverflow"
       ],
       "type": "string",
       "x-msp-openness": "open"
@@ -17124,6 +18092,17 @@
       ],
       "type": "object"
     },
+    "WorkspacePlacement": {
+      "description": "A subagent child's workspace placement (ADR\n88808-subagent-workspace-placement D2): `shared` when the spawn\nrequested no worktree isolation, `isolated` when it did. Open; unknown\nvalues read as unknown. Experimental.",
+      "enum": [
+        "shared",
+        "isolated"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "Item.workspacePlacement",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
     "WorktreeListEntry": {
       "description": "One listed worktree (FR-31776-3/FR-31776-6): where the checkout is,\nwhich branch it holds, whether it is the main checkout, and which\nlive sessions use it — the visibility two-sessions-in-one-folder\nwarns through (D6).",
       "properties": {
@@ -18024,6 +19003,17 @@
       "x-msp-descriptor": "mcpServer/readInventory",
       "x-msp-stability": "experimental"
     },
+    "mcpServer/readStartupNotices": {
+      "description": "Reads the addressed loaded session's MCP startup notices, each with the severity and text the gate-off TUI shows, and whether the startup has settled (ADR 79187 D4).",
+      "params": {
+        "$ref": "#/$defs/McpServerReadStartupNoticesParams"
+      },
+      "result": {
+        "$ref": "#/$defs/McpServerReadStartupNoticesResult"
+      },
+      "x-msp-descriptor": "mcpServer/readStartupNotices",
+      "x-msp-stability": "experimental"
+    },
     "mcpServer/reconnect": {
       "description": "Reconnects one forfeited stdio MCP server in one loaded session, on the holder's explicit instruction (ADR 74052 D3): serve reconnects only when told. Idempotent: an already-live server answers reconnected false without restarting. The timed-out call is never replayed (ADR D5); the reconnect never refills the retry allowance (#59887).",
       "params": {
@@ -18148,6 +19138,17 @@
       "result": {
         "$ref": "#/$defs/PluginMarketplaceRecordResult"
       }
+    },
+    "pluginData/read": {
+      "description": "Read a page of project, turn or tool-call records from the host's local projection (spec 85050 FR-015).",
+      "params": {
+        "$ref": "#/$defs/PluginDataReadParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginDataReadResult"
+      },
+      "x-msp-descriptor": "pluginData/read",
+      "x-msp-stability": "experimental"
     },
     "projection/list": {
       "description": "Lists the registered server-side read projections (SS6.6).",
@@ -18344,6 +19345,39 @@
         "$ref": "#/$defs/SessionResumeResult"
       }
     },
+    "session/rewind": {
+      "description": "Admits one rewind attempt against the loaded source and starts its publication; the ack is admission only (ADR 50280 D7). The Keep-only first activation answers backgroundTasks \"stop\" with invalidParams (ADR 50280 D7.1).",
+      "params": {
+        "$ref": "#/$defs/RewindParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RewindResult"
+      },
+      "x-msp-descriptor": "session/rewind",
+      "x-msp-stability": "experimental"
+    },
+    "session/rewindAttach": {
+      "description": "Attaches this connection to a rewind attempt's published child through a guarded commit, answering as session/resume does (ADR 50280 D7).",
+      "params": {
+        "$ref": "#/$defs/RewindAttachParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionResumeResult"
+      },
+      "x-msp-descriptor": "session/rewindAttach",
+      "x-msp-stability": "experimental"
+    },
+    "session/rewindPoints": {
+      "description": "Pages through the loaded source's current rewind points, newest first: no lease, no load, no resume (ADR 50280 D7).",
+      "params": {
+        "$ref": "#/$defs/RewindPointsParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RewindPointsResult"
+      },
+      "x-msp-descriptor": "session/rewindPoints",
+      "x-msp-stability": "experimental"
+    },
     "session/rewindRead": {
       "description": "Reads rewind availability/source state, with an optional work census and passive attempt observation: no lease, no load, no resume, no selection change (ADR 50280 D7).",
       "params": {
@@ -18353,6 +19387,17 @@
         "$ref": "#/$defs/RewindReadResult"
       },
       "x-msp-descriptor": "session/rewindRead",
+      "x-msp-stability": "experimental"
+    },
+    "session/rewindReadInput": {
+      "description": "Reads the selected rewind point's exact current text refill in bounded chunks: no lease, no load, no resume (ADR 50280 D7).",
+      "params": {
+        "$ref": "#/$defs/RewindReadInputParams"
+      },
+      "result": {
+        "$ref": "#/$defs/RewindReadInputResult"
+      },
+      "x-msp-descriptor": "session/rewindReadInput",
       "x-msp-stability": "experimental"
     },
     "session/setApprovalMode": {
@@ -18571,6 +19616,17 @@
       "result": {
         "$ref": "#/$defs/CommandAcceptedResult"
       }
+    },
+    "subagent/workStop": {
+      "description": "Stop direct subagents through the Work Stop core the client-off TUI uses (a `TuiItem`, or one `TuiBulk` with `bulkRequestId`), so the parent model gets the Work Stop Notice (ADR 92042 D1).",
+      "params": {
+        "$ref": "#/$defs/SubagentWorkStopParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SubagentWorkStopResult"
+      },
+      "x-msp-descriptor": "subagent/workStop",
+      "x-msp-stability": "experimental"
     },
     "task/background": {
       "description": "Durably sends a running foreground tool task to the background; the `TaskBackgrounded` record lands before the ack and the `toolCall` item's `item/updated` folds the flip (tdd §3.13, #14411; enrolled under the #33065 T1 ruling).",
@@ -19008,6 +20064,14 @@
       "params": {
         "$ref": "#/$defs/RecapCompletedParams"
       }
+    },
+    "session/activationChanged": {
+      "description": "A resume recomposed the session's skill and plugin selection and it differs from the one the session recorded (a plugin uninstalled, a policy or settings change). The resume proceeded; the params name what the session has now (ADR 94800 D6).",
+      "params": {
+        "$ref": "#/$defs/SessionActivationChangedParams"
+      },
+      "x-msp-descriptor": "session/activationChanged",
+      "x-msp-stability": "experimental"
     },
     "session/approvalModeChanged": {
       "description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact (SS5.12).",

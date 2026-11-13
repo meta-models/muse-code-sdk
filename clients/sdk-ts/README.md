@@ -14,6 +14,11 @@ agent over the Muse Session Protocol (MSP).
 - A client-side fold keeps a live, typed view of the session — items, session
   state, pending commands — with gap recovery after dropped deliveries and
   safe same-command retry that can never double-submit.
+- Observe the connection itself: `client.onNotification` hears every
+  notification the host sends (including ones that name no session, such as
+  `usage/changed`), `onProtocolError` hears messages the SDK rejects as
+  malformed, and `client.closed` resolves when the connection closes. Each
+  `on*` call returns its own unsubscribe function.
 
 **Zero runtime dependencies**: pure TypeScript over the Node standard
 library. The MSP wire declarations are bundled into the package, so nothing
@@ -116,6 +121,28 @@ the resume reply can happen before `resumeSession` returns, so
 `session.onApprovalError` would be too late to hear it. That covers a handler
 that throws, picks a choice that was not offered, or adds feedback to a choice
 that takes none (which is then answered with the reject choice).
+
+To render incrementally, read `session.events()`: every event the session
+folds from then on, with what it changed. Read the current state first, then
+subscribe in the same tick, and nothing is missed, including the events that
+arrived before `startSession` or `resumeSession` returned:
+
+```ts
+const session = await client.startSession();
+renderAll(session.fold); // the state so far
+for await (const { frame, outcome, item } of session.events()) {
+  // `item` is the item as of this event; `session.fold` may already be ahead.
+  render(frame.method, outcome.fold, item);
+}
+```
+
+Each event arrives once, in order, including events the SDK fetches to fill a
+gap in delivery. `break` (or an `AbortSignal` passed as
+`session.events({ signal })`) stops listening. The stream ends when an
+ephemeral host dies and rejects with `MuseHostDiedError` when a durable one
+does, as `turn.items()` does. Reading it changes nothing else:
+`turn.unqueue()` still returns the queued input it takes back, and that input
+is not repeated on an event.
 
 To answer a question the agent asks, read it from
 `session.fold.pendingUserInputs()` and answer it with `session.answerUserInput`,
