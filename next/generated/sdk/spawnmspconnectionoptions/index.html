@@ -137,6 +137,13 @@ stderr tap, the shutdown drain budget, and a replacement for the spawn call.</p>
 <td>See MuseServeChildOptions.shutdownTimeoutMs.</td>
 </tr>
 <tr>
+<td><code dir="auto">signal</code></td>
+<td><code dir="auto">AbortSignal</code></td>
+<td></td>
+<td>optional</td>
+<td>Cancels the handshake. Aborting before <code dir="auto">initialize</code> resolves closes the host through the usual shutdown ladder, then rejects with an <code dir="auto">AbortError</code> whose <code dir="auto">cause</code> is <code dir="auto">signal.reason</code>; an already-aborted signal throws that error here, before anything is spawned. Aborting later does nothing. The rejection waits for the host to exit: a host that ignores stdin EOF takes up to <code dir="auto">shutdownTimeoutMs</code> plus the 2 s SIGTERM grace.</td>
+</tr>
+<tr>
 <td><code dir="auto">spawnFn</code></td>
 <td><code dir="auto">(command: string, options?: SpawnOptionsWithoutStdio) =&gt; ChildProcessWithoutNullStreams</code></td>
 <td></td>

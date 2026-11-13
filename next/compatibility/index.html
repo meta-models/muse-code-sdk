@@ -123,8 +123,9 @@ Until the protocol’s 1.0 release, which has not been cut, that is a
 discipline, not a guarantee: the protocol makes no stability promise and no
 conformance claim. The published SDKs version in lockstep with Muse Code
 (<code dir="auto">X.Y.Z</code> pairs with Muse Code <code dir="auto">X.Y.Z</code>) and carry the product’s compatibility
-posture for the stable surface, as their READMEs say (see the SDK sections
-below).</li>
+posture for the stable surface, as the TypeScript and Rust READMEs say; the
+Python SDK versions the same way but refuses a mismatch instead of warning
+(see <a href="#python">Python</a>).</li>
 <li><strong>Experimental</strong> surfaces carry an <code dir="auto">Experimental</code> badge in the reference
 and live in a second schema bundle (<code dir="auto">muse schema generate-json-schema --experimental</code>). They may change or disappear in any release without a
 notice, and they never move the stable fingerprint, so trying one costs you
@@ -141,10 +142,10 @@ the Python SDK raises instead, see below) and your client keeps working
 against the surface it knows.</li>
 <li><strong>A declared breaking change</strong> is one the protocol changelog lists as
 non-additive. The policy for it is for the SDKs to refuse at connect time
-with an error that names the bundle to rebuild against (a client written
-directly against the wire applies the same rule itself; the host never sees
-your pin and cannot refuse for you), instead of running into undefined
-behaviour later. That refusal needs the schema bundle manifest to carry the
+with an error that names the bundle to rebuild against, instead of running
+into undefined behaviour later. A client written directly against the wire
+applies the same rule itself; the host never sees your pin and cannot refuse
+for you. That refusal needs the schema bundle manifest to carry the
 change’s classification, which it does not yet: today the manifest records
 only <code dir="auto">schemaVersion</code> and <code dir="auto">experimental</code>, so every mismatch reaches you as a
 warning (the Python SDK keeps its strict pairing check and raises instead;
@@ -153,9 +154,8 @@ is where a non-additive change is announced. When the classification lands,
 a declared-breaking mismatch becomes the refusal above, and an additive one
 stays a warning; nothing about additive evolution changes for you.</li>
 </ul>
-<p>Deprecation follows the same line: until the 1.0 release no removal window is
-owed (see above); from 1.0 onward a removal is preceded by a notice in an
-earlier release and listed on the changelog when it completes.</p>
+<p>Deprecation follows the rule under <a href="#the-wire-protocol">The wire protocol</a>:
+no removal window before 1.0, a notice before each removal from 1.0 onward.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="the-sdk">The SDK</h2><a class="sl-anchor-link" href="#the-sdk"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “The SDK”</span></a></div>
 <div class="sl-heading-wrapper level-h3"><h3 id="typescript">TypeScript</h3><a class="sl-anchor-link" href="#typescript"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TypeScript”</span></a></div>
 <p>The SDK pins the fingerprint it was generated against and compares it at

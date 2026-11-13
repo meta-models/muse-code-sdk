@@ -149,6 +149,13 @@
 <td>See <code dir="auto">MuseServeChildOptions.shutdownTimeoutMs</code>.</td>
 </tr>
 <tr>
+<td><code dir="auto">signal</code></td>
+<td><code dir="auto">AbortSignal</code></td>
+<td></td>
+<td>optional</td>
+<td>Cancels startup, e.g. <code dir="auto">AbortSignal.timeout(ms)</code>. Aborting before <code dir="auto">spawn</code> resolves closes the host through the usual shutdown ladder, then rejects with an <code dir="auto">AbortError</code> whose <code dir="auto">cause</code> is <code dir="auto">signal.reason</code>; an already-aborted signal spawns nothing. Aborting after <code dir="auto">spawn</code> resolved does nothing: use <code dir="auto">close()</code>. The rejection waits for the host to exit: a host that ignores stdin EOF takes up to <code dir="auto">shutdownTimeoutMs</code> plus the 2 s SIGTERM grace. Unlike <code dir="auto">Session.run</code>, which rejects with <code dir="auto">signal.reason</code>, this follows Node’s <code dir="auto">child_process.spawn</code>: check <code dir="auto">error.name === "AbortError"</code> and read <code dir="auto">error.cause</code>.</td>
+</tr>
+<tr>
 <td><code dir="auto">spawnFn</code></td>
 <td><code dir="auto">(command: string, options?: SpawnOptionsWithoutStdio) =&gt; ChildProcessWithoutNullStreams</code></td>
 <td></td>
