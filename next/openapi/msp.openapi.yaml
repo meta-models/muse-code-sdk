@@ -2129,9 +2129,27 @@ components:
         - localPersistent
       type: string
       x-msp-openness: open
+    ApprovalCuaBrowser:
+      description: "A browser card's notices: the first time Computer Use uses a browser on\nthis Mac, and the session's consent before it opens its own window in a\nbrowser that comes to the front when it does. A client words each flag\nitself."
+      properties:
+        firstUse:
+          description: "Show the first-use notice: Computer Use hasn't used this browser on\nthis Mac before and will act signed in as the person."
+          type: boolean
+        name:
+          description: "The browser's display name."
+          type: string
+        windowConsent:
+          description: "Show the window consent line: Computer Use will open its own window\nin this browser and bring the browser to the front, once per session."
+          type: boolean
+      required:
+        - name
+      type: object
     ApprovalCuaCardFacts:
       description: "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`."
       properties:
+        browser:
+          "$ref": "#/components/schemas/ApprovalCuaBrowser"
+          description: "For a browser card, the notices it carries; absent unless at least\none shows."
         data:
           description: "The data the call would send that the card must name; a card with any\noffers only one-shot choices."
           items:
