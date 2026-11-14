@@ -4436,7 +4436,10 @@ components:
           description: "`reminderChild`: the linked task id. Unresolved\n`bodyCompletion` items also set it."
           type: string
         terminalRowAfterItemId:
-          description: "Terminal `toolCall`, or a `subagent` whose result drained: the item after whose rows the terminal row renders."
+          description: "Terminal monitor `toolCall`, drained `subagent`,\n`backgroundTerminalCompletion`, or Finished-row `toolCall`: render after\nthe target's logical rows."
+          type: string
+        terminalRowBeforeItemId:
+          description: "`backgroundTerminalCompletion`, or a terminal `toolCall` that already\nshows a Finished row: render before the target's whole coalesced region."
           type: string
         text:
           description: "`userMessage`: the prompt text as submitted. `agentMessage`: the\naccumulated reply, streamed via `item/delta` field `\"text\"`.\n`reasoning`: raw committed reasoning text where the provider exposes\nit."
