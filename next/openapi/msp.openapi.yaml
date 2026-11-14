@@ -7337,7 +7337,7 @@ components:
       properties:
         history:
           "$ref": "#/components/schemas/SessionHistory"
-          description: "The served history."
+          description: "The served history: inline, with empty items, since the side opens\nempty."
         pendingRequests:
           description: "The late-joiner pointer set."
           items:
