@@ -153,10 +153,11 @@ SDK to compare that member with the epoch pinned in its generated types;
 until an SDK’s comparison lands, every mismatch reaches you as a warning
 (the Python SDK keeps its strict pairing check and raises instead; see
 <a href="#python">Python</a>), and the <a href="../generated/changelog/">protocol changelog</a>
-is where a non-additive change is announced. Once an SDK compares epochs,
-a mismatch across different epochs becomes the refusal above and one
-within the same epoch stays a warning; nothing about additive evolution
-changes for you.</li>
+is where a non-additive change is announced. Once an SDK compares epochs
+and its epoch check is switched on (each SDK ships it off by default; the
+repository owner switches it on), a mismatch across different epochs
+becomes the refusal above and one within the same epoch stays a warning;
+nothing about additive evolution changes for you.</li>
 </ul>
 <p>Deprecation follows the rule under <a href="#the-wire-protocol">The wire protocol</a>:
 no removal window before 1.0, a notice before each removal from 1.0 onward.</p>
