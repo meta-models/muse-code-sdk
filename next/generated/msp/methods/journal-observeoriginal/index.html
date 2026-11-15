@@ -107,7 +107,7 @@
 <td><code dir="auto">integer</code></td>
 <td>Experimental</td>
 <td>optional</td>
-<td>The writer’s admitted owner, always the in-doubt commit’s own (owner D170 addendum, D177, D180: a writer observes only its own commits); the store refuses a stale one with the conditions error. Absent: answered as before. Must become required before any writer with derived ids lands.</td>
+<td>The writer’s admitted owner, always the in-doubt commit’s own (owner D170 addendum, D177, D180: a writer observes only its own commits); the store refuses a stale one with the conditions error. Required in the final design (owner D203): the host always sends it, and a store answers from (owner, ownerStart, last, durable) alone. Optional on the wire only for older hosts; absent: answered as before.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
