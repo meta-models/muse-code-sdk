@@ -33,7 +33,7 @@ pub use crate::errors::MuseError as FacadeError;
 pub type FacadeResult<T> = Result<T, FacadeError>;
 
 pub use list::ListSessionsOptions;
-pub use open::{ResumeSessionOptions, StartSessionOptions};
+pub use open::{ResumeSessionOptions, StartSessionOptions, verify_applied_built_in_tools};
 
 /// A client connected to one host over MSP.
 ///

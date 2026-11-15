@@ -126,6 +126,51 @@ fn text_part(text: impl Into<String>) -> TurnInputPart {
 The crate's `examples/` directory has a fuller quickstart and recipes for
 approvals, retries, and cancellation.
 
+## Requesting a built-in tool restriction (experimental)
+
+`SessionConfig.allowed_built_in_tools` is an **experimental** request:
+the per-session built-in tool restriction on `session/start` and
+`session/resume`. `None` means no restriction, `Some(vec![])` means no
+built-in tools, and a non-empty list means exactly those tools. Names
+are the host's exact, case-sensitive built-in names; order is
+insignificant. Spelling a list that omits `"workflow"` requests no
+background-workflow delegation for the session. The field and the echo
+stay experimental; nothing is graduated.
+
+`start_session`/`resume_session` forward `config` as serialized, with
+no grant check and no rewriting. Verify what the host did with
+`verify_applied_built_in_tools` over `session.opening()`: the host
+echoes the post-intersection set in `applied_built_in_tools` on the
+start/resume result; an absent echo on a spelled request means
+**unapplied**, and the helper fails with
+`MuseError::AppliedBuiltInToolsNotApplied` instead of proceeding
+silently. The echo may be a strict subset of the request.
+Verification is opt-in — the open verbs never call the helper — and no
+approval-mode, permission-profile, or decide behaviour changes.
+
+Disabling still depends on host enforcement (P8), which has not
+landed: until then a host refuses a spelled member or serves no echo,
+so the helper fails. This documents and verifies the request/echo
+contract only; it does not change host behaviour.
+
+```rust
+use muse_code_sdk::client::{verify_applied_built_in_tools, StartSessionOptions};
+use muse_code_sdk::msp::SessionConfig;
+
+let allowed = vec!["read".to_owned(), "search".to_owned()];
+let session = client
+    .start_session(StartSessionOptions {
+        config: Some(SessionConfig {
+            allowed_built_in_tools: Some(allowed.clone()),
+            ..SessionConfig::default()
+        }),
+        ..StartSessionOptions::default()
+    })
+    .await?;
+let applied = verify_applied_built_in_tools(session.opening(), &allowed)?;
+println!("{applied:?}");
+```
+
 ## Documentation
 
 - API reference: <https://docs.rs/muse-code-sdk>

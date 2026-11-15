@@ -107,7 +107,7 @@ export {
   spawnMspConnection,
 } from "./connection/spawn.js";
 
-export { MuseClient } from "./facade/client.js";
+export { MuseClient, verifyAppliedBuiltInTools } from "./facade/client.js";
 export type {
   MuseClientOptions,
   MuseClientSpawnOptions,
@@ -132,6 +132,7 @@ export type {
 export { DiscardedSessions } from "./facade/discarded.js";
 
 export {
+  AppliedBuiltInToolsNotApplied,
   MuseCapabilityNotGrantedError,
   MuseFacadeOwnedMethodError,
   MuseForeignSessionError,

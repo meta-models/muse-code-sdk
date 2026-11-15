@@ -99,6 +99,38 @@ export class PermissionProfileNotApplied extends Error {
   }
 }
 
+/**
+ * A session open that spelled `config.allowedBuiltInTools` could not prove
+ * the host applied the restriction: the start/resume result carried no
+ * `appliedBuiltInTools` echo (an absent echo on a spelled input means
+ * unapplied), or the echo still named a tool outside the requested set.
+ * Never a silent default: the session stays open and the caller decides
+ * what to do with it via `sessionId` (close it, or proceed knowing the
+ * restriction is unapplied). Until the host enforcement piece (P8)
+ * lands, no host fills the echo, so every spelled request fails this
+ * check. Experimental: the field and the echo stay experimental.
+ */
+export class AppliedBuiltInToolsNotApplied extends Error {
+  /** The built-in tool set the caller requested. */
+  readonly requested: readonly string[];
+  /** The applied set the host echoed, or null when it echoed none or no well-formed set. */
+  readonly applied: readonly string[] | null;
+  /** The open session's id, or null when the opening carried none. */
+  readonly sessionId: string | null;
+
+  constructor(requested: readonly string[], applied: readonly string[] | null, sessionId: string | null) {
+    super(
+      `required allowedBuiltInTools ${JSON.stringify(requested)} was not applied:` +
+        ` the applied set is ${applied === null ? "unknown" : JSON.stringify(applied)}` +
+        ` (session ${sessionId ?? "unknown"})`,
+    );
+    this.name = "AppliedBuiltInToolsNotApplied";
+    this.requested = requested;
+    this.applied = applied;
+    this.sessionId = sessionId;
+  }
+}
+
 /** The developer-docs compatibility page the host-discovery error cites. */
 export const COMPATIBILITY_PAGE_URL = "https://meta-models.github.io/muse-code-sdk/latest/compatibility/";
 

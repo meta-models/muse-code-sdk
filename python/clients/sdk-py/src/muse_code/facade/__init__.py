@@ -29,6 +29,7 @@ from .client import (
     ProtocolErrorObserver,
     ResumeSessionOptions,
     StartSessionOptions,
+    verify_applied_built_in_tools,
 )
 from .discarded import DiscardedSessions
 from .gap_fill import GapFillFailureHandler
@@ -101,4 +102,5 @@ __all__ = [
     "is_abnormal_host_death",
     "is_launch_failure",
     "read_session_durability",
+    "verify_applied_built_in_tools",
 ]

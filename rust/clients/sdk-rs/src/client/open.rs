@@ -331,3 +331,212 @@ impl MuseClient {
         Ok(session)
     }
 }
+
+/// Verify a spelled `config.allowedBuiltInTools` request against the echo
+/// the open served: the post-intersection `appliedBuiltInTools` set on
+/// the start/resume result (`Session::opening`). Returns the applied set
+/// when the host echoed one that names no tool outside `requested`; the
+/// echo may be a strict subset of the request (the host intersects with
+/// the tools it serves), so subset — never equality — is the pass.
+/// Fails loudly, with [`FacadeError::AppliedBuiltInToolsNotApplied`],
+/// when the echo is absent on a spelled request (an absent echo means
+/// unapplied, never success), when it is malformed, or when it still
+/// names an excluded tool. A blank requested name is a usage error,
+/// refused before any comparison. This check is opt-in and client-local:
+/// `start_session`/`resume_session` never call it, so a session opened
+/// without a spelled request — or without verification — behaves exactly
+/// as before. **Experimental**: the field and the echo stay experimental
+/// and are never filled until the host enforcement piece (P8) lands, so
+/// on a pre-P8 host every spelled request fails this check.
+pub fn verify_applied_built_in_tools(
+    opening: &SessionOpening,
+    requested: &[String],
+) -> FacadeResult<Vec<String>> {
+    if requested.iter().any(|tool| tool.trim().is_empty()) {
+        return Err(protocol_error(
+            "allowedBuiltInTools must be an array of non-empty strings",
+        ));
+    }
+    let (session_id, applied) = match opening {
+        SessionOpening::Start(result) => (
+            result.session.session_id.clone(),
+            result.applied_built_in_tools.clone(),
+        ),
+        SessionOpening::Resume(result) => (
+            result.session.session_id.clone(),
+            result.applied_built_in_tools.clone(),
+        ),
+    };
+    let Some(applied) = applied else {
+        return Err(FacadeError::AppliedBuiltInToolsNotApplied {
+            requested: requested.to_vec(),
+            applied: None,
+            session_id,
+        });
+    };
+    if applied.iter().any(|tool| tool.trim().is_empty()) {
+        return Err(FacadeError::AppliedBuiltInToolsNotApplied {
+            requested: requested.to_vec(),
+            applied: None,
+            session_id,
+        });
+    }
+    if applied.iter().any(|tool| !requested.contains(tool)) {
+        return Err(FacadeError::AppliedBuiltInToolsNotApplied {
+            requested: requested.to_vec(),
+            applied: Some(applied),
+            session_id,
+        });
+    }
+    Ok(applied)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::msp::{SessionResumeResult, SessionStartResult};
+
+    fn session_json() -> serde_json::Value {
+        json!({
+            "sessionId": "s-1",
+            "path": "/workspace/session.jsonl",
+            "status": "idle",
+            "activeTurnId": null,
+            "createdAt": "2026-10-03T00:00:00Z",
+            "updatedAt": "2026-10-03T00:00:00Z",
+            "workspaceRoot": null,
+            "providerId": null,
+            "modelId": null,
+            "turnCount": 0,
+            "forkedFrom": null
+        })
+    }
+
+    fn start_opening(applied: Option<Vec<&str>>) -> SessionOpening {
+        let mut result = json!({
+            "session": session_json(),
+            "viewCursor": "cursor-1",
+        });
+        if let Some(applied) = applied {
+            result["appliedBuiltInTools"] = json!(applied);
+        }
+        let result: SessionStartResult =
+            serde_json::from_value(result).expect("test start fixture is invalid");
+        SessionOpening::Start(Box::new(result))
+    }
+
+    fn resume_opening(applied: Option<Vec<&str>>) -> SessionOpening {
+        let mut result = json!({
+            "session": session_json(),
+            "viewCursor": "cursor-1",
+            "history": {"mode": "none", "items": null, "snapshot": null},
+            "pendingRequests": [],
+        });
+        if let Some(applied) = applied {
+            result["appliedBuiltInTools"] = json!(applied);
+        }
+        let result: SessionResumeResult =
+            serde_json::from_value(result).expect("test resume fixture is invalid");
+        SessionOpening::Resume(Box::new(result))
+    }
+
+    fn requested(tools: &[&str]) -> Vec<String> {
+        tools.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn config_serializes_allowed_built_in_tools_verbatim() {
+        // `start_session`/`resume_session` forward `config` by serializing
+        // the params struct as-is (no grant check, no rewriting in this
+        // client), so the serialized form is what reaches the wire.
+        let config = SessionConfig {
+            allowed_built_in_tools: Some(vec!["read".to_owned(), "search".to_owned()]),
+            ..SessionConfig::default()
+        };
+        let wire = serde_json::to_value(&config).expect("config serializes");
+        assert_eq!(wire["allowedBuiltInTools"], json!(["read", "search"]));
+        let omitted = serde_json::to_value(SessionConfig::default()).expect("config serializes");
+        assert_eq!(omitted.get("allowedBuiltInTools"), None);
+        let params: SessionStartParams = serde_json::from_value(json!({
+            "commandId": "0198f0ab-9999-7000-8000-0000000000c1",
+            "config": {"allowedBuiltInTools": ["read"]},
+        }))
+        .expect("params fixture is invalid");
+        let wire = serde_json::to_value(&params).expect("params serialize");
+        assert_eq!(wire["config"]["allowedBuiltInTools"], json!(["read"]));
+    }
+
+    #[test]
+    fn echo_subset_of_requested_passes_on_start_and_resume() {
+        let opening = start_opening(Some(vec!["read", "search"]));
+        assert!(matches!(
+            verify_applied_built_in_tools(&opening, &requested(&["read", "search", "edit"])),
+            Ok(applied) if applied == vec!["read".to_owned(), "search".to_owned()]
+        ));
+        let opening = resume_opening(Some(vec!["read"]));
+        assert!(matches!(
+            verify_applied_built_in_tools(&opening, &requested(&["read", "edit"])),
+            Ok(applied) if applied == vec!["read".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn echo_absent_fails_as_unapplied() {
+        let error = verify_applied_built_in_tools(&start_opening(None), &requested(&["read"]))
+            .expect_err("an absent echo must fail, never pass");
+        assert!(matches!(
+            error,
+            FacadeError::AppliedBuiltInToolsNotApplied {
+                applied: None,
+                session_id,
+                ..
+            } if session_id == "s-1"
+        ));
+    }
+
+    #[test]
+    fn echo_containing_an_excluded_tool_fails() {
+        let error = verify_applied_built_in_tools(
+            &start_opening(Some(vec!["read", "workflow"])),
+            &requested(&["read"]),
+        )
+        .expect_err("an echo naming an excluded tool must fail");
+        assert!(matches!(
+            error,
+            FacadeError::AppliedBuiltInToolsNotApplied {
+                applied: Some(applied),
+                ..
+            } if applied == vec!["read".to_owned(), "workflow".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn empty_request_passes_only_on_an_empty_echo() {
+        let opening = start_opening(Some(vec![]));
+        assert!(matches!(
+            verify_applied_built_in_tools(&opening, &requested(&[])),
+            Ok(applied) if applied.is_empty()
+        ));
+        assert!(matches!(
+            verify_applied_built_in_tools(&start_opening(Some(vec!["workflow"])), &requested(&[])),
+            Err(FacadeError::AppliedBuiltInToolsNotApplied { .. })
+        ));
+    }
+
+    #[test]
+    fn blank_names_fail_before_any_comparison() {
+        assert!(matches!(
+            verify_applied_built_in_tools(&start_opening(Some(vec!["read"])), &requested(&[""])),
+            Err(FacadeError::Protocol(_))
+        ));
+        let error =
+            verify_applied_built_in_tools(&start_opening(Some(vec![""])), &requested(&["read"]))
+                .expect_err("a malformed echo must fail");
+        assert!(matches!(
+            error,
+            FacadeError::AppliedBuiltInToolsNotApplied { applied: None, .. }
+        ));
+    }
+}

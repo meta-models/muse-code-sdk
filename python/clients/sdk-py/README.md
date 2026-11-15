@@ -185,6 +185,60 @@ an `async def` listener runs as a task. An exception from a listener goes to
 has the same three `on_*` methods (listeners run while a blocking call is in
 progress) and `wait_closed()` in place of `closed`.
 
+## Requesting a built-in tool restriction (experimental)
+
+`config["allowedBuiltInTools"]` is an **experimental** request: the
+per-session built-in tool restriction on `session/start` and
+`session/resume`. Omitted means no restriction, `[]` means no built-in
+tools, and a non-empty list means exactly those tools. Names are the
+host's exact, case-sensitive built-in names; order is insignificant.
+Spelling a list that omits `"workflow"` requests no
+background-workflow delegation for the session.
+
+The field stays experimental: it lives in
+`muse_code_msp.experimental.SessionConfig`, not in the stable
+`SessionConfig`. Spell it through the experimental type and cast at
+the stable-typed `config` field — the facade forwards `config`
+verbatim (only `mcpServers` is grant-checked) — and verify what the
+host did with `verify_applied_built_in_tools`. The host echoes the
+post-intersection set in `appliedBuiltInTools` on the start/resume
+result; an absent echo on a spelled request means **unapplied**, and
+the helper raises `AppliedBuiltInToolsNotApplied` instead of
+proceeding silently. The echo may be a strict subset of the request.
+Verification is opt-in: `start_session`/`resume_session` never call
+the helper (it also reads `SyncSession.opening`), and no
+approval-mode, permission-profile, or `decide()` behaviour changes.
+
+Disabling still depends on host enforcement (P8), which has not
+landed: until then a host refuses a spelled member or serves no echo,
+so the helper fails. This documents and verifies the request/echo
+contract only; it does not change host behaviour. A runnable version
+of the snippet below, against a spawned host, is
+`examples/verify_applied_tools.py`.
+
+```python
+from typing import cast
+
+from muse_code import (
+    StartSessionOptions,
+    verify_applied_built_in_tools,
+)
+from muse_code_msp import SessionConfig
+from muse_code_msp.experimental import SessionConfig as ExperimentalSessionConfig
+
+allowed = ["read", "search"]
+config: ExperimentalSessionConfig = {"allowedBuiltInTools": allowed}
+# `client` is a spawned MuseClient, as in "Use" above.
+session = await client.start_session(
+    StartSessionOptions(
+        workspace_root=".",
+        config=cast(SessionConfig, config),
+    )
+)
+applied = verify_applied_built_in_tools(session.opening, allowed)
+print(applied)
+```
+
 ## Documentation
 
 - Guides, cookbook recipes, and the protocol reference:

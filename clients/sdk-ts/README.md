@@ -172,6 +172,53 @@ Status: developer preview. The facade — spawn, session open/resume, turns,
 approvals, questions, and recovery after dropped deliveries — is complete and covered by
 the conformance suites in the source repository.
 
+## Requesting a built-in tool restriction (experimental)
+
+`config.allowedBuiltInTools` is an **experimental** request: the
+per-session built-in tool restriction on `session/start` and
+`session/resume`. Omitted means no restriction, `[]` means no built-in
+tools, and a non-empty list means exactly those tools. Names are the
+host's exact, case-sensitive built-in names; order is insignificant.
+Spelling a list that omits `"workflow"` requests no
+background-workflow delegation for the session.
+
+The field stays experimental: it is not graduated into the stable
+`SessionConfig` type. Spell it through an extension type and cast at
+the stable-typed `config` field — the facade forwards `config`
+verbatim (only `mcpServers` is grant-checked) — and verify what the
+host did with `verifyAppliedBuiltInTools`. The host echoes the
+post-intersection set in `appliedBuiltInTools` on the start/resume
+result; an absent echo on a spelled request means **unapplied**, and
+the helper throws `AppliedBuiltInToolsNotApplied` instead of
+proceeding silently. The echo may be a strict subset of the request.
+Verification is opt-in: `startSession`/`resumeSession` never call the
+helper, and no approval-mode, permission-profile, or `decide()`
+behaviour changes.
+
+Disabling still depends on host enforcement (P8), which has not
+landed: until then a host refuses a spelled member or serves no echo,
+so the helper fails. This documents and verifies the request/echo
+contract only; it does not change host behaviour.
+
+```ts
+import { MuseClient, verifyAppliedBuiltInTools } from "@muse-code/sdk";
+import type { StartSessionOptions } from "@muse-code/sdk";
+
+type ExperimentalConfig = NonNullable<StartSessionOptions["config"]> & {
+  allowedBuiltInTools?: readonly string[];
+};
+
+const allowed = ["read", "search"];
+const config: ExperimentalConfig = { allowedBuiltInTools: allowed };
+// `client` is a spawned MuseClient, as in "Use" above.
+const session = await client.startSession({
+  workspaceRoot: process.cwd(),
+  config: config as NonNullable<StartSessionOptions["config"]>,
+});
+const applied = verifyAppliedBuiltInTools(session.opening, allowed);
+console.log(applied);
+```
+
 ## Not yet available
 
 `@muse-code/acp` is not published on npm and is not part of this public

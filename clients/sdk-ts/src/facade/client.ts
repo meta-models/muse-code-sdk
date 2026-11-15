@@ -51,6 +51,7 @@ import type {
   SpawnedMspConnection,
 } from "../connection/spawn.js";
 import {
+  AppliedBuiltInToolsNotApplied,
   MuseCapabilityNotGrantedError,
   MuseFacadeOwnedMethodError,
   MuseSessionDiscardedError,
@@ -245,12 +246,72 @@ function committedProfileId(snapshot: unknown): string | null {
 }
 
 /**
+ * Verify a spelled `config.allowedBuiltInTools` request against the echo
+ * the open served: the post-intersection `appliedBuiltInTools` set on the
+ * start/resume result the opening carries (`session.opening`). Returns
+ * the applied set when the host echoed one that names no tool outside
+ * `requested`; the echo may be a strict subset of the request (the host
+ * intersects with the tools it serves), so subset — never equality — is
+ * the pass. Throws `AppliedBuiltInToolsNotApplied` when the echo is
+ * absent on a spelled request (an absent echo means unapplied, never
+ * success), when it is malformed, or when it still names an excluded
+ * tool. A blank requested name is a usage error, thrown as a plain
+ * `Error` before any comparison.
+ *
+ * Structural on purpose, like `committedProfileId`: the stable result
+ * types strip the experimental member, so the echo is read off the
+ * untyped result rather than a graduated type, and an unknown wire
+ * shape reads as unknown rather than throwing. This check is opt-in
+ * and client-local: `startSession`/`resumeSession` never call it, so a
+ * session opened without a spelled request — or without verification —
+ * behaves exactly as before. Experimental: the field and the echo stay
+ * experimental and are never filled until the host enforcement piece
+ * (P8) lands, so on a pre-P8 host every spelled request fails this
+ * check.
+ */
+export function verifyAppliedBuiltInTools(
+  opening: SessionOpening | undefined,
+  requested: readonly string[],
+): readonly string[] {
+  if (
+    !Array.isArray(requested) ||
+    requested.some((tool) => typeof tool !== "string" || tool.trim() === "")
+  ) {
+    throw new Error("allowedBuiltInTools must be an array of non-empty strings");
+  }
+  const result = opening?.result as unknown as
+    | { session?: unknown; appliedBuiltInTools?: unknown }
+    | undefined;
+  const session = result?.session;
+  const sessionId =
+    typeof session === "object" && session !== null && typeof (session as { sessionId?: unknown }).sessionId === "string"
+      ? (session as { sessionId: string }).sessionId
+      : null;
+  const applied = result?.appliedBuiltInTools;
+  if (
+    !Array.isArray(applied) ||
+    applied.some((tool) => typeof tool !== "string" || tool.trim() === "")
+  ) {
+    throw new AppliedBuiltInToolsNotApplied(requested, null, sessionId);
+  }
+  if (applied.some((tool) => !requested.includes(tool))) {
+    throw new AppliedBuiltInToolsNotApplied(requested, applied as string[], sessionId);
+  }
+  return applied as string[];
+}
+
+/**
  * Caller-facing options for `session/start` (tdd SS2.5.1).
  *
  * `commandId` is excluded because the connection mints it; `previousSessionId`,
  * `clear` and `switchPolicy` because the facade starts root sessions, and
  * `spawnedBy` because the facade does not expose a spawner yet.
  * `config.mcpServers` needs the host's `sessionMcp` grant (FR-79107-3).
+ * The experimental `config.allowedBuiltInTools` member rides the same
+ * field verbatim (spelled through the experimental type; the stable
+ * `SessionConfig` does not carry it); verify the host echoed it with
+ * `verifyAppliedBuiltInTools` — an absent echo means unapplied, and
+ * host enforcement (P8) is still required for disabling to take effect.
  */
 export type StartSessionOptions = Readonly<
   Omit<SessionStartParams, "commandId" | "previousSessionId" | "clear" | "switchPolicy" | "spawnedBy"> & {

@@ -116,6 +116,50 @@ class PermissionProfileNotApplied(Exception):
 
 
 
+class AppliedBuiltInToolsNotApplied(Exception):
+    """A session open that spelled ``allowedBuiltInTools`` could not prove
+    the host applied the restriction: the start/resume result carried no
+    ``appliedBuiltInTools`` echo (an absent echo on a spelled input means
+    unapplied), or the echo still named a tool outside the requested set.
+    Never a silent default: the session stays open and the caller decides
+    what to do with it via ``session_id`` (close it, or proceed knowing
+    the restriction is unapplied), with no auto-close and no auto-set.
+    Until the host enforcement piece (P8) lands, no host fills the echo,
+    so every spelled request fails this check. Experimental.
+
+    Attributes:
+        requested: The built-in tool set the caller requested.
+        applied: The applied set the host echoed, or None when it echoed
+            none or no well-formed set.
+        session_id: The open session's id, or None when the opening
+            carried none.
+    """
+
+    def __init__(
+        self,
+        requested: list[str],
+        applied: list[str] | None,
+        session_id: str | None,
+    ) -> None:
+        """Builds the refusal.
+
+        Args:
+            requested: The built-in tool set the caller requested.
+            applied: The applied set the host echoed, or None when it
+                echoed none or no well-formed set.
+            session_id: The open session's id, or None when unknown.
+        """
+        applied_text = "unknown" if applied is None else repr(applied)
+        session_text = "unknown" if session_id is None else session_id
+        super().__init__(
+            f"required allowedBuiltInTools {requested!r} was not applied:"
+            f" the applied set is {applied_text} (session {session_text})"
+        )
+        self.requested: list[str] = requested
+        self.applied: list[str] | None = applied
+        self.session_id: str | None = session_id
+
+
 class MuseFacadeOwnedMethodError(Exception):
     """``MuseClient.command`` or ``MuseClient.request`` was asked to send a
     method whose state the facade owns. Sending it raw would bypass that
