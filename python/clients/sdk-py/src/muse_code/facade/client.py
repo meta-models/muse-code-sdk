@@ -72,6 +72,7 @@ from ..connection.spawn import (
     spawn_msp_connection,
 )
 from ..errors import (
+    AppliedBuiltInToolsNotApplied,
     MuseCapabilityNotGrantedError,
     MuseFacadeOwnedMethodError,
     MuseSessionDiscardedError,
@@ -182,7 +183,13 @@ class StartSessionOptions:
         config: Per-session configuration (wire ``config``). Naming MCP
             servers in ``mcpServers`` needs the host's ``sessionMcp`` grant;
             without it the start raises ``MuseCapabilityNotGrantedError``
-            before anything is sent.
+            before anything is sent. The experimental
+            ``allowedBuiltInTools`` member rides the same field verbatim
+            (spelled through ``muse_code_msp.experimental.SessionConfig``);
+            verify the host echoed it with
+            ``verify_applied_built_in_tools`` -- an absent echo means
+            unapplied, and host enforcement (P8) is still required for
+            disabling to take effect.
     """
 
     approval_mode: str | None = None
@@ -302,6 +309,68 @@ def _committed_profile_id(snapshot: Any) -> str | None:
         return None
     profile_id = state.get("profileId")
     return profile_id if isinstance(profile_id, str) else None
+
+
+def verify_applied_built_in_tools(
+    opening: SessionOpening | None, requested: Sequence[str]
+) -> list[str]:
+    """Verify a spelled ``allowedBuiltInTools`` request against the echo.
+
+    Reads the post-intersection ``appliedBuiltInTools`` set from the
+    start/resume result the opening carries (``session.opening``, on the
+    sync surface ``SyncSession.opening``) and returns it. The echo may be
+    a strict subset of the request (the host intersects with the tools
+    it serves), so subset -- never equality -- is the pass. Raises
+    ``AppliedBuiltInToolsNotApplied`` when the echo is absent on a
+    spelled request (an absent echo means unapplied, never success),
+    when it is malformed, or when it still names a tool outside the
+    requested set. A blank requested name is a usage error, raised as
+    ``ValueError`` before any comparison. Structural on purpose, like
+    ``_committed_profile_id``: the stable result types strip the
+    experimental member, so an unknown wire shape reads as unknown
+    rather than raising. This check is opt-in and client-local:
+    ``start_session``/``resume_session`` never call it, so a session
+    opened without a spelled request -- or without verification --
+    behaves exactly as before. Experimental: the field and the echo
+    stay experimental and are never filled until the host enforcement
+    piece (P8) lands, so on a pre-P8 host every spelled request fails
+    this check.
+
+    Args:
+        opening: Which verb opened the session, and what it answered.
+        requested: The built-in tool set spelled in
+            ``config["allowedBuiltInTools"]``.
+
+    Returns:
+        The applied set the host echoed.
+
+    Raises:
+        AppliedBuiltInToolsNotApplied: The echo is absent, malformed,
+            or still names an excluded tool.
+        ValueError: A requested name is blank or not a string.
+    """
+    requested_list = list(requested)
+    if any(not isinstance(tool, str) or not tool.strip() for tool in requested_list):
+        raise ValueError(
+            "allowedBuiltInTools must be an array of non-empty strings"
+        )
+    if opening is None:
+        raise AppliedBuiltInToolsNotApplied(requested_list, None, None)
+    result = opening.result
+    session = result.get("session") if isinstance(result, Mapping) else None
+    session_id = (
+        session.get("sessionId")
+        if isinstance(session, Mapping) and isinstance(session.get("sessionId"), str)
+        else None
+    )
+    applied = result.get("appliedBuiltInTools") if isinstance(result, Mapping) else None
+    if not isinstance(applied, list) or any(
+        not isinstance(tool, str) or not tool.strip() for tool in applied
+    ):
+        raise AppliedBuiltInToolsNotApplied(requested_list, None, session_id)
+    if any(tool not in requested_list for tool in applied):
+        raise AppliedBuiltInToolsNotApplied(requested_list, list(applied), session_id)
+    return list(applied)
 
 
 @dataclass

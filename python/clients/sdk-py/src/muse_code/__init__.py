@@ -22,6 +22,7 @@ from typing import Final
 import muse_code_msp
 
 from .errors import (
+    AppliedBuiltInToolsNotApplied,
     GapFillFailureReason,
     MuseCapabilityNotGrantedError,
     MuseFacadeOwnedMethodError,
@@ -37,6 +38,7 @@ from .replay import Transcript, load_transcript, replay_into_fold, transcript_di
 
 __all__ = [
     "EXPECTED_SCHEMA_FINGERPRINT",
+    "AppliedBuiltInToolsNotApplied",
     "ApprovalDecisionInput",
     "ApprovalFailure",
     "ApprovalFailureHandler",
@@ -93,6 +95,7 @@ __all__ = [
     "read_session_durability",
     "replay_into_fold",
     "transcript_dirs",
+    "verify_applied_built_in_tools",
 ]
 
 EXPECTED_SCHEMA_FINGERPRINT: Final[str] = muse_code_msp.SCHEMA_FINGERPRINT
@@ -152,5 +155,6 @@ from .facade import (  # noqa: E402
     is_abnormal_host_death,
     is_launch_failure,
     read_session_durability,
+    verify_applied_built_in_tools,
 )
 from .sync_facade import SyncMuseClient, SyncSession, SyncTurn  # noqa: E402

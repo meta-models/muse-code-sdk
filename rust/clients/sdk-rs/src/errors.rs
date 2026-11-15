@@ -164,6 +164,29 @@ pub enum MuseError {
         /// The session the start opened.
         session_id: String,
     },
+    /// A session open that spelled `config.allowedBuiltInTools` could not
+    /// prove the host applied the restriction: the start/resume result
+    /// carried no `appliedBuiltInTools` echo (an absent echo on a spelled
+    /// input means unapplied), or the echo still named a tool outside the
+    /// requested set. The session stays open on the host; the caller
+    /// decides what to do with it via `session_id` (close it, or proceed
+    /// knowing the restriction is unapplied). Never a silent default:
+    /// until the host enforcement
+    /// piece (P8) lands, no host fills the echo, so every spelled request
+    /// fails this check. **Experimental.**
+    #[error(
+        "required allowedBuiltInTools {requested:?} was not applied: the applied set is {} (session {session_id})",
+        applied.as_deref().map_or_else(|| "unknown".to_owned(), |applied| format!("{applied:?}"))
+    )]
+    AppliedBuiltInToolsNotApplied {
+        /// The built-in tool set the caller requested.
+        requested: Vec<String>,
+        /// The applied set the host echoed, or `None` when it echoed none
+        /// or no well-formed set.
+        applied: Option<Vec<String>>,
+        /// The session the open created.
+        session_id: String,
+    },
     /// The command was discarded locally, because the last handle that could
     /// await it was dropped.
     #[error("command {command_id} was discarded locally")]
