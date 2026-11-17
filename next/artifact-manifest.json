@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "snapshot": {
     "schemaVersion": 1,
-    "sourceCommit": "79234c18aab5b2c4349a7fc31038a979a628e4be",
+    "sourceCommit": "8e0867ca260b02517939e297d8f9f14db7f0ea04",
     "sourceDirty": false,
-    "renderedCommit": "79234c18aab5b2c4349a7fc31038a979a628e4be",
-    "sourceDateEpoch": 1794936674,
+    "renderedCommit": "8e0867ca260b02517939e297d8f9f14db7f0ea04",
+    "sourceDateEpoch": 1794937435,
     "schemaFingerprint": "sha256:a9f08f8960b531bf661b54c4a48f8fc3968f7af508a70e16c821ee553e06a8ed",
     "status": "developer-preview",
     "docsVersion": "next",
@@ -80,7 +80,7 @@
     },
     {
       "path": "build-meta.json",
-      "sha256": "5c24e4dc9c3a2c4d59e0d3c4f319cc80405cdc227357f6aca1e14a88ffcb7b21"
+      "sha256": "6d601b7374e020e4a51b63c4670ae805efbfdeaade482d7ebf3883fa6f7322b8"
     },
     {
       "path": "compatibility/index.html",
@@ -5140,7 +5140,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "424a2f1175f56e732fbfc99ef955c927bcfa959160158a6a35cc1daa77c2595f"
+      "sha256": "19b34cf51cb9658dd6ff1d170abeddcd8c5aa20d27046eb3daf9ce65e2956683"
     },
     {
       "path": "openapi/msp.openapi.yaml",
@@ -5413,6 +5413,10 @@
     {
       "path": "pagefind/fragment/en_1b63c5b.pf_fragment",
       "sha256": "e5c68e7b62342d7ee22181b9c72a25af37d16986536bdce948a82d2858cddbbe"
+    },
+    {
+      "path": "pagefind/fragment/en_1bf1de2.pf_fragment",
+      "sha256": "23ba8615e0597314908d78c221f4e1e96e24b9392c54780f3c1b4f873d7b4423"
     },
     {
       "path": "pagefind/fragment/en_1c26bd3.pf_fragment",
@@ -9039,10 +9043,6 @@
       "sha256": "05fa25bb9659614edfe2b5cba695554dbce291b51a4efffcf2a8d2b8b6414157"
     },
     {
-      "path": "pagefind/fragment/en_c9a5a09.pf_fragment",
-      "sha256": "582d4e7c182954c591662ae9fc4772d45699b5d9da03d90a419a55efdfceb4dd"
-    },
-    {
       "path": "pagefind/fragment/en_c9c76ac.pf_fragment",
       "sha256": "d66e3388afe02884038640343e3cc21933095a41356d054d25dd7800219f0302"
     },
@@ -10211,6 +10211,10 @@
       "sha256": "694199917689298c875674aabb6f8b5aff4a0554effbe1833977bb5e3a86b432"
     },
     {
+      "path": "pagefind/index/en_019c2af.pf_index",
+      "sha256": "9a9a490409e3eaa1ea9389d460984bd90a8db37f0ad39b627c8b6a3ceb4bb6f2"
+    },
+    {
       "path": "pagefind/index/en_15f145e.pf_index",
       "sha256": "17a2f513bc0b57d350033ffb99192658d8d67caf7d1a1aa16e2edc83fef395ea"
     },
@@ -10311,10 +10315,6 @@
       "sha256": "44ee0f60ac78fae8688c3193d395eca3f6b83c618db25b0cd7f007d2a68ee0a2"
     },
     {
-      "path": "pagefind/index/en_acfbee1.pf_index",
-      "sha256": "2d1946d89e101bc1f8429ac6e4b0e84b50a486f1aab584958447cb1a52c536a4"
-    },
-    {
       "path": "pagefind/index/en_b45f6a9.pf_index",
       "sha256": "da6c2fb643a6529e6846e8655ed98a33ff4b1d4c3ef7247e30cc505559f82071"
     },
@@ -10352,7 +10352,7 @@
     },
     {
       "path": "pagefind/pagefind-entry.json",
-      "sha256": "54d0bccf6f2b12ad34f65cbe6aecacf6bdb0918e34f922692e9023c4113d3de2"
+      "sha256": "0fcf4846e7663d36dd7f687c708a050d060b2afa50a3496648151c5f02b89e53"
     },
     {
       "path": "pagefind/pagefind-highlight.js",
@@ -10379,8 +10379,8 @@
       "sha256": "78115e3651f11d29f03a1f3eb2776a7901c22532bdfa23b7ae73c693c0867bda"
     },
     {
-      "path": "pagefind/pagefind.en_35f65692b9.pf_meta",
-      "sha256": "ed426bb1374650377b074115273167498dd72ba33d7501c4268b30cd602d471a"
+      "path": "pagefind/pagefind.en_c054585f5b.pf_meta",
+      "sha256": "136b1a845a095a91b508338f830baf855e299d7baef581063092a7a5cee52480"
     },
     {
       "path": "pagefind/pagefind.js",
