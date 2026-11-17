@@ -2129,9 +2129,27 @@ components:
         - localPersistent
       type: string
       x-msp-openness: open
+    ApprovalCuaBrowser:
+      description: "A browser card's notices: the first time Computer Use uses a browser on\nthis Mac, and the session's consent before it opens its own window in a\nbrowser that comes to the front when it does. A client words each flag\nitself."
+      properties:
+        firstUse:
+          description: "Show the first-use notice: Computer Use hasn't used this browser on\nthis Mac before and will act signed in as the person."
+          type: boolean
+        name:
+          description: "The browser's display name."
+          type: string
+        windowConsent:
+          description: "Show the window consent line: Computer Use will open its own window\nin this browser and bring the browser to the front, once per session."
+          type: boolean
+      required:
+        - name
+      type: object
     ApprovalCuaCardFacts:
       description: "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`."
       properties:
+        browser:
+          "$ref": "#/components/schemas/ApprovalCuaBrowser"
+          description: "For a browser card, the notices it carries; absent unless at least\none shows."
         data:
           description: "The data the call would send that the card must name; a card with any\noffers only one-shot choices."
           items:
@@ -4418,7 +4436,10 @@ components:
           description: "`reminderChild`: the linked task id. Unresolved\n`bodyCompletion` items also set it."
           type: string
         terminalRowAfterItemId:
-          description: "Terminal `toolCall`, or a `subagent` whose result drained: the item after whose rows the terminal row renders."
+          description: "Terminal monitor `toolCall`, drained `subagent`,\n`backgroundTerminalCompletion`, or Finished-row `toolCall`: render after\nthe target's logical rows."
+          type: string
+        terminalRowBeforeItemId:
+          description: "`backgroundTerminalCompletion`, or a terminal `toolCall` that already\nshows a Finished row: render before the target's whole coalesced region."
           type: string
         text:
           description: "`userMessage`: the prompt text as submitted. `agentMessage`: the\naccumulated reply, streamed via `item/delta` field `\"text\"`.\n`reasoning`: raw committed reasoning text where the provider exposes\nit."
@@ -6189,6 +6210,9 @@ components:
     SchemaInfo:
       description: "The `schema` pair in [`InitializeResult`]. `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all."
       properties:
+        compatibilityEpoch:
+          description: "The host's declared compatibility epoch: the count of declared non-additive\nadvances of the stable surface. A client reads a `fingerprint`\nmismatch by comparing this with its own pin: equal, every difference\nis additive; different, a declared non-additive advance lies between.\nAdditive-optional: a host that predates the member omits it, and\nthe reader treats absence as unknown, never a guessed value."
+          type: integer
         experimentalFingerprint:
           description: "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value."
           pattern: "^sha256:[0-9a-f]{64}$"
@@ -7313,7 +7337,7 @@ components:
       properties:
         history:
           "$ref": "#/components/schemas/SessionHistory"
-          description: "The served history."
+          description: "The served history: inline, with empty items, since the side opens\nempty."
         pendingRequests:
           description: "The late-joiner pointer set."
           items:
