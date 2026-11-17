@@ -30,6 +30,7 @@ from muse_code import (
     MuseClientOptions,
     MuseClientSpawnOptions,
     SendUserTurnOptions,
+    SessionEventSubagent,
     StartSessionOptions,
     SyncMuseClient,
     read_session_durability,
@@ -134,6 +135,11 @@ class ScriptedHost:
             )
             if self._auto_stream:
                 self.stream_turn()
+        elif method == "view/subscribe":
+            # A followed sub-agent's session: the reply, then one of its events.
+            child = frame["params"]["sessionId"]
+            self.chunks.push(_frame({"jsonrpc": "2.0", "id": frame["id"], "result": {"viewCursor": "c:0"}}))
+            self.stream([_child_message(child)])
         elif method == "userInput/answer":
             params = frame["params"]
             self.chunks.push(
@@ -165,6 +171,21 @@ class ScriptedHost:
         if flushed is not None and hasattr(flushed, "__await__"):
             await flushed
         self.chunks.end()
+
+
+def _subagent_started(child: str) -> Params:
+    """The parent's running ``subagent`` item, its child session attested."""
+    item = {
+        "itemId": "it-sub", "kind": "subagent", "turnId": TURN, "revision": 1, "status": "inProgress",
+        "subagentId": "sa-1", "agentPath": "researcher", "depth": 1, "controlStatus": "running",
+        "childSessionId": child,
+    }
+    return {"method": "item/started", "params": {"sessionId": SESSION, "viewCursor": "v:sub", "item": item}}
+
+
+def _child_message(child: str) -> Params:
+    item = {"itemId": "c-1", "kind": "agentMessage", "revision": 1, "sessionId": child, "status": "inProgress", "turnId": TURN}
+    return {"method": "item/started", "params": {"sessionId": child, "viewCursor": "c:1", "item": item}}
 
 
 def _turn_events() -> List[Params]:
@@ -481,6 +502,35 @@ def test_sync_session_events_iterate_the_live_events_and_close_releases_the_stre
     assert len(getattr(inner, "_event_streams")) == 0, "a closed sync iterator deregisters its stream"
     host.stream(_turn_events()[2:])
     assert turn.completed().kind == "completed"
+    client.close()
+
+
+def test_sync_session_events_with_subagents_yield_a_sub_agents_events_tagged() -> None:
+    # The blocking twin of `events(subagents=True)`: iterating pumps the loop,
+    # the client follows the sub-agent's session, and its events come tagged.
+    host, client = scripted_client(auto_stream=False)
+    session = client.start_session()
+    events = session.events(subagents=True)
+    host.stream([_subagent_started("s-child")])
+    seen = []
+
+    def read_two() -> None:
+        for event in events:
+            seen.append((event.frame["params"]["sessionId"], event.subagent))
+            if len(seen) == 2:
+                break
+
+    # The child's event arrives only after the client subscribes, the behavior
+    # under test: a regression must fail this arm, not hang it.
+    reader = threading.Thread(target=read_two, daemon=True)
+    reader.start()
+    reader.join(timeout=30)  # deadlock cap only; the green path is causal
+    assert not reader.is_alive(), "the sub-agent event never arrived"
+    assert seen == [
+        (SESSION, None),
+        ("s-child", SessionEventSubagent(item_id="it-sub", subagent_id="sa-1", child_session_id="s-child")),
+    ]
+    getattr(events, "close")()
     client.close()
 
 
@@ -891,6 +941,19 @@ def test_verbs_on_a_closed_wrapper_are_refused_with_a_plain_error() -> None:
         session.send_user_turn(
             SendUserTurnOptions(input=[{"text": "hi", "type": "text"}], composer_input="hi")
         )
+
+
+def test_sync_session_events_raise_after_close_as_every_blocking_call_does() -> None:
+    # The README promise: after SyncMuseClient.close() the blocking stream
+    # raises the closed-wrapper RuntimeError, never ends silently or hangs.
+    host, client = scripted_client()
+    session = client.start_session()
+    stream = session.events()
+    client.close()
+    with pytest.raises(RuntimeError, match="spawn or create a new one"):
+        next(stream)
+    with pytest.raises(RuntimeError, match="spawn or create a new one"):
+        session.events()
 
 
 # ---- the real-host blocking spawn/close path --------------------------------

@@ -486,13 +486,17 @@ class SyncSession(Generic[_I]):
         :attr:`fold` — read from the verb-driving thread."""
         return self._session.pending
 
-    def events(self) -> Iterator[SessionEvent[_I]]:
+    def events(self, *, subagents: bool = False) -> Iterator[SessionEvent[_I]]:
         """Every event this session folds from now on, iterated synchronously
         (twin of ``events``): read :attr:`fold`, then call this, and nothing
         is missed. Iterating pumps the private loop; breaking out (or closing
         the generator) releases the stream, as :meth:`SyncTurn.items` does.
-        Registration happens AT CALL TIME, like the async twin."""
-        return _drain(self._runner, self._runner.call(self._session.events))
+        Registration happens AT CALL TIME, like the async twin.
+        ``subagents=True`` also yields each running sub-agent's events, tagged
+        with :attr:`SessionEvent.subagent`, as the async twin does."""
+        return _drain(
+            self._runner, self._runner.call(lambda: self._session.events(subagents=subagents))
+        )
 
     def send_user_turn(self, options: SendUserTurnOptions[_I]) -> "SyncTurn[_I]":
         """Submit a user turn and block for its ack (twin of

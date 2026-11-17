@@ -80,7 +80,8 @@ and stderr instead of hanging:
 ```
 
 `within` is the journey's own bounded wait, so a stuck step fails with a
-sentence instead of hanging the run; your application may not need it.
+sentence instead of hanging the run (step 5 names the one wait it cannot cut
+short); your application may not need it.
 
 ### 2. Check the handshake (`handshake`)
 
@@ -137,7 +138,9 @@ token usage. A turn that failed or was cancelled still returns; read
 
 To stop it, cancel the task that awaits it: a queued turn is taken back, a
 running one is cancelled, and `run` re-raises `CancelledError` once the turn
-has ended.
+has ended. A cancellation can stop a turn only after the host has answered
+its `turn/start`: if the host stalls before it answers, `run` keeps waiting
+until it does, even under `within`.
 
 ### 6. Read a turn as it streams, and answer a permission request (`approval`)
 

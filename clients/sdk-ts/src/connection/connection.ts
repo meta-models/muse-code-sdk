@@ -21,6 +21,17 @@ import type {
   SuccessResponse,
 } from "@muse-code/msp";
 
+import type {
+  CommandParams,
+  MethodName,
+  MethodParams,
+  NotificationName,
+  NotificationParams,
+  ParamsArgument,
+  UnlistedMethod,
+  WireResult,
+} from "./surface.js";
+
 const DEFAULT_FRAME_LIMIT_BYTES = 10_485_760;
 
 /**
@@ -111,7 +122,19 @@ export interface CommandOptions {
 export type ServerRequestHandler = (request: Request) => Promise<Record<string, unknown>>;
 /** Receives every server notification, in arrival order. */
 export type NotificationHandler = (notification: Notification) => void;
-/** Receives each framing or correlation violation the connection detects on its inbound stream. */
+/**
+ * Receives one notification method's typed `params`, plus the whole frame
+ * (for `emittedAtMs`). Registered with `Connection.addNotificationListener`.
+ */
+export type NotificationListener<M extends NotificationName> = (
+  params: NotificationParams<M>,
+  notification: Notification,
+) => void;
+/**
+ * Receives each framing or correlation violation the connection detects on
+ * its inbound stream, and each exception a notification listener throws
+ * (that error rides on `cause`).
+ */
 export type ProtocolErrorHandler = (error: ProtocolError) => void;
 
 interface PendingRequest {
@@ -144,11 +167,12 @@ export class MspError extends Error {
 }
 
 /**
- * A local framing/correlation violation, never a server-authored MSP error.
- * When a call fails because a host `MuseClient.spawn` started died, the error
- * it rejects with (usually this class; the transport's own error when a write
- * failed) has a `MuseHostDiedError` `cause` saying how the host ended, so
- * check `cause` alone.
+ * A local framing/correlation violation, or an exception a notification
+ * listener threw (the listener's error on `cause`); never a server-authored
+ * MSP error. When a call fails because a host `MuseClient.spawn` started
+ * died, the error it rejects with (usually this class; the transport's own
+ * error when a write failed) has a `MuseHostDiedError` `cause` saying how the
+ * host ended, so check `cause` alone.
  */
 export class ProtocolError extends Error {
   /**
@@ -159,10 +183,19 @@ export class ProtocolError extends Error {
    */
   readonly line: string | undefined;
 
-  constructor(message: string, line?: string) {
-    super(message);
+  constructor(message: string, line?: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = "ProtocolError";
     this.line = line;
+  }
+}
+
+/** A thrown value's text, even for one whose `toString` is missing or throws. */
+function describeThrown(error: unknown): string {
+  try {
+    return String(error);
+  } catch {
+    return Object.prototype.toString.call(error);
   }
 }
 
@@ -279,6 +312,7 @@ export class Connection {
   #nextRequestId = 1;
   #serverRequestHandler: ServerRequestHandler | undefined;
   #notificationHandler: NotificationHandler | undefined;
+  readonly #notificationListeners = new Map<string, Set<(params: unknown, notification: Notification) => void>>();
   #protocolErrorHandler: ProtocolErrorHandler | undefined;
   #peerEndCause: (() => Promise<unknown> | undefined) | undefined;
   #endCause: Promise<unknown> | undefined;
@@ -323,8 +357,37 @@ export class Connection {
     return this.#submitTail;
   }
 
-  request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.#request(method, params).then((framed) => framed.result);
+  /**
+   * Send one request and resolve with its result. A stable method is typed
+   * from the generated method map; any other method name stays sendable
+   * untyped, for an experimental method or a host newer than these types.
+   */
+  request<M extends MethodName>(
+    method: M,
+    ...params: ParamsArgument<MethodParams<M>>
+  ): Promise<WireResult<M>>;
+  request<M extends string>(
+    method: UnlistedMethod<MethodName, M>,
+    params?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated Loosely typed params for a listed method: pass the method's
+   * generated params type. This overload goes away in a later release
+   * (ADR 25304 D3's deprecation path).
+   */
+  request(method: MethodName, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated A generic `M extends string` method, or a union mixing listed
+   * and unlisted names, cannot be checked; it compiles untyped for one
+   * release and goes away with the loose overload above (ADR 25304 D3's
+   * deprecation path). Widen the name to `string` (`method as string`) to
+   * keep sending it untyped.
+   */
+  request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  request(method: string, ...params: unknown[]): Promise<unknown> {
+    return this.#request(method, params[0] as Record<string, unknown> | undefined).then(
+      (framed) => framed.result,
+    );
   }
 
   /** See {@link peerEndCause}. */
@@ -404,6 +467,31 @@ export class Connection {
     this.#notificationHandler = handler;
   }
 
+  /**
+   * Add a listener for one notification method, typed from the generated
+   * notification map. Listeners run after the `onNotification` handler, in
+   * the order added. A listener that throws (or rejects) is reported to
+   * `onProtocolError`, or as a process warning when no handler is set; the
+   * connection, the other listeners and pending calls go on. Returns a
+   * function that removes this listener.
+   */
+  addNotificationListener<M extends NotificationName>(
+    method: M,
+    listener: NotificationListener<M>,
+  ): () => void {
+    const untyped = (params: unknown, notification: Notification): void =>
+      listener(params as NotificationParams<M>, notification);
+    let listeners = this.#notificationListeners.get(method);
+    if (listeners === undefined) {
+      listeners = new Set();
+      this.#notificationListeners.set(method, listeners);
+    }
+    listeners.add(untyped);
+    return () => {
+      listeners.delete(untyped);
+    };
+  }
+
   onProtocolError(handler: ProtocolErrorHandler): void {
     this.#protocolErrorHandler = handler;
   }
@@ -413,11 +501,42 @@ export class Connection {
     if (this.#writeFailure !== undefined) throw this.#writeFailure;
   }
 
+  /**
+   * Send one command (SS3.1.1): mint its `commandId`, retry a
+   * nothing-admitted refusal under the same id, and check the ack. Typed like
+   * `request`, with `commandId` left out of the params.
+   */
+  async command<M extends MethodName>(
+    method: M,
+    params: CommandParams<M>,
+    options?: CommandOptions,
+  ): Promise<WireResult<M>>;
+  async command<M extends string>(
+    method: UnlistedMethod<MethodName, M>,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated Loosely typed params for a listed method: pass the method's
+   * generated params type. This overload goes away in a later release
+   * (ADR 25304 D3's deprecation path).
+   */
+  async command(
+    method: MethodName,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated A generic or mixed-union method name cannot be checked; it
+   * compiles untyped for one release, as on `request`. Widen the name to
+   * `string` (`method as string`) to keep sending it untyped.
+   */
   async command(
     method: string,
     params: Record<string, unknown>,
     options?: CommandOptions,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Record<string, unknown>>;
+  async command(method: string, params: object, options?: CommandOptions): Promise<unknown> {
     const commandId = options?.commandId ?? this.#mintCommandId();
     const commandParams = { ...params, commandId };
     const signature = fingerprint(canonical({ method, params: commandParams }));
@@ -431,7 +550,7 @@ export class Connection {
     const retryDelay = options?.retryDelay ?? defaultRetryDelay;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const ack = await this.request(method, commandParams);
+        const ack = await this.#request(method, commandParams).then((framed) => framed.result);
         // session/start's and session/resume's result schemas omit the
         // redundant commandId echo (the two omitting families recorded in
         // specs/14990-muse-sdk/contracts/sdk-surface.md; approval/decide
@@ -634,7 +753,30 @@ export class Connection {
         });
         return;
       }
-      this.#notificationHandler?.(parsed as unknown as Notification);
+      const notification = parsed as unknown as Notification;
+      this.#notificationHandler?.(notification);
+      // A copy, so a listener added during dispatch waits for the next frame.
+      for (const listener of [...(this.#notificationListeners.get(method) ?? [])]) {
+        // One consumer's bug refuses only its own listener (Constitution
+        // XIII): the connection, its other listeners and pending calls go on.
+        const report = (error: unknown): void => {
+          const failure = new ProtocolError(`listener for ${method} threw: ${describeThrown(error)}`, line, {
+            cause: error,
+          });
+          // With no handler a listener bug would vanish; a warning keeps it visible.
+          if (this.#protocolErrorHandler === undefined) process.emitWarning(failure);
+          else this.#protocolErrorHandler(failure);
+        };
+        try {
+          const result: unknown = listener(notification.params, notification);
+          // Any thenable, so a promise from another realm (a `vm` context) is caught too.
+          if (typeof (result as PromiseLike<unknown> | null | undefined)?.then === "function") {
+            Promise.resolve(result).catch(report);
+          }
+        } catch (error) {
+          report(error);
+        }
+      }
       return;
     }
     if (typeof id !== "string" && typeof id !== "number") {

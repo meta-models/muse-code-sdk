@@ -435,6 +435,39 @@ folded as (``approval/request`` as itself, ``userInput/request`` as its
 
 
 @dataclass(frozen=True)
+class SessionEventSubagent:
+    """The sub-agent a :class:`SessionEvent` belongs to.
+
+    Attributes:
+        item_id: The parent session's ``subagent`` item for it.
+        subagent_id: The sub-agent's durable id, which the ``subagent/*``
+            control verbs take.
+        child_session_id: The sub-agent's own session, which the event came
+            from.
+    """
+
+    item_id: str
+    subagent_id: str
+    child_session_id: str
+
+
+@dataclass(frozen=True)
+class _SubagentFollow:
+    """One sub-agent follow: ``stop`` ends it now, ``finish`` once the
+    child's running turn has ended. Internal."""
+
+    stop: Callable[[], None]
+    finish: Callable[[], None]
+
+
+_SubagentFollower = Callable[
+    [str, Callable[["SessionEvent[Any]"], None], Callable[[], None]], _SubagentFollow
+]
+"""How ``MuseClient`` follows a sub-agent's session: route the child session's
+events to the callback, and return how to stop. Internal."""
+
+
+@dataclass(frozen=True)
 class SessionEvent(Generic[_I]):
     """One event a session folded, as :meth:`Session.events` yields it: the
     event and what folding it changed, self-contained because the loop body
@@ -449,11 +482,16 @@ class SessionEvent(Generic[_I]):
             ``view/gap`` event's ``io``.
         item: For an item event that changed the item, the item as it stood
             after this event; otherwise ``None``.
+        subagent: On a sub-agent's event, yielded by
+            ``events(subagents=True)``, the sub-agent it belongs to; its
+            ``frame``, ``outcome`` and ``item`` are the sub-agent's own.
+            ``None`` on this session's own events.
     """
 
     frame: ViewFrame
     outcome: SessionApplyOutcome[_I]
     item: FoldedItem | None = None
+    subagent: SessionEventSubagent | None = None
 
 
 
@@ -599,6 +637,19 @@ class Session(Generic[_I]):
         self._turns: dict[str, TurnHandle[_I]] = {}
         # The live ``events()`` streams, fed by every folded event.
         self._event_streams: set[_PushStream[SessionEvent[_I]]] = set()
+        # Set by ``_end_event_streams``: the client closed, so a later stream
+        # ends at once.
+        self._events_ended = False
+        # The ``events(subagents=True)`` streams among them, also fed each
+        # followed sub-agent's events.
+        self._subagent_streams: set[_PushStream[SessionEvent[_I]]] = set()
+        # Set by ``MuseClient``: how this session follows a sub-agent.
+        self._subagent_follower: _SubagentFollower | None = None
+        # How to stop following each sub-agent, keyed by its ``subagent`` item id.
+        self._followed_subagents: dict[str, _SubagentFollow] = {}
+        # Set by ``MuseClient`` on a sub-agent's internal session: where each
+        # of its events goes.
+        self._forward_events: Callable[[SessionEvent[Any]], None] | None = None
         # The wire half of every turn handle's control verbs.
         self._turn_controls: _SessionTurnControls[_I] = _SessionTurnControls(self)
         # ``item/delta`` frames whose item the fold does not hold yet: the
@@ -672,12 +723,13 @@ class Session(Generic[_I]):
             MuseForeignSessionError: The frame names a different session.
         """
         outcome = self._apply_live(event)
-        # A frame held for a fill is yielded when the fill splices it in.
-        if not isinstance(outcome.fold, SessionGapBuffered):
+        # A frame held for a fill is yielded when the fill splices it in, and
+        # the live twin of a frame the fill already spliced in was yielded then.
+        if not isinstance(outcome.fold, (SessionGapBuffered, SessionGapOverlap)):
             self._emit(event, outcome)
         return outcome
 
-    def events(self) -> AsyncIterator[SessionEvent[_I]]:
+    def events(self, *, subagents: bool = False) -> AsyncIterator[SessionEvent[_I]]:
         """Every event this session folds from now on, with what it changed.
 
         Live from the call, never replayed: read :attr:`fold`, then call this
@@ -688,25 +740,67 @@ class Session(Generic[_I]):
         ``turn.items()``, so a slow reader never holds folding up.
 
         Close it with ``aclose()`` (``contextlib.aclosing`` around an
-        ``async for`` that may ``break``). It finishes the way a turn's
+        ``async for`` that may ``break``). An orderly ``MuseClient.close()``
+        ends it too, and a stream created afterwards ends at once. It finishes the way a turn's
         ``items()`` does when the host dies: it ends after an ephemeral host's
         death, and raises :class:`~muse_code.errors.MuseHostDiedError` after a
         durable one's, once the events it already buffered are read.
+
+        With ``subagents=True`` it also yields each running sub-agent's events,
+        tagged with :attr:`SessionEvent.subagent`, in arrival order with this
+        session's own: the client follows each sub-agent's session while such
+        a stream is open. That needs a session ``MuseClient`` opened. Known
+        limitation: if the host refuses the subscription to a sub-agent
+        (usually because it already finished), its steps do not arrive and no
+        reason is given; its start and result still arrive on the session. A
+        sub-agent resumed after it finished a turn is not subscribed again.
+
+        Raises:
+            RuntimeError: ``subagents=True`` on a session no ``MuseClient``
+                opened.
         """
-        stream: _PushStream[SessionEvent[_I]] = _PushStream(
-            lambda: self._event_streams.discard(stream)
-        )
+        if subagents and self._subagent_follower is None:
+            # API misuse: only the client can subscribe to a sub-agent's session.
+            raise RuntimeError("events(subagents=True) needs a session MuseClient opened")
+
+        def finished() -> None:
+            self._event_streams.discard(stream)
+            if stream in self._subagent_streams:
+                self._subagent_streams.discard(stream)
+                if not self._subagent_streams:
+                    self._unfollow_subagents()
+
+        stream: _PushStream[SessionEvent[_I]] = _PushStream(finished)
         if self._death_error is not None:
             stream.fail(self._death_error)
-        elif self._discharge is not None and self._discharge.kind == "discharged":
+        elif self._events_ended or (
+            self._discharge is not None and self._discharge.kind == "discharged"
+        ):
             stream.end()
         else:
             self._event_streams.add(stream)
+            if subagents:
+                self._subagent_streams.add(stream)
+                # The first such stream follows the sub-agents already running.
+                if len(self._subagent_streams) == 1:
+                    for held in self._fold.items.list():
+                        if held.get("kind") == "subagent":
+                            self._follow_subagent(cast(FoldedItem, held))
         return stream
+
+    def _end_event_streams(self) -> None:
+        # ``MuseClient.close()`` calls this once its orderly close has shut
+        # the host down: that reports no death, so nothing else ends them.
+        self._events_ended = True
+        for stream in self._event_streams:
+            stream.end()
+        self._event_streams.clear()
+        self._subagent_streams.clear()
+        self._unfollow_subagents()
 
     def _emit(self, frame: WireFrame, outcome: SessionApplyOutcome[_I]) -> None:
         # Yield one folded event to every live ``events()`` stream.
-        if not self._event_streams:
+        if not self._event_streams and self._forward_events is None:
             return
         fold = outcome.fold
         # The item as of THIS event: the store keeps one object per revision,
@@ -719,6 +813,53 @@ class Session(Generic[_I]):
         event = SessionEvent(frame=frame, outcome=outcome, item=item)
         for stream in tuple(self._event_streams):
             stream.push(event)
+        if self._forward_events is not None:
+            self._forward_events(cast("SessionEvent[Any]", event))
+        if item is not None and item.get("kind") == "subagent" and self._subagent_streams:
+            self._follow_subagent(item)
+
+    def _follow_subagent(self, item: FoldedItem) -> None:
+        # Follow a ``subagent`` item's session while it runs, stop when it
+        # ends. It runs while ``inProgress`` with a ``childSessionId`` (present
+        # once the child's start is attested); nested sub-agents' items are on
+        # this view too.
+        item_id = str(item.get("itemId"))
+        followed = self._followed_subagents.get(item_id)
+        child = item.get("childSessionId") if item.get("status") == "inProgress" else None
+        subagent_id = item.get("subagentId")
+        if not isinstance(child, str) or not isinstance(subagent_id, str):
+            # Finish, not stop: each session drains to the connection on its
+            # own, so the child's last steps can arrive after its item ended.
+            # Kept in the map so the last stream closing or a host death still
+            # stops it now.
+            if followed is not None:
+                followed.finish()
+            return
+        if followed is not None or self._subagent_follower is None:
+            return
+        tag = SessionEventSubagent(item_id=item_id, subagent_id=subagent_id, child_session_id=child)
+
+        def forward(event: SessionEvent[Any]) -> None:
+            tagged = cast(
+                "SessionEvent[_I]",
+                SessionEvent(frame=event.frame, outcome=event.outcome, item=event.item, subagent=tag),
+            )
+            for stream in tuple(self._subagent_streams):
+                stream.push(tagged)
+
+        def stopped() -> None:
+            # A stopped follow leaves the map, so its child fold is not kept alive.
+            if self._followed_subagents.get(item_id) is follow:
+                del self._followed_subagents[item_id]
+
+        follow = self._subagent_follower(child, forward, stopped)
+        self._followed_subagents[item_id] = follow
+
+    def _unfollow_subagents(self) -> None:
+        follows = list(self._followed_subagents.values())
+        self._followed_subagents.clear()
+        for follow in follows:
+            follow.stop()
 
     def _spliced(self, frame: WireFrame, sink: DrainSink[_I]) -> FoldOutcome:
         # Fold one frame a gap fill splices in, and yield it. Its retirements
@@ -1009,6 +1150,8 @@ class Session(Generic[_I]):
             for stream in self._event_streams:
                 stream.fail(died)
             self._event_streams.clear()
+            self._subagent_streams.clear()
+            self._unfollow_subagents()
             self._discharge = _DurableDeath(profile=profile, exit=exit_notification)
             return self._discharge
 
@@ -1021,6 +1164,8 @@ class Session(Generic[_I]):
         for stream in self._event_streams:
             stream.end()
         self._event_streams.clear()
+        self._subagent_streams.clear()
+        self._unfollow_subagents()
         # the protocol "do not attempt to reattach". ``discard_ephemeral`` already
         # wrote the commandIds into the shared set (it holds it by reference);
         # the sessionId is this layer's to record, because the pending set does

@@ -124,3 +124,24 @@ pub enum LimitsAxisValue {
     /// A `sandboxNetwork`-axis value.
     Mode(LimitsNetworkMode),
 }
+
+/// What caps the ceiling a `-32028 limitsAboveMax` refusal names: the kind of
+/// the ceiling, so a client can tell a ceiling a newer daemon start can raise
+/// from one managed policy fixes. **Closed**: exactly these two — a refusal's
+/// ceiling is either the daemon's own start posture or the widest managed
+/// policy allows, never a third source (the socket limits regime's ceiling
+/// computation has exactly these two arms).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LimitsCeilingKind {
+    /// The ceiling is the daemon's own start posture: the daemon runs
+    /// without `--allow-session-posture`, so a choice wider than what it
+    /// started with is refused. A daemon started with the allowance may
+    /// admit wider, up to managed policy.
+    #[serde(rename = "daemonDefault")]
+    DaemonDefault,
+    /// The ceiling is the widest managed policy allows: the daemon runs with
+    /// `--allow-session-posture` and the refusal is the managed cap itself.
+    /// Restarting the daemon cannot raise it.
+    #[serde(rename = "managedPolicy")]
+    ManagedPolicy,
+}

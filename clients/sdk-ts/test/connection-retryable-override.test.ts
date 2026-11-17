@@ -10,8 +10,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Connection, MspError } from "../src/index.js";
-import { FakeDuplex, frame, sentFrame, waitForWrites } from "./helpers/fake-duplex.js";
+import { MspError } from "../src/index.js";
+import { FakeDuplex, frame, mechanicsConnection, sentFrame, waitForWrites } from "./helpers/fake-duplex.js";
 
 const PAIR = [
   { code: -32001, kind: "overloaded" },
@@ -21,7 +21,7 @@ const PAIR = [
 for (const { code, kind } of PAIR) {
   test(`${kind} with retryable false is not auto-retried`, async () => {
     const transport = new FakeDuplex();
-    const connection = new Connection(transport);
+    const connection = mechanicsConnection(transport);
     const command = connection.command("turn/start", { n: 1 }, {
       maxAttempts: 3,
       // Fails at the first scheduled retry, so the RED is bounded: a retry
@@ -49,7 +49,7 @@ for (const { code, kind } of PAIR) {
 
   test(`control: ${kind} with no retryable flag still retries`, async () => {
     const transport = new FakeDuplex();
-    const connection = new Connection(transport);
+    const connection = mechanicsConnection(transport);
     const command = connection.command("turn/start", { n: 1 }, {
       maxAttempts: 2,
       retryDelay: async () => {},

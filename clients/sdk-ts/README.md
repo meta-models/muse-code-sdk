@@ -54,7 +54,7 @@ import { MuseClient } from "@muse-code/sdk";
 
 const client = await MuseClient.spawn({
   args: ["serve"],
-  clientInfo: { name: "my-app", version: "1.0.0" },
+  clientInfo: { name: "my_app", version: "1.0.0" },
 });
 
 const session = await client.startSession({ workspaceRoot: process.cwd() });
@@ -64,6 +64,10 @@ console.log(result.finalText);
 
 await client.close();
 ```
+
+`clientInfo.name` must be a machine identifier: lowercase letters, digits and
+`_` only (`[a-z0-9_]+`), at most 64 characters. The host refuses any other
+name at `initialize`. `workspaceRoot` must be an absolute path.
 
 `session.run` sends one turn and resolves when the turn has ended, with the
 outcome, the final answer text, the turn's items, and its token usage. A turn
@@ -77,7 +81,9 @@ To stop it, pass an `AbortSignal`, for example
 `session.run(prompt, { signal: AbortSignal.timeout(60_000) })`. A turn still
 waiting in the queue is taken back, and a running turn is cancelled. `run`
 then waits for the turn to end and rejects with the signal's reason. An
-already-aborted signal sends nothing.
+already-aborted signal sends nothing. The signal can stop a turn only after
+the host has answered its `turn/start`: if the host stalls before it answers,
+`run` keeps waiting until it does, timeout signal or not.
 
 To follow a turn as it runs, send it yourself and read its items:
 
@@ -138,11 +144,34 @@ for await (const { frame, outcome, item } of session.events()) {
 
 Each event arrives once, in order, including events the SDK fetches to fill a
 gap in delivery. `break` (or an `AbortSignal` passed as
-`session.events({ signal })`) stops listening. The stream ends when an
-ephemeral host dies and rejects with `MuseHostDiedError` when a durable one
-does, as `turn.items()` does. Reading it changes nothing else:
+`session.events({ signal })`) stops listening. The stream ends when the
+client closes or an ephemeral host dies, and rejects with `MuseHostDiedError`
+when a durable host dies, as `turn.items()` does. Reading it changes nothing else:
 `turn.unqueue()` still returns the queued input it takes back, and that input
 is not repeated on an event.
+
+To also watch what each sub-agent does, step by step, pass
+`session.events({ subagents: true })`. Each sub-agent's events arrive in the
+same stream, in order with the session's own, with `subagent` set to the
+sub-agent they belong to (`itemId`, `subagentId`, `childSessionId`); their
+`frame`, `outcome` and `item` are the sub-agent's own:
+
+```ts
+for await (const event of session.events({ subagents: true })) {
+  if (event.subagent !== undefined) renderStep(event.subagent.subagentId, event.item);
+  else render(event.frame.method, event.outcome.fold, event.item);
+}
+```
+
+The SDK subscribes to each running sub-agent while such a stream is open, and
+unsubscribes when the sub-agent finishes or no stream needs it. A sub-agent
+already running when the stream opens streams from then on. Approval requests
+from a sub-agent still arrive once, on the session, through `onApproval`.
+Known limitation: if the host refuses the subscription to a sub-agent
+(usually because it already finished, sometimes because it runs on another
+host), its steps do not arrive and no reason is given; its start and result
+still arrive on the session. A sub-agent resumed after it finished a turn is
+not subscribed again, so the steps of that later run do not arrive either.
 
 To answer a question the agent asks, read it from
 `session.fold.pendingUserInputs()` and answer it with `session.answerUserInput`,
@@ -167,6 +196,26 @@ adds input to the running turn, and `turn.unqueue()` takes back a queued one.
 The session itself can `fork`, `compact`, `rename`, and `leave`, and switch its
 model, reasoning effort, or approval mode (`setModel`, `setReasoningEffort`,
 `setApprovalMode`); `client.listModels()` lists the models it accepts.
+
+To send a wire method the facade does not wrap, use `client.command` (a
+command: the client mints its `commandId`) or `client.request` (a query).
+Params and result are typed from the generated method map; a method the map
+does not list is still sent, untyped:
+
+```ts
+const ack = await client.command("task/stop", { sessionId, taskId });
+const { models } = await client.request("model/list");
+```
+
+For a raw connection (`const { connection } = await spawnMspConnection({ ... }).initialize({ ... })`),
+`request` and `command` are typed the same way, and `addNotificationListener` gives one
+notification method's typed params:
+
+```ts
+connection.addNotificationListener("turn/completed", (params) => {
+  console.log(params.turnId, params.terminal);
+});
+```
 
 Status: developer preview. The facade — spawn, session open/resume, turns,
 approvals, questions, and recovery after dropped deliveries — is complete and covered by

@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 
 import { Connection, MuseClient, MuseHostDiedError, Session } from "../src/index.js";
 import type { MuseClientOptions, SessionApplyOutcome, SessionEvent, ViewFrame } from "../src/index.js";
+import { countingSignal } from "./helpers/abort-signal.js";
 import { answer, FakeDuplex, frame, sentFrame, sentParams, settleMicrotasks, waitForWrites } from "./helpers/fake-duplex.js";
 
 const DURABLE: MuseClientOptions = { durability: { kind: "durable" } };
@@ -207,6 +208,7 @@ async function yielded(waiting: Promise<IteratorResult<SessionEvent>>): Promise<
 
 const DONE = { done: true, value: undefined };
 
+
 test("read the fold, then subscribe: nothing is missed, including frames folded while startSession was in flight", async () => {
   const { client: c, transport } = client();
   // The replay a host flushes ahead of the reply folds inside startSession.
@@ -309,30 +311,97 @@ test("a gap fill's paged and buffered frames are yielded once each, in order, wh
   await c.close();
 });
 
-test("break, return() and the signal unsubscribe; an already-aborted signal yields nothing", async () => {
+test("break, return() and the signal unsubscribe and deregister; an already-aborted signal yields nothing", async () => {
   const { client: c, transport } = client();
   const session = await started(c, transport);
 
   const broken = session.events();
+  assert.equal(session.liveEventStreamCount, 1);
   transport.chunks.push(turnStarted());
   for await (const event of broken) {
     assert.equal(event.frame.method, "turn/started");
     break;
   }
   assert.deepEqual(await poll(broken.next()), DONE);
+  assert.equal(session.liveEventStreamCount, 0, "break deregisters the stream");
 
-  const controller = new AbortController();
-  const signalled = session.events({ signal: controller.signal });
+  const aborting = countingSignal();
+  const signalled = session.events({ signal: aborting.signal });
   const kept = session.events();
-  controller.abort();
+  assert.equal(aborting.listeners(), 1);
+  aborting.abort();
   transport.chunks.push(itemStarted());
   await settleMicrotasks();
   assert.deepEqual(await poll(signalled.next()), DONE, "an abort ends the stream");
+  assert.equal(aborting.listeners(), 0, "the abort listener is gone");
+  assert.equal(session.liveEventStreamCount, 1, "the aborted stream deregistered; the other stays");
   assert.deepEqual(methods(await take(kept, 1)), ["item/started"], "other streams are unaffected");
 
-  const late = session.events({ signal: controller.signal });
+  const returning = countingSignal();
+  const returned = session.events({ signal: returning.signal });
+  assert.equal(returning.listeners(), 1);
+  await returned.return?.();
+  assert.equal(returning.listeners(), 0, "return() removes the abort listener");
+  assert.equal(session.liveEventStreamCount, 1, "return() deregisters the stream");
+
+  const late = session.events({ signal: aborting.signal });
   assert.deepEqual(await poll(late.next()), DONE);
+  assert.equal(aborting.listeners(), 0, "an already-aborted signal registers nothing");
   await c.close();
+});
+
+test("the live twin of an event a gap fill already yielded is not yielded again", async () => {
+  // The wire promises no order between the gap marker and the frame at its
+  // `next`, so the live copy can arrive after the fill ends; folding refuses
+  // it as an overlap, and the stream must not hand it out a second time.
+  const { client: c, transport } = client();
+  const session = await started(c, transport, turnStarted());
+  const events = session.events();
+  transport.chunks.push(gap("v:1", "v:2"));
+  await waitForWrites(transport, 2);
+  const item = { itemId: "i-1", kind: "agentMessage", revision: 1, sessionId: SESSION, status: "inProgress", turnId: TURN };
+  answer(transport, 1, { events: [pagedEvent("item/started", { viewCursor: "v:2", item })], nextCursor: "v:2" });
+  assert.deepEqual(methods(await take(events, 2)), ["view/gap", "item/started"]);
+  const waiting = events.next();
+  transport.chunks.push(itemStarted());
+  assert.equal(await poll(waiting), "pending", "the overlap twin is not yielded");
+  transport.chunks.push(itemUpdated(2, "v:3"));
+  assert.equal((await yielded(waiting)).frame.method, "item/updated", "the stream keeps going after the twin");
+  await c.close();
+});
+
+test("a close() whose host exits abnormally fails open streams with MuseHostDiedError, not a quiet end", async () => {
+  // close() reports an abnormal exit as a death before it ends the streams,
+  // so an open loop still learns that its durable host died.
+  const transport = new FakeDuplex();
+  const child = { close: async () => ({ kind: "unhandledError", exitCode: 1, stderrTail: [] }) };
+  const c = new MuseClient(new Connection(transport), {
+    durability: { kind: "durable" },
+    host: { child, initializeResult: undefined } as unknown as MuseClientOptions["host"],
+  });
+  const session = await started(c, transport);
+  const events = session.events();
+  await c.close();
+  const failed = await poll(events.next());
+  assert.ok(typeof failed === "object" && "rejected" in failed && failed.rejected instanceof MuseHostDiedError);
+});
+
+test("an orderly client.close() ends every live stream, and a later stream ends at once", async () => {
+  const { client: c, transport } = client();
+  const session = await started(c, transport);
+  const events = session.events();
+  const signalled = countingSignal();
+  const withSignal = session.events({ signal: signalled.signal });
+  transport.chunks.push(turnStarted());
+  await settleMicrotasks();
+  await c.close();
+  assert.equal(signalled.listeners(), 0, "close() removes each stream's abort listener");
+  assert.deepEqual(methods(await take(withSignal, 1)), ["turn/started"]);
+  assert.deepEqual(await poll(withSignal.next()), DONE);
+  assert.deepEqual(methods(await take(events, 1)), ["turn/started"], "buffered events come first");
+  assert.deepEqual(await poll(events.next()), DONE);
+  assert.deepEqual(await poll(session.events().next()), DONE);
+  assert.equal(session.liveEventStreamCount, 0);
 });
 
 test("each stream hears every event of its own session only, and an unread stream holds nothing up", async () => {
@@ -362,11 +431,14 @@ test("an ephemeral host death ends the stream after what it buffered; a later st
   const { client: c, connection, transport } = client(EPHEMERAL);
   const session = await started(c, transport);
   const events = session.events();
+  const signalled = countingSignal();
+  session.events({ signal: signalled.signal });
   transport.chunks.push(turnStarted());
   await settleMicrotasks();
   transport.chunks.end();
   await connection.closed;
   await settleMicrotasks();
+  assert.equal(signalled.listeners(), 0, "the host death removes the abort listener");
   assert.deepEqual(methods(await take(events, 1)), ["turn/started"], "buffered events come first");
   assert.deepEqual(await poll(events.next()), DONE);
   assert.deepEqual(await poll(session.events().next()), DONE);
@@ -376,16 +448,23 @@ test("a durable host death rejects the stream with MuseHostDiedError, as a turn'
   const { client: c, connection, transport } = client(DURABLE);
   const session = await started(c, transport);
   const events = session.events();
+  const signalled = countingSignal();
+  session.events({ signal: signalled.signal });
   transport.chunks.push(turnStarted());
   await settleMicrotasks();
   transport.chunks.end();
   await connection.closed;
   await settleMicrotasks();
+  assert.equal(signalled.listeners(), 0, "the host death removes the abort listener");
   assert.deepEqual(methods(await take(events, 1)), ["turn/started"], "buffered events come first");
   const failed = await poll(events.next());
   assert.ok(typeof failed === "object" && "rejected" in failed && failed.rejected instanceof MuseHostDiedError);
   const late = await poll(session.events().next());
   assert.ok(typeof late === "object" && "rejected" in late && late.rejected instanceof MuseHostDiedError);
+  // A close after the death does not turn that rejection into a plain end.
+  await c.close();
+  const afterClose = await poll(session.events().next());
+  assert.ok(typeof afterClose === "object" && "rejected" in afterClose && afterClose.rejected instanceof MuseHostDiedError);
 });
 
 /** A started session holding one acked queued submit for turn `t-2`. */

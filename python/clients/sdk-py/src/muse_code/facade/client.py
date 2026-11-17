@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import weakref
 from dataclasses import dataclass, fields
 from typing import (
     Any,
@@ -88,11 +89,30 @@ from .host_death import (
     survives_host_death,
 )
 from .approval import ApprovalFailureHandler, ApprovalHandler
-from .session import Session, SessionOpening, _ResumeOpening, _StartOpening
+from .session import (
+    Session,
+    SessionEvent,
+    SessionOpening,
+    _ResumeOpening,
+    _StartOpening,
+    _SubagentFollow,
+)
 from .turn_submit import _camel
 
 _I = TypeVar("_I")
 _H = TypeVar("_H")
+
+
+def _turn_id_of(frame: Mapping[str, Any]) -> str | None:
+    # The turn a view frame belongs to: its own ``turnId``, else its item's.
+    params = frame.get("params")
+    if not isinstance(params, dict):
+        return None
+    turn_id = params.get("turnId")
+    if turn_id is None:
+        item = params.get("item")
+        turn_id = item.get("turnId") if isinstance(item, dict) else None
+    return turn_id if isinstance(turn_id, str) else None
 
 # Every SessionListParams member list_sessions forwards; the wire-query
 # suite asserts this set equals the generated type's members, so a
@@ -394,6 +414,15 @@ class MuseClient(Generic[_I]):
         # sharing knob would be declared-ahead surface (Constitution XI).
         self._discarded = DiscardedSessions()
         self._sessions: Set[Session[_I]] = set()
+        # ``_sessions`` indexed by session id, so routing a frame is one lookup
+        # whatever the number of followed sub-agents (Constitution XIV).
+        self._sessions_by_id: dict[str, Set[Session[_I]]] = {}
+        # The internal sessions that fold a followed sub-agent's events
+        # (``events(subagents=True)``).
+        self._followers: "weakref.WeakSet[Session[_I]]" = weakref.WeakSet()
+        # ``session/resume`` calls in flight, counted per session id, so a
+        # follow's unsubscribe never starves one.
+        self._resuming: dict[str, int] = {}
         # Frames naming a session this client has not registered YET, held
         # only while a ``session/start``/``session/resume`` is in flight: the
         # host flushes the resume replay BEFORE the result, and the coroutine
@@ -676,7 +705,9 @@ class MuseClient(Generic[_I]):
         for an id the caller can never reach — the SDK has no set/close-by-id
         verb); the error's ``session_id`` is the caller's handle to resume via
         ``session_id`` or start again. A failed read-back propagates: the
-        client still never proceeds on the default.
+        client still never proceeds on the default. The read-back rides
+        ``request()``: ``SessionReadParams`` define no ``commandId``, so it
+        mints none and is not retried as a command.
         """
         opening = session.opening
         started = (
@@ -687,15 +718,15 @@ class MuseClient(Generic[_I]):
         if started is not None:
             if started == requested:
                 return session
-            self._sessions.discard(session)
+            self._untrack(session)
             raise PermissionProfileNotApplied(requested, started, session.session_id)
-        read = await self._connection.command(
+        read = await self._connection.request(
             "session/read", {"sessionId": session.session_id}
         )
         served = _committed_profile_id(read.get("session"))
         if served == requested:
             return session
-        self._sessions.discard(session)
+        self._untrack(session)
         raise PermissionProfileNotApplied(requested, served, session.session_id)
 
     async def resume_session(self, options: ResumeSessionOptions) -> Session[_I]:
@@ -862,11 +893,17 @@ class MuseClient(Generic[_I]):
             if self._child is not None:
                 exit_classification: ExitClassification = await self._child.close()
                 if is_abnormal_host_death(exit_classification):
-                    for session in self._sessions:
+                    # A snapshot: a death stops sub-agent follows, which leave the set.
+                    for session in tuple(self._sessions):
                         session.host_exited(exit_classification)
                 return
             await self._connection.close()
         finally:
+            # An orderly exit reports no death, so nothing else ends the streams.
+            # A snapshot: ending a session's streams stops its sub-agent follows,
+            # which removes their sessions from ``_sessions``.
+            for session in tuple(self._sessions):
+                session._end_event_streams()
             held = [task for session in self._sessions for task in session._end_held_stops()]
             if held:
                 await asyncio.gather(*held, return_exceptions=True)
@@ -885,6 +922,9 @@ class MuseClient(Generic[_I]):
         # settle so a frame that named no session this client opened is held
         # no longer than the open it rode in with.
         self._opening += 1
+        resumed = params.get("sessionId") if verb == "session/resume" else None
+        if isinstance(resumed, str):
+            self._resuming[resumed] = self._resuming.get(resumed, 0) + 1
         try:
             raw = await self._connection.command(verb, params)
             result: Mapping[str, Any] = raw
@@ -895,6 +935,12 @@ class MuseClient(Generic[_I]):
                 on_approval_error,
             )
         finally:
+            if isinstance(resumed, str):
+                left = self._resuming.get(resumed, 1) - 1
+                if left > 0:
+                    self._resuming[resumed] = left
+                else:
+                    self._resuming.pop(resumed, None)
             self._opening -= 1
             if self._opening == 0:
                 self._held.clear()
@@ -922,13 +968,134 @@ class MuseClient(Generic[_I]):
         # ``_route`` drops what ``apply`` returns, so a reclaim folded during
         # this session's own ``unqueue()`` must be held for that call.
         session._apply_results_dropped = True
-        self._sessions.add(session)
+        session._subagent_follower = self._follow_subagent
+        self._track(session)
         # The frames that named this session while its verb was in flight
         # fold NOW, in arrival order — synchronously, so nothing the pump
         # routes next can overtake them.
         for held in self._held.pop(session_id, ()):
             session.apply(held)
         return session
+
+    def _follow_subagent(
+        self,
+        child_session_id: str,
+        forward: Callable[[SessionEvent[Any]], None],
+        on_stopped: Callable[[], None],
+    ) -> _SubagentFollow:
+        # Follow a sub-agent's session for ``events(subagents=True)``: an
+        # internal session folds its events and hands each to ``forward``,
+        # routed like any session's from the subscribe on. Its approvals are
+        # not its own: the host presents them on the parent
+        # (``subagentOrigin``) and takes the decision there, so this session
+        # answers none. ``finish`` stops once the child's running turn ended.
+        child: Session[_I] = Session(
+            child_session_id,
+            self._durability,
+            connection=self._connection,
+            discarded=self._discarded,
+        )
+        child._apply_results_dropped = True
+        state = {"live": True, "finishing": False}
+        # Turns this follow saw a frame of and the child fold has not ended:
+        # the subscribe replays nothing, so a turn already running when it
+        # landed has no turn/started here, and the fold's own active turn
+        # cannot know it.
+        running_turns: set[str] = set()
+        # An item/delta names no turn: a follow that joined mid-message sees
+        # only deltas until the message completes, so the child counts as busy
+        # until a turn ends.
+        busy = {"value": False}
+
+        def running() -> bool:
+            return busy["value"] or bool(running_turns)
+
+        def forwarded(event: SessionEvent[Any]) -> None:
+            # Gated first on stop: a gap fill still in flight on the child must
+            # not yield its frames after the follow ended.
+            if not state["live"]:
+                return
+            forward(event)
+            turn_id = _turn_id_of(event.frame)
+            if turn_id is not None:
+                held = child.fold.turn(turn_id)
+                if held is None or held.state == "running":
+                    running_turns.add(turn_id)
+                else:
+                    running_turns.discard(turn_id)
+                    busy["value"] = False
+            elif event.frame.get("method") == "item/delta":
+                busy["value"] = True
+            if state["finishing"] and not running():
+                stop()
+
+        child._forward_events = forwarded
+        # The subscription is per connection: a second subscribe would replace
+        # one a session already routed here holds (or a resume in flight is
+        # taking) with an empty one at head, losing the frames queued for it.
+        # Ride it.
+        held = child_session_id in self._resuming or child_session_id in self._sessions_by_id
+        self._followers.add(child)
+        self._track(child)
+        subscribed: "asyncio.Future[Any] | None" = None
+        if not held:
+            subscribed = self._connection.request("view/subscribe", {"sessionId": child_session_id})
+
+            def refused(done: "asyncio.Future[Any]") -> None:
+                # Any refusal follows nothing and is not reported: usually a
+                # child that already finished, whose item/completed follows.
+                if done.cancelled() or done.exception() is not None:
+                    self._untrack(child)
+
+            subscribed.add_done_callback(refused)
+
+        def release() -> None:
+            # Not while a session the caller opened routes that id, or a resume
+            # of it is in flight: the subscription is per connection, and
+            # dropping it would starve that session.
+            if child_session_id in self._resuming or child_session_id in self._sessions_by_id:
+                return
+            leaving = self._connection.request("view/unsubscribe", {"sessionId": child_session_id})
+            leaving.add_done_callback(lambda left: None if left.cancelled() else left.exception())
+
+        def unsubscribe(done: "asyncio.Future[Any]") -> None:
+            if done.cancelled() or done.exception() is not None:
+                return
+            release()
+
+        def stop() -> None:
+            if not state["live"]:
+                return
+            state["live"] = False
+            self._untrack(child)
+            on_stopped()
+            if subscribed is None:
+                release()
+            else:
+                subscribed.add_done_callback(unsubscribe)
+
+        def finish() -> None:
+            if running():
+                state["finishing"] = True
+            else:
+                stop()
+
+        return _SubagentFollow(stop=stop, finish=finish)
+
+    def _track(self, session: Session[_I]) -> None:
+        # Add a session to the routing set and its id index.
+        self._sessions.add(session)
+        self._sessions_by_id.setdefault(session.session_id, set()).add(session)
+
+    def _untrack(self, session: Session[_I]) -> None:
+        # Remove a session from the routing set and its id index.
+        self._sessions.discard(session)
+        held = self._sessions_by_id.get(session.session_id)
+        if held is None:
+            return
+        held.discard(session)
+        if not held:
+            del self._sessions_by_id[session.session_id]
 
     def _forward_config(self, method: str, config: SessionConfig) -> SessionConfig:
         # Per-session MCP servers need the ``sessionMcp`` grant in the
@@ -1054,9 +1221,12 @@ class MuseClient(Generic[_I]):
         if not isinstance(named, str):
             return
         delivered = False
-        for session in self._sessions:
-            if session.session_id == named:
-                session.apply(notification)
+        # A snapshot: applying a frame can follow a sub-agent, which joins the set.
+        for session in tuple(self._sessions_by_id.get(named, ())):
+            session.apply(notification)
+            # A sub-agent follow's internal session never counts: a caller's
+            # open of that id must still hold the frames read with its reply.
+            if session not in self._followers:
                 delivered = True
         # An UNKNOWN session with no open in flight is dropped, for the same
         # reason as a nameless frame.
@@ -1104,7 +1274,8 @@ class MuseClient(Generic[_I]):
         if self._closing:
             return
         self._host_died = True
-        for session in self._sessions:
+        # A snapshot: a death stops sub-agent follows, which leave the set.
+        for session in tuple(self._sessions):
             session.host_exited(TransportEof())
 
 

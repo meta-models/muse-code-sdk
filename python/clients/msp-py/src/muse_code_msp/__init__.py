@@ -469,9 +469,21 @@ class ApprovalChoice(_ApprovalChoiceBase, total=False):
     rulePreview: str
 
 
+class _ApprovalCuaBrowserBase(TypedDict):
+    name: str
+
+
+class ApprovalCuaBrowser(_ApprovalCuaBrowserBase, total=False):
+    """A browser card's notices: the first time Computer Use uses a browser on this Mac, and the session's consent before it opens its own window in a browser that comes to the front when it does. A client words each flag itself."""
+
+    firstUse: bool
+    windowConsent: bool
+
+
 class ApprovalCuaCardFacts(TypedDict, total=False):
     """One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`."""
 
+    browser: ApprovalCuaBrowser
     data: list[ApprovalCuaDataFact]
     page: ApprovalCuaPage
     steps: list[ApprovalCuaStep]
@@ -1383,6 +1395,7 @@ class Item(_ItemBase, total=False):
     summary: list[str]
     taskId: str
     terminalRowAfterItemId: str
+    terminalRowBeforeItemId: str
     text: str
     tokenBudget: WorkflowTokenBudget
     tokensAfter: int
@@ -2108,6 +2121,7 @@ class _SchemaInfoBase(TypedDict):
 class SchemaInfo(_SchemaInfoBase, total=False):
     """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
 
+    compatibilityEpoch: int
     experimentalFingerprint: str
 
 

@@ -1,11 +1,17 @@
 /**
  * Recipe: approve or deny the agent's permission request.
  *
- * Runs against `muse-conformance serve-fixture` playing two committed golden
- * transcripts — `schema/msp/transcripts/approval-round-trip` (allow) and
- * `approval-deny-round-trip` (deny) — so this recipe is deterministic and
- * needs no credentials and no model. It plays BOTH arms because the deny path
- * is the one an integrator gets wrong, and the quickstart never shows it.
+ * Runs against `muse-conformance serve-fixture` playing four committed golden
+ * transcripts — `schema/msp/transcripts/approval-round-trip` (allow),
+ * `approval-deny-round-trip` (deny), `approval-choice-invalid` (a choice the
+ * host never offered, refused, then a listed choice) and
+ * `approval-requirement-stale` (a requirement token the host never issued,
+ * refused, then the token the refusal carried) — so this recipe is
+ * deterministic and needs no credentials and no model. It plays the deny arm
+ * because that path is the one an integrator gets wrong and the quickstart
+ * never shows it, and the two refusal arms because a wrong answer is the
+ * other thing an integrator ships: both earn a typed error that leaves the
+ * approval pending, never a failed turn.
  *
  * What it teaches (and what the docs page walks through):
  *  - the host asks TWICE, for two different audiences: `approval/requested` is
@@ -21,6 +27,12 @@
  *    the policy result, and any session-scoped rule amendment land.
  *  - denying is a normal answer, not an error: the turn keeps running and the
  *    agent tells the user what it did not do.
+ *  - a wrong answer is refused, typed, and changes nothing: a `choiceId` the
+ *    host did not list is `-32052 approvalChoiceInvalid` echoing the refused
+ *    id; a `requirementId` that is not the current one is `-32053
+ *    approvalRequirementStale` carrying `currentRequirementId`, the token to
+ *    answer with. The approval stays pending and the corrected decide is
+ *    accepted like any other.
  *
  * Fixture mechanics, so the code below reads honestly: serve-fixture matches
  * our frames structurally against the transcript's client lines and then
@@ -33,6 +45,9 @@
  * (sessionId, approvalId, requirementId) are used as received, exactly as a
  * real client uses them.
  */
+
+import type { ApprovalRequirementRef } from "@muse-code/msp";
+import { MspError } from "@muse-code/sdk";
 
 import { Host, arrayAt, equals, objectAt, requireHost, stringAt, within } from "../kit/host.js";
 import { runJourney } from "../kit/segments.js";
@@ -49,6 +64,22 @@ const PROMPT = "Update Cargo.toml to bump the version";
 const SESSION_START_COMMAND_ID = "0198f0ab-9999-7000-8000-0000000000c1";
 const TURN_START_COMMAND_ID = "018f6a1e-9b3c-7c21-a54a-2f30bd3c9f10";
 const APPROVAL_DECIDE_COMMAND_ID = "018f6a2a-3333-7abc-8def-00000000d001";
+/** The commandId the refusal transcripts record for the decide the host refuses. */
+const REFUSED_DECIDE_COMMAND_ID = "018f6a2a-3333-7abc-8def-00000000d002";
+
+/** A deliberately wrong first decide and the typed refusal it must earn. */
+interface Refusal {
+  /** What the client got wrong, for the segment title and failure text. */
+  readonly what: string;
+  /** The JSON-RPC code the host must answer with. */
+  readonly code: number;
+  /** The `data.kind` the host must answer with; the branch key, never message text. */
+  readonly kind: string;
+  /** Sent instead of the arm's choice; the request segment proves the host did not offer it. */
+  readonly unofferedChoiceId?: string;
+  /** Send a requirement token the host did not issue instead of the current one. */
+  readonly staleRequirement?: true;
+}
 
 /** One arm of the recipe: the same round trip, a different answer. */
 interface Arm {
@@ -64,6 +95,8 @@ interface Arm {
   readonly decision: string;
   /** The policy result `approval/resolved` must report. */
   readonly policyResult: string;
+  /** Present on the arms that first send a wrong answer and read the refusal. */
+  readonly refusal?: Refusal;
 }
 
 const ALLOW: Arm = {
@@ -83,6 +116,34 @@ const DENY: Arm = {
   policyResult: "deny",
 };
 
+const INVALID_CHOICE: Arm = {
+  id: "invalid-choice",
+  scenario: "approval-choice-invalid",
+  choiceId: "allow_once",
+  decision: "approved",
+  policyResult: "allow",
+  refusal: {
+    what: 'a hardcoded choice id the host never offered ("allow")',
+    code: -32052,
+    kind: "approvalChoiceInvalid",
+    unofferedChoiceId: "allow",
+  },
+};
+
+const STALE_REQUIREMENT: Arm = {
+  id: "stale-requirement",
+  scenario: "approval-requirement-stale",
+  choiceId: "allow_once",
+  decision: "approved",
+  policyResult: "allow",
+  refusal: {
+    what: "a requirement token the host never issued",
+    code: -32053,
+    kind: "approvalRequirementStale",
+    staleRequirement: true,
+  },
+};
+
 interface Context {
   readonly conformanceBin: string;
   readonly transcriptRoot: string;
@@ -90,7 +151,7 @@ interface Context {
   sessionId?: string;
   turnId?: string;
   approvalId?: string;
-  requirementId?: unknown;
+  requirementId?: ApprovalRequirementRef;
   /** Settles once the reply to `approval/request` has been written. */
   answered?: Promise<void>;
 }
@@ -100,7 +161,95 @@ function requireString(value: string | undefined, what: string): string {
   return value;
 }
 
+function requireRequirement(context: Context): ApprovalRequirementRef {
+  if (context.requirementId === undefined) {
+    throw new Error("the current requirement is not known: an earlier segment did not finish");
+  }
+  return context.requirementId;
+}
+
+/** Run `action` and hand back the MspError it must raise; anything else is a failure. */
+async function refusedBy(what: string, action: () => Promise<unknown>): Promise<MspError> {
+  try {
+    await action();
+  } catch (error) {
+    if (error instanceof MspError) return error;
+    throw error;
+  }
+  throw new Error(`the host accepted ${what}; it must answer a typed refusal`);
+}
+
+/**
+ * The refusal arms' extra step: send the wrong answer first, read the typed
+ * refusal, and prove it changed nothing. Lives between the request and the
+ * (now corrected) decide.
+ */
+function refusedSegment(arm: Arm, refusal: Refusal): Segment<Context> {
+  return {
+    id: `${arm.id}-refused`,
+    title: `Send ${refusal.what} and read the typed refusal`,
+    async run(context) {
+      const host = requireHost(context);
+      const sessionId = requireString(context.sessionId, "the session id");
+      const approvalId = requireString(context.approvalId, "the approval id");
+      const current = requireRequirement(context);
+      // Reply first, decision second — see the spawn segment. This is the
+      // arm's first decide, so the ordering wait lives here.
+      if (context.answered === undefined) throw new Error("`spawn` did not finish");
+      await within("the reply to approval/request", COMMAND_BUDGET_MS, context.answered);
+      await host.msp.connection.flush();
+
+      // The wrong answer, built the way a buggy client builds it: a token it
+      // computed itself instead of quoting the host's, or a choice id copied
+      // from somewhere this host never offered it.
+      let requirementId: ApprovalRequirementRef = current;
+      if (refusal.staleRequirement) {
+        if (!Number.isInteger(current.sourceIndex)) {
+          throw new Error(`currentRequirementId.sourceIndex is not an integer: ${JSON.stringify(current)}`);
+        }
+        requirementId = { ...current, sourceIndex: current.sourceIndex + 1 };
+      }
+      const choiceId = refusal.unofferedChoiceId ?? arm.choiceId;
+      const refused = await refusedBy(refusal.what, () =>
+        host.msp.connection.command(
+          "approval/decide",
+          { sessionId, approvalId, requirementId, choiceId },
+          { maxAttempts: 1, commandId: REFUSED_DECIDE_COMMAND_ID },
+        ),
+      );
+      // Branch on code and kind, never on message text.
+      equals(refused.code, refusal.code, "the refusal's code");
+      equals(refused.kind, refusal.kind, "the refusal's kind");
+      equals(refused.data["approvalId"], approvalId, "the approval the refusal names");
+      if (refusal.unofferedChoiceId !== undefined) {
+        equals(refused.data["choiceId"], refusal.unofferedChoiceId, "the choice id the refusal echoes");
+      }
+      if (refusal.staleRequirement) {
+        // The refusal carries the token to answer with. Take it from there,
+        // as a real client would, and check it is the one the request taught.
+        const recovered = objectAt(refused.data, "currentRequirementId", "approvalRequirementStale data");
+        equals(recovered["approvalId"], current.approvalId, "the current requirement's approval id");
+        equals(recovered["sourceIndex"], current.sourceIndex, "the current requirement's source index");
+        context.requirementId = recovered as unknown as ApprovalRequirementRef;
+      }
+      // Nothing was decided: no outcome followed the refusal, so the approval
+      // is still pending and the corrected answer below is a first answer.
+      const resolved = host
+        .notifications()
+        .some(
+          (notification) =>
+            notification.method === "approval/resolved" &&
+            notification.params["approvalId"] === approvalId,
+        );
+      if (resolved) {
+        throw new Error("the refused decide resolved the approval; a refusal must leave it pending");
+      }
+    },
+  };
+}
+
 function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
+  const refusal = arm.refusal;
   return [
     {
       id: `${arm.id}-spawn`,
@@ -240,6 +389,13 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
             `the host did not offer "${arm.choiceId}"; it offered ${JSON.stringify(offered)}`,
           );
         }
+        if (refusal?.unofferedChoiceId !== undefined && offered.includes(refusal.unofferedChoiceId)) {
+          // The refusal arm sends this id BECAUSE the host never offered it;
+          // an offered id would make the arm's refusal pass vacuously.
+          throw new Error(
+            `the host offered "${refusal.unofferedChoiceId}", so sending it is not a wrong answer; it offered ${JSON.stringify(offered)}`,
+          );
+        }
         if (arm.feedback !== undefined) {
           // Feedback rides along only where the host says it is accepted.
           const chosen = choices.find(
@@ -254,18 +410,21 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
           event.params,
           "currentRequirementId",
           "approval/requested params",
-        );
+        ) as unknown as ApprovalRequirementRef;
       },
     },
+    ...(refusal === undefined ? [] : [refusedSegment(arm, refusal)]),
     {
       id: `${arm.id}-decide`,
-      title: `Answer with "${arm.choiceId}"`,
+      title: refusal === undefined ? `Answer with "${arm.choiceId}"` : `Answer again with "${arm.choiceId}"`,
       async run(context) {
         const host = requireHost(context);
         const sessionId = requireString(context.sessionId, "the session id");
         const approvalId = requireString(context.approvalId, "the approval id");
+        const requirementId = requireRequirement(context);
         // Reply first, decision second — see the spawn segment. Bounded, so a
-        // handler that never fires reports that instead of hanging.
+        // handler that never fires reports that instead of hanging. (On a
+        // refusal arm the refused decide already waited; this is a no-op.)
         if (context.answered === undefined) throw new Error("`spawn` did not finish");
         await within("the reply to approval/request", COMMAND_BUDGET_MS, context.answered);
         await host.msp.connection.flush();
@@ -274,7 +433,7 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
           {
             sessionId,
             approvalId,
-            requirementId: context.requirementId,
+            requirementId,
             choiceId: arm.choiceId,
             ...(arm.feedback === undefined ? {} : { feedback: arm.feedback }),
           },
@@ -305,6 +464,12 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
         equals(resolved.params["decision"], arm.decision, "the decision");
         equals(resolved.params["policyResult"], arm.policyResult, "the policy result");
         equals(resolved.params["resolvedBy"], "user", "who resolved the approval");
+        // Which decide won: the corrected (or only) decide, never a refused one.
+        equals(
+          resolved.params["decidedByCommandId"],
+          APPROVAL_DECIDE_COMMAND_ID,
+          "the command that decided",
+        );
 
         // A session-scoped choice also amends policy, so the same subject is
         // not asked about again for the rest of the session. A once-scoped or
@@ -364,7 +529,12 @@ function armSegments(arm: Arm): ReadonlyArray<Segment<Context>> {
   ];
 }
 
-const SEGMENTS: ReadonlyArray<Segment<Context>> = [...armSegments(ALLOW), ...armSegments(DENY)];
+const SEGMENTS: ReadonlyArray<Segment<Context>> = [
+  ...armSegments(ALLOW),
+  ...armSegments(DENY),
+  ...armSegments(INVALID_CHOICE),
+  ...armSegments(STALE_REQUIREMENT),
+];
 
 export const approveOrDeny: Recipe = {
   id: "approve-or-deny",

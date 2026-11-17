@@ -67,6 +67,11 @@ pub enum SkillSource {
     Project,
     /// Contributed by an installed plugin (`pluginId` names it).
     Plugin,
+    /// Offered by the session's Skill Provider client; the `selector` is
+    /// `msp:<name>`. Experimental: the per-variant stability strips it from the
+    /// stable JSON bundle; the Rust render keeps it, so a Rust client's match
+    /// reaches its catch-all arm.
+    SkillProvider,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

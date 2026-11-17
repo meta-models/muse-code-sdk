@@ -134,7 +134,8 @@ pub struct SessionSideChatResult {
     pub session: Session,
     /// The new side session's view head.
     pub view_cursor: String,
-    /// The served history.
+    /// The served history: inline, with empty items, since the side opens
+    /// empty.
     pub history: SessionHistory,
     /// The late-joiner pointer set.
     pub pending_requests: Vec<PendingRequestPointer>,

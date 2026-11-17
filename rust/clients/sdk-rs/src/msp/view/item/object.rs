@@ -9,6 +9,8 @@ pub use replay_hint::ReplayHint;
 pub use scheduled_fire::ScheduledFireMembers;
 pub use subagent_members::SubagentMembers;
 pub use tool_call::ToolCallMembers;
+pub use web_search::WebSearchMembers;
+pub use workflow::WorkflowMembers;
 
 pub(crate) mod body_completion;
 pub(crate) mod item;
@@ -17,3 +19,5 @@ pub(crate) mod replay_hint;
 pub(crate) mod scheduled_fire;
 pub(crate) mod subagent_members;
 pub(crate) mod tool_call;
+pub(crate) mod web_search;
+pub(crate) mod workflow;

@@ -1,16 +1,24 @@
 """Recipe twin: approve or deny the agent's permission request.
 
-Runs against ``muse-conformance serve-fixture`` playing two committed golden
-transcripts — ``approval-round-trip`` (allow) and ``approval-deny-round-trip``
-(deny) — so it is deterministic and needs no credentials and no model. It
-plays BOTH arms because the deny path is the one an integrator gets wrong,
-and the quickstart never shows it.
+Runs against ``muse-conformance serve-fixture`` playing four committed golden
+transcripts — ``approval-round-trip`` (allow), ``approval-deny-round-trip``
+(deny), ``approval-choice-invalid`` (a choice the host never offered, refused,
+then a listed choice) and ``approval-requirement-stale`` (a requirement token
+the host never issued, refused, then the token the refusal carried) — so it
+is deterministic and needs no credentials and no model. It plays the deny arm
+because that path is the one an integrator gets wrong and the quickstart
+never shows it, and the two refusal arms because a wrong answer is the other
+thing an integrator ships: both earn a typed error that leaves the approval
+pending, never a failed turn.
 
 What it teaches (the docs page walks the same points): the host asks TWICE,
 for two audiences (``approval/requested`` for your UI, ``approval/request``
 as a JSON-RPC request the client must answer — reply first, decide second);
 answer with a ``choiceId`` the host OFFERED; the ack is not the outcome —
-``approval/resolved`` is; and denying is a normal answer, not an error.
+``approval/resolved`` is; denying is a normal answer, not an error; and a
+wrong answer is refused, typed (``-32052 approvalChoiceInvalid`` echoing the
+refused id, ``-32053 approvalRequirementStale`` carrying the current token),
+and changes nothing.
 """
 
 from __future__ import annotations
@@ -19,7 +27,9 @@ import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Awaitable, Callable, Mapping
+
+from muse_code.connection import MspError
 
 from ..kit import (
     array_at,
@@ -46,6 +56,30 @@ PROMPT = "Update Cargo.toml to bump the version"
 SESSION_START_COMMAND_ID = "0198f0ab-9999-7000-8000-0000000000c1"
 TURN_START_COMMAND_ID = "018f6a1e-9b3c-7c21-a54a-2f30bd3c9f10"
 APPROVAL_DECIDE_COMMAND_ID = "018f6a2a-3333-7abc-8def-00000000d001"
+# The commandId the refusal transcripts record for the decide the host refuses.
+REFUSED_DECIDE_COMMAND_ID = "018f6a2a-3333-7abc-8def-00000000d002"
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """A deliberately wrong first decide and the typed refusal it must earn.
+
+    Attributes:
+        what: What the client got wrong, for the segment title and failures.
+        code: The JSON-RPC code the host must answer with.
+        kind: The ``data.kind`` the host must answer with; the branch key,
+            never message text.
+        unoffered_choice_id: Sent instead of the arm's choice; the request
+            segment proves the host did not offer it.
+        stale_requirement: Send a requirement token the host did not issue
+            instead of the current one.
+    """
+
+    what: str
+    code: int
+    kind: str
+    unoffered_choice_id: str | None = None
+    stale_requirement: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,6 +94,8 @@ class Arm:
         decision: The decision ``approval/resolved`` must report.
         policy_result: The policy result ``approval/resolved`` must report.
         feedback: Sent only when the chosen option accepts feedback.
+        refusal: Present on the arms that first send a wrong answer and read
+            the refusal.
     """
 
     id: str
@@ -68,6 +104,7 @@ class Arm:
     decision: str
     policy_result: str
     feedback: str | None = None
+    refusal: Refusal | None = None
 
 
 ALLOW = Arm(
@@ -85,6 +122,34 @@ DENY = Arm(
     feedback="Do not modify the manifest",
     decision="abort",
     policy_result="deny",
+)
+
+INVALID_CHOICE = Arm(
+    id="invalid-choice",
+    scenario="approval-choice-invalid",
+    choice_id="allow_once",
+    decision="approved",
+    policy_result="allow",
+    refusal=Refusal(
+        what='a hardcoded choice id the host never offered ("allow")',
+        code=-32052,
+        kind="approvalChoiceInvalid",
+        unoffered_choice_id="allow",
+    ),
+)
+
+STALE_REQUIREMENT = Arm(
+    id="stale-requirement",
+    scenario="approval-requirement-stale",
+    choice_id="allow_once",
+    decision="approved",
+    policy_result="allow",
+    refusal=Refusal(
+        what="a requirement token the host never issued",
+        code=-32053,
+        kind="approvalRequirementStale",
+        stale_requirement=True,
+    ),
 )
 
 
@@ -106,6 +171,21 @@ def _known(value: str | None, what: str) -> str:
     if value is None:
         raise RuntimeError(f"{what} is not known: an earlier segment did not finish")
     return value
+
+
+def _known_requirement(context: "Context") -> Mapping[str, Any]:
+    if context.requirement_id is None:
+        raise RuntimeError("the current requirement is not known: an earlier segment did not finish")
+    return context.requirement_id
+
+
+async def _refused_by(what: str, action: Callable[[], Awaitable[Any]]) -> MspError:
+    """Run ``action`` and hand back the MspError it must raise; anything else is a failure."""
+    try:
+        await action()
+    except MspError as error:
+        return error
+    raise AssertionError(f"the host accepted {what}; it must answer a typed refusal")
 
 
 def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
@@ -211,6 +291,18 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
             raise AssertionError(
                 f'the host did not offer "{arm.choice_id}"; it offered {offered!r}'
             )
+        refusal = arm.refusal
+        if (
+            refusal is not None
+            and refusal.unoffered_choice_id is not None
+            and refusal.unoffered_choice_id in offered
+        ):
+            # The refusal arm sends this id BECAUSE the host never offered it;
+            # an offered id would make the arm's refusal pass vacuously.
+            raise AssertionError(
+                f'the host offered "{refusal.unoffered_choice_id}", so sending it is '
+                f"not a wrong answer; it offered {offered!r}"
+            )
         if arm.feedback is not None:
             # Feedback rides along only where the host says it is accepted.
             chosen = next(c for c in choices if c.get("choiceId") == arm.choice_id)
@@ -226,12 +318,97 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
             event.params, "currentRequirementId", "approval/requested params"
         )
 
+    async def refused(context: Context) -> None:
+        refusal = arm.refusal
+        if refusal is None:
+            raise RuntimeError(f"{arm.id} has no refusal to send")
+        host = require_host(context.host, f"{arm.id}-spawn")
+        session_id = _known(context.session_id, "the session id")
+        approval_id = _known(context.approval_id, "the approval id")
+        current = _known_requirement(context)
+        # Reply first, decision second — see the spawn segment. This is the
+        # arm's first decide, so the ordering wait lives here.
+        if context.answered is None:
+            raise RuntimeError(f"`{arm.id}-spawn` did not finish")
+        await within(
+            "the reply to approval/request", COMMAND_BUDGET_MS, context.answered.wait()
+        )
+        await within("the reply flush", COMMAND_BUDGET_MS, host.connection.flush())
+
+        # The wrong answer, built the way a buggy client builds it: a token it
+        # computed itself instead of quoting the host's, or a choice id copied
+        # from somewhere this host never offered it.
+        requirement_id: Mapping[str, Any] = current
+        if refusal.stale_requirement:
+            index = current.get("sourceIndex")
+            if not isinstance(index, int):
+                raise AssertionError(
+                    f"currentRequirementId.sourceIndex is not an integer: {current!r}"
+                )
+            requirement_id = {**current, "sourceIndex": index + 1}
+        choice_id = refusal.unoffered_choice_id or arm.choice_id
+        params: dict[str, Any] = {
+            "sessionId": session_id,
+            "approvalId": approval_id,
+            "requirementId": requirement_id,
+            "choiceId": choice_id,
+        }
+        error = await _refused_by(
+            refusal.what,
+            lambda: within(
+                "the refused approval/decide",
+                COMMAND_BUDGET_MS,
+                host.connection.command(
+                    "approval/decide",
+                    params,
+                    max_attempts=1,
+                    command_id=REFUSED_DECIDE_COMMAND_ID,
+                ),
+            ),
+        )
+        # Branch on code and kind, never on message text.
+        equals(error.code, refusal.code, "the refusal's code")
+        equals(error.kind, refusal.kind, "the refusal's kind")
+        equals(error.data.get("approvalId"), approval_id, "the approval the refusal names")
+        if refusal.unoffered_choice_id is not None:
+            equals(
+                error.data.get("choiceId"),
+                refusal.unoffered_choice_id,
+                "the choice id the refusal echoes",
+            )
+        if refusal.stale_requirement:
+            # The refusal carries the token to answer with. Take it from there,
+            # as a real client would, and check it is the one the request taught.
+            recovered = object_at(error.data, "currentRequirementId", "approvalRequirementStale data")
+            equals(
+                recovered.get("approvalId"),
+                current.get("approvalId"),
+                "the current requirement's approval id",
+            )
+            equals(
+                recovered.get("sourceIndex"),
+                current.get("sourceIndex"),
+                "the current requirement's source index",
+            )
+            context.requirement_id = recovered
+        # Nothing was decided: no outcome followed the refusal, so the approval
+        # is still pending and the corrected answer below is a first answer.
+        if any(
+            n.method == "approval/resolved" and n.params.get("approvalId") == approval_id
+            for n in host.notifications()
+        ):
+            raise AssertionError(
+                "the refused decide resolved the approval; a refusal must leave it pending"
+            )
+
     async def decide(context: Context) -> None:
         host = require_host(context.host, f"{arm.id}-spawn")
         session_id = _known(context.session_id, "the session id")
         approval_id = _known(context.approval_id, "the approval id")
+        requirement_id = _known_requirement(context)
         # Reply first, decision second — see the spawn segment. Bounded, so a
-        # handler that never fires reports that instead of hanging.
+        # handler that never fires reports that instead of hanging. (On a
+        # refusal arm the refused decide already waited; this is a no-op.)
         if context.answered is None:
             raise RuntimeError(f"`{arm.id}-spawn` did not finish")
         await within(
@@ -241,7 +418,7 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
         params: dict[str, Any] = {
             "sessionId": session_id,
             "approvalId": approval_id,
-            "requirementId": context.requirement_id,
+            "requirementId": requirement_id,
             "choiceId": arm.choice_id,
         }
         if arm.feedback is not None:
@@ -268,6 +445,12 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
         equals(outcome.params.get("decision"), arm.decision, "the decision")
         equals(outcome.params.get("policyResult"), arm.policy_result, "the policy result")
         equals(outcome.params.get("resolvedBy"), "user", "who resolved the approval")
+        # Which decide won: the corrected (or only) decide, never a refused one.
+        equals(
+            outcome.params.get("decidedByCommandId"),
+            APPROVAL_DECIDE_COMMAND_ID,
+            "the command that decided",
+        )
 
         # A session-scoped choice also amends policy; a once-scoped or denying
         # choice carries no amendment — that difference IS the scope.
@@ -316,6 +499,18 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
         # Only the host slot: the NEXT arm's spawn is the authoritative reset.
         context.host = None
 
+    refusal_segments: tuple[Segment[Context], ...] = ()
+    decide_title = f'Answer with "{arm.choice_id}"'
+    if arm.refusal is not None:
+        refusal_segments = (
+            Segment(
+                f"{arm.id}-refused",
+                f"Send {arm.refusal.what} and read the typed refusal",
+                refused,
+            ),
+        )
+        decide_title = f'Answer again with "{arm.choice_id}"'
+
     return (
         Segment(
             f"{arm.id}-spawn",
@@ -328,7 +523,8 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
             "Take the request off the wire and read the choices the host offers",
             request,
         ),
-        Segment(f"{arm.id}-decide", f'Answer with "{arm.choice_id}"', decide),
+        *refusal_segments,
+        Segment(f"{arm.id}-decide", decide_title, decide),
         Segment(
             f"{arm.id}-resolved",
             "Read the outcome off approval/resolved, then let the turn finish",
@@ -338,7 +534,12 @@ def _arm_segments(arm: Arm) -> tuple[Segment[Context], ...]:
     )
 
 
-SEGMENTS: tuple[Segment[Context], ...] = (*_arm_segments(ALLOW), *_arm_segments(DENY))
+SEGMENTS: tuple[Segment[Context], ...] = (
+    *_arm_segments(ALLOW),
+    *_arm_segments(DENY),
+    *_arm_segments(INVALID_CHOICE),
+    *_arm_segments(STALE_REQUIREMENT),
+)
 
 
 async def _run(hosts: RecipeHosts) -> JourneyReport:

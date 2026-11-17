@@ -20,6 +20,7 @@ impl CapabilityName {
             Self::Journal => "journal",
             Self::DaemonVacate => "daemonVacate",
             Self::LaunchContext => "launchContext",
+            Self::SkillProvider => "skillProvider",
             Self::Unknown(word) => word,
         }
     }
@@ -48,6 +49,7 @@ impl<'de> Deserialize<'de> for CapabilityName {
             "journal" => Self::Journal,
             "daemonVacate" => Self::DaemonVacate,
             "launchContext" => Self::LaunchContext,
+            "skillProvider" => Self::SkillProvider,
             _ => Self::Unknown(word),
         })
     }

@@ -24,6 +24,30 @@ pub struct ApprovalCuaCardFacts {
     /// offers only one-shot choices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub data: Vec<ApprovalCuaDataFact>,
+    /// For a browser card, the notices it carries; absent unless at least
+    /// one shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<ApprovalCuaBrowser>,
+}
+
+/// A browser card's notices: the first time Computer Use uses a browser on
+/// this Mac, and the session's consent before it opens its own window in a
+/// browser that comes to the front when it does. A client words each flag
+/// itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ApprovalCuaBrowser {
+    /// The browser's display name.
+    pub name: String,
+    /// Show the first-use notice: Computer Use hasn't used this browser on
+    /// this Mac before and will act signed in as the person.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub first_use: bool,
+    /// Show the window consent line: Computer Use will open its own window
+    /// in this browser and bring the browser to the front, once per session.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub window_consent: bool,
 }
 
 /// The page's full host, no path or query.

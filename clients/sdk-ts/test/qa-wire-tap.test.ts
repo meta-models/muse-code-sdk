@@ -75,7 +75,12 @@ async function driveScriptedHost(
 
   try {
     const result = await initialized.connection.request("session/list", {});
-    observations.push({ kind: "requestOk", step: "list", method: "session/list", result });
+    observations.push({
+      kind: "requestOk",
+      step: "list",
+      method: "session/list",
+      result: result as unknown as Record<string, unknown>,
+    });
   } catch (error) {
     observations.push({
       kind: "requestError",

@@ -148,6 +148,16 @@ export class GapFiller<I> {
     this.#buffer.push(frame);
   }
 
+  /** The cursors of the live frames held for the running fill, in arrival order. */
+  heldCursors(): string[] {
+    const cursors: string[] = [];
+    for (const frame of this.#buffer) {
+      const cursor = GapFiller.#viewCursorOf(frame);
+      if (cursor !== undefined) cursors.push(cursor);
+    }
+    return cursors;
+  }
+
   /**
    * Recover the fold's outstanding hole.
    *
@@ -321,11 +331,7 @@ export class GapFiller<I> {
       limit: PAGE_LIMIT,
       sessionId: this.#options.sessionId,
     };
-    const raw = await connection.request(
-      "view/page",
-      params as unknown as Record<string, unknown>,
-    );
-    return raw as unknown as ViewPageResult;
+    return await connection.request("view/page", params);
   }
 
   /**

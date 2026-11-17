@@ -390,13 +390,10 @@ export class ApprovalRouter {
       // No explicit `commandId`: unlike `sendUserTurn`, nothing here needs the
       // id before the ack, so `Connection.command()` mints and stamps it — and
       // its own SS3.1.1 retry then reuses that id for free.
-      const ack = await connection.command(
-        "approval/decide",
-        decideParams as unknown as Record<string, unknown>,
-      );
+      const ack = await connection.command("approval/decide", decideParams);
       // A `terminal: true` ack closed the WHOLE approval; remember it so the
       // trailing stale-frontier update #37538 permits cannot re-prompt.
-      if (ack["terminal"] === true) this.#terminalApprovals.add(approvalId);
+      if (ack.terminal === true) this.#terminalApprovals.add(approvalId);
     } catch (error) {
       this.#report({ approvalId, error, kind: "submitFailed" });
     } finally {

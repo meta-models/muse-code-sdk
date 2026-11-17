@@ -138,6 +138,11 @@ test("a served fingerprint mismatch warns and never throws (SS1.4.1)", () => {
   assert.equal(warning.kind, "schemaFingerprintMismatch");
   assert.equal(warning.served, "sha256:something-else");
   assert.equal(warning.pinned, EXPECTED_SCHEMA_FINGERPRINT);
+  // FR-22936-6: with only a fingerprint the reading is the additive tier
+  // and the served epoch stays unknown; a served epoch must never be
+  // substituted on this path.
+  assert.equal(warning.tier, "additive");
+  assert.equal(warning.servedEpoch, undefined);
 });
 
 test("the TypeScript pin matches the one CI already enforces", () => {

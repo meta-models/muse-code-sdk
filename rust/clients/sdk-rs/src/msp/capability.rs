@@ -65,6 +65,12 @@ pub enum CapabilityName {
     /// that requests it is told the invocation id and context the launcher
     /// started this process with. Experimental-tier only; gates no method.
     LaunchContext,
+    /// The Skill Provider: named only as `-32010`'s `data.capability` when a
+    /// connection without the effective `initialize` member `skillProvider`
+    /// sends `skillProvider/updated`. Never granted through
+    /// `requestedCapabilities`: the client declares it in
+    /// `capabilities.skillProvider` instead, so it is in no grantable list.
+    SkillProvider,
     /// A value from a newer host, kept verbatim so an older client decodes the
     /// rest of the message. Never construct it with a known word.
     Unknown(String),

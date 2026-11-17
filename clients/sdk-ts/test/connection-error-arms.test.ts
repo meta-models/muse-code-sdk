@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 
 import { Connection, ProtocolError } from "../src/index.js";
 import type { DuplexTransport } from "../src/index.js";
+import { mechanicsConnection, settlement } from "./helpers/fake-duplex.js";
 
 class AsyncChunks implements AsyncIterable<string> {
   readonly #chunks: string[] = [];
@@ -83,29 +84,6 @@ async function waitForWrites(transport: FakeDuplex, count: number): Promise<void
     await Promise.resolve();
   }
   assert.equal(transport.writes.length, count, `expected ${count} write(s)`);
-}
-
-/** Observe a promise's settlement within bounded macrotask turns — never hang the suite. */
-async function settlement(
-  promise: Promise<unknown>,
-  turns = 50,
-): Promise<{ state: "pending" | "resolved" | "rejected"; value: unknown }> {
-  let state: "pending" | "resolved" | "rejected" = "pending";
-  let value: unknown;
-  void promise.then(
-    (resolved) => {
-      state = "resolved";
-      value = resolved;
-    },
-    (rejected) => {
-      state = "rejected";
-      value = rejected;
-    },
-  );
-  for (let turn = 0; turn < turns && state === "pending"; turn += 1) {
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-  return { state, value };
 }
 
 async function pumpMacrotasks(turns: number): Promise<void> {
@@ -226,7 +204,7 @@ test("TEST-015: malformed matched-response payloads reject with the sibling arms
 
 test("TEST-015: request-after-close, commandId reuse, and a non-echoing ack all fail closed", async () => {
   const transport = new FakeDuplex();
-  const connection = new Connection(transport, {
+  const connection = mechanicsConnection(transport, {
     mintCommandId: () => "018f6a1e-9b3c-7c21-a54a-000000000001",
   });
 
@@ -421,7 +399,7 @@ test("TEST-015: a reply write failing with a request in flight settles closed an
 
 test("TEST-016: the default commandId mint produces distinct RFC-9562 UUIDv7 ids (INV-013)", async () => {
   const transport = new FakeDuplex();
-  const connection = new Connection(transport); // no mintCommandId injected
+  const connection = mechanicsConnection(transport); // no mintCommandId injected
   const v7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
   const first = connection.command("turn/start", { n: 1 }, { maxAttempts: 1 });

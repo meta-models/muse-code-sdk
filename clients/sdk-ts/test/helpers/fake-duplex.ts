@@ -10,7 +10,26 @@
 
 import assert from "node:assert/strict";
 
-import type { DuplexTransport } from "../../src/index.js";
+import { Connection } from "../../src/index.js";
+import type { CommandOptions, DuplexTransport } from "../../src/index.js";
+
+/**
+ * A connection whose `request`/`command` also accept any method and params:
+ * the connection-mechanics tests send deliberately fake params, which the
+ * typed overloads rightly reject.
+ */
+export type MechanicsConnection = Connection & {
+  request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  command(
+    method: string,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>>;
+};
+
+export function mechanicsConnection(...args: ConstructorParameters<typeof Connection>): MechanicsConnection {
+  return new Connection(...args) as MechanicsConnection;
+}
 
 /** A push-driven async iterable of inbound chunks. */
 export class AsyncChunks implements AsyncIterable<string> {
@@ -79,6 +98,29 @@ export async function waitForWrites(transport: FakeDuplex, count: number): Promi
  */
 export async function settleMicrotasks(turns = 50): Promise<void> {
   for (let turn = 0; turn < turns; turn += 1) await Promise.resolve();
+}
+
+/** Observe a promise's settlement within bounded macrotask turns — never hang the suite. */
+export async function settlement(
+  promise: Promise<unknown>,
+  turns = 50,
+): Promise<{ state: "pending" | "resolved" | "rejected"; value: unknown }> {
+  let state: "pending" | "resolved" | "rejected" = "pending";
+  let value: unknown;
+  void promise.then(
+    (resolved) => {
+      state = "resolved";
+      value = resolved;
+    },
+    (rejected) => {
+      state = "rejected";
+      value = rejected;
+    },
+  );
+  for (let turn = 0; turn < turns && state === "pending"; turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  return { state, value };
 }
 
 /** The nth outbound frame, parsed. */

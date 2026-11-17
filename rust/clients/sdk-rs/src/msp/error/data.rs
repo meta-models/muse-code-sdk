@@ -226,6 +226,15 @@ pub struct ErrorData {
     /// `limitsAboveMax`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub axes: Option<Vec<crate::msp::method::limits::LimitsAboveMaxAxis>>,
+    /// What caps the ceiling, on `limitsAboveMax`: always present on that
+    /// refusal, never elsewhere. `daemonDefault` means the daemon runs without
+    /// `--allow-session-posture` and the ceiling is its own start posture;
+    /// `managedPolicy` means the allowance is on and the refusal is the managed
+    /// cap itself. A client that sees `daemonDefault` may offer a start within
+    /// the ceiling or a daemon restart; one that sees `managedPolicy` knows a
+    /// restart cannot raise the ceiling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ceiling_kind: Option<crate::msp::method::limits::LimitsCeilingKind>,
     /// How long until the next refresh may mint, on `usageRefreshRateLimited`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
@@ -290,6 +299,7 @@ impl ErrorData {
             key_path: None,
             index: None,
             axes: None,
+            ceiling_kind: None,
             retry_after_ms: None,
             failure_kind: None,
         }

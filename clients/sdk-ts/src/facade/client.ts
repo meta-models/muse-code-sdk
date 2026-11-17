@@ -41,9 +41,18 @@ import type {
   Connection,
   ProtocolErrorHandler,
 } from "../connection/connection.js";
+import type {
+  CommandParams,
+  MethodName,
+  MethodParams,
+  ParamsArgument,
+  UnlistedMethod,
+  WireResult,
+} from "../connection/surface.js";
 import type { DeepReadonly } from "../fold/session-fold.js";
 import { discoverMuseBin } from "../connection/discovery.js";
-import { initializeAnswered, SIGTERM_GRACE_MS, spawnMspConnection } from "../connection/spawn.js";
+import { abortError, initializeAnswered, SIGTERM_GRACE_MS, spawnMspConnection } from "../connection/spawn.js";
+import { SchemaCompatibilityError } from "../fingerprint.js";
 import type {
   ExitClassification,
   MuseServeChild,
@@ -51,7 +60,6 @@ import type {
   SpawnedMspConnection,
 } from "../connection/spawn.js";
 import {
-  MuseCapabilityNotGrantedError,
   MuseFacadeOwnedMethodError,
   MuseSessionDiscardedError,
   PermissionProfileNotApplied,
@@ -64,8 +72,18 @@ import type { SessionDurabilityProfile } from "./host-death.js";
 import { MspError, peerEndCause, ProtocolError } from "../connection/connection.js";
 import { hostStartFailure } from "./host-start.js";
 import type { ApprovalFailureHandler, ApprovalHandler } from "./approval.js";
-import { pumpDropsApplyResults, Session } from "./session.js";
-import type { SessionOpening } from "./session.js";
+import {
+  endEventStreams,
+  followsSubagents,
+  forwardedConfig,
+  forwardsEvents,
+  grantedCapabilities,
+  pumpDropsApplyResults,
+  resumeResultOf,
+  serverRequestFrame,
+  Session,
+} from "./session.js";
+import type { SessionEvent, SessionOpening, SubagentFollow } from "./session.js";
 import type {
   InitializeParams,
   InitializeResult,
@@ -202,19 +220,24 @@ type FacadeOwnedMethod = (typeof FACADE_OWNED_METHODS)[number];
  */
 const FACADE_OWNED: ReadonlySet<string> = new Set(FACADE_OWNED_METHODS);
 
-/**
- * The names `command`/`request` offer: the stable methods the facade does not
- * own, plus any other string, because the generated types this package ships
- * name stable methods only and experimental ones must still go through.
- */
-type RawMethodName = Exclude<MspMethod, FacadeOwnedMethod> | (string & {});
-/** `M`, or `never` when `M` is a facade-owned literal: keeps the compile-time refusal the `string` fallback would lose. */
-type RawMethod<M extends string> = M & (M extends FacadeOwnedMethod ? never : unknown);
+/** The methods `command`/`request` type from the surface's map: every listed one the facade does not own. */
+type RawMethodName = Exclude<MethodName, FacadeOwnedMethod>;
+/** `M` itself when no member of it is facade-owned, else `never`. */
+type NotFacadeOwned<M extends string> = M & ([Extract<M, FacadeOwnedMethod>] extends [never] ? unknown : never);
+// Every facade-owned method is a stable method, so the untyped fallback
+// (`UnlistedMethod<MethodName, M>`) refuses it too.
 
 /** Every `SessionListParams` member `listSessions` forwards. */
 const LIST_FORWARDED = ["cursor", "filter", "limit", "updatedAfter", "workspaceRoot"] as const;
 /** @internal */
 export type _ListIsExhaustive = AssertNever<Exclude<keyof SessionListParams, (typeof LIST_FORWARDED)[number]>>;
+
+/** The turn a view frame belongs to: its own `turnId`, else its item's. */
+function turnIdOf(frame: ViewFrame): string | undefined {
+  const params = frame.params as { turnId?: unknown; item?: { turnId?: unknown } } | undefined;
+  const turnId = params?.turnId ?? params?.item?.turnId;
+  return typeof turnId === "string" ? turnId : undefined;
+}
 
 /**
  * The caller's capability posture with `sessionMcp` added to its requests,
@@ -353,6 +376,26 @@ export interface MuseClientSpawnOptions {
    */
   readonly spawnFn?: MuseServeChildOptions["spawnFn"];
   /**
+   * See `SpawnMspConnectionOptions.refuseDeclaredBreakingSchema` (ADR 22936
+   * D3, default off): refuse the declared-breaking schema tier at connect
+   * with a `SchemaCompatibilityError`, the host closed. Off, the connection
+   * goes ahead and nothing here warns: read the tier with
+   * `classifyServedSchema(client.initializeResult.schema)`.
+   */
+  readonly refuseDeclaredBreakingSchema?: boolean;
+  /**
+   * Cancels startup, e.g. `AbortSignal.timeout(ms)`. Aborting before `spawn`
+   * resolves closes the host through the usual shutdown ladder, then rejects
+   * with an `AbortError` whose `cause` is `signal.reason`; an already-aborted
+   * signal spawns nothing. Aborting after `spawn` resolved does nothing: use
+   * `close()`. The rejection waits for the host to exit: a host that ignores
+   * stdin EOF takes up to `shutdownTimeoutMs` plus the 2 s SIGTERM grace.
+   * Unlike `Session.run`, which rejects with `signal.reason`, this
+   * follows Node's `child_process.spawn`: check `error.name === "AbortError"`
+   * and read `error.cause`.
+   */
+  readonly signal?: AbortSignal;
+  /**
    * Fold extensions (FR-97527-3): connection-level state plus every
    * session this client opens. See `MuseClientOptions.extensions`.
    */
@@ -383,6 +426,15 @@ export class MuseClient {
    * handler: a client nobody observes leaves the caller's own handler alone.
    */
   #protocolErrorsClaimed = false;
+  /**
+   * `#sessions` indexed by session id, so routing a frame is one lookup
+   * whatever the number of followed sub-agents (Constitution XIV).
+   */
+  readonly #sessionsById = new Map<string, Set<Session>>();
+  /** The internal sessions that fold a followed sub-agent's events (`events({ subagents: true })`). */
+  readonly #followers = new WeakSet<Session>();
+  /** `session/resume` calls in flight, counted per session id, so a follow's unsubscribe never starves one. */
+  readonly #resuming = new Map<string, number>();
   /**
    * Frames naming a session this client has not registered YET, held only
    * while a `session/start`/`session/resume` is in flight (#49790): the host
@@ -439,11 +491,11 @@ export class MuseClient {
     // `-32601` a bare `Connection` answers.
     this.#connection.onServerRequest(async (request) => {
       if (request.method === "userInput/request") {
-        this.#route({ method: "userInput/requested", params: request.params });
+        this.#route(serverRequestFrame({ method: "userInput/requested", params: request.params }));
         return {};
       }
       if (request.method === "approval/request") {
-        this.#route({ method: request.method, params: request.params });
+        this.#route(serverRequestFrame({ method: request.method, params: request.params }));
         return {};
       }
       throw new MspError({
@@ -482,11 +534,12 @@ export class MuseClient {
       return;
     }
     let delivered = false;
-    for (const session of this.#sessions) {
-      if (session.sessionId === named) {
-        session.apply(notification);
-        delivered = true;
-      }
+    // A copy: applying a frame can follow or stop a sub-agent, which edits the index.
+    for (const session of [...(this.#sessionsById.get(named) ?? [])]) {
+      session.apply(notification);
+      // A sub-agent follow's internal session never counts: a caller's open
+      // of that id must still hold the frames read with its reply.
+      if (!this.#followers.has(session)) delivered = true;
     }
     if (delivered || this.#opening === 0) return;
     const held = this.#held.get(named);
@@ -520,6 +573,9 @@ export class MuseClient {
    * Rejects with {@link MuseHostDiscoveryError} before starting anything when
    * `museBin` is omitted and no executable `muse` is on `PATH`.
    *
+   * Rejects with an `AbortError` (`cause`: `signal.reason`) when `signal`
+   * aborts before the handshake completes, once the host has exited.
+   *
    * Rejects with {@link MuseHostStartError} when the host is lost before the
    * handshake completes (the binary could not be spawned, or the process
    * ended first — exit code or signal plus the bounded stderr tail;
@@ -527,9 +583,14 @@ export class MuseClient {
    * that answers with a reply the SDK refuses keeps its own error: an
    * `MspError` for an SS1.6 refusal, or a `ProtocolError` (with the whole
    * refused frame on `line`) for a reply the SDK cannot use, such as one with
-   * no schema fingerprint.
+   * no schema fingerprint. With `refuseDeclaredBreakingSchema`, a host whose
+   * schema identity is a declared non-additive advance from this SDK's pin
+   * is refused with a `SchemaCompatibilityError` (ADR 22936 D3), the host
+   * closed.
    */
   static async spawn(options: MuseClientSpawnOptions): Promise<MuseClient> {
+    // A cancelled spawn does nothing at all, host discovery included (as Node).
+    if (options.signal?.aborted) throw abortError(options.signal.reason);
     // The process's own PATH, never `options.env`'s: the host is found the
     // way the Rust and Python SDKs find it, whatever environment it gets.
     const command = await discoverMuseBin(options.museBin, process.env["PATH"], process.platform);
@@ -543,6 +604,10 @@ export class MuseClient {
         ? {}
         : { shutdownTimeoutMs: options.shutdownTimeoutMs }),
       ...(options.spawnFn === undefined ? {} : { spawnFn: options.spawnFn }),
+      ...(options.refuseDeclaredBreakingSchema === undefined
+        ? {}
+        : { refuseDeclaredBreakingSchema: options.refuseDeclaredBreakingSchema }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     let spawned;
     try {
@@ -553,6 +618,10 @@ export class MuseClient {
     } catch (error) {
       // A failed handshake must not leak the process it already spawned.
       await handshake.close().catch(() => undefined);
+      // The caller's abort stays the caller's, never a lost host.
+      if (options.signal !== undefined && error instanceof Error && error.name === "AbortError") {
+        throw error;
+      }
       // A host that ANSWERED `initialize` is not a lost host, however it ends
       // once we close it: its answer is the actionable error. "Answered" is
       // evidence that a response frame came back — an SS1.6 `MspError`, or a
@@ -560,8 +629,13 @@ export class MuseClient {
       // version-skewed reply) — never the error's class alone (#49912).
       // Decided before the exit is read, so our own close ladder can never
       // dress an answer up as a death.
+      // The SDK's own connect-time refusal of an answered identity (ADR 22936
+      // D3, `refuseDeclaredBreakingSchema`) is an answer too: the host served
+      // a usable result and the SDK declined it, so the refusal is the error.
       const answered =
-        error instanceof MspError || (error instanceof ProtocolError && error.line !== undefined);
+        error instanceof MspError ||
+        error instanceof SchemaCompatibilityError ||
+        (error instanceof ProtocolError && error.line !== undefined);
       if (answered) throw error;
       // No refused frame: the host was lost — before answering, or after a
       // usable answer while we sent `initialized` (the error then says so).
@@ -705,7 +779,7 @@ export class MuseClient {
     // `sessionId` is a REQUEST on start, and a session keyed by a hopeful id
     // would reject every one of its own events as foreign.
     const session = await this.#open("session/start", params, (raw) => ({
-      result: raw as unknown as SessionStartResult,
+      result: raw as SessionStartResult,
       verb: "session/start",
     }));
     if (!required) return session;
@@ -721,7 +795,9 @@ export class MuseClient {
    * (no orphan keeps folding for an id the caller can never reach — the SDK
    * has no set/close-by-id verb); the error's `sessionId` is the caller's
    * handle to resume via `sessionId` or start again. A failed read-back
-   * propagates: the client still never proceeds on the default.
+   * propagates: the client still never proceeds on the default. The read-back
+   * rides `request()`: `SessionReadParams` define no `commandId`, so it mints
+   * none and is not retried as a command.
    */
   async #proveSelection(session: Session, requested: string): Promise<Session> {
     const opening = session.opening;
@@ -731,15 +807,15 @@ export class MuseClient {
         : null;
     if (started !== null) {
       if (started === requested) return session;
-      this.#sessions.delete(session);
+      this.#untrack(session);
       throw new PermissionProfileNotApplied(requested, started, session.sessionId);
     }
-    const read = await this.#connection.command("session/read", {
+    const read = await this.#connection.request("session/read", {
       sessionId: session.sessionId,
     });
     const served = committedProfileId(read["session"]);
     if (served === requested) return session;
-    this.#sessions.delete(session);
+    this.#untrack(session);
     throw new PermissionProfileNotApplied(requested, served, session.sessionId);
   }
 
@@ -766,7 +842,7 @@ export class MuseClient {
       "session/resume",
       params,
       (raw) => ({
-        result: raw as unknown as SessionResumeResult,
+        result: resumeResultOf(raw),
         verb: "session/resume",
       }),
       { onApproval: options.onApproval, onApprovalError: options.onApprovalError },
@@ -816,7 +892,9 @@ export class MuseClient {
    * not wrap, experimental ones included, through the
    * same `Connection.command()` the verbs use: the connection mints the
    * `commandId`, retries a nothing-admitted refusal under the same id, and
-   * checks the ack's echo. `options` are that seam's own. An experimental
+   * checks the ack's echo. `options` are that seam's own. A stable method
+   * takes and returns its generated map types, without `commandId`; any other
+   * name stays sendable untyped. An experimental
    * method needs a client spawned with `capabilities: { experimentalApi: true }`
    * (otherwise the host refuses it with an `MspError` of kind
    * `experimentalRequired`, code -32601) and may change without notice.
@@ -828,21 +906,47 @@ export class MuseClient {
    * exit it causes reaches your sessions as a host death; `close()` is the
    * orderly stop. Frames
    * the command causes still reach your sessions through the client's one
-   * inbound pump; this sends and returns the ack, nothing more. Params and
-   * ack stay untyped objects: the generated types carry no method-to-params
-   * map, and restating one here would drift from the schema.
+   * inbound pump; this sends and returns the ack, nothing more.
    *
    * Each call keeps one fixed-size fingerprint for the connection's lifetime
    * (FR-45137-1), so prefer `request` for a query you poll.
    */
   async command<M extends RawMethodName>(
-    method: RawMethod<M>,
+    method: M,
+    params: CommandParams<M>,
+    options?: CommandOptions,
+  ): Promise<WireResult<M>>;
+  async command<M extends string>(
+    method: UnlistedMethod<MethodName, M>,
     params: Record<string, unknown>,
     options?: CommandOptions,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated Loosely typed params for a listed method: pass the method's
+   * generated params type. This overload goes away in a later release
+   * (ADR 25304 D3's deprecation path).
+   */
+  async command(
+    method: RawMethodName,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated A union mixing listed and unlisted names cannot be checked;
+   * it compiles untyped for one release and goes away with the loose
+   * overload above. A facade-owned member is still refused, and a generic
+   * `M extends string` name does not compile here. Widen the name to
+   * `string` (`method as string`) to keep sending it untyped.
+   */
+  async command<M extends string>(
+    method: NotFacadeOwned<M>,
+    params: Record<string, unknown>,
+    options?: CommandOptions,
+  ): Promise<Record<string, unknown>>;
+  async command(method: string, params: object, options?: CommandOptions): Promise<unknown> {
     // The type binds TypeScript callers; this binds plain-JS ones.
     if (FACADE_OWNED.has(method)) throw new MuseFacadeOwnedMethodError(method);
-    return this.#connection.command(method, params, options);
+    return this.#connection.command(method, params as Record<string, unknown>, options);
   }
 
   /**
@@ -850,14 +954,36 @@ export class MuseClient {
    * does not wrap, experimental ones included, through `Connection.request()`:
    * no `commandId`, no retry, and omitted `params` stay off the frame.
    * Refuses the same facade-owned methods as `command`, the same way, and
-   * needs the same `experimentalApi` opt-in for an experimental method.
+   * needs the same `experimentalApi` opt-in for an experimental method. Typed
+   * like `command`: a stable method takes and returns its map types, any
+   * other name stays sendable untyped.
    */
   async request<M extends RawMethodName>(
-    method: RawMethod<M>,
+    method: M,
+    ...params: ParamsArgument<MethodParams<M>>
+  ): Promise<WireResult<M>>;
+  async request<M extends string>(
+    method: UnlistedMethod<MethodName, M>,
     params?: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated Loosely typed params for a listed method: pass the method's
+   * generated params type. This overload goes away in a later release
+   * (ADR 25304 D3's deprecation path).
+   */
+  async request(method: RawMethodName, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * @deprecated A mixed-union method name cannot be checked; it compiles
+   * untyped for one release, as on `command`. Widen the name to `string`
+   * (`method as string`) to keep sending it untyped.
+   */
+  async request<M extends string>(
+    method: NotFacadeOwned<M>,
+    params?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  async request(method: string, ...params: unknown[]): Promise<unknown> {
     if (FACADE_OWNED.has(method)) throw new MuseFacadeOwnedMethodError(method);
-    return this.#connection.request(method, params);
+    return this.#connection.request(method, params[0] as Record<string, unknown> | undefined);
   }
 
   /**
@@ -877,14 +1003,19 @@ export class MuseClient {
    */
   async close(): Promise<void> {
     this.#closing = true;
-    if (this.#child !== undefined) {
-      const exit = await this.#child.close();
-      if (isAbnormalHostDeath(exit)) {
-        for (const session of this.#sessions) session.hostExited(exit);
+    try {
+      if (this.#child !== undefined) {
+        const exit = await this.#child.close();
+        if (isAbnormalHostDeath(exit)) {
+          for (const session of this.#sessions) session.hostExited(exit);
+        }
+        return;
       }
-      return;
+      await this.#connection.close();
+    } finally {
+      // An orderly exit reports no death, so nothing else ends the streams.
+      for (const session of this.#sessions) session[endEventStreams]();
     }
-    await this.#connection.close();
   }
 
   /**
@@ -897,16 +1028,23 @@ export class MuseClient {
   async #open(
     verb: "session/start" | "session/resume",
     params: StartParams | ResumeParams,
-    opening: (raw: Record<string, unknown>) => SessionOpening,
+    opening: (raw: SessionStartResult | SessionResumeResult) => SessionOpening,
     approvals: ResumeApprovalHandlers = {},
   ): Promise<Session> {
     this.#opening += 1;
+    const resumed = verb === "session/resume" ? (params as ResumeParams).sessionId : undefined;
+    if (resumed !== undefined) this.#resuming.set(resumed, (this.#resuming.get(resumed) ?? 0) + 1);
     try {
       const opened = opening(await this.#connection.command(verb, params));
       return this.#openSession(opened.result.session.sessionId, opened, approvals);
     } finally {
       this.#opening -= 1;
       if (this.#opening === 0) this.#held.clear();
+      if (resumed !== undefined) {
+        const left = (this.#resuming.get(resumed) ?? 1) - 1;
+        if (left > 0) this.#resuming.set(resumed, left);
+        else this.#resuming.delete(resumed);
+      }
     }
   }
 
@@ -923,9 +1061,12 @@ export class MuseClient {
     // must find the handler, and its failure the observer.
     if (approvals.onApprovalError !== undefined) session.onApprovalError(approvals.onApprovalError);
     if (approvals.onApproval !== undefined) session.onApproval(approvals.onApproval);
+    // `reload()`'s config is checked against the same grants as the open verbs'.
+    if (this.#initializeResult !== undefined) session[grantedCapabilities](this.#initializeResult.grantedCapabilities);
     // `#route` drops what `apply` returns (FR-81734-1).
     session[pumpDropsApplyResults]();
-    this.#sessions.add(session);
+    session[followsSubagents]((child, forward, onStopped) => this.#followSubagent(child, forward, onStopped));
+    this.#track(session);
     // The frames that named this session while its verb was in flight fold
     // NOW, in arrival order — synchronously, so nothing the pump routes next
     // can overtake them.
@@ -938,6 +1079,109 @@ export class MuseClient {
   }
 
   /**
+   * Follow a sub-agent's session for `events({ subagents: true })`:
+   * an internal session folds its events and hands each to `forward`, routed
+   * like any session's from the subscribe on. Its approvals are not its own:
+   * the host presents them on the parent (`subagentOrigin`) and takes the
+   * decision there, so this session answers none. Returns how to stop.
+   */
+  #followSubagent(
+    childSessionId: string,
+    forward: (event: SessionEvent) => void,
+    onStopped: () => void,
+  ): SubagentFollow {
+    const child = new Session({
+      connection: this.#connection,
+      discarded: this.#discarded,
+      durability: this.#durability,
+      extensions: this.#extensions,
+      sessionId: childSessionId,
+    });
+    child[pumpDropsApplyResults]();
+    // Cleared first on stop: a gap fill still in flight on the child must not
+    // yield its frames after the follow ended.
+    let live = true;
+    let finishing = false;
+    // Turns this follow saw a frame of and the child fold has not ended: the
+    // subscribe replays nothing, so a turn already running when it landed has
+    // no turn/started here, and the fold's own activeTurnId cannot know it.
+    const runningTurns = new Set<string>();
+    // An item/delta names no turn: a follow that joined mid-message sees only
+    // deltas until the message completes, so the child counts as busy until
+    // a turn ends.
+    let busy = false;
+    const running = (): boolean => busy || runningTurns.size > 0;
+    child[forwardsEvents]((event) => {
+      if (!live) return;
+      forward(event);
+      const turnId = turnIdOf(event.frame);
+      if (turnId !== undefined) {
+        const state = child.fold.turn(turnId)?.state;
+        if (state === undefined || state === "running") runningTurns.add(turnId);
+        else {
+          runningTurns.delete(turnId);
+          busy = false;
+        }
+      } else if (event.frame.method === "item/delta") busy = true;
+      if (finishing && !running()) stop();
+    });
+    // The subscription is per connection: a second subscribe would replace one
+    // a session already routed here holds (or a resume in flight is taking)
+    // with an empty one at head, losing the frames queued for it. Ride it.
+    const held = this.#resuming.has(childSessionId) || this.#sessionsById.has(childSessionId);
+    this.#followers.add(child);
+    this.#track(child);
+    // Any refusal follows nothing and is not reported: usually a child that
+    // already finished, whose item/completed follows.
+    const subscribed = held
+      ? Promise.resolve(true)
+      : this.#connection.request("view/subscribe", { sessionId: childSessionId }).then(
+          () => true,
+          () => {
+            this.#untrack(child);
+            return false;
+          },
+        );
+    const stop = (): void => {
+      if (!live) return;
+      live = false;
+      this.#untrack(child);
+      onStopped();
+      void subscribed.then(async (accepted) => {
+        // Not while a session the caller opened routes that id, or a resume of
+        // it is in flight: the subscription is per connection, and dropping it
+        // would starve that session.
+        if (!accepted || this.#resuming.has(childSessionId) || this.#sessionsById.has(childSessionId)) return;
+        await this.#connection.request("view/unsubscribe", { sessionId: childSessionId }).catch(() => undefined);
+      });
+    };
+    return {
+      stop,
+      finish: () => {
+        if (running()) finishing = true;
+        else stop();
+      },
+    };
+  }
+
+  /** Add a session to the routing set and its id index. */
+  #track(session: Session): void {
+    this.#sessions.add(session);
+    const held = this.#sessionsById.get(session.sessionId);
+    if (held === undefined) this.#sessionsById.set(session.sessionId, new Set([session]));
+    else held.add(session);
+  }
+
+  /** Remove a session from the routing set and its id index. */
+  #untrack(session: Session): void {
+    this.#sessions.delete(session);
+    const held = this.#sessionsById.get(session.sessionId);
+    if (held === undefined) return;
+    held.delete(session);
+    if (held.size === 0) this.#sessionsById.delete(session.sessionId);
+  }
+
+  /**
    * The `config` to forward, or a typed refusal before anything is sent
    * (FR-79107-3). Per-session MCP servers need the `sessionMcp` grant in the
    * handshake this client was built with (`spawn` requests it; a caller's own
@@ -945,13 +1189,7 @@ export class MuseClient {
    * it. A config naming no server needs no grant, as on the host (ADR 32760 D3).
    */
   #forwardConfig(method: "session/start" | "session/resume", config: SessionConfig): SessionConfig {
-    if (config.mcpServers == null || Object.keys(config.mcpServers).length === 0) return config;
-    if (this.#initializeResult?.grantedCapabilities.includes("sessionMcp") === true) return config;
-    throw new MuseCapabilityNotGrantedError(
-      "sessionMcp",
-      method,
-      "config.mcpServers needs the sessionMcp grant, which this connection's handshake does not hold (MuseClient.spawn requests it; a host withholds it when per-session MCP is turned off)",
-    );
+    return forwardedConfig(method, config, this.#initializeResult?.grantedCapabilities);
   }
 
   #assertReattachAllowed(sessionId: string): void {

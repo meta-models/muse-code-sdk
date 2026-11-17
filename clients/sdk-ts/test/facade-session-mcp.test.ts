@@ -73,7 +73,9 @@ function inlineHost(offers: readonly string[]): string {
     "  const sessionId = frame.params.sessionId ?? 's-1';",
     "  send({ jsonrpc: '2.0', id: frame.id, result: {",
     "    session: { sessionId, status: 'idle' }, viewCursor: 'c-0',",
-    "    history: { mode: 'none', items: [] }, pendingRequests: [], echoed: frame.params } });",
+    // A cursor resume streams the suffix, as a real host answers it (tdd SS2.5.2).
+    "    history: { mode: 'none', items: [], ...(frame.params.cursor ? { noneReason: 'cursorSuffix' } : {}) },",
+    "    pendingRequests: [], echoed: frame.params } });",
     "}).on('close', () => process.exit(0));",
   ].join("\n");
 }
@@ -177,6 +179,47 @@ test(
     const empty = await client.startSession({ workspaceRoot: "/w", config: { mcpServers: {} } });
     assert.deepEqual(echoed(empty.opening)["config"], { mcpServers: {} });
     assert.deepEqual(await receivedMethods(client), ["session/start", "session/start"]);
+  },
+);
+
+test(
+  "FR-97920-1: reload() forwards config verbatim behind the grant, and a reload without options re-sends none",
+  { timeout: ARM_TIMEOUT },
+  async (t) => {
+    const client = await spawnOffering(t, ["sessionMcp"]);
+    const session = await client.resumeSession({ sessionId: "s-2", config: CONFIG });
+
+    // After an idle unload the caller supplies its additions again (ADR 32760).
+    const reloaded = await session.reload({ config: CONFIG });
+    const sent = (reloaded as unknown as { echoed: Record<string, unknown> }).echoed;
+    assert.deepEqual(sent["config"], CONFIG);
+    assert.equal(sent["cursor"], "c-0");
+
+    // Explicit, like resumeSession: the opening's config is never re-sent for the caller.
+    const plain = await session.reload();
+    assert.equal("config" in (plain as unknown as { echoed: Record<string, unknown> }).echoed, false);
+  },
+);
+
+test(
+  "FR-97920-1: reload() refuses config naming servers without the grant, before anything is sent",
+  { timeout: ARM_TIMEOUT },
+  async (t) => {
+    const client = await spawnOffering(t, []);
+    const session = await client.resumeSession({ sessionId: "s-2" });
+
+    const error = await session.reload({ config: CONFIG }).then(
+      () => assert.fail("an ungranted config must be refused"),
+      (caught: unknown) => caught,
+    );
+    assert.ok(error instanceof MuseCapabilityNotGrantedError, `got ${String(error)}`);
+    assert.equal(error.capability, "sessionMcp");
+    assert.equal(error.method, "session/resume");
+    assert.deepEqual(await receivedMethods(client), ["session/resume"], "the refused reload sent nothing");
+
+    // Constitution XIII: only that reload is refused; the same session still reloads.
+    await session.reload();
+    assert.deepEqual(await receivedMethods(client), ["session/resume", "session/resume"]);
   },
 );
 

@@ -101,7 +101,9 @@ except a turn the host died during, which carries `reason` and no `error`.
 To stop it, pass an `AbortSignal`:
 `session.run(prompt, { signal: AbortSignal.timeout(60_000) })`. A queued turn
 is taken back, a running one is cancelled, and `run` rejects with the signal's
-reason once the turn has ended.
+reason once the turn has ended. The signal can stop a turn only after the host
+has answered its `turn/start`: if the host stalls before it answers, `run`
+keeps waiting until it does, timeout signal or not.
 
 ### 5. Read a turn as it streams
 

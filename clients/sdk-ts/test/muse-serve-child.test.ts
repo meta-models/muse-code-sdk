@@ -23,11 +23,16 @@ import {
   IGNORES_EOF,
   IGNORES_EOF_AND_SIGTERM,
   endedWithin,
+  EXITS_LEAVING_DETACHED_WRITING_HOLDER,
+  EXITS_ON_EOF_LEAVING_STDIO_FREE_GRANDCHILD,
+  EXITS_ON_EOF_LEAVING_STDOUT_HOLDING_GRANDCHILD,
   isAlive,
+  makeStubChild,
   NEVER_READS_STDIN,
   reap,
   reapThenClose,
   settledWithin,
+  stderrLineProbe,
   sentinelHost,
   UNFLUSHABLE_WRITE,
   WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD,
@@ -360,6 +365,264 @@ test(
     );
   },
 );
+
+// TEST-97389-1 (#97389), in-group arm. The post-exit drain settles `exited`
+// without the stdio closing, so close() must still end what the host left in
+// its group. The budget sits above the 1 s drain: a smaller one lets the
+// deadline beat the drain and takes the old signal path instead.
+test(
+  "close ends an in-group grandchild after the host exits on EOF",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const ready = stderrLineProbe("grandchild_ready");
+    const child = MuseServeChild.spawn({
+      museBin: process.execPath,
+      args: ["-e", EXITS_ON_EOF_LEAVING_STDOUT_HOLDING_GRANDCHILD],
+      shutdownTimeoutMs: 10_000,
+      onStderr: (chunk) => {
+        stderr.push(chunk);
+        ready.onChunk(chunk);
+      },
+    });
+    const pid = await awaitAnnouncedPid(stderr);
+    const grandchildPid = await awaitAnnouncedGrandchildPid(stderr);
+    t.after(() => {
+      reap(grandchildPid);
+      reap(pid);
+    });
+    await ready.seen;
+    assert.ok(isAlive(grandchildPid), "setup: the stdout-holding grandchild is alive");
+
+    const outcome = await settledWithin(child.close(), 20_000);
+    assert.ok(outcome.settled, "failure-only cap: close() must settle after the host's EOF exit");
+    assert.deepEqual(outcome.value, { kind: "cleanShutdown" });
+    const grandchildEnd = await endedWithin(grandchildPid, 5_000);
+    assert.equal(
+      grandchildEnd.ended,
+      true,
+      `close() ends the in-group grandchild the drained host left behind (last observed: ${grandchildEnd.lastState})`,
+    );
+  },
+);
+
+// TEST-97389-1's short-deadline arm (PR #95788 review). With a budget below
+// the 1 s drain, SIGTERM goes out first and the drain then settles `exited`
+// inside the SIGTERM grace; the SIGTERM-trapping grandchild still needs the
+// SIGKILL stage. The row is not asserted: the host may exit on EOF or take
+// the SIGTERM, whichever comes first.
+test(
+  "close still SIGKILLs an in-group grandchild when the drain lands inside the SIGTERM grace",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const ready = stderrLineProbe("grandchild_ready");
+    const child = MuseServeChild.spawn({
+      museBin: process.execPath,
+      args: ["-e", EXITS_ON_EOF_LEAVING_STDOUT_HOLDING_GRANDCHILD],
+      shutdownTimeoutMs: 150,
+      onStderr: (chunk) => {
+        stderr.push(chunk);
+        ready.onChunk(chunk);
+      },
+    });
+    const pid = await awaitAnnouncedPid(stderr);
+    const grandchildPid = await awaitAnnouncedGrandchildPid(stderr);
+    t.after(() => {
+      reap(grandchildPid);
+      reap(pid);
+    });
+    await ready.seen;
+    assert.ok(isAlive(grandchildPid), "setup: the stdout-holding grandchild is alive");
+
+    const outcome = await settledWithin(child.close(), 20_000);
+    assert.ok(outcome.settled, "failure-only cap: close() must settle");
+    const grandchildEnd = await endedWithin(grandchildPid, 5_000);
+    assert.equal(
+      grandchildEnd.ended,
+      true,
+      `close() ends the SIGTERM-trapping in-group grandchild (last observed: ${grandchildEnd.lastState})`,
+    );
+  },
+);
+
+// TEST-97389-1's orderly-drain arm (PR #95788 review). A same-group helper
+// that holds no stdio lets the pipes close with the host, so the drain never
+// drops them and close() must send no signal (Scenario 4.4).
+test(
+  "an orderly drain leaves a same-group helper that holds no stdio alone",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const child = MuseServeChild.spawn({
+      museBin: process.execPath,
+      args: ["-e", EXITS_ON_EOF_LEAVING_STDIO_FREE_GRANDCHILD],
+      shutdownTimeoutMs: 10_000,
+      onStderr: (chunk) => stderr.push(chunk),
+    });
+    const pid = await awaitAnnouncedPid(stderr);
+    const grandchildPid = await awaitAnnouncedGrandchildPid(stderr);
+    t.after(() => {
+      reap(grandchildPid);
+      reap(pid);
+    });
+
+    const outcome = await settledWithin(child.close(), 20_000);
+    assert.ok(outcome.settled, "failure-only cap: close() must settle");
+    assert.deepEqual(outcome.value, { kind: "cleanShutdown" });
+    const grandchildNow = await endedWithin(grandchildPid, 0);
+    assert.equal(grandchildNow.ended, false, `an orderly drain signals nothing in the host's group (${grandchildNow.lastState})`);
+  },
+);
+
+// TEST-97389-1's timer arm (PR #95788 review): a host whose pipes close with
+// it settles `exited` normally, and the drain timer must not fire afterwards.
+test("a clean exit clears the post-exit drain timer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const child = makeStubChild({ stdin: { on: () => undefined, destroy: () => undefined, destroyed: false } });
+  const transport = new ChildStdioTransport(child);
+  child.emit("exit", 0, null);
+  child.emit("close", 0, null);
+  assert.deepEqual(await transport.exited, { code: 0, signal: null });
+
+  t.mock.timers.tick(1_000);
+  assert.equal(child.stdout.destroyed, false, "the drain must not drop pipes after a clean exit");
+  assert.equal(child.stderr.destroyed, false, "the drain must not drop pipes after a clean exit");
+});
+
+// TEST-97389-1's probe arm (PR #95788 review): a group already empty when
+// the drain drops the pipes is never signalled by a later close(), even if
+// that number names a live group again by then.
+test("close never signals a group that was empty when the drain dropped the pipes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const signals: Array<string | number | undefined> = [];
+  t.mock.method(process, "kill", (pid: number, signal?: string | number) => {
+    signals.push(signal);
+    // Empty at the drop; every later group signal must be refused before it.
+    throw Object.assign(new Error(`kill ${pid}`), { code: "ESRCH" });
+  });
+  const child = makeStubChild({ stdin: { on: () => undefined, destroy: () => undefined, destroyed: true } });
+  (child as unknown as { pid: number }).pid = 4242;
+  const transport = new ChildStdioTransport(child, undefined, 30_000, true);
+  child.emit("exit", 70, null);
+  t.mock.timers.tick(1_000);
+  child.emit("close", 70, null);
+
+  await transport.close();
+  assert.deepEqual(signals, [0], "only the drop's membership probe may reach the group");
+});
+
+// TEST-97389-1's signal-order arm (PR #95788 review): with a 150 ms budget
+// SIGTERM goes out first, the drain then settles `exited` inside the grace,
+// and the group stage must add no second SIGTERM, then SIGKILL after the
+// grace, or nothing when the group is empty by then.
+for (const groupEmptiesBeforeKill of [false, true]) {
+  test(`after the drain, close sends one group SIGTERM, then ${groupEmptiesBeforeKill ? "no SIGKILL for an emptied group" : "SIGKILL after the grace"}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const signals: Array<string | number | undefined> = [];
+    let probes = 0;
+    t.mock.method(process, "kill", (pid: number, signal?: string | number) => {
+      signals.push(signal);
+      if (signal === 0 && ++probes > 1 && groupEmptiesBeforeKill) {
+        throw Object.assign(new Error(`kill ${pid}`), { code: "ESRCH" });
+      }
+      return true;
+    });
+    const child = makeStubChild({ stdin: { on: () => undefined, destroy: () => undefined, destroyed: true } });
+    (child as unknown as { pid: number }).pid = 4242;
+    const transport = new ChildStdioTransport(child, undefined, 150, true);
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+    child.emit("exit", 0, null);
+    const closing = transport.close();
+    await turn();
+    t.mock.timers.tick(150); // the budget expires: group SIGTERM, grace starts
+    await turn();
+    t.mock.timers.tick(850); // the drain fires, probes the group and drops the pipes
+    child.emit("close", 0, null);
+    await turn();
+    assert.deepEqual(signals, ["SIGTERM", 0, 0], "no SIGKILL while the grace is still running");
+    t.mock.timers.tick(1_149);
+    await turn();
+    assert.deepEqual(signals, ["SIGTERM", 0, 0], "no SIGKILL before the grace that began at SIGTERM ends");
+    t.mock.timers.tick(1); // the same grace ends 2 s after the SIGTERM, not 2 s after the drain
+    await turn();
+    const expected = groupEmptiesBeforeKill ? ["SIGTERM", 0, 0] : ["SIGTERM", 0, 0, "SIGKILL"];
+    assert.deepEqual(signals, expected);
+    await closing;
+  });
+}
+
+// TEST-97389-1's main-path arm (PR #95788 review): with the default-sized
+// budget the drain settles `exited` first, so close() runs the full group
+// stage itself: SIGTERM, the whole grace, then SIGKILL.
+test("after the drain, close gives the group SIGTERM and the full grace before SIGKILL", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const signals: Array<string | number | undefined> = [];
+  t.mock.method(process, "kill", (_pid: number, signal?: string | number) => {
+    signals.push(signal);
+    return true;
+  });
+  const child = makeStubChild({ stdin: { on: () => undefined, destroy: () => undefined, destroyed: true } });
+  (child as unknown as { pid: number }).pid = 4242;
+  const transport = new ChildStdioTransport(child, undefined, 30_000, true);
+  const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+  child.emit("exit", 0, null);
+  t.mock.timers.tick(1_000); // the drain fires, probes the group and drops the pipes
+  child.emit("close", 0, null);
+  const closing = transport.close();
+  await turn();
+  assert.deepEqual(signals, [0, "SIGTERM"]);
+  t.mock.timers.tick(1_999);
+  await turn();
+  assert.deepEqual(signals, [0, "SIGTERM"], "no SIGKILL before the grace has run out");
+  t.mock.timers.tick(1);
+  await closing;
+  assert.deepEqual(signals, [0, "SIGTERM", "SIGKILL"]);
+});
+
+// TEST-97389-1's writing-holder arm (PR #95788 review): the drain signals no
+// one, but once it drops the SDK's pipe ends, a holder outside the group that
+// keeps writing to them dies on its next write.
+test(
+  "after the drain, a holder outside the group that keeps writing dies on its next write",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const stderr: string[] = [];
+    const child = MuseServeChild.spawn({
+      museBin: process.execPath,
+      args: ["-e", EXITS_LEAVING_DETACHED_WRITING_HOLDER],
+      onStderr: (chunk) => stderr.push(chunk),
+    });
+    const pid = await awaitAnnouncedPid(stderr);
+    const grandchildPid = await awaitAnnouncedGrandchildPid(stderr);
+    t.after(() => {
+      reap(grandchildPid);
+      reap(pid);
+    });
+
+    const exit = await settledWithin(child.exit, 10_000);
+    assert.ok(exit.settled, "failure-only cap: the drain must settle the exit");
+    assert.deepEqual(exit.value, { kind: "cleanShutdown" });
+    const grandchildEnd = await endedWithin(grandchildPid, 5_000);
+    assert.equal(
+      grandchildEnd.ended,
+      true,
+      `the writing holder dies once its pipe has no reader (last observed: ${grandchildEnd.lastState})`,
+    );
+  },
+);
+
+// The stdout reader swallows only the error its own drop causes (PR #95788
+// review): a real stdout failure on a live host still reaches the caller.
+test("a stdout error the drain did not cause still rejects the reader", async () => {
+  const child = makeStubChild({ stdin: { on: () => undefined, destroy: () => undefined, destroyed: false } });
+  const transport = new ChildStdioTransport(child);
+  const next = transport.incoming[Symbol.asyncIterator]().next();
+  child.stdout.destroy(new Error("boom"));
+  await assert.rejects(next, /boom/);
+});
 
 // TEST-22777-1's fallback arm (FR-017b). The bare catch in #signal is
 // normative — a group signal that fails for ANY reason must fall back to the

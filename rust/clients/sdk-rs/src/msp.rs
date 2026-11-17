@@ -45,10 +45,13 @@ pub use self::error::data::ErrorData;
 pub use self::error::kind::ErrorKind;
 
 pub use self::handshake::{
-    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, LaunchContext,
-    PlatformFamily, PlatformOs, SandboxAvailability, SandboxUnavailableReason, SchemaInfo,
-    ServerInfo, SessionDurability,
+    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, PlatformFamily, PlatformOs,
+    SchemaInfo, ServerInfo, SessionDurability,
 };
+
+pub use self::handshake::launch_context::LaunchContext;
+
+pub use self::handshake::sandbox::{SandboxAvailability, SandboxUnavailableReason};
 
 pub use self::method::approval::{
     ApprovalDecideParams, ApprovalDecideResult, ApprovalListPendingParams,
@@ -160,7 +163,8 @@ pub use self::method::lifecycle::session_start_nodes::{
 pub use self::method::lifecycle::session_start_switch_policy::SwitchPolicy;
 
 pub use self::method::limits::{
-    LimitsAboveMaxAxis, LimitsAxisValue, LimitsNetworkMode, SessionLimits, SessionLimitsChoice,
+    LimitsAboveMaxAxis, LimitsAxisValue, LimitsCeilingKind, LimitsNetworkMode, SessionLimits,
+    SessionLimitsChoice,
 };
 
 pub use self::method::media::{MediaUploadParams, MediaUploadResult};
@@ -180,7 +184,7 @@ pub use self::method::plugin::{
     PluginInstallTarget, PluginListParams, PluginListResult, PluginMarketplaceAddParams,
     PluginMarketplaceChange, PluginMarketplaceChangedParams, PluginMarketplaceRecordResult,
     PluginMarketplaceRemoveParams, PluginMarketplaceRemoveResult, PluginMarketplaceSkippedEntry,
-    PluginMarketplaceSourceShape, PluginMarketplaceUpdateParams, PluginSource,
+    PluginMarketplaceSourceShape, PluginMarketplaceUpdateParams, PluginOrigin, PluginSource,
 };
 
 pub use self::method::recap::{
@@ -226,6 +230,8 @@ pub use self::method::skill::{
     SkillImportResult, SkillImportSource, SkillInvocationSource, SkillListParams, SkillListResult,
     SkillSetActivationParams, SkillSetActivationResult, SkillSource,
 };
+
+pub use self::method::skill_provider::SkillProviderCapability;
 
 pub use self::method::snapshot::{
     BranchState, EffectiveModel, PendingApprovalPointer, PendingUserInputPointer,
@@ -289,8 +295,8 @@ pub use self::view::approval::decision::{
 };
 
 pub use self::view::approval_card_facts::{
-    ApprovalCuaCardFacts, ApprovalCuaDataFact, ApprovalCuaMask, ApprovalCuaPage, ApprovalCuaPoint,
-    ApprovalCuaStep,
+    ApprovalCuaBrowser, ApprovalCuaCardFacts, ApprovalCuaDataFact, ApprovalCuaMask,
+    ApprovalCuaPage, ApprovalCuaPoint, ApprovalCuaStep,
 };
 
 pub use self::view::event::{
@@ -320,6 +326,10 @@ pub use self::view::item::object::scheduled_fire::ScheduledFireMembers;
 pub use self::view::item::object::subagent_members::SubagentMembers;
 
 pub use self::view::item::object::tool_call::{BackgroundTarget, ToolCallMembers};
+
+pub use self::view::item::object::web_search::WebSearchMembers;
+
+pub use self::view::item::object::workflow::WorkflowMembers;
 
 pub use self::view::item_background::{BackgroundInitiator, BackgroundState, BackgroundStatus};
 

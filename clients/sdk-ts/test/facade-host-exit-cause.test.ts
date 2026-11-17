@@ -163,7 +163,7 @@ test("a write that fails as the host dies gets the end cause too", async () => {
   connection[peerEndCause](() => new Promise((resolve) => (resolveCause = resolve)));
   let settled = false;
   const outcome = rejection(
-    connection.request("task/list").finally(() => {
+    connection.request("task/list", { sessionId: "s-1" }).finally(() => {
       settled = true;
     }),
   );
@@ -184,7 +184,7 @@ test("a hook registered after the connection ended still gives later calls the c
   const cause = new MuseHostDiedError({ kind: "transportEof" });
   connection[peerEndCause](() => Promise.resolve(cause));
 
-  const error = await rejection(connection.request("task/list"));
+  const error = await rejection(connection.request("task/list", { sessionId: "s-1" }));
   assert.ok(error instanceof ProtocolError, `expected ProtocolError, got ${String(error)}`);
   assert.equal(error.message, "connection is closed");
   assert.equal(error.cause, cause);

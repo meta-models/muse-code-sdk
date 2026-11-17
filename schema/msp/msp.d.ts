@@ -53,8 +53,20 @@ export interface ApprovalChoice {
 /** How long a grant made by a choice lasts. The set is open, so newer hosts may send other values. */
 export type ApprovalChoiceScope = "once" | "session" | "localPersistent" | (string & {});
 
+/** A browser card's notices: the first time Computer Use uses a browser on this Mac, and the session's consent before it opens its own window in a browser that comes to the front when it does. A client words each flag itself. */
+export interface ApprovalCuaBrowser {
+  /** Show the first-use notice: Computer Use hasn't used this browser on this Mac before and will act signed in as the person. */
+  firstUse?: boolean;
+  /** The browser's display name. */
+  name: string;
+  /** Show the window consent line: Computer Use will open its own window in this browser and bring the browser to the front, once per session. */
+  windowConsent?: boolean;
+}
+
 /** One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`. */
 export interface ApprovalCuaCardFacts {
+  /** For a browser card, the notices it carries; absent unless at least one shows. */
+  browser?: ApprovalCuaBrowser;
   /** The data the call would send that the card must name; a card with any offers only one-shot choices. */
   data?: ApprovalCuaDataFact[];
   /** For a browser, the host of the window's current page. */
@@ -1318,8 +1330,10 @@ export interface Item {
   summary?: string[];
   /** `reminderChild`: the linked task id. Unresolved `bodyCompletion` items also set it (FR-87062-1: the diagnostic names the task whose join did not hold). */
   taskId?: string;
-  /** Terminal `toolCall`, or a `subagent` whose result drained (#70249): the item after whose rows the terminal row renders (tdd SS4.5.21, ADR 56496 D2/D3). */
+  /** Terminal monitor `toolCall`, drained `subagent`, `backgroundTerminalCompletion`, or Finished-row `toolCall`: render after the target's logical rows (tdd SS4.5.21, ADR 56496 D2/D3, OD #738). */
   terminalRowAfterItemId?: string;
+  /** `backgroundTerminalCompletion`, or a terminal `toolCall` that already shows a Finished row: render before the target's whole coalesced region (tdd SS4.5.21, ADR 50041 D6). */
+  terminalRowBeforeItemId?: string;
   /** `userMessage`: the prompt text as submitted. `agentMessage`: the accumulated reply, streamed via `item/delta` field `"text"`. `reasoning`: raw committed reasoning text where the provider exposes it (never streamed in v1, tdd SS4.5.4). */
   text?: string;
   /** `workflow`: the run's launch token budget, set from the launch fact (tdd SS4.5.8, #45449); absent when the launch carried none. */
@@ -2274,6 +2288,8 @@ export type SandboxUnavailableReason = "userNamespacesDenied" | "bubblewrapUnava
 
 /** The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all (INV-006a). */
 export interface SchemaInfo {
+  /** The host's declared compatibility epoch (spec 206 amendment #22936 FR-22936-2, ADR 22936 D2): the count of declared non-additive advances of the stable surface. A client reads a `fingerprint` mismatch by comparing this with its own pin: equal, every difference is additive; different, a declared non-additive advance lies between. Additive-optional: a host that predates the member omits it, and the reader treats absence as unknown, never a guessed value (SS1.5.4). */
+  compatibilityEpoch?: number;
   /** `sha256:<64 lower hex>` content hash of this server binary's experimental-surface bundle (ADR 97527 D5). Additive-optional: a host that predates the member omits it, and the reader treats absence as unknown — never a guessed value (SS1.5.4). */
   experimentalFingerprint?: string;
   /** `sha256:<64 lower hex>` content hash of this server binary's stable-surface bundle (INV-003). A mismatch is a warning condition, not an error (SS1.4.1). */
@@ -2874,7 +2890,7 @@ export interface SessionSideChatParams {
 
 /** `session/sideChat` result (tdd SS2.5.7; ADR 45435 D2): the `session/resume` envelope for the **new** side session, whose `session.sideFrom` carries the provenance. The side opens empty. */
 export interface SessionSideChatResult {
-  /** The served history (inline; SS2.5.7's empty-items half is #49416 — inherited turns surface until the boundary-aware fold lands). */
+  /** The served history: inline, with empty items, since the side opens empty (SS2.5.7). */
   history: SessionHistory;
   /** The late-joiner pointer set. */
   pendingRequests: PendingRequestPointer[];
@@ -4385,3 +4401,263 @@ export type MspNotification = "initialized" | "session/started" | "session/close
 export type MspServerRequest = "approval/request" | "userInput/request";
 /** Every error `data.kind` in this schema's error table (SS1.6) — each code's primary kind plus its override kinds. */
 export type MspErrorDataKind = "parseError" | "invalidRequest" | "notInitialized" | "alreadyInitialized" | "methodNotFound" | "experimentalRequired" | "invalidParams" | "internal" | "pageEventTooLarge" | "outputResultTooLarge" | "overloaded" | "inputTooLarge" | "capabilityRequired" | "notFound" | "interrupted" | "cancelled" | "sessionNotFound" | "sessionInUse" | "sessionAmbiguous" | "forkBoundaryInvalid" | "sessionNotLoaded" | "sessionStreamMismatch" | "commandRejected" | "backpressured" | "skillNotFound" | "computerUseUnavailable" | "marketplaceNotFound" | "pluginNotFound" | "marketplaceAlreadyExists" | "pluginMutationsDisabled" | "uploadNotFound" | "viewTruncated" | "outputUnavailable" | "boundaryPruned" | "boundaryUnusable" | "noBoundary" | "approvalNotFound" | "approvalAlreadyResolved" | "approvalChoiceInvalid" | "approvalRequirementStale" | "approvalReviewerUnavailable" | "userInputNotFound" | "userInputAlreadySettled" | "userInputAnswerInvalid" | "approvalBrokerUnavailable" | "approvalResolving";
+
+/** Every wire method's `params` and `result` types, keyed by method (SS1.9 index); `params` is `undefined` for a method that takes none. */
+export interface MspMethodMap {
+  /** Opens the connection: client identification, capability requests, and the experimental opt-in; the reply carries the envelope schema version and the stable-surface fingerprint (SS1.4.1). */
+  "initialize": { params: InitializeParams; result: InitializeResult };
+  /** Queue a user note into a running child; admission-only ack, the note settles on the child session's view stream (SS3.16). */
+  "subagent/sendMessage": { params: SubagentInputParams; result: CommandAcceptedResult };
+  /** Queue a follow-up task for a child; admission-only ack, the task settles on the child session's view stream (SS3.16). */
+  "subagent/followupTask": { params: SubagentInputParams; result: CommandAcceptedResult };
+  /** Ask a child to yield at its next boundary; outcome folds to the parent's subagent item (SS3.16, SS4.5.7). */
+  "subagent/interrupt": { params: SubagentOwnerReasonParams; result: CommandAcceptedResult };
+  /** Stop a running child; outcome folds to the parent's subagent item (SS3.16, SS4.5.7). */
+  "subagent/stop": { params: SubagentOwnerReasonParams; result: CommandAcceptedResult };
+  /** Resume a paused/recoverable child as a durable later attempt (SS3.16). */
+  "subagent/resume": { params: SubagentTargetParams; result: CommandAcceptedResult };
+  /** Reopen a stopped/closed child as a durable later attempt (SS3.16). */
+  "subagent/reopen": { params: SubagentTargetParams; result: CommandAcceptedResult };
+  /** Owner-close a child; the terminal mapping folds per SS4.5.7 (SS3.16). */
+  "subagent/close": { params: SubagentOwnerReasonParams; result: CommandAcceptedResult };
+  /** Consume a ready child result (state-changing; the content is already the subagent item's result field) (SS3.16). */
+  "subagent/readResult": { params: SubagentTargetParams; result: CommandAcceptedResult };
+  /** Lists the session's subagent roster: one row per durable child, running and finished, projected from the loaded parent's runtime subagent control records (kt-o155). */
+  "subagent/list": { params: SubagentListParams; result: SubagentListResult };
+  /** Creates a brand-new session, loads it on this host, durably records the start, and auto-subscribes this connection (SS2.5.1). */
+  "session/start": { params: SessionStartParams; result: SessionStartResult };
+  /** Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it (SS2.5.2). */
+  "session/resume": { params: SessionResumeParams; result: SessionResumeResult };
+  /** Branches a session into a new id whose log copies the source through a cut point, with durable provenance (SS2.5.3). */
+  "session/fork": { params: SessionForkParams; result: SessionForkResult };
+  /** Declares that a loaded session is waiting on an external event: the end-of-turn reminder boundary parks a blocking reminder instead of re-verifying until the next input arrives (ADR 66573 amendment). Live-only: a serve restart, unload, or resume loses the declaration; the next user input or an explicit clear ends it. */
+  "session/declareExternalWait": { params: SessionDeclareExternalWaitParams; result: SessionDeclareExternalWaitResult };
+  /** Clears a live host-declared external wait: no declaration is live afterwards, and the end-of-turn reminder boundary returns to today's behaviour at once. Clearing a session with no declaration is a no-op that still answers `declared: false`. */
+  "session/clearExternalWait": { params: SessionClearExternalWaitParams; result: SessionClearExternalWaitResult };
+  /** Admits release of one loaded session; final release or failure is pushed through session/leaveCompleted (SS2.15). */
+  "session/leave": { params: SessionLeaveParams; result: SessionLeaveResult };
+  /** Pages through stored sessions under the sessions root for history and picker UIs; read-only, never touches leases (SS2.5.4). */
+  "session/list": { params: SessionListParams; result: SessionListResult };
+  /** Reads one stored session without attaching: no lease, no load, no subscription, no resume record (SS2.5.5). */
+  "session/read": { params: SessionReadParams; result: SessionReadResult };
+  /** Opens a side chat from a loaded main session, with durable provenance (SS2.5.7; ADR 45435 D2). */
+  "session/sideChat": { params: SessionSideChatParams; result: SessionSideChatResult };
+  /** Submits user input to a session; the optional disposition controls queue, steer, or replace when a turn is already running (SS3.2). */
+  "turn/start": { params: TurnStartParams; result: TurnStartResult };
+  /** Injects input into the turn the caller names, failing if that turn is no longer active (SS3.3). */
+  "turn/steer": { params: TurnSteerParams; result: TurnSteerResult };
+  /** Stops the running turn on the runtime's priority lane, optionally pairing a durable retract intent (SS3.4). */
+  "turn/interrupt": { params: TurnInterruptParams; result: TurnInterruptResult };
+  /** Cancels a turn on the normal command lane, recording no priority interrupt intent (SS3.5). */
+  "turn/cancel": { params: TurnCancelParams; result: TurnCancelResult };
+  /** Reclaims a queued submit before it launches; never upgrades into a cancel once the target is running (SS3.6). */
+  "turn/unqueue": { params: TurnUnqueueParams; result: TurnUnqueueResult };
+  /** Compacts the session's conversation context; runs asynchronously, so the ack is admission only (SS3.7). */
+  "session/compact": { params: SessionCompactParams; result: SessionCompactResult };
+  /** Reconfigures the session's model; the selection is durable and applies to subsequent model calls (SS3.8). */
+  "session/setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
+  /** Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile (SS2.14.2, #27598). */
+  "session/rename": { params: SessionRenameParams; result: SessionRenameResult };
+  /** Sets the session's standing reasoning-effort default; a turn carrying its own tier overrides it for that turn only (SS3.21, ADR 31255 D1). */
+  "session/setReasoningEffort": { params: SessionSetReasoningEffortParams; result: SessionSetReasoningEffortResult };
+  /** Runs a user-initiated shell command in the session's workspace; capability-gated on `userShell` (SS3.9). */
+  "session/userShell": { params: SessionUserShellParams; result: SessionUserShellResult };
+  /** Reads the catalog of models the host will accept in `session/setModel`; a query, not a command (SS3.10). */
+  "model/list": { params: ModelListParams; result: ModelListResult };
+  /** Reads the session's user-invocable skill rows — one per typed-invocable shortcut spelling, the INV-007 predicate and shared name resolution by call-through; a query, not a command (SS3.22.1). */
+  "skill/list": { params: SkillListParams; result: SkillListResult };
+  /** Writes one skill's activation in any scope through the single `SkillsService::set_activation` seam; answers the applied state plus `previous`. `commandId`-idempotent; each successful write is a `skill/changed` detection point (tdd SS3.30.1, ADR 45433 D2/D4/D5, #45433). */
+  "skill/setActivation": { params: SkillSetActivationParams; result: SkillSetActivationResult };
+  /** Imports foreign skills from the host's own `claude | codex` dirs through the single `SkillsService::import_skills` seam; answers per-skill installed/quarantined/skipped/failed plus counts. `commandId`-idempotent (including `dryRun` previews); each successful write is a `skill/changed` detection point (tdd SS3.30.2, ADR 45433 D2/D4/D5, #45433). */
+  "skill/import": { params: SkillImportParams; result: SkillImportResult };
+  /** Reads the session's installed hook rows — one per installed handler per event, config-file handlers plus plugin-contributed hooks; a query, not a command (SS3.26.1). */
+  "hook/list": { params: HookListParams; result: HookListResult };
+  /** Reads the installed plugin records — one row per installed plugin; a query, not a command (SS3.26.2). */
+  "plugin/list": { params: PluginListParams; result: PluginListResult };
+  /** Install one plugin from a marketplace pair or a host local path with scope (per-session, `commandId`-idempotent, hold-open; answers the installed receipt) (SS3.29.1). */
+  "plugin/install": { params: PluginInstallParams; result: PluginInstallResult };
+  /** Add a marketplace from `owner/repo`, git URL, `file://` URL, or local path (per-session, `commandId`-idempotent; answers the stored record) (SS3.29.2). */
+  "plugin/marketplaceAdd": { params: PluginMarketplaceAddParams; result: PluginMarketplaceRecordResult };
+  /** Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record) (SS3.29.3). */
+  "plugin/marketplaceUpdate": { params: PluginMarketplaceUpdateParams; result: PluginMarketplaceRecordResult };
+  /** Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name) (SS3.29.4). */
+  "plugin/marketplaceRemove": { params: PluginMarketplaceRemoveParams; result: PluginMarketplaceRemoveResult };
+  /** Durably sends a running foreground tool task to the background; the `TaskBackgrounded` record lands before the ack and the `toolCall` item's `item/updated` folds the flip (tdd §3.13, #14411; enrolled under the #33065 T1 ruling). */
+  "task/background": { params: TaskBackgroundParams; result: TaskCommandResult };
+  /** Stops one named background task; the kill settles durably and the item folds a terminal (tdd §3.14, #14411; enrolled under the #33065 T1 ruling). */
+  "task/stop": { params: TaskStopParams; result: TaskCommandResult };
+  /** Stops every stoppable background workload live at admission; always accepted, one item terminal folds per stopped item-visible task (tdd §3.15, #14411; enrolled under the #33065 T1 ruling). */
+  "task/stopAll": { params: TaskStopAllParams; result: TaskStopAllResult };
+  /** Lists the loaded session's background-task inventory: one row per stoppable workload at admission, ordered oldest-start first (tdd §3.31, #45144; enrolled under the #33065 T1 ruling). */
+  "task/list": { params: TaskListParams; result: TaskListResult };
+  /** Sets the session goal objective; wakes a goal-driving turn iff idle and the resulting goal is unfinished (tdd SS3.18, spec 14408; enrolled by #33066). */
+  "goal/set": { params: GoalSetParams; result: GoalCommandResult };
+  /** Replaces the current goal's objective under the same wake gate as goal/set (tdd SS3.18, spec 14408; enrolled by #33066). */
+  "goal/edit": { params: GoalEditParams; result: GoalCommandResult };
+  /** Clears the session goal; never wakes and its ack never names a turn (tdd SS3.18, spec 14408; enrolled by #33066). */
+  "goal/clear": { params: GoalClearParams; result: GoalCommandResult };
+  /** Pauses the session goal; never wakes and its ack never names a turn (tdd SS3.18, spec 14408; enrolled by #33066). */
+  "goal/pause": { params: GoalPauseParams; result: GoalCommandResult };
+  /** Resumes a paused goal under the same wake gate as goal/set (tdd SS3.18, spec 14408; enrolled by #33066). */
+  "goal/resume": { params: GoalResumeParams; result: GoalCommandResult };
+  /** Cancels a live workflow run; admission-only bare ack, the cancellation's truth arrives as the workflow item's view events (tdd SS3.19, spec 14410; enrolled by the #33065 sweep). */
+  "workflow/cancel": { params: WorkflowCancelParams; result: WorkflowControlResult };
+  /** Skips or retries one workflow child keyed by the item's (childId, attempt) pair; admission-only bare ack (tdd SS3.20, spec 14410; enrolled by the #33065 sweep). */
+  "workflow/childControl": { params: WorkflowChildControlParams; result: WorkflowControlResult };
+  /** Pauses a live workflow run; admission-only bare ack, the pause folds as the workflow item's `paused` member (tdd SS3.32, ADR 45437 D2). */
+  "workflow/pause": { params: WorkflowPauseParams; result: WorkflowControlResult };
+  /** Resumes a paused workflow run, host-driven; the reply names the driven turn, the resumed launch folds as a new workflow item whose `resumeFromRunId` names the paused run (tdd SS3.34, ADR 45437 D3). */
+  "workflow/resume": { params: WorkflowResumeParams; result: WorkflowResumeResult };
+  /** Moves one video chunk into the session's video store; answers the `uploadId` receipt on every chunk (tdd SS3.33, ADR 45443 D5). */
+  "media/upload": { params: MediaUploadParams; result: MediaUploadResult };
+  /** Attaches this connection's live view subscription for a session at an explicit cursor, replaying `(after, head]` before any live event; the re-attach path after `view/unsubscribe` (SS4.7.1). */
+  "view/subscribe": { params: ViewSubscribeParams; result: ViewSubscribeResult };
+  /** Removes this connection from the session's view subscription set; does not unload the session (SS4.7.2). */
+  "view/unsubscribe": { params: ViewUnsubscribeParams; result: ViewUnsubscribeResult };
+  /** Cursor-paged reads of the session view, forward or backward; each result element is an unframed view notification, the nested {method, params} pair of SS4.2.1 (SS4.7.3). */
+  "view/page": { params: ViewPageParams; result: ViewPageResult };
+  /** Byte-ranged read of stored full output the view truncated; works on loaded and unloaded sessions and takes no lease (SS4.7.4). */
+  "item/readOutput": { params: ItemReadOutputParams; result: ItemReadOutputResult };
+  /** Decides a pending approval, guarded by the current requirement id against the multi-stage race (SS5.4). */
+  "approval/decide": { params: ApprovalDecideParams; result: ApprovalDecideResult };
+  /** Reads the full pending approval and user-input payloads for a session; a lease-free fold read (SS5.7). */
+  "approval/listPending": { params: ApprovalListPendingParams; result: ApprovalListPendingResult };
+  /** Selects a preconfigured approval enforcement mode mid-session; select, never create (SS5.12). */
+  "session/setApprovalMode": { params: SessionSetApprovalModeParams; result: SessionSetApprovalModeResult };
+  /** Answers every question of an open user-input prompt (SS5.10.2). */
+  "userInput/answer": { params: UserInputAnswerParams; result: UserInputAnswerResult };
+  /** Declines an open user-input prompt; the tool call resolves with a cancelled result the model sees (SS5.10.2). */
+  "userInput/cancel": { params: UserInputCancelParams; result: UserInputCancelResult };
+  /** Answers an open user-input prompt with a free-form clarification the model re-decides against (SS5.10.2). */
+  "userInput/clarify": { params: UserInputClarifyParams; result: UserInputClarifyResult };
+  /** Interrupts an open user-input prompt carrying confirmed partial answers, then stops the turn (SS5.10.2, ADR 45450 D1). */
+  "userInput/interrupt": { params: UserInputInterruptParams; result: UserInputInterruptResult };
+  /** Reads the host's last-observed subscription usage window (5h-class and weekly percent blocks, tier, arrival stamp) without a model call; the usage member is omitted when nothing has been observed (ADR 32563 D2). */
+  "usage/read": { params: undefined; result: UsageReadResult };
+  /** Submits a first-party feedback report through the host, reusing the TUI submitter seam (consent, bundle-first persistence, redaction), and answers the upload receipt (ADR 42691 D2). */
+  "feedback/submit": { params: FeedbackSubmitParams; result: FeedbackSubmitResult };
+  /** Requests a "while you were away" recap for a loaded session; acks `accepted` and settles exactly once on `recap/completed` — one in flight per session, host-enforced 45s timeout (ADR 45447 D1/D5, tdd SS3.28.1). */
+  "recap/request": { params: RecapRequestParams; result: RecapRequestResult };
+  /** Cancels the session's in-flight recap, which settles `cancelled`; idle is an accepted no-op (ADR 45447 D5, tdd SS3.28.5). */
+  "recap/cancel": { params: RecapCancelParams; result: RecapCancelResult };
+  /** Runs one model completion with no session on the host's model; acks `accepted` and settles exactly once on `model/completed` — 4 in flight per connection, host-enforced 45s timeout (ADR 90352 D1-D4, tdd SS3.40). */
+  "model/complete": { params: ModelCompleteParams; result: ModelCompleteResult };
+  /** Cancels the sending connection's `model/complete` call, which settles `cancelled`; any other id answers `{}` and changes nothing (ADR 90352 D4/D6, tdd SS3.40). */
+  "model/cancel": { params: ModelCancelParams; result: ModelCancelResult };
+  /** Reads the computer-use Settings: each capability's Always allow switch and the user's blocked apps from the approval policy store, plus the built-in blocks as locked rows when asked; computerUseUnavailable while the CUA gate is off (ADR 630 D18.17). */
+  "computerUseSettings/read": { params: ComputerUseSettingsReadParams; result: ComputerUseSettings };
+  /** Applies one Settings patch (capability dropdowns, blocked apps to add or remove) all-or-nothing and answers the user's Settings after it; a built-in block is refused in either list; computerUseUnavailable while the CUA gate is off (ADR 630 D18.17). */
+  "computerUseSettings/update": { params: ComputerUseSettingsUpdateParams; result: ComputerUseSettings };
+  /** Reads one session's computer-use setup state and permissions by running cua_setup status for it as a host command: no model turn, no prompt, no spawn; computerUseUnavailable while the CUA gate is off (#52381). Without sessionId it reads the host's own setup, with computerUseHostSetup. */
+  "computerUseSetup/read": { params: ComputerUseSetupReadParams; result: ComputerUseSetupState };
+  /** A human command: runs cua_setup start for one session, between turns, exactly as the TUI's /cua on does, and answers the state it settles in, with the refusal code when setup refused; computerUseUnavailable while the CUA gate is off (#52381). Without sessionId it starts the host's own setup under one host owner, with computerUseHostSetup. */
+  "computerUseSetup/start": { params: ComputerUseSetupStartParams; result: ComputerUseSetupState };
+  /** Reads the host's three macOS grants with no prompt: starts the computer-use helper only long enough to check them, reports each as granted or missing, and ends it; never requests a grant or opens System Settings. Needs computerUseHostSetup; commandRejected runtime_busy while a setup attempt holds the host. */
+  "computerUseSetup/check": { params: undefined; result: ComputerUseSetupState };
+}
+
+/** Every wire notification's `params` type, keyed by method (SS1.9 index); `undefined` for a notification that carries none. */
+export interface MspNotificationMap {
+  /** Client-to-server notification closing the handshake; no params (SS1.4.2). */
+  "initialized": undefined;
+  /** A session became newly loaded on this host via session/start or session/fork; broadcast to every initialized connection (SS2.6.1). */
+  "session/started": SessionStartedParams;
+  /** A loaded session was unloaded (idle | hostShutdown | leave) with the final view cursor; broadcast to every initialized connection (SS2.6.2). */
+  "session/closed": SessionClosedParams;
+  /** Protected correlated terminal for an admitted session/leave (SS2.15). */
+  "session/leaveCompleted": SessionLeaveCompletedParams;
+  /** The session's user-invocable skill set changed; clients re-issue skill/list. A live host-state projection, not a view event (SS3.22.2). */
+  "skill/changed": SkillChangedParams;
+  /** A foreground turn began running (SS4.5.1). */
+  "turn/started": TurnStartedParams;
+  /** Turn terminal: completed | failed | cancelled, with usage and the settled error object (SS4.5.1). */
+  "turn/completed": TurnCompletedParams;
+  /** An accepted interrupt's paired retract durably settled, accepted or declined (SS4.5.1; ADR 50074 D1). */
+  "turn/retracted": TurnRetractedParams;
+  /** A failing model attempt's retry is scheduled and waiting out its backoff; observable mid-turn, non-terminal (SS4.5.1, D-026). */
+  "turn/retryScheduled": TurnRetryScheduledParams;
+  /** A provider backoff behind one model attempt is scheduled and waiting out its delay; observable mid-turn, non-terminal (SS4.5.1; ADR 50047-model-retry-scheduled-members D1). */
+  "turn/modelRetryScheduled": TurnModelRetryScheduledParams;
+  /** A turn's model attempt is starting: its model provider task recorded its opening status; observable mid-turn, non-terminal (SS4.5.1; ADR 68644-model-attempt-started D1). */
+  "turn/modelAttemptStarted": TurnModelAttemptStartedParams;
+  /** A queued submit's reclaim durably won: its pre-minted turn never runs, and no turn/started or turn/completed will follow for that turnId (SS3.6, SS4.5.1). */
+  "turn/unqueued": TurnUnqueuedParams;
+  /** The turn's foreground work is done while named background reminder checks hold the turn open; explicitly non-terminal (SS4.5.12). */
+  "turn/foregroundCompleted": TurnForegroundCompletedParams;
+  /** An item opened on the transcript (SS4.3). */
+  "item/started": ItemStartedParams;
+  /** An open item changed non-terminally: full re-emission at a higher revision (SS4.4.2). */
+  "item/updated": ItemUpdatedParams;
+  /** Streaming append to an open item's field path (ephemeral-sourced, no sourceRange; opt-out-able) (SS4.3.1). */
+  "item/delta": ItemDeltaParams;
+  /** An item reached its terminal state: the authoritative final object (SS4.3). */
+  "item/completed": ItemCompletedParams;
+  /** Push delivery dropped events: `(after, next)` brackets the undelivered range and delivery continues from `next` (SS4.8; spec 208 FM-001). */
+  "view/gap": ViewGapParams;
+  /** An approval opened: the fold of its durable Requested record (SS5.5.1). */
+  "approval/requested": ApprovalRequestParams;
+  /** A non-terminal approval record changed the pending view (SS5.5.1). */
+  "approval/updated": ApprovalUpdatedParams;
+  /** The native reviewer holds an approval: the fold of a Requested whose phase is automated_reviewing; typed activity, not a request (SS5.5.1, spec 209 FR-52080-1). */
+  "approval/reviewing": ApprovalRequestParams;
+  /** The first durable approval terminal landed; protected delivery (SS5.5). */
+  "approval/resolved": ApprovalResolvedParams;
+  /** A user-input prompt opened: the fold of its durable Requested record (SS5.10.1). */
+  "userInput/requested": UserInputRequestParams;
+  /** The first durable user-input settlement landed; protected delivery (SS5.10.3). */
+  "userInput/settled": UserInputSettledParams;
+  /** Client-to-server engagement note: the user started interacting with a timed prompt, so the host disarms its countdown; no result, no errors, no ledger row (SS5.10.4, ADR 45450 D2). */
+  "userInput/engaged": UserInputEngagedParams;
+  /** A durable model selection took effect (SS4.6.1). */
+  "session/modelChanged": SessionModelChangedParams;
+  /** A durable session-default reasoning-effort change took effect (SS4.6.9, ADR 31255 D1). */
+  "session/reasoningEffortChanged": SessionReasoningEffortChangedParams;
+  /** A loaded session's (status, attention) flipped; command-plane broadcast, cursor-stamped, not subscription-gated (SS4.6.10, ADR 31983 D2). */
+  "session/statusChanged": SessionStatusChangedParams;
+  /** The session's goal block changed value; replace wholesale, an explicit null clears (SS4.6.2). */
+  "session/goalChanged": SessionGoalChangedParams;
+  /** The todo list was replaced wholesale; empty items is a cleared list (SS4.6.3). */
+  "session/todoListChanged": SessionTodoListChangedParams;
+  /** A durable workspace-branch observation landed; null branch is a detached-HEAD fact (SS4.6.4). */
+  "session/branchChanged": SessionBranchChangedParams;
+  /** A model call completed with usage: raw counters plus counted-once derivations plus session cumulative (SS4.6.5). */
+  "session/tokenUsage": SessionTokenUsageParams;
+  /** A provider-reported context-occupancy fact folded to a changed (windowTokens, usedTokens, pressure) triple (SS4.6.6). */
+  "session/contextUsage": SessionContextUsageParams;
+  /** The approval enforcement mode changed: the fold of the durable reconfigure audit fact (SS5.12). */
+  "session/approvalModeChanged": SessionApprovalModeChangedParams;
+  /** A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream (ADR 45447 D2, tdd SS3.28.2). */
+  "recap/completed": RecapCompletedParams;
+  /** A model/complete call settled exactly once: `completed`, `failed`, `cancelled` or `timedOut`, to the requesting connection only (ADR 90352 D2, tdd SS3.40). */
+  "model/completed": ModelCompletedParams;
+  /** An accepted login credential update installed a provider that cannot serve the session's standing model route; the standing selection is unchanged and a routable session/setModel repairs it (#25603, spec 5469 Amendment 16). */
+  "session/modelRouteUnserved": SessionModelRouteUnservedParams;
+  /** A durable session-name record landed (rename or first naming): the fold of the session_name record (SS4.6.7, #27598). */
+  "session/nameChanged": SessionNameChangedParams;
+  /** A loaded session's live view stream became unavailable, and why: a command-plane push delivered independent of the view subscription set when the materialized projection fails closed (ADR 32557; #32557). */
+  "session/viewHealthChanged": SessionViewHealthChangedParams;
+  /** The changed session/list row, full-row replace; opt-in per connection via the sessionListStream capability, never subscription-gated (#33084, ADR 33084 D2/D3). */
+  "session/listChanged": SessionListChangedParams;
+  /** The host's last-observed subscription usage DATA changed (window, weekly, or tier — not a stamp-only refresh), with the same payload shape as usage/read's usage member; the absent-to-present first observation emits (ADR 32563 D3). */
+  "usage/changed": SubscriptionUsage;
+  /** A computerUseSetup/read or /start observed a session's setup state differ from the last one sent for it, including inProgress when a start begins and the state it settles in (#52381). Without sessionId it carries the host's own setup state, delivered only with computerUseHostSetup. */
+  "computerUseSetup/changed": ComputerUseSetupChanged;
+  /** An install landed; carries the installed-row summary and clients re-issue `plugin/list` (ADR 45434 D5). */
+  "plugin/changed": PluginChangedParams;
+  /** A marketplace was added, updated, or removed; carries the change summary (ADR 45434 D5). */
+  "plugin/marketplaceChanged": PluginMarketplaceChangedParams;
+  /** One monitor inbox admission: the fold keys gate-off consumes (SS4.5.18). */
+  "monitor/inboxItemAdmitted": MonitorInboxItemAdmittedParams;
+  /** One monitor inbox drain with its recorded stamp, the drain-side operand of latest-wins (SS4.5.18). */
+  "monitor/inboxItemDrained": MonitorInboxItemDrainedParams;
+  /** One wake-missed void with its recorded stamp; count-only, no transcript row (SS4.5.18). */
+  "monitor/inboxItemVoided": MonitorInboxItemVoidedParams;
+}
+
+/** Every server-initiated wire request's `params` type and the `result` the client answers with, keyed by method (SS5.3/SS5.10.1 index). */
+export interface MspServerRequestMap {
+  /** Server-initiated must-answer request presenting a pending approval to every subscribed connection; the response is the SS5.3.3 presentation receipt — the decision travels as approval/decide (SS5.3; indexed by #23840). */
+  "approval/request": { params: ApprovalRequestParams; result: RequestReceipt };
+  /** Server-initiated must-answer request presenting a pending user-input prompt; the response is the SS5.3.3 presentation receipt — the answer travels as userInput/answer (SS5.10.1; indexed by #23840). */
+  "userInput/request": { params: UserInputRequestParams; result: RequestReceipt };
+}

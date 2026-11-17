@@ -43,7 +43,11 @@ import {
   MuseHostDiedError,
   survivesHostDeath,
 } from "./host-death.js";
-import { MuseForeignSessionError, MuseSessionDiscardedError } from "../errors.js";
+import {
+  MuseCapabilityNotGrantedError,
+  MuseForeignSessionError,
+  MuseSessionDiscardedError,
+} from "../errors.js";
 import type { DiscardedSessions } from "./discarded.js";
 import type {
   HostDeathDischarge,
@@ -89,6 +93,8 @@ import type {
   SkillListResult,
   SkillSetActivationParams,
   SkillSetActivationResult,
+  SessionConfig,
+  SessionResumeParams,
   SubagentOwnerReasonParams,
   TaskListResult,
   TurnCancelResult,
@@ -149,6 +155,81 @@ const NO_IO: Promise<readonly never[]> = Promise.resolve([]);
 export const pumpDropsApplyResults = Symbol("Session.pumpDropsApplyResults");
 
 /**
+ * Frames `MuseClient` builds from a re-sent server request (`approval/request`,
+ * `userInput/request`). They carry the cursor of the event that OPENED the
+ * request, older than what the session has folded, so they never move the
+ * cursor `reload()` resumes from.
+ */
+const serverRequestFrames = new WeakSet<object>();
+
+/** @internal Mark `frame` as built from a re-sent server request; see {@link serverRequestFrames}. */
+export function serverRequestFrame<F extends object>(frame: F): F {
+  serverRequestFrames.add(frame);
+  return frame;
+}
+
+/**
+ * Module-private friend seam (never on the package barrel): `MuseClient`
+ * hands each session its handshake's grants, which `reload()`'s `config` is
+ * checked against (FR-79107-3). A session given none has no handshake on
+ * record and refuses a config naming servers, as such a client does.
+ *
+ * @internal
+ */
+export const grantedCapabilities = Symbol("Session.grantedCapabilities");
+
+/**
+ * The `config` to forward, or a typed refusal before anything is sent
+ * (FR-79107-3). Per-session MCP servers need the `sessionMcp` grant in the
+ * handshake (`spawn` requests it; a caller's own handshake must request it
+ * too); with no handshake on record it cannot be shown. A config naming no
+ * server needs no grant, as on the host (ADR 32760 D3).
+ *
+ * @internal Shared with `MuseClient`'s open verbs.
+ */
+export function forwardedConfig(
+  method: "session/start" | "session/resume",
+  config: SessionConfig,
+  granted: readonly string[] | undefined,
+): SessionConfig {
+  if (config.mcpServers == null || Object.keys(config.mcpServers).length === 0) return config;
+  if (granted?.includes("sessionMcp") === true) return config;
+  throw new MuseCapabilityNotGrantedError(
+    "sessionMcp",
+    method,
+    "config.mcpServers needs the sessionMcp grant, which this connection's handshake does not hold (MuseClient.spawn requests it; a host withholds it when per-session MCP is turned off)",
+  );
+}
+
+/**
+ * The resume cursor a frame carries, if any: a view notification's
+ * `viewCursor`. A frame built from a re-sent server request carries the
+ * older cursor that opened it, and `session/statusChanged`'s cursor is not a
+ * resume cursor (tdd SS4.6.10), so neither moves where `reload()` resumes.
+ */
+function resumeCursorOf(frame: WireFrame): string | undefined {
+  if (serverRequestFrames.has(frame) || (frame as { method?: unknown }).method === "session/statusChanged") {
+    return undefined;
+  }
+  const cursor = (frame as { params?: { viewCursor?: unknown } }).params?.viewCursor;
+  return typeof cursor === "string" ? cursor : undefined;
+}
+
+/**
+ * The resume result, or a `ProtocolError` when the reply names no session: a
+ * reply the SDK cannot use (#97920), not a `TypeError` from reading it.
+ *
+ * @internal Shared with `MuseClient`'s open path.
+ */
+export function resumeResultOf(raw: object): SessionResumeResult {
+  const session = (raw as { session?: { sessionId?: unknown } }).session;
+  if (typeof session?.sessionId !== "string") {
+    throw new ProtocolError("session/resume replied without a session");
+  }
+  return raw as unknown as SessionResumeResult;
+}
+
+/**
  * Module-private friend seam (never on the package barrel): `Session.run`'s
  * abort takes a queued turn back under one `commandId` and sends that same
  * reclaim again while the session runtime does not take it (ADR 77912 D1).
@@ -156,6 +237,15 @@ export const pumpDropsApplyResults = Symbol("Session.pumpDropsApplyResults");
  * @internal
  */
 export const resendableUnqueue = Symbol("Session.resendableUnqueue");
+
+/**
+ * Module-private friend seam (never on the package barrel): `MuseClient`
+ * calls it once its orderly `close()` has shut the host down, which reports
+ * no death to the session, so the `events()` streams end here instead.
+ *
+ * @internal
+ */
+export const endEventStreams = Symbol("Session.endEventStreams");
 
 /**
  * Which verb opened this session, and what it answered.
@@ -172,6 +262,14 @@ export type SessionOpening =
 
 /** The optional reason `interruptSubagent`/`stopSubagent`/`closeSubagent` record. */
 export type SubagentReasonOptions = Readonly<Pick<SubagentOwnerReasonParams, "reason">>;
+
+/**
+ * Options for `reload()`. `config` is forwarded on the `session/resume` it
+ * sends, behind the same `sessionMcp` grant check as `resumeSession`'s
+ * (FR-79107-3). Explicit: after an idle unload the caller supplies its
+ * additions again (ADR 32760), and the opening's config is never re-sent for it.
+ */
+export type ReloadOptions = Readonly<Pick<SessionResumeParams, "config">>;
 
 /**
  * Options for constructing a `Session` directly. Sessions opened through
@@ -313,6 +411,18 @@ export interface SessionGapOverlap {
 }
 
 /**
+ * A frame `reload()`'s replay repeats (#97920): its cursor already reached
+ * this session during the reload, from the replay or the live stream. Refused
+ * by cursor equality, because folding it again would append an `item/delta`
+ * twice.
+ */
+export interface SessionReplayDuplicate {
+  readonly kind: "ignoredReplayDuplicate";
+  readonly method: string;
+  readonly viewCursor: string;
+}
+
+/**
  * What one `Session.apply` did: the fold's own outcome, plus any SS4.13
  * pending-command retirements the event triggered.
  *
@@ -339,7 +449,12 @@ export interface SessionGapOverlap {
  * restarted walk's work settles on this frame's `io`.
  */
 export interface SessionApplyOutcome<I> {
-  readonly fold: FoldOutcome | SessionApplyRefusal | SessionGapBuffered | SessionGapOverlap;
+  readonly fold:
+    | FoldOutcome
+    | SessionApplyRefusal
+    | SessionGapBuffered
+    | SessionGapOverlap
+    | SessionReplayDuplicate;
   readonly retirements: readonly PendingRetirement<I>[];
   /**
    * The client->server I/O this event triggered, settled — the SS4.13 replays
@@ -387,13 +502,78 @@ export interface SessionEvent<I = unknown> {
   readonly outcome: SessionApplyOutcome<I>;
   /** For an item event that changed the item: the item as it stood after this event. */
   readonly item?: FoldedItem;
+  /**
+   * Set on a sub-agent's event, yielded by `events({ subagents: true })`: the
+   * sub-agent it belongs to. Its `frame`, `outcome` and `item` are the
+   * sub-agent's own.
+   */
+  readonly subagent?: SessionEventSubagent;
+}
+
+/** The sub-agent a `SessionEvent` belongs to. */
+export interface SessionEventSubagent {
+  /** The parent session's `subagent` item for it. */
+  readonly itemId: string;
+  /** The sub-agent's durable id, which the `subagent/*` control verbs take. */
+  readonly subagentId: string;
+  /** The sub-agent's own session, which the event came from. */
+  readonly childSessionId: string;
 }
 
 /** Options for `Session.events()`. */
 export interface SessionEventsOptions {
   /** Aborting it ends the stream, as `return()` does. */
   readonly signal?: AbortSignal;
+  /**
+   * Also yield each running sub-agent's events, tagged with `subagent`, in
+   * arrival order with this session's own. The client follows each
+   * sub-agent's session while such a stream is open. Needs a session
+   * `MuseClient` opened. Known limitation: if the host refuses the
+   * subscription to a sub-agent (usually because it already finished), its
+   * steps do not arrive and no reason is given; its start and result still
+   * arrive on the session. A sub-agent resumed after it finished a turn is
+   * not subscribed again.
+   */
+  readonly subagents?: boolean;
 }
+
+/**
+ * Module-private friend seam (never on the package barrel): `MuseClient`
+ * installs how a session follows a sub-agent's session. Following routes the
+ * child session's events to `forward` and returns how to stop.
+ *
+ * @internal
+ */
+export const followsSubagents = Symbol("Session.followsSubagents");
+
+/**
+ * Module-private test seam: how many sub-agent follows this session holds,
+ * so a test can prove a stopped follow keeps no child fold alive.
+ *
+ * @internal
+ */
+export const followedSubagentCount = Symbol("Session.followedSubagentCount");
+
+/** @internal See {@link followsSubagents}. */
+export type SubagentFollower = (
+  childSessionId: string,
+  forward: (event: SessionEvent) => void,
+  onStopped: () => void,
+) => SubagentFollow;
+
+/** @internal One sub-agent follow: `stop` ends it now, `finish` once the child's running turn has ended. */
+export interface SubagentFollow {
+  stop(): void;
+  finish(): void;
+}
+
+/**
+ * Module-private friend seam: `MuseClient` marks the internal session that
+ * folds a followed sub-agent's events, handing each one to the parent.
+ *
+ * @internal
+ */
+export const forwardsEvents = Symbol("Session.forwardsEvents");
 
 /**
  * One conversation with the agent.
@@ -429,6 +609,27 @@ export class Session<I = unknown> {
   #discharge: HostDeathDischarge<I> | undefined;
   /** Set on a durable abnormal death, so late handles inherit the rejection. */
   #deathError: MuseHostDiedError | undefined;
+  /** The cursor of the last view notification folded, else the opening's head: where `reload()` resumes. */
+  #viewCursor: string | undefined;
+  /** The in-flight `reload()`, shared by concurrent calls. */
+  #reloading: Promise<SessionResumeResult> | undefined;
+  /** Set through {@link grantedCapabilities} by `MuseClient`. */
+  #granted: readonly string[] | undefined;
+  /**
+   * Cursors that reached this session since `reload()` sent its resume, so a
+   * repeat is dropped: seeded with the frames a running gap fill holds, then
+   * every frame applied, held or folded (a page's included). Cleared by the
+   * first new cursor after the reply: the repeats (the replay, then the live
+   * stream's copy of the same window) come before it. Bounded by the replay
+   * and the fill.
+   */
+  #replayed: Set<string> | undefined;
+  #replayAnswered = false;
+  /**
+   * Set when a reload's reply was not a cursor suffix: the host then streams
+   * from a newer head, so the fold has a gap no later reload can fill.
+   */
+  #reloadGap = false;
   readonly #turns = new Map<string, TurnHandle<I>>();
   /**
    * `item/delta` frames whose item the fold does not hold yet. The store
@@ -442,7 +643,17 @@ export class Session<I = unknown> {
   readonly #unattributedDeltas = new Map<string, ItemDeltaParams[]>();
 
   /** The live `events()` streams, fed by every folded event. */
-  readonly #eventStreams = new Set<PushStream<SessionEvent<I>>>();
+  readonly #eventStreams = new Map<PushStream<SessionEvent<I>>, () => void>();
+  /** Set by {@link endEventStreams}: the client closed, so a later stream ends at once. */
+  #eventsEnded = false;
+  /** The `events({ subagents: true })` streams among them, also fed each followed sub-agent's events. */
+  readonly #subagentStreams = new Set<PushStream<SessionEvent<I>>>();
+  /** Set through {@link followsSubagents} by `MuseClient`. */
+  #subagentFollower: SubagentFollower | undefined;
+  /** How to stop following each sub-agent, keyed by its `subagent` item id. */
+  readonly #followedSubagents = new Map<string, SubagentFollow>();
+  /** Set through {@link forwardsEvents} on a sub-agent's internal session. */
+  #forwardEvents: ((event: SessionEvent) => void) | undefined;
   /** Set through {@link pumpDropsApplyResults} by `MuseClient`. */
   #applyResultsDropped = false;
   /** This session's own `unqueue()` calls awaiting their ack, counted per turn id. */
@@ -508,9 +719,24 @@ export class Session<I = unknown> {
     this.#applyResultsDropped = true;
   }
 
+  /** @internal See {@link followsSubagents}. */
+  [followsSubagents](follower: SubagentFollower): void {
+    this.#subagentFollower = follower;
+  }
+
+  /** @internal See {@link followedSubagentCount}. */
+  [followedSubagentCount](): number {
+    return this.#followedSubagents.size;
+  }
+
+  /** @internal See {@link forwardsEvents}. */
+  [forwardsEvents](forward: (event: SessionEvent) => void): void {
+    this.#forwardEvents = forward;
+  }
+
   /** Yield one folded event to every live `events()` stream. */
   #emit(frame: WireFrame, outcome: SessionApplyOutcome<I>): void {
-    if (this.#eventStreams.size === 0) return;
+    if (this.#eventStreams.size === 0 && this.#forwardEvents === undefined) return;
     const fold = outcome.fold;
     // The item as of THIS event: the store keeps one object per revision, so
     // a later revision folding before the consumer reads cannot change it.
@@ -519,7 +745,47 @@ export class Session<I = unknown> {
         ? this.#fold.items.get(fold.outcome.itemId)
         : undefined;
     const event: SessionEvent<I> = item === undefined ? { frame, outcome } : { frame, item, outcome };
-    for (const stream of this.#eventStreams) stream.push(event);
+    for (const stream of this.#eventStreams.keys()) stream.push(event);
+    this.#forwardEvents?.(event as SessionEvent);
+    if (item?.kind === "subagent" && this.#subagentStreams.size > 0) this.#followSubagent(item);
+  }
+
+  /**
+   * Follow a `subagent` item's session while it runs, stop when it ends. It
+   * runs while `inProgress` with a `childSessionId` (present once the child's
+   * start is attested); nested sub-agents' items are on this view too.
+   */
+  #followSubagent(item: FoldedItem): void {
+    const followed = this.#followedSubagents.get(item.itemId);
+    const child = item.status === "inProgress" ? item.childSessionId : undefined;
+    if (child == null || item.subagentId == null) {
+      // Finish, not stop: each session drains to the connection on its own, so
+      // the child's last steps can arrive after its item ended. Kept in the
+      // map so the last stream closing or a host death still stops it now.
+      followed?.finish();
+      return;
+    }
+    if (followed !== undefined || this.#subagentFollower === undefined) return;
+    const tag: SessionEventSubagent = { itemId: item.itemId, subagentId: item.subagentId, childSessionId: child };
+    const itemId = item.itemId;
+    const follow: SubagentFollow = this.#subagentFollower(
+      child,
+      (event) => {
+        const tagged = { ...event, subagent: tag } as SessionEvent<I>;
+        for (const stream of this.#subagentStreams) stream.push(tagged);
+      },
+      // A stopped follow leaves the map, so its child fold is not kept alive.
+      () => {
+        if (this.#followedSubagents.get(itemId) === follow) this.#followedSubagents.delete(itemId);
+      },
+    );
+    this.#followedSubagents.set(itemId, follow);
+  }
+
+  #unfollowSubagents(): void {
+    const follows = [...this.#followedSubagents.values()];
+    this.#followedSubagents.clear();
+    for (const follow of follows) follow.stop();
   }
 
   /**
@@ -529,6 +795,33 @@ export class Session<I = unknown> {
   #spliced(frame: WireFrame, into: DrainSink<I>): void {
     const fold = this.#foldAndRoute(frame, into);
     this.#emit(frame, { fold, io: NO_IO, retirements: [] });
+  }
+
+  /** @internal See {@link grantedCapabilities}. */
+  [grantedCapabilities](granted: readonly string[]): void {
+    this.#granted = granted;
+  }
+
+  /** @internal See {@link endEventStreams}. */
+  [endEventStreams](): void {
+    this.#eventsEnded = true;
+    this.#finishEventStreams((stream) => stream.end());
+  }
+
+  /**
+   * End or fail every live stream, drop its abort listener and stop following
+   * sub-agents: `end()` and `fail()` skip the stream's own cleanup, which only
+   * `return()` runs, and a listener left on a long-lived signal would keep this
+   * session alive.
+   */
+  #finishEventStreams(finish: (stream: PushStream<SessionEvent<I>>) => void): void {
+    for (const [stream, unlisten] of this.#eventStreams) {
+      finish(stream);
+      unlisten();
+    }
+    this.#eventStreams.clear();
+    this.#subagentStreams.clear();
+    this.#unfollowSubagents();
   }
 
   /** @internal See {@link resendableUnqueue}: each call of the result sends the same reclaim. */
@@ -554,6 +847,7 @@ export class Session<I = unknown> {
     this.#fold = new SessionFold(options.extensions);
     this.#discarded = options.discarded;
     this.opening = options.opening;
+    this.#viewCursor = options.opening?.result.viewCursor;
     this.#pending = new PendingCommandSet<I>(
       options.discarded === undefined
         ? undefined
@@ -602,6 +896,17 @@ export class Session<I = unknown> {
   }
 
   /**
+   * How many `events()` streams this session still feeds: a stream ended by
+   * `break`, `return()`, its signal or the client's close must leave this set.
+   *
+   * @internal Test observability, stripped from the published declarations,
+   * like {@link knownTurnCount}.
+   */
+  get liveEventStreamCount(): number {
+    return this.#eventStreams.size;
+  }
+
+  /**
    * Fold one view event, then fan it out to the turn handles that want it.
    *
    * Throws on an event for another session. Every `ViewEvent` params type
@@ -617,8 +922,13 @@ export class Session<I = unknown> {
     event: ViewEvent | { readonly method: string; readonly params?: unknown },
   ): SessionApplyOutcome<I> {
     const outcome = this.#applyLive(event);
-    // A frame held for a fill is yielded when the fill splices it in.
-    if (outcome.fold.kind !== "bufferedDuringGap") this.#emit(event, outcome);
+    // A frame held for a fill is yielded when the fill splices it in, and the
+    // live twin of a frame the fill already spliced in (or a reload's repeat of
+    // one already folded) was yielded then.
+    const kind = outcome.fold.kind;
+    if (kind !== "bufferedDuringGap" && kind !== "ignoredGapOverlap" && kind !== "ignoredReplayDuplicate") {
+      this.#emit(event, outcome);
+    }
     return outcome;
   }
 
@@ -631,23 +941,41 @@ export class Session<I = unknown> {
    * are yielded when applied, in order. Buffered like `turn.items()`, so a slow
    * reader never holds folding up.
    *
-   * `break`, `return()` or `options.signal` ends it. It finishes the way a
+   * With `{ subagents: true }` on a session `MuseClient` did not open it
+   * throws a plain `Error`.
+   *
+   * `break`, `return()` or `options.signal` ends it, and so does an orderly
+   * `MuseClient.close()` (a stream created afterwards ends at once). It finishes the way a
    * turn's `items()` does when the host dies: it ends after an ephemeral
    * host's death, and rejects with `MuseHostDiedError` after a durable one's,
    * once the events it already buffered are read.
    */
   events(options: SessionEventsOptions = {}): AsyncIterableIterator<SessionEvent<I>> {
+    const subagents = options.subagents === true;
+    if (subagents && this.#subagentFollower === undefined) {
+      // Plain `Error`: API misuse. Only the client can subscribe to a sub-agent's session.
+      throw new Error("events({ subagents: true }) needs a session MuseClient opened");
+    }
+    const unlisten = (): void => options.signal?.removeEventListener("abort", onAbort);
     const stream: PushStream<SessionEvent<I>> = new PushStream<SessionEvent<I>>(() => {
       this.#eventStreams.delete(stream);
-      options.signal?.removeEventListener("abort", onAbort);
+      if (this.#subagentStreams.delete(stream) && this.#subagentStreams.size === 0) this.#unfollowSubagents();
+      unlisten();
     });
     const onAbort = (): void => void stream.return();
     if (options.signal?.aborted === true) stream.end();
     else if (this.#deathError !== undefined) stream.fail(this.#deathError);
-    else if (this.#discharge?.kind === "discharged") stream.end();
+    else if (this.#discharge?.kind === "discharged" || this.#eventsEnded) stream.end();
     else {
-      this.#eventStreams.add(stream);
+      this.#eventStreams.set(stream, unlisten);
       options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (subagents) {
+        this.#subagentStreams.add(stream);
+        // The first such stream follows the sub-agents already running.
+        if (this.#subagentStreams.size === 1) {
+          for (const item of this.#fold.items.list()) if (item.kind === "subagent") this.#followSubagent(item);
+        }
+      }
     }
     return stream;
   }
@@ -681,6 +1009,15 @@ export class Session<I = unknown> {
     // not require an exception.
     if (this.#discharge?.kind === "discharged") {
       return { fold: { kind: "refusedSessionDiscarded" }, io: NO_IO, retirements: [] };
+    }
+
+    const repeated = this.#replayRepeat(event);
+    if (repeated !== undefined) {
+      return {
+        fold: { kind: "ignoredReplayDuplicate", method: event.method, viewCursor: repeated },
+        io: NO_IO,
+        retirements: [],
+      };
     }
 
     // An SS4.8 fill is in flight, so the live tail waits for the paged prefix
@@ -735,6 +1072,92 @@ export class Session<I = unknown> {
     };
   }
 
+  /** `reload()`'s repeat, by cursor equality: the repeated cursor, else undefined. */
+  #replayRepeat(event: WireFrame): string | undefined {
+    if (this.#replayed === undefined) return undefined;
+    const cursor = resumeCursorOf(event);
+    // `session/closed` names the final view head, often the last replayed
+    // cursor: it is the unload notice, never a repeat (tdd SS2.6.2).
+    if (cursor === undefined || (event as { method?: unknown }).method === "session/closed") return undefined;
+    if (this.#replayed.has(cursor)) return cursor;
+    if (this.#replayAnswered) this.#replayed = undefined;
+    else this.#replayed.add(cursor);
+    return undefined;
+  }
+
+  /**
+   * Catch this session up in place (#97920): send `session/resume` with the
+   * cursor of the last view notification it folded, so the host loads the
+   * session if it was unloaded, re-attaches this connection, and streams the
+   * suffix after that cursor into THIS session. Its fold, handlers and
+   * pending turns stay; a frame the suffix repeats is dropped
+   * (`ignoredReplayDuplicate`). Resolves to the resume result once the host
+   * replies. Concurrent calls share one resume; a call with `config` while
+   * one is in flight is refused (plain `Error`) rather than dropped. `opening`
+   * still holds the original open's result. See {@link ReloadOptions}.
+   *
+   * The fold is caught up only when `result.history.noneReason` is
+   * `"cursorSuffix"`. Any other reply (a snapshot for a cursor older than the
+   * host keeps, a history budget) means the host served history instead of
+   * the missed events, and what streams after it folds over that gap; later
+   * reloads then refuse (plain `Error`) before sending: `resumeSession` it
+   * instead, for a new `Session` with a fresh fold.
+   *
+   * Use it before the next command on a session the host may have unloaded
+   * (`session/closed`). Refused before anything is sent when the session has
+   * folded no cursor yet (plain `Error`): a resume without one would not
+   * catch the fold up. A discarded session refuses as every verb does. A
+   * refused or failed reload leaves the fold, the other verbs and later
+   * reloads usable, except after a reply that was not a cursor suffix (above).
+   */
+  reload(options: ReloadOptions = {}): Promise<SessionResumeResult> {
+    if (this.#reloading === undefined) {
+      this.#reloading = this.#reload(options).finally(() => (this.#reloading = undefined));
+      return this.#reloading;
+    }
+    // Sharing the in-flight resume would drop this call's config without a word.
+    if (options.config != null) {
+      return Promise.reject(
+        new Error(`a reload of session ${this.sessionId} is already in flight; await it, then reload with config`),
+      );
+    }
+    return this.#reloading;
+  }
+
+  async #reload(options: ReloadOptions): Promise<SessionResumeResult> {
+    const connection = this.#requireLiveConnection("reload");
+    if (this.#reloadGap) {
+      throw new Error(
+        `session ${this.sessionId} has a gap an earlier reload could not fill (the host served history, not the missed events); resumeSession it instead`,
+      );
+    }
+    const cursor = this.#viewCursor;
+    if (cursor === undefined) {
+      throw new Error(
+        `session ${this.sessionId} has folded no view cursor to reload from; resumeSession it instead`,
+      );
+    }
+    const config =
+      options.config == null ? undefined : forwardedConfig("session/resume", options.config, this.#granted);
+    // A running fill holds live frames the replay will repeat.
+    this.#replayed = new Set(this.#gaps.heldCursors());
+    this.#replayAnswered = false;
+    try {
+      const raw = await connection.command("session/resume", {
+        sessionId: this.sessionId,
+        cursor,
+        ...(config === undefined ? {} : { config }),
+      });
+      const result = resumeResultOf(raw);
+      this.#replayAnswered = true;
+      if (result.history.noneReason !== "cursorSuffix") this.#reloadGap = true;
+      return result;
+    } catch (error) {
+      this.#replayed = undefined;
+      throw error;
+    }
+  }
+
   /** Observe SS4.8 fills that did not complete. See `MuseGapFillError`. */
   onGapError(handler: GapFillFailureHandler): void {
     this.#gaps.onError(handler);
@@ -749,6 +1172,11 @@ export class Session<I = unknown> {
    * downstream — the fold, the iterators, and the SS4.13 retirements.
    */
   #foldAndRoute(event: WireFrame, sink: DrainSink<I>): FoldOutcome {
+    const cursor = resumeCursorOf(event);
+    if (cursor !== undefined) {
+      this.#viewCursor = cursor;
+      this.#replayed?.add(cursor);
+    }
     const retirements: PendingRetirement<I>[] = [];
     const tasks = sink.tasks;
     // A re-sent `approval/request` server request skips the fold, which lists
@@ -1000,8 +1428,7 @@ export class Session<I = unknown> {
       const died = new MuseHostDiedError(exit);
       this.#deathError = died;
       for (const handle of this.#turns.values()) handle.fail(died);
-      for (const stream of this.#eventStreams) stream.fail(died);
-      this.#eventStreams.clear();
+      this.#finishEventStreams((stream) => stream.fail(died));
       this.#discharge = { exit, kind: "durableDeath", profile };
       return this.#discharge;
     }
@@ -1009,8 +1436,7 @@ export class Session<I = unknown> {
     const retiredCommands = this.#pending.discardEphemeral();
     const terminalUnknownItems = this.#fold.markEphemeralHostDeath(isItemInProgress);
     for (const handle of this.#turns.values()) handle.settleTerminalUnknown();
-    for (const stream of this.#eventStreams) stream.end();
-    this.#eventStreams.clear();
+    this.#finishEventStreams((stream) => stream.end());
     // SS2.13.3b "do not attempt to reattach". `discardEphemeral` already wrote
     // the commandIds into the shared set (it holds it by reference); the
     // sessionId is this layer's to record, because the pending set does not

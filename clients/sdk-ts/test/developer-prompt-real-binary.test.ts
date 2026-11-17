@@ -161,15 +161,14 @@ class Client {
   async start(workspace: string, developerPrompt: string | undefined): Promise<string> {
     const params: Omit<SessionStartParams, "commandId"> = { workspaceRoot: workspace };
     if (developerPrompt !== undefined) params.config = { developerPrompt };
-    const result = await this.spawned.connection.command("session/start", params as Json);
-    const session = result["session"] as Json;
-    return String(session["sessionId"]);
+    const result = await this.spawned.connection.command("session/start", params);
+    return result.session.sessionId;
   }
 
   async resume(sessionId: string, config: SessionResumeParams["config"]): Promise<Json> {
     const params: Omit<SessionResumeParams, "commandId"> = { sessionId, excludeItems: true };
     if (config !== undefined) params.config = config;
-    return await this.spawned.connection.command("session/resume", params as Json);
+    return await this.spawned.connection.command("session/resume", params);
   }
 
   /** The agent message text a turn produced (live mode reads model output). */

@@ -29,7 +29,7 @@ import {
   spawnMspConnection,
 } from "../src/index.js";
 import type { MuseClientOptions, PendingRetirement, Session, Turn } from "../src/index.js";
-import { FakeDuplex, frame, sentFrame, sentParams, settleMicrotasks, waitForWrites } from "./helpers/fake-duplex.js";
+import { answerError, FakeDuplex, frame, sentFrame, sentParams, settleMicrotasks, waitForWrites } from "./helpers/fake-duplex.js";
 
 const DURABLE: MuseClientOptions = { durability: { kind: "durable" } };
 const SESSION = "s-1";
@@ -85,6 +85,50 @@ async function clientQueuedTurn(): Promise<{
 function reclaimed(commandId: string): PendingRetirement<unknown> {
   return { commandId, input: QUEUED_INPUT, kind: "reclaimed", restoreToComposer: true };
 }
+
+/**
+ * Prove a retired command's `turn/start` params left the replay memory, on a
+ * `MuseClient` session (the `facade-control-verbs.test.ts` probe): re-seed the
+ * same `commandId` beside one live, unadmitted submit and reconnect. A pruned
+ * memory resubmits only the live entry; a leaked one re-sends the retired
+ * `turn/start` first.
+ */
+async function assertReplayMemoryPruned(session: Session, transport: FakeDuplex, retiredCommandId: string): Promise<void> {
+  session.pending.submitted({ commandId: retiredCommandId, input: "re-seeded" });
+  const live = session.sendUserTurn({ composerInput: "again", input: [{ type: "text", text: "again" }] });
+  const liveWrite = transport.writes.length;
+  await waitForWrites(transport, liveWrite + 1);
+  const liveCommandId = sentParams(transport, liveWrite)["commandId"];
+  answerError(transport, liveWrite, { code: -32602, message: "invalid params", data: { kind: "invalidParams" } });
+  await live.catch(() => undefined);
+
+  const reconnected = session.resolveReconnect();
+  const replayWrite = transport.writes.length;
+  await waitForWrites(transport, replayWrite + 1);
+  assert.equal(
+    sentParams(transport, replayWrite)["commandId"],
+    liveCommandId,
+    `the reconnect re-sent retired ${retiredCommandId}: its replay memory was not pruned`,
+  );
+  transport.chunks.push(
+    reply(transport, replayWrite, { disposition: "started", startedNewTurn: true, status: "accepted", turnId: "t-live" }),
+  );
+  assert.deepEqual(await reconnected, []);
+  await settleMicrotasks();
+  assert.equal(transport.writes.length, replayWrite + 1, "only the live entry is resubmitted");
+}
+
+test("a reclaim held for unqueue() also leaves the replay memory, so a reconnect never re-sends it", async () => {
+  // The held reclaim never rides `apply`'s retirements, so the hold path
+  // itself must prune the submitter's replay memory.
+  const { client, session, transport, turn, queuedCommandId } = await clientQueuedTurn();
+  const unqueuing = turn.unqueue();
+  await waitForWrites(transport, 3);
+  transport.chunks.push(unqueued(queuedCommandId) + reply(transport, 2, { status: "accepted", turnId: QUEUED_TURN }));
+  assert.deepEqual((await unqueuing).retirement, reclaimed(queuedCommandId));
+  await assertReplayMemoryPruned(session, transport, queuedCommandId);
+  await client.close();
+});
 
 for (const order of ["ack, then turn/unqueued", "turn/unqueued, then ack"] as const) {
   test(`TEST-81734-1: unqueue() returns the reclaim the router folded in the same read (${order})`, async () => {

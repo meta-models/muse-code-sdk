@@ -71,6 +71,7 @@ __all__ = [
     "SessionApplyOutcome",
     "SessionDurabilityProfile",
     "SessionEvent",
+    "SessionEventSubagent",
     "SessionFold",
     "SessionFoldView",
     "SessionGapBuffered",
@@ -108,7 +109,7 @@ that lane instead of passing silently.
 # The lockstep rule: the release train bumps pyproject.toml, the
 # distribution-metadata authority; this constant is aligned at publication
 # time.
-__version__: Final[str] = "1.4.20"
+__version__: Final[str] = "1.4.23"
 
 # The facade is imported last so the constants above are already bound: the
 # spawn path reads ``EXPECTED_SCHEMA_FINGERPRINT`` (lazily, at initialize
@@ -139,6 +140,7 @@ from .facade import (  # noqa: E402
     SessionApplyOutcome,
     SessionDurabilityProfile,
     SessionEvent,
+    SessionEventSubagent,
     SessionFoldView,
     SessionGapBuffered,
     SessionGapOverlap,

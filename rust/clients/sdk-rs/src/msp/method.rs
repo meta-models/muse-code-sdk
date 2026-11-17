@@ -20,6 +20,7 @@ pub(crate) mod session_external_wait;
 pub(crate) mod session_satellites;
 pub(crate) mod session_wire_words;
 pub(crate) mod skill;
+pub(crate) mod skill_provider;
 pub(crate) mod snapshot;
 pub(crate) mod subagent;
 pub(crate) mod task;

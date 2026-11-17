@@ -16,14 +16,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Connection, MuseClient, PermissionProfileNotApplied } from "../src/index.js";
+import { Connection, MspError, MuseClient, PermissionProfileNotApplied } from "../src/index.js";
 import type { MuseClientOptions } from "../src/index.js";
 import {
   answer,
+  answerError,
   FakeDuplex,
   sentFrame,
   sentParams,
   settleMicrotasks,
+  settlement,
   waitForWrites,
 } from "./helpers/fake-duplex.js";
 
@@ -91,7 +93,11 @@ test("TEST-42624-10 (ts): a required start whose read-back serves a different pr
 
   await waitForWrites(transport, 2);
   assert.equal(sentFrame(transport, 1)["method"], "session/read");
-  assert.equal(sentParams(transport, 1)["sessionId"], "s-1");
+  assert.deepEqual(
+    sentParams(transport, 1),
+    { sessionId: "s-1" },
+    "the read-back sends only the session id: SessionReadParams define no commandId, so it rides request()",
+  );
   answer(transport, 1, readResult("s-1", triple(OTHER)));
 
   await assert.rejects(opening, notApplied(REQUIRED, OTHER, "s-1"));
@@ -231,4 +237,45 @@ test("TEST-42624-10 (ts): after the refusal the id stays resumable — resume vi
   const session = await pending;
   assert.equal(session.sessionId, "s-1");
   assert.equal(session.opening?.verb, "session/resume");
+});
+
+test("TEST-42624-10 (ts): a failed read-back propagates its wire error, writes no retry frame, and the client stays usable", async () => {
+  const transport = new FakeDuplex();
+  const client = new MuseClient(new Connection(transport), DURABLE);
+
+  const opening = client.startSession({
+    permissionProfile: REQUIRED,
+    requirePermissionProfile: true,
+  });
+  await waitForWrites(transport, 1);
+  answer(transport, 0, startResult("s-1"));
+
+  await waitForWrites(transport, 2);
+  assert.equal(sentFrame(transport, 1)["method"], "session/read");
+  // The retryable pair is what a `command()` read-back would re-send after a
+  // backoff, so this is the error whose retry frame would show.
+  answerError(transport, 1, {
+    code: -32001,
+    message: "host overloaded",
+    data: { kind: "overloaded" },
+  });
+
+  // Bounded: a read-back that went back through the retrying `command()`
+  // would back off and wait on a third frame the fake never answers, so an
+  // unbounded `await opening` would hang the job instead of failing here.
+  const outcome = await settlement(opening);
+  assert.equal(outcome.state, "rejected", `read-back must reject promptly, got ${outcome.state}`);
+  assert.ok(outcome.value instanceof MspError, `expected MspError, got ${outcome.value}`);
+  assert.equal(outcome.value.code, -32001);
+  assert.equal(outcome.value.kind, "overloaded");
+  await settleMicrotasks();
+  assert.equal(transport.writes.length, 2, "a failed read-back is not retried: no third frame");
+
+  // The client stays usable: a plain retry by the caller works.
+  const retry = client.startSession({});
+  await waitForWrites(transport, 3);
+  assert.equal(sentFrame(transport, 2)["method"], "session/start");
+  answer(transport, 2, startResult("s-2"));
+  const session = await retry;
+  assert.equal(session.sessionId, "s-2");
 });

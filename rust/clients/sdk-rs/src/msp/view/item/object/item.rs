@@ -8,6 +8,8 @@ use super::ReplayHint;
 use super::ScheduledFireMembers;
 use super::SubagentMembers;
 use super::ToolCallMembers;
+use super::WebSearchMembers;
+use super::WorkflowMembers;
 use crate::msp::method::hook::HookEventName;
 use crate::msp::view::item_content::BackgroundTerminalCompletion;
 use crate::msp::view::item_content::CompactionOutcome;
@@ -18,15 +20,11 @@ use crate::msp::view::item_content::HookRunStatus;
 use crate::msp::view::item_content::ItemKind;
 use crate::msp::view::item_content::ItemStatus;
 use crate::msp::view::item_content::MessageAttachment;
-use crate::msp::view::item_content::OutputRef;
 use crate::msp::view::item_content::PeerMessage;
 use crate::msp::view::item_content::SubagentControlStatus;
 use crate::msp::view::item_content::SubagentInputPhase;
 use crate::msp::view::item_content::SubagentResult;
 use crate::msp::view::item_content::SubagentResultStatus;
-use crate::msp::view::item_content::WebSearchHit;
-use crate::msp::view::item_content::WorkflowChild;
-use crate::msp::view::item_content::WorkflowTokenBudget;
 use crate::msp::view::message_phase::MessagePhase;
 use crate::msp::view::message_phase::lenient_message_phase;
 use crate::msp::view::state::TokenUsage;
@@ -216,54 +214,9 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_unreadable: Option<bool>,
 
-    /// `workflow`: launched entry identity.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_id: Option<String>,
-    /// `workflow`: launched script identity.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_id: Option<String>,
-    /// `workflow`: camelCased `WorkflowLaunchTriggerSource`, verbatim
-    /// (durable runtime vocabulary, e.g. `"modelProposal"`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trigger_source: Option<String>,
-    /// `workflow`: set on resumed launches.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume_from_run_id: Option<String>,
-    /// `workflow`: `true` only while a durable pause fact is in force for the
-    /// run's generation; absent otherwise, never `false`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub paused: Option<bool>,
-    /// `workflow`: folded per-child state, keyed by `(childId, attempt)`,
-    /// re-emitted whole on every change — the item `revision` is the ordering
-    /// guard.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<WorkflowChild>>,
-    /// `workflow`: the reconciled terminal message, set on completion.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-    /// `workflow`: the run's launch token budget, set from the launch fact;
-    /// absent when the launch carried none.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_budget: Option<WorkflowTokenBudget>,
-    /// `workflow`: the run-level declared-phase label — the last `Phase`
-    /// detail-row label of the reconciled projection; terminal-only, absent
-    /// while live.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub declared_phase: Option<String>,
-    /// `workflow`: the human terminal summary projected from the reconciled
-    /// Launch envelope, bounded at the 64 KiB surface budget; terminal-only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub final_summary: Option<String>,
-    /// `workflow`: display-only stop affordance — `true` while the run is open,
-    /// `false` once settled; stopping rides `workflow/cancel`. Authorizes
-    /// nothing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_available: Option<bool>,
-    /// `workflow`: one `outputRef`-shaped link per recorded child spawn with an
-    /// objective (`kind: "workflow_child_prompt"`), fetched via
-    /// `item/readOutput`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub child_prompt_refs: Option<Vec<OutputRef>>,
+    /// `workflow` members, flattened into the item row.
+    #[serde(flatten)]
+    pub workflow: WorkflowMembers,
 
     /// `reminderChild`: the reminder agent's id.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -359,36 +312,9 @@ pub struct Item {
     /// hook run's item id and its bounded label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice_subject: Option<NoticeSubject>,
-    /// `webSearch`: the search action as an open-enum string — `search` |
-    /// `openPage` | `findInPage`, else tolerated unknown. Absent while the call
-    /// is open (the action is not final until the item completes).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub action: Option<String>,
-    /// `webSearch`: the search query, verbatim — present iff `action ==
-    /// "search"` with a query to carry.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    /// `webSearch`: the page URL, verbatim — present iff `action == "openPage"`
-    /// or `"findInPage"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// `webSearch`: the in-page pattern, verbatim — present iff `action ==
-    /// "findInPage"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pattern: Option<String>,
-    /// `webSearch`: the provider's terminal status, verbatim (`"completed"` |
-    /// `"failed"` | `"cancelled"` | other) — present on the completed item.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_status: Option<String>,
-    /// `webSearch`: the typed result hits, verbatim, never truncated — clients
-    /// read `results.length` for the count.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<WebSearchHit>>,
-    /// `webSearch`: the verbatim raw provider JSON frame under the 64 KiB
-    /// per-surface budget; past-budget frames cut here and ride whole behind
-    /// `outputRef`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_item: Option<String>,
+    /// `webSearch` members, flattened into the item row.
+    #[serde(flatten)]
+    pub web_search: WebSearchMembers,
     /// `monitorFeed`: the monitor task id — the same value as that monitor's
     /// `toolCall` `itemId`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -418,8 +344,13 @@ pub struct Item {
     #[serde(flatten)]
     pub scheduled_fire: ScheduledFireMembers,
 
-    /// Terminal `toolCall`, or a `subagent` whose result drained: the item
-    /// after whose rows the terminal row renders.
+    /// `backgroundTerminalCompletion`, or a terminal `toolCall` that already
+    /// shows a Finished row: render before the target's whole coalesced region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_row_before_item_id: Option<String>,
+    /// Terminal monitor `toolCall`, drained `subagent`,
+    /// `backgroundTerminalCompletion`, or Finished-row `toolCall`: render after
+    /// the target's logical rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_row_after_item_id: Option<String>,
     /// Monitor `toolCall`: the hint verdict plus anchor (`ReplayHint`); absent

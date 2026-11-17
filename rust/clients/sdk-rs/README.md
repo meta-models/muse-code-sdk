@@ -126,6 +126,23 @@ fn text_part(text: impl Into<String>) -> TurnInputPart {
 The crate's `examples/` directory has a fuller quickstart and recipes for
 approvals, retries, and cancellation.
 
+## Upgrading
+
+### From 1.4.20 or earlier
+
+In 1.4.21, the workflow and web-search fields of `Item` (in
+`muse_code_sdk::msp`) moved into two member fields. The wire format is
+unchanged. Only Rust code that reads these fields needs the new paths:
+
+- under `item.workflow`: `entry_id`, `script_id`, `trigger_source`,
+  `resume_from_run_id`, `paused`, `children`, `message`, `token_budget`,
+  `declared_phase`, `final_summary`, `stop_available` and `child_prompt_refs`;
+- under `item.web_search`: `action`, `query`, `url`, `pattern`,
+  `provider_status`, `results` and `raw_item`.
+
+For example, `item.children` becomes `item.workflow.children`, and
+`item.results` becomes `item.web_search.results`.
+
 ## Documentation
 
 - API reference: <https://docs.rs/muse-code-sdk>

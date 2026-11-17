@@ -20,7 +20,7 @@ import type {
   ProtocolErrorHandler,
   ServerRequestHandler,
 } from "./connection.js";
-import { checkServedFingerprint } from "../fingerprint.js";
+import { SchemaCompatibilityError, classifyServedSchema, isWellFormedEpoch } from "../fingerprint.js";
 import type { FingerprintWarning } from "../fingerprint.js";
 
 /**
@@ -40,6 +40,26 @@ export interface SpawnMspConnectionOptions {
   readonly shutdownTimeoutMs?: number;
   /** See {@link MuseServeChildOptions.spawnFn}. */
   readonly spawnFn?: MuseServeChildOptions["spawnFn"];
+  /**
+   * ADR 22936 D3, default off: refuse at connect when the host's stable
+   * fingerprint differs AND its `schema.compatibilityEpoch` differs from the
+   * epoch this SDK was built against (a declared non-additive advance). The
+   * refusal is a `SchemaCompatibilityError` naming both bundles; the SDK
+   * closes the host it spawned first and never sends `initialized`. Off, the
+   * same mismatch is a `fingerprintWarning` with `tier: "declaredBreaking"`
+   * and the connection proceeds as before. Equal or absent epochs (the
+   * additive tier) are never refused, whatever this setting.
+   */
+  readonly refuseDeclaredBreakingSchema?: boolean;
+  /**
+   * Cancels the handshake. Aborting before `initialize` resolves closes the
+   * host through the usual shutdown ladder, then rejects with an `AbortError`
+   * whose `cause` is `signal.reason`; an already-aborted signal throws that
+   * error here, before anything is spawned. Aborting later does nothing. The
+   * rejection waits for the host to exit: a host that ignores stdin EOF takes
+   * up to `shutdownTimeoutMs` plus the 2 s SIGTERM grace.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -137,6 +157,12 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
  * Exported from this module only, never the package barrel.
  */
 export const SIGTERM_GRACE_MS = 2_000;
+/**
+ * How long the pipes may keep draining after the child's `exit` before the
+ * transport drops its own ends. A process the host started can hold the other
+ * ends for good, and Node fires `close` only once every holder lets go.
+ */
+const POST_EXIT_DRAIN_MS = 1_000;
 /** Node's own `setTimeout` ceiling; past it a delay silently clamps to 1 ms. */
 const MAX_SHUTDOWN_TIMEOUT_MS = 2_147_483_647;
 const ownedTransport = Symbol("MuseServeChild.transport");
@@ -148,6 +174,17 @@ const adoptFlushSource = Symbol("ChildStdioTransport.adoptFlushSource");
  * (#49912) without a new public member on `MspHandshake`.
  */
 export const initializeAnswered = Symbol("MspHandshake.initializeAnswered");
+
+/**
+ * Node's abort shape (`child_process.spawn({ signal })`): callers branch on
+ * `name`. Exported from this MODULE only (never the package barrel) so the
+ * facade raises the same error before host discovery.
+ */
+export function abortError(reason: unknown): Error {
+  const error = new Error("The operation was aborted", { cause: reason });
+  error.name = "AbortError";
+  return error;
+}
 
 /**
  * Shutdown deadline contract: `expired` resolves and never rejects; after
@@ -310,6 +347,13 @@ export class ChildStdioTransport implements DuplexTransport {
   // behaved identically, and `#closing ??=` let whichever call won the race
   // discard the other's submission promise (PR #22819 round 4).
   #defaultFlushed: (() => Promise<void>) | undefined;
+  // Set when the transport dropped its pipe ends after the post-exit drain,
+  // so the stdout iterator reads the resulting premature close as EOF.
+  #droppedPipes = false;
+  // Whether the owned group still had members when the pipes were dropped;
+  // only then may close() signal it, so a group already empty at the drop is
+  // never signalled (one that empties later and is reused is not covered).
+  #leftoverGroup = false;
 
   constructor(
     child: ChildProcessWithoutNullStreams,
@@ -336,6 +380,14 @@ export class ChildStdioTransport implements DuplexTransport {
     this.exited = new Promise<ProcessExit>((resolve, reject) => {
       this.child.once("error", reject);
       this.child.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    this.child.once("exit", () => {
+      const drain = setTimeout(() => this.#dropPipes(), POST_EXIT_DRAIN_MS);
+      // Unref'd: a held pipe keeps the loop alive until the drain fires, and
+      // with nothing else waiting the embedder may exit without it.
+      drain.unref();
+      const clear = (): void => clearTimeout(drain);
+      void this.exited.then(clear, clear);
     });
     // Mark handled at birth: a spawn failure (e.g. ENOENT) rejects `exited`
     // before anyone can await it, and the default unhandled-rejection policy
@@ -421,9 +473,27 @@ export class ChildStdioTransport implements DuplexTransport {
    * way to reach an exit, never a substitute for observing one.
    */
   async #awaitExitOrTerminate(deadline: Promise<void>): Promise<void> {
-    if (await this.#beforeDeadline(this.#settled(), deadline)) return;
+    if (await this.#beforeDeadline(this.#settled(), deadline)) {
+      await this.#endLeftoverGroup();
+      return;
+    }
     this.#signal("SIGTERM");
-    if (await this.#settledWithin(SIGTERM_GRACE_MS)) return;
+    // Deliberately ambient (NOT this.#makeShutdownDeadline): the SIGTERM grace
+    // window is outside the one shared shutdown budget the injected seam models.
+    const grace = makeShutdownDeadline(SIGTERM_GRACE_MS);
+    try {
+      if (await this.#beforeDeadline(this.#settled(), grace.expired)) {
+        // The drain can settle `exited` inside the grace while a group member
+        // that traps SIGTERM still runs: SIGKILL it when this same grace ends.
+        if (this.#leftoverGroup && this.#signalGroup(0)) {
+          await grace.expired;
+          this.#signalGroup("SIGKILL");
+        }
+        return;
+      }
+    } finally {
+      grace.clear();
+    }
     // Past SIGTERM, drop our end of the pipe ourselves (PR #22819 round 3).
     // Nothing else does, so a write the host never drained keeps `stdin`
     // open — and the child's `close` event, which `exited` and the trailing
@@ -446,21 +516,34 @@ export class ChildStdioTransport implements DuplexTransport {
    * an exited child — the ladder must never rethrow out of a stage.
    */
   #signal(signal: NodeJS.Signals): void {
-    const pid = this.child.pid;
-    if (this.#ownsProcessGroup && pid !== undefined) {
-      try {
-        process.kill(-pid, signal);
-        return;
-      } catch {
-        // Fall through to the direct-child path, safe on every failure here.
-      }
-    }
+    // A failed group signal falls through to the direct-child path, safe on
+    // every failure here.
+    if (this.#signalGroup(signal)) return;
     this.child.kill(signal);
   }
 
-  /** True once `exited` settles either way — a rejection means no live child. */
-  async #settledWithin(budgetMs: number): Promise<boolean> {
-    return await this.#within(this.#settled(), budgetMs);
+  /** True only when the owned group existed and took the signal (`0` probes). */
+  #signalGroup(signal: NodeJS.Signals | 0): boolean {
+    const pid = this.child.pid;
+    if (!this.#ownsProcessGroup || pid === undefined) return false;
+    try {
+      process.kill(-pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * When the post-exit drain settled `exited` before the deadline, the ladder
+   * never ran, but what the host left in its own group must still end with it
+   * (FR-017b). A holder outside the group is left alone, and a group empty at
+   * the drop, or now (`ESRCH`), ends the stage at once.
+   */
+  async #endLeftoverGroup(): Promise<void> {
+    if (!this.#leftoverGroup || !this.#signalGroup("SIGTERM")) return;
+    await makeShutdownDeadline(SIGTERM_GRACE_MS).expired;
+    this.#signalGroup("SIGKILL");
   }
 
   /** True if `work` settles before the one shared shutdown deadline fires. */
@@ -469,18 +552,6 @@ export class ChildStdioTransport implements DuplexTransport {
       work.then(() => true, () => true),
       deadline.then(() => false),
     ]);
-  }
-
-  /** True if `work` settles inside `budgetMs`; false when the budget expires. */
-  async #within(work: Promise<unknown>, budgetMs: number): Promise<boolean> {
-    // Deliberately ambient (NOT this.#makeShutdownDeadline): the SIGTERM grace
-    // window is outside the one shared shutdown budget the injected seam models.
-    const deadline = makeShutdownDeadline(budgetMs);
-    try {
-      return await this.#beforeDeadline(work, deadline.expired);
-    } finally {
-      deadline.clear();
-    }
   }
 
   /**
@@ -493,8 +564,25 @@ export class ChildStdioTransport implements DuplexTransport {
     await this.exited.catch(() => {});
   }
 
+  /**
+   * Let go of our ends only: this sends no signal, but a holder's later writes
+   * fail (SIGPIPE/EPIPE) and its stdin reads EOF. `close` then fires, so
+   * `exited` reports the exit `exit` already saw.
+   */
+  #dropPipes(): void {
+    this.#droppedPipes = true;
+    this.#leftoverGroup = this.#signalGroup(0);
+    this.child.stdin.destroy();
+    this.child.stdout.destroy();
+    this.child.stderr.destroy();
+  }
+
   async *#stdoutChunks(): AsyncIterable<string> {
-    for await (const chunk of this.child.stdout) yield String(chunk);
+    try {
+      for await (const chunk of this.child.stdout) yield String(chunk);
+    } catch (error) {
+      if (!this.#droppedPipes) throw error;
+    }
   }
 }
 
@@ -595,8 +683,13 @@ export class MspHandshake {
   readonly #transport: ChildStdioTransport;
   #started = false;
   #answered = false;
+  readonly #refuseDeclaredBreaking: boolean;
+  readonly #signal: AbortSignal | undefined;
+  readonly #onAbort = (): void => void this.close().catch(() => undefined);
 
   constructor(options: SpawnMspConnectionOptions) {
+    // A handshake cancelled before it starts never starts a host to kill.
+    if (options.signal?.aborted) throw abortError(options.signal.reason);
     this.child = MuseServeChild.spawn({
       museBin: options.command,
       ...(options.args === undefined ? {} : { args: options.args }),
@@ -615,6 +708,9 @@ export class MspHandshake {
     // this they ended the host's input while a just-accepted frame was still
     // queued on a microtask (PR #22819 round 4).
     this.#transport[adoptFlushSource](() => this.#connection[submissionTail]());
+    this.#refuseDeclaredBreaking = options.refuseDeclaredBreakingSchema === true;
+    this.#signal = options.signal;
+    this.#signal?.addEventListener("abort", this.#onAbort, { once: true });
   }
 
   get exited(): Promise<ProcessExit> {
@@ -634,6 +730,7 @@ export class MspHandshake {
   }
 
   async close(): Promise<ProcessExit> {
+    this.#signal?.removeEventListener("abort", this.#onAbort);
     await this.#connection.close();
     return await this.#transport.exited;
   }
@@ -644,8 +741,27 @@ export class MspHandshake {
   }
 
   async initialize(params: InitializeParams): Promise<SpawnedMspConnection> {
+    // Checked here, not in the try: a refused second call must leave the
+    // first call's abort listener in place.
     if (this.#started) throw new ProtocolError("initialize may be sent only once per connection");
     this.#started = true;
+    const signal = this.#signal;
+    try {
+      const spawned = await this.#initialize(params);
+      if (!signal?.aborted) return spawned;
+    } catch (error) {
+      if (!signal?.aborted) throw error;
+    } finally {
+      // Settled either way: a later abort must not close anything.
+      signal?.removeEventListener("abort", this.#onAbort);
+    }
+    // Aborted before the handshake completed: the abort listener already
+    // started the shutdown ladder; reject only once the host is gone.
+    await this.close().catch(() => undefined);
+    throw abortError(signal?.reason);
+  }
+
+  async #initialize(params: InitializeParams): Promise<SpawnedMspConnection> {
     const { result: raw, line } = await this.#connection[requestWithFrame](
       "initialize",
       params as unknown as Record<string, unknown>,
@@ -658,7 +774,34 @@ export class MspHandshake {
       // and the facade tells the two apart by it (#49912, #50588 review).
       throw new ProtocolError("initialize result has no schema fingerprint", line);
     }
-    const fingerprintWarning = checkServedFingerprint(result.schema.fingerprint);
+    const rawEpoch = result.schema.compatibilityEpoch;
+    const wellFormed = isWellFormedEpoch(rawEpoch);
+    if (!wellFormed && this.#refuseDeclaredBreaking) {
+      // The member is an optional unsigned integer (FR-22936-2). With the
+      // refusal on, the tier it asks for cannot be read from this answer, so
+      // the arm fails closed like a result with no fingerprint (FR-22936-8).
+      throw new ProtocolError(
+        "initialize result has a schema compatibilityEpoch that is not a non-negative integer " +
+          "(FR-22936-8); the host is not a conforming MSP server: point `museBin` at a current " +
+          "`muse` build or reinstall it",
+        line,
+      );
+    }
+    // With the refusal off a malformed member is read as absent (FR-22936-8):
+    // the published behaviour does not change until the owner enables the
+    // setting (ADR 22936 D3). The classifier applies that reading itself, so
+    // `classifyServedSchema(initializeResult.schema)` reports this same tier.
+    const fingerprintWarning = classifyServedSchema({
+      fingerprint: result.schema.fingerprint,
+      compatibilityEpoch: rawEpoch,
+    });
+    if (this.#refuseDeclaredBreaking && fingerprintWarning?.tier === "declaredBreaking") {
+      // ADR 22936 D3: refuse at connect. The host is closed first (stdin EOF,
+      // then the usual shutdown ladder) so a refusal orphans nothing, and
+      // `initialized` is never sent: the host saw a handshake that ended.
+      await this.close().catch(() => undefined);
+      throw new SchemaCompatibilityError(fingerprintWarning);
+    }
     this.#connection.notify("initialized");
     await this.#connection.flush();
     return new SpawnedMspConnection(

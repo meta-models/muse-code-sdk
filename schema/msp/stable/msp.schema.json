@@ -114,9 +114,34 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ApprovalCuaBrowser": {
+      "description": "A browser card's notices: the first time Computer Use uses a browser on\nthis Mac, and the session's consent before it opens its own window in a\nbrowser that comes to the front when it does. A client words each flag\nitself.",
+      "properties": {
+        "firstUse": {
+          "description": "Show the first-use notice: Computer Use hasn't used this browser on\nthis Mac before and will act signed in as the person.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The browser's display name.",
+          "type": "string"
+        },
+        "windowConsent": {
+          "description": "Show the window consent line: Computer Use will open its own window\nin this browser and bring the browser to the front, once per session.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "ApprovalCuaCardFacts": {
       "description": "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`.",
       "properties": {
+        "browser": {
+          "$ref": "#/$defs/ApprovalCuaBrowser",
+          "description": "For a browser card, the notices it carries; absent unless at least\none shows."
+        },
         "data": {
           "description": "The data the call would send that the card must name; a card with any\noffers only one-shot choices.",
           "items": {
@@ -3163,7 +3188,11 @@
           "type": "string"
         },
         "terminalRowAfterItemId": {
-          "description": "Terminal `toolCall`, or a `subagent` whose result drained\n(#70249): the item after whose rows the terminal row renders\n(tdd SS4.5.21, ADR 56496 D2/D3).",
+          "description": "Terminal monitor `toolCall`, drained `subagent`,\n`backgroundTerminalCompletion`, or Finished-row `toolCall`: render after\nthe target's logical rows (tdd SS4.5.21, ADR 56496 D2/D3, OD #738).",
+          "type": "string"
+        },
+        "terminalRowBeforeItemId": {
+          "description": "`backgroundTerminalCompletion`, or a terminal `toolCall` that already\nshows a Finished row: render before the target's whole coalesced region\n(tdd SS4.5.21, ADR 50041 D6).",
           "type": "string"
         },
         "text": {
@@ -5524,6 +5553,10 @@
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
       "properties": {
+        "compatibilityEpoch": {
+          "description": "The host's declared compatibility epoch (spec 206 amendment #22936\nFR-22936-2, ADR 22936 D2): the count of declared non-additive\nadvances of the stable surface. A client reads a `fingerprint`\nmismatch by comparing this with its own pin: equal, every difference\nis additive; different, a declared non-additive advance lies between.\nAdditive-optional: a host that predates the member omits it, and\nthe reader treats absence as unknown, never a guessed value\n(SS1.5.4).",
+          "type": "integer"
+        },
         "experimentalFingerprint": {
           "description": "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value (SS1.5.4).",
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -7070,7 +7103,7 @@
       "properties": {
         "history": {
           "$ref": "#/$defs/SessionHistory",
-          "description": "The served history (inline; SS2.5.7's empty-items half is #49416 —\ninherited turns surface until the boundary-aware fold lands)."
+          "description": "The served history: inline, with empty items, since the side opens\nempty (SS2.5.7)."
         },
         "pendingRequests": {
           "description": "The late-joiner pointer set.",
@@ -10831,6 +10864,7 @@
       }
     ]
   },
+  "compatibilityEpoch": 0,
   "description": "Muse Session Protocol (MSP) v1 wire schema bundle, rendered from the tbh-protocol schema model (spec 206). Generated; do not edit.",
   "errors": [
     {

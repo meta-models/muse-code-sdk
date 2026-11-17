@@ -113,7 +113,7 @@ BODY_COMPLETION_CORRELATION_KNOWN_VALUES: Final[tuple[str, ...]] = ("resolved", 
 
 # A grantable capability name. Open: the experimental-only `rawLog` entry joins the stable domain as an additive open-enum extension when it graduates — closed would make that a retype.
 CapabilityName = str  # open enum: unknown values stay representable
-CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog", "rawLogPhysical", "journal", "daemonVacate", "launchContext",)
+CAPABILITY_NAME_KNOWN_VALUES: Final[tuple[str, ...]] = ("userShell", "sessionMcp", "sessionListStream", "feedback", "computerUseSetup", "computerUseHostSetup", "sessionRename", "peerMessaging", "rawLog", "rawLogPhysical", "journal", "daemonVacate", "launchContext", "skillProvider",)
 
 # The language a Code Mode cell ran in. Open: values are lowercase VS Code language identifiers, and only `javascript` (the V8 engine) is minted today.
 CodeModeLanguage = str  # open enum: unknown values stay representable
@@ -248,6 +248,9 @@ JsonRpcVersion = Literal["2.0"]
 # Quota limit kinds: open for evolution.
 LimitKind = str  # open enum: unknown values stay representable
 LIMIT_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("tierLimit",)
+
+# What caps the ceiling a `-32028 limitsAboveMax` refusal names: the kind of the ceiling, so a client can tell a ceiling a newer daemon start can raise from one managed policy fixes. **Closed**: exactly these two — a refusal's ceiling is either the daemon's own start posture or the widest managed policy allows, never a third source (the socket limits regime's ceiling computation has exactly these two arms).
+LimitsCeilingKind = Literal["daemonDefault", "managedPolicy"]
 
 # The sandbox-network axis values. **Closed**: a client selects one of the three serve spellings and can never construct another; the socket promise is same-version, so the result use needs no unknown arm (E2; the experimental tier carries no cross-version promise).
 LimitsNetworkMode = Literal["restricted", "enabled", "proxy-only"]
@@ -574,9 +577,17 @@ SkillImportSource = Literal["claude", "codex"]
 # A `skill` input part's picked-copy source: the catalog-row `source` enum values, sent by the TUI on every skill submit so the host resolves the exact `(selector, source)` row. **Closed**: a client-selected write vocabulary — an unknown value is `invalidParams`, never a fall-through to the bare row. Contrast the open read-side [`SkillSource`].
 SkillInvocationSource = Literal["bundled", "user", "project", "plugin"]
 
+# Who may load a provider skill. **Open**: a later value is additive.
+SkillProviderActivation = str  # open enum: unknown values stay representable
+SKILL_PROVIDER_ACTIVATION_KNOWN_VALUES: Final[tuple[str, ...]] = ("model", "userOnly", "alwaysInline",)
+
+# What a provider entry is. **Open**: a later kind is additive, and v1 serves only `skill`.
+SkillProviderKind = str  # open enum: unknown values stay representable
+SKILL_PROVIDER_KIND_KNOWN_VALUES: Final[tuple[str, ...]] = ("skill", "instruction",)
+
 # A skill row's source scope: the projection of the skills crate's `SkillsSourceScope`. Open: a future scope value is additive.
 SkillSource = str  # open enum: unknown values stay representable
-SKILL_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("bundled", "user", "project", "plugin",)
+SKILL_SOURCE_KNOWN_VALUES: Final[tuple[str, ...]] = ("bundled", "user", "project", "plugin", "skillProvider",)
 
 # This attempt's source-pause proof.
 SourcePause = Literal["notRequested", "held", "unconfirmed", "invalidated"]
@@ -866,9 +877,21 @@ class ApprovalChoice(_ApprovalChoiceBase, total=False):
     rulePreview: str
 
 
+class _ApprovalCuaBrowserBase(TypedDict):
+    name: str
+
+
+class ApprovalCuaBrowser(_ApprovalCuaBrowserBase, total=False):
+    """A browser card's notices: the first time Computer Use uses a browser on this Mac, and the session's consent before it opens its own window in a browser that comes to the front when it does. A client words each flag itself."""
+
+    firstUse: bool
+    windowConsent: bool
+
+
 class ApprovalCuaCardFacts(TypedDict, total=False):
     """One Computer Use card's facts. Empty collections and absent rows are omitted, never `null`."""
 
+    browser: ApprovalCuaBrowser
     data: list[ApprovalCuaDataFact]
     page: ApprovalCuaPage
     steps: list[ApprovalCuaStep]
@@ -1253,6 +1276,7 @@ class ClientCapabilities(TypedDict, total=False):
     experimentalApi: bool
     optOutNotificationMethods: list[str]
     requestedCapabilities: list[str]
+    skillProvider: SkillProviderCapability
     userInputDialogs: bool
 
 
@@ -1578,6 +1602,7 @@ class ErrorData(_ErrorDataBase, total=False):
     axes: list[LimitsAboveMaxAxis]
     capability: CapabilityName
     capacity: int
+    ceilingKind: LimitsCeilingKind
     choiceId: str
     commandId: str
     currentRequirementId: ApprovalRequirementRef
@@ -1877,6 +1902,7 @@ class InitializeResult(_InitializeResultBase, total=False):
     sandboxAvailability: SandboxAvailability
     sandboxUnavailableReason: SandboxUnavailableReason
     sessionDurability: SessionDurability
+    skillProvider: SkillProviderCapability
 
 
 class _ItemBase(TypedDict):
@@ -1992,6 +2018,7 @@ class Item(_ItemBase, total=False):
     summary: list[str]
     taskId: str
     terminalRowAfterItemId: str
+    terminalRowBeforeItemId: str
     text: str
     tokenBudget: WorkflowTokenBudget
     tokensAfter: int
@@ -2103,11 +2130,15 @@ class JournalAdmissionContextResult(TypedDict):
     sourceGeneration: int
 
 
-class JournalAnchor(TypedDict):
-    """A journal anchor: bare per-source ordinals plus the qualified binding."""
-
+class _JournalAnchorBase(TypedDict):
     floor: int
     next: int
+
+
+class JournalAnchor(_JournalAnchorBase, total=False):
+    """A journal anchor: the host's LOCAL per-source sequences, and on admission the store's REMOTE cursor of the first row to read. Numbering: `floor` is the LOCAL sequence of the first row to read, the newest closed checkpoint's first record (the log's first record when there is none); a restore reads from sequence `floor`. On admission `next` is the next sequence to write, `conditions.predecessor + 1`. Example: a checkpoint starting at sequence 5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5, predecessor 9 and `next` 10. A store before Milestone 4.5 sends record counts here instead; the host adapter translates them."""
+
+    floorCursor: str
     throughMeaning: str
     throughPosition: int
 
@@ -2117,6 +2148,17 @@ class JournalBatchStamp(TypedDict):
 
     end: int
     id: str
+
+
+class _JournalCheckpointMarkerBase(TypedDict):
+    id: str
+
+
+class JournalCheckpointMarker(_JournalCheckpointMarkerBase, total=False):
+    """Owner the governing rules: `{id, start}` on the first record of a checkpoint transaction, `{id, end}` on its last, both flags on a one-record transaction. `id` is the checkpoint record's id. A store that keeps a checkpoint pointer remembers `(id, position)` at `start` and moves its pointer forward to that position once it durably holds the matching `end`; it ignores an `end` whose id it never saw start."""
+
+    end: bool
+    start: bool
 
 
 class JournalCommitBatchParams(TypedDict):
@@ -2208,24 +2250,32 @@ class JournalReadBudget(TypedDict):
     work: int
 
 
-class JournalReadPageParams(TypedDict):
-    """`journal/readPage` params (host -> client)."""
-
+class _JournalReadPageParamsBase(TypedDict):
     anchor: JournalAnchor | None
     budget: JournalReadBudget
     sessionId: str
     source: str
 
 
-class JournalReadPageResult(TypedDict):
-    """`journal/readPage` result."""
+class JournalReadPageParams(_JournalReadPageParamsBase, total=False):
+    """`journal/readPage` params (host -> client)."""
 
+    cursor: str
+
+
+class _JournalReadPageResultBase(TypedDict):
     atCut: bool
     completeThrough: int | None
     journalError: str | None
     next: JournalAnchor
     records: list[JournalPageRecord]
     remainingBudget: JournalReadBudget
+
+
+class JournalReadPageResult(_JournalReadPageResultBase, total=False):
+    """`journal/readPage` result."""
+
+    nextCursor: str
 
 
 class JournalReceipt(TypedDict):
@@ -2254,6 +2304,7 @@ class JournalRecord(_JournalRecordBase, total=False):
     """One record inside a batch/page: the session record's v1 envelope fields, flat and camelCase (no envelope `schema_version`), with the domain payload embedded as a JSON value under its own payload type."""
 
     batch: JournalBatchStamp
+    checkpoint: JournalCheckpointMarker
 
 
 class _JournalSessionDescriptorBase(TypedDict):
@@ -3172,13 +3223,17 @@ class PhysicalFileEntry(TypedDict):
     sizeBytes: int
 
 
-class PluginCatalogEntry(TypedDict):
-    """One installed plugin record."""
-
+class _PluginCatalogEntryBase(TypedDict):
     enabled: bool
     id: str
     source: PluginSource
     version: str
+
+
+class PluginCatalogEntry(_PluginCatalogEntryBase, total=False):
+    """One installed plugin record."""
+
+    origin: PluginOrigin
 
 
 class PluginChangedParams(TypedDict):
@@ -3421,6 +3476,13 @@ class PluginMarketplaceUpdateParams(TypedDict):
     commandId: str
     name: str
     sessionId: str
+
+
+class PluginOrigin(TypedDict, total=False):
+    """Where a `plugin/list` row came from, in the `plugin/install` target vocabulary: the host sets exactly one member (the `PluginInstallTarget` shape; the one-member rule is the host's, not the schema's)."""
+
+    localPath: str
+    marketplace: str
 
 
 class ProjectionBasis(TypedDict):
@@ -3831,6 +3893,7 @@ class _SchemaInfoBase(TypedDict):
 class SchemaInfo(_SchemaInfoBase, total=False):
     """The `schema` pair in [`InitializeResult`]. `version` is the wire **envelope** schema version — distinct from the session-view `schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability posture, which is not on the wire at all."""
 
+    compatibilityEpoch: int
     experimentalFingerprint: str
 
 
@@ -4497,6 +4560,7 @@ class SessionResumeParams(_SessionResumeParamsBase, total=False):
     recoveryMode: RecoveryMode
     workspaceRoot: str
     workspaceRoots: list[str]
+    worktree: WorktreeStartRequest
 
 
 class _SessionResumeResultBase(TypedDict):
@@ -4956,6 +5020,124 @@ class SkillListResult(TypedDict):
     """`skill/list` result: one row per typed-invocable shortcut spelling — exactly the invocations the first-party typed dispatch accepts."""
 
     skills: list[SkillCatalogEntry]
+
+
+class SkillProviderCapability(TypedDict):
+    """`capabilities.skillProvider` in `initialize` params, and the host's echo of the effective value in the result."""
+
+    version: int
+
+
+class _SkillProviderEntryBase(TypedDict):
+    frontmatter: SkillProviderFrontmatter
+    resources: list[SkillProviderResource]
+    uri: str
+
+
+class SkillProviderEntry(_SkillProviderEntryBase, total=False):
+    """One provider skill: the SEP-2640 skill entry plus `kind`, `activation` and `scope`."""
+
+    activation: SkillProviderActivation
+    kind: SkillProviderKind
+    scope: str
+
+
+class SkillProviderFrontmatter(TypedDict):
+    """The protocol spec` frontmatter of a provider skill."""
+
+    description: str
+    name: str
+
+
+class SkillProviderGetParams(TypedDict):
+    """`skillProvider/get` params (SEP-2640 `skills/get`): the model loads one provider skill."""
+
+    sessionId: str
+    uri: str
+
+
+class SkillProviderGetResult(TypedDict):
+    """`skillProvider/get` result: the entry as it is now."""
+
+    skill: SkillProviderEntry
+
+
+class _SkillProviderListParamsBase(TypedDict):
+    sessionId: str
+
+
+class SkillProviderListParams(_SkillProviderListParamsBase, total=False):
+    """`skillProvider/list` params: the host asks for one page of the session's catalog."""
+
+    cursor: str
+
+
+class _SkillProviderListResultBase(TypedDict):
+    entries: list[SkillProviderEntry]
+    revision: int
+
+
+class SkillProviderListResult(_SkillProviderListResultBase, total=False):
+    """`skillProvider/list` result: one page of the catalog."""
+
+    nextCursor: str
+
+
+class SkillProviderReadResourceParams(TypedDict):
+    """`skillProvider/readResource` params (SEP-2640 `resources/read`): the host fetches one listed file."""
+
+    sessionId: str
+    uri: str
+
+
+class SkillProviderReadResourceResult(TypedDict):
+    """`skillProvider/readResource` result: exactly one file."""
+
+    contents: list[SkillProviderResourceContents]
+
+
+class SkillProviderResource(TypedDict):
+    """One listed file of a provider skill."""
+
+    digest: str
+    size: int
+    uri: str
+
+
+class _SkillProviderResourceContentsBase(TypedDict):
+    uri: str
+
+
+class SkillProviderResourceContents(_SkillProviderResourceContentsBase, total=False):
+    """One fetched file. It carries exactly one of `text` or `blob`; both, or neither, is invalid and the host refuses the file."""
+
+    blob: str
+    mimeType: str
+    text: str
+
+
+class _SkillProviderUpdatedParamsBase(TypedDict):
+    baseRevision: int
+    revision: int
+    sessionId: str
+
+
+class SkillProviderUpdatedParams(_SkillProviderUpdatedParamsBase, total=False):
+    """`skillProvider/updated` params: the client's delta (or snapshot) for one session it drives."""
+
+    removes: list[str]
+    snapshot: bool
+    upserts: list[SkillProviderEntry]
+
+
+class _SkillProviderUpdatedResultBase(TypedDict):
+    appliedRevision: int
+
+
+class SkillProviderUpdatedResult(_SkillProviderUpdatedResultBase, total=False):
+    """`skillProvider/updated` result."""
+
+    resync: bool
 
 
 class SkillSetActivationParams(TypedDict):
@@ -6249,6 +6431,8 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "plugin/marketplaceRemove": {"description": "Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name).", "params": "PluginMarketplaceRemoveParams", "result": "PluginMarketplaceRemoveResult"},
     "plugin/marketplaceUpdate": {"description": "Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceUpdateParams", "result": "PluginMarketplaceRecordResult"},
     "pluginData/read": {"description": "Read a page of project, turn or tool-call records from the host's local projection.", "params": "PluginDataReadParams", "result": "PluginDataReadResult"},
+    "pluginData/subscribe": {"description": "Subscribe to the changed project, turn or tool-call records of the host's local projection. pluginData/changed carries them to this connection only.", "params": "PluginDataSubscribeParams", "result": "PluginDataSubscribeResult"},
+    "pluginData/unsubscribe": {"description": "End one pluginData subscription of this connection; an unknown or ended subscription also answers {}.", "params": "PluginDataUnsubscribeParams", "result": "PluginDataUnsubscribeResult"},
     "projection/list": {"description": "Lists the registered server-side read projections.", "params": "ProjectionListParams", "result": "ProjectionListResult"},
     "projection/read": {"description": "Reads one named projection's snapshot with its fold basis.", "params": "ProjectionReadParams", "result": "ProjectionReadResult"},
     "recap/cancel": {"description": "Cancels the session's in-flight recap, which settles `cancelled`; idle is an accepted no-op.", "params": "RecapCancelParams", "result": "RecapCancelResult"},
@@ -6288,6 +6472,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "skill/import": {"description": "Imports foreign skills from the host's own `claude | codex` dirs through the single `SkillsService::import_skills` seam; answers per-skill installed/quarantined/skipped/failed plus counts. `commandId`-idempotent (including `dryRun` previews); each successful write is a `skill/changed` detection point.", "params": "SkillImportParams", "result": "SkillImportResult"},
     "skill/list": {"description": "Reads the session's user-invocable skill rows — one per typed-invocable shortcut spelling, the predicate and shared name resolution by call-through; a query, not a command.", "params": "SkillListParams", "result": "SkillListResult"},
     "skill/setActivation": {"description": "Writes one skill's activation in any scope through the single `SkillsService::set_activation` seam; answers the applied state plus `previous`. `commandId`-idempotent; each successful write is a `skill/changed` detection point.", "params": "SkillSetActivationParams", "result": "SkillSetActivationResult"},
+    "skillProvider/updated": {"description": "Pushes a change to the root session's provider catalog: a delta on `baseRevision`, or a `snapshot`. A base mismatch answers `resync: true` and the host lists again; no `commandId`, no durable record.", "params": "SkillProviderUpdatedParams", "result": "SkillProviderUpdatedResult"},
     "subagent/close": {"description": "Owner-close a child; the terminal mapping folds per the protocol spec.", "params": "SubagentOwnerReasonParams", "result": "CommandAcceptedResult"},
     "subagent/followupTask": {"description": "Queue a follow-up task for a child; admission-only ack, the task settles on the child session's view stream.", "params": "SubagentInputParams", "result": "CommandAcceptedResult"},
     "subagent/interrupt": {"description": "Ask a child to yield at its next boundary; outcome folds to the parent's subagent item.", "params": "SubagentOwnerReasonParams", "result": "CommandAcceptedResult"},
@@ -6356,6 +6541,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "peer/settlementsChanged": {"description": "A peer-admission settlement committed in the receiving session; read `peer/settlements` from your cursor.", "params": "PeerSettlementsChangedParams"},
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
+    "pluginData/changed": {"description": "The changed records of one pluginData subscription, or a reset with no records when the reader must read again; to the subscribing connection only.", "params": "PluginDataChangedParams"},
     "recap/completed": {"description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream.", "params": "RecapCompletedParams"},
     "session/activationChanged": {"description": "A resume recomposed the session's skill and plugin selection and it differs from the one the session recorded (a plugin uninstalled, a policy or settings change). The resume proceeded; the params name what the session has now.", "params": "SessionActivationChangedParams"},
     "session/approvalModeChanged": {"description": "The approval enforcement mode changed: the fold of the durable reconfigure audit fact.", "params": "SessionApprovalModeChangedParams"},

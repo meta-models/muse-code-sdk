@@ -301,6 +301,8 @@ impl MuseClient {
             workspace_root: None,
             // Not exposed by the facade yet.
             workspace_roots: None,
+            // Not exposed by the facade yet.
+            worktree: None,
         };
         // Kept raw too: the fold seeds history from the raw item objects.
         let mut raw = match self

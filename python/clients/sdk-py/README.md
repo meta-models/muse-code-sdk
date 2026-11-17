@@ -45,6 +45,7 @@ path passed at spawn time.
 
 ```python
 import asyncio
+import os
 
 from muse_code import MuseClient, MuseClientSpawnOptions, StartSessionOptions
 
@@ -52,15 +53,19 @@ async def main() -> None:
     client = await MuseClient.spawn(MuseClientSpawnOptions(
         muse_bin=None,  # None finds `muse` on PATH; or pass a path
         args=["serve"],
-        client_info={"name": "my-app", "version": "1.0.0"},
+        client_info={"name": "my_app", "version": "1.0.0"},
     ))
-    session = await client.start_session(StartSessionOptions(workspace_root="."))
+    session = await client.start_session(StartSessionOptions(workspace_root=os.getcwd()))
     result = await session.run("Summarize this repository.")
     print(result.final_text)
     await client.close()
 
 asyncio.run(main())
 ```
+
+`client_info["name"]` must be a machine identifier: lowercase letters, digits
+and `_` only (`[a-z0-9_]+`), at most 64 characters. The host refuses any other
+name at `initialize`. `workspace_root` must be an absolute path.
 
 `session.run` sends one turn and returns when the turn has ended, with the
 outcome, the final answer text, the turn's items, and its token usage. A turn
@@ -72,8 +77,10 @@ list of input parts instead of a string, and turn options as keywords:
 To stop it, cancel the task that awaits it, for example with
 `asyncio.timeout(60)` on Python 3.11 or newer. A turn still waiting in the
 queue is taken back, and a running turn is cancelled; `run` then waits for
-the turn to end and re-raises `CancelledError`. `SyncSession.run` is the
-blocking version, with no way to cancel.
+the turn to end and re-raises `CancelledError`. A cancellation can stop a turn
+only after the host has answered its `turn/start`: if the host stalls before
+it answers, `run` keeps waiting until it does, even under `asyncio.timeout`.
+`SyncSession.run` is the blocking version, with no way to cancel.
 
 To follow a turn as it runs, send it yourself and read its items (paste
 inside `main()` above, before `await client.close()`; add
@@ -114,11 +121,40 @@ async with contextlib.aclosing(session.events()) as events:
 
 Each event arrives once, in order, including events the SDK fetches to fill a
 gap in delivery. `aclosing` stops listening when the loop ends or breaks (or
-call `aclose()`). The stream ends when an ephemeral host dies and raises
-`MuseHostDiedError` when a durable one does, as `turn.items()` does. Reading
+call `aclose()`). The async stream ends when the client closes or an
+ephemeral host dies, and raises `MuseHostDiedError` when a durable host dies,
+as `turn.items()` does. Reading
 it changes nothing else: `turn.unqueue()` still returns the queued input it
 takes back, and that input is not repeated on an event. `SyncSession.events()`
-is the blocking version: `for event in session.events(): ...`.
+is the blocking version: `for event in session.events(): ...`; after
+`SyncMuseClient.close()` it raises `RuntimeError` instead of ending, as every
+blocking call on a closed client does.
+
+To also watch what each sub-agent does, step by step, pass
+`session.events(subagents=True)`. Each sub-agent's events arrive in the same
+stream, in order with the session's own, with `event.subagent` set to the
+sub-agent they belong to (`item_id`, `subagent_id`, `child_session_id`); their
+`frame`, `outcome` and `item` are the sub-agent's own:
+
+```python
+async with contextlib.aclosing(session.events(subagents=True)) as events:
+    async for event in events:
+        if event.subagent is not None:
+            render_step(event.subagent.subagent_id, event.item)
+        else:
+            render(event.frame["method"], event.outcome.fold, event.item)
+```
+
+The SDK subscribes to each running sub-agent while such a stream is open, and
+unsubscribes when the sub-agent finishes or no stream needs it. A sub-agent
+already running when the stream opens streams from then on. Approval requests
+from a sub-agent still arrive once, on the session, through `on_approval`.
+Known limitation: if the host refuses the subscription to a sub-agent
+(usually because it already finished, sometimes because it runs on another
+host), its steps do not arrive and no reason is given; its start and result
+still arrive on the session. A sub-agent resumed after it finished a turn is
+not subscribed again, so the steps of that later run do not arrive either.
+`SyncSession.events(subagents=True)` is the blocking version.
 
 To run a session and the child agents it starts without approval prompts,
 start it under the built-in `:unrestricted` permission profile. Current

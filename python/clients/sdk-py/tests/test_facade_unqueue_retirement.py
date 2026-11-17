@@ -37,7 +37,7 @@ from muse_code.connection.spawn import spawn_msp_connection
 from muse_code.pending import COMMAND_REJECTED_CODE, COMMAND_REJECTED_KIND, ReclaimedRetirement
 from muse_code.replay import load_transcript
 
-from helpers_connection import FakeDuplex, frame, pump, sent_frame, sent_params, wait_for_writes
+from helpers_connection import FakeDuplex, answer_error, frame, pump, sent_frame, sent_params, wait_for_writes
 from helpers_host_lifetime import fixture_host_bin
 
 Params = dict[str, Any]
@@ -149,6 +149,49 @@ async def test_a_reclaim_held_for_a_refused_unqueue_is_dropped() -> None:
     transport.incoming.push(_reply(transport, 3, {"status": "accepted", "turnId": QUEUED_TURN}))
     assert (await again).retirement is None, "the earlier reclaim is not handed out twice"
     await pump()
+    await client.close()
+
+
+async def _assert_replay_memory_pruned(session: Session[str], transport: FakeDuplex, retired_command_id: str) -> None:
+    """Prove a retired command's ``turn/start`` params left the replay memory,
+    on a ``MuseClient`` session (the ``test_facade_control_verbs.py`` probe):
+    re-seed the same ``commandId`` beside one live, unadmitted submit and
+    reconnect. A pruned memory resubmits only the live entry."""
+    session.pending.submitted(retired_command_id, "re-seeded")
+    live = asyncio.ensure_future(
+        session.send_user_turn(SendUserTurnOptions(input=[{"type": "text", "text": "again"}], composer_input="again"))
+    )
+    live_write = len(transport.writes)
+    await wait_for_writes(transport, live_write + 1)
+    live_command_id = sent_params(transport, live_write)["commandId"]
+    answer_error(transport, live_write, {"code": -32602, "message": "invalid params", "data": {"kind": "invalidParams"}})
+    with pytest.raises(Exception):
+        await live
+
+    reconnected = asyncio.ensure_future(session.resolve_reconnect())
+    replay_write = len(transport.writes)
+    await wait_for_writes(transport, replay_write + 1)
+    assert sent_params(transport, replay_write)["commandId"] == live_command_id, (
+        f"the reconnect re-sent retired {retired_command_id}: its replay memory was not pruned"
+    )
+    transport.incoming.push(
+        _reply(transport, replay_write, {"disposition": "started", "startedNewTurn": True, "status": "accepted", "turnId": "t-live"})
+    )
+    assert await reconnected == ()
+    await pump()
+    assert len(transport.writes) == replay_write + 1, "only the live entry is resubmitted"
+
+
+@pytest.mark.asyncio
+async def test_a_reclaim_held_for_unqueue_also_leaves_the_replay_memory() -> None:
+    # The held reclaim never rides ``apply``'s retirements, so the hold path
+    # itself must prune the submitter's replay memory.
+    client, session, transport, turn, queued_command_id = await _client_queued_turn()
+    unqueuing = asyncio.ensure_future(turn.unqueue())
+    await wait_for_writes(transport, 3)
+    transport.incoming.push(_unqueued(queued_command_id) + _reply(transport, 2, {"status": "accepted", "turnId": QUEUED_TURN}))
+    assert (await unqueuing).retirement == ReclaimedRetirement(command_id=queued_command_id, input=QUEUED_INPUT)
+    await _assert_replay_memory_pruned(session, transport, queued_command_id)
     await client.close()
 
 

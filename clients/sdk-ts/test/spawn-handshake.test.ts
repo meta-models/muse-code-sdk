@@ -14,7 +14,9 @@ import type { MspHandshake, SpawnedMspConnection } from "../src/index.js";
 import { ChildStdioTransport, isBenignCloseRace } from "../src/connection/spawn.js";
 import {
   announcedPidProbe,
+  awaitAnnouncedGrandchildPid,
   ECHOES_TO_STDERR,
+  EXITS_LEAVING_DETACHED_STDIO_HOLDER,
   IGNORES_EOF,
   isAlive,
   makeStubChild,
@@ -267,6 +269,42 @@ test("a host that closes stdin rejects initialize instead of crashing", { timeou
   const outcome = await settledWithin(handshake.close(), 20_000);
   assert.ok(outcome.settled, "failure-only cap: close() must settle on the live-forever host");
 });
+
+// TEST-97389-1 (#97389), escaped arm. A host that dies while a process it
+// started still holds its stdout and stderr: Node withholds `close` until
+// every holder lets go, so `exited`, the stdout EOF and every in-flight
+// request used to hang and the death went unreported. The SDK drops its own
+// pipe ends after a short drain instead.
+test(
+  "a host's exit settles even when a detached grandchild holds its stdout",
+  { timeout: 60_000, skip: process.platform === "win32" },
+  async (t) => {
+    const { stderr, onStderr, pid: announcedPid } = announcedPidProbe();
+    const handshake = spawnMspConnection({
+      command: process.execPath,
+      args: ["-e", EXITS_LEAVING_DETACHED_STDIO_HOLDER],
+      onStderr,
+    });
+    const grandchildPid = awaitAnnouncedGrandchildPid(stderr);
+    t.after(async () => reap(await grandchildPid.catch(() => undefined)));
+    reapThenClose(t, announcedPid, () => handshake.close());
+    const pid = await announcedPid;
+    assert.ok(isAlive(await grandchildPid), "setup: the stdio-holding grandchild is alive");
+
+    // The host exits on this request's frame, so it is in flight at the death.
+    const initialize = handshake.initialize(initializeParams(false));
+    initialize.catch(() => {});
+
+    const exited = await settledWithin(handshake.exited, 20_000);
+    assert.ok(exited.settled, "failure-only cap: exited must settle once the host is gone");
+    assert.deepEqual(exited.value, { code: 70, signal: null });
+    assert.equal(isAlive(pid), false, "setup: the host itself exited");
+    await assert.rejects(initialize, /EOF/, "the in-flight request rejects with the host's death");
+    const closed = await settledWithin(handshake.close(), 5_000);
+    assert.ok(closed.settled, "failure-only cap: close() after the death must settle");
+    assert.ok(isAlive(await grandchildPid), "the SDK leaves the grandchild holding the other ends alone");
+  },
+);
 
 // TEST-15943-1 (#15943): the public wrappers must inherit the bounded shutdown.
 // `Connection` stays process-agnostic, so a fix applied only to

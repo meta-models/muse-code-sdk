@@ -14,6 +14,7 @@ import {
   ProtocolError,
 } from "../src/index.js";
 import type { DuplexTransport } from "../src/index.js";
+import { mechanicsConnection } from "./helpers/fake-duplex.js";
 
 class AsyncChunks implements AsyncIterable<string> {
   readonly #chunks: string[] = [];
@@ -127,7 +128,7 @@ test("requests are newline-framed, awaited, and correlated by typed id", async (
 
 test("typed errors expose data.kind and preserve the payload verbatim (INV-012)", async () => {
   const transport = new FakeDuplex();
-  const connection = new Connection(transport);
+  const connection = mechanicsConnection(transport);
   const pending = connection.request("session/userShell", {});
   await waitForWrites(transport, 1);
   transport.chunks.push(
@@ -182,7 +183,7 @@ test("server requests use their own id space and notifications reach their handl
 test("TEST-010: nothing-admitted retry reuses commandId and replay ack must be value-identical", async () => {
   const transport = new FakeDuplex();
   let minted = 0;
-  const connection = new Connection(transport, {
+  const connection = mechanicsConnection(transport, {
     mintCommandId: () => `018f6a1e-9b3c-7c21-a54a-${String(++minted).padStart(12, "0")}`,
   });
   const params = { sessionId: "s-1", input: [{ type: "text", text: "hello" }] };
@@ -328,7 +329,7 @@ test("TEST-018: a result that does carry commandId must still echo it exactly", 
 
 test("TEST-010: a contradictory command error is terminal, not retryable", async () => {
   const transport = new FakeDuplex();
-  const connection = new Connection(transport, {
+  const connection = mechanicsConnection(transport, {
     mintCommandId: () => "018f6a1e-9b3c-7c21-a54a-000000000099",
   });
   const command = connection.command("turn/start", { sessionId: "s-1" }, {
@@ -403,7 +404,7 @@ test("command() keeps only a fixed-size fingerprint per command, never the paylo
   setFlagsFromString("--expose-gc");
   const fullGc = runInNewContext("gc") as () => void;
   const transport = new NullTransport();
-  const connection = new Connection(transport);
+  const connection = mechanicsConnection(transport);
   // One image-sized payload, SHARED by every command: retention is
   // per-command, so N commands must not retain N copies of it — neither
   // of the request params nor of the ack, which echoes the same image.
@@ -444,7 +445,7 @@ test("command() keeps only a fixed-size fingerprint per command, never the paylo
 
 test("reusing a commandId with a different payload is still refused (#45137 guard)", async () => {
   const transport = new FakeDuplex();
-  const connection = new Connection(transport);
+  const connection = mechanicsConnection(transport);
   const commandId = "018f6a1e-9b3c-7c21-a54a-000000000451";
   const first = connection.command("turn/start", { sessionId: "s-1" }, { commandId, maxAttempts: 1 });
   await waitForWrites(transport, 1);

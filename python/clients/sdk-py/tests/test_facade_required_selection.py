@@ -32,14 +32,16 @@ from muse_code import (
     StartSessionOptions,
     read_session_durability,
 )
-from muse_code.connection import Connection
+from muse_code.connection import Connection, MspError
 
 from helpers_connection import (
     FakeDuplex,
     answer,
+    answer_error,
     pump,
     sent_frame,
     sent_params,
+    settlement,
     wait_for_writes,
 )
 
@@ -107,7 +109,10 @@ async def test_required_start_whose_read_back_serves_a_different_profile_refuses
 
     await wait_for_writes(transport, 2)
     assert sent_frame(transport, 1)["method"] == "session/read"
-    assert sent_params(transport, 1)["sessionId"] == "s-1"
+    assert sent_params(transport, 1) == {"sessionId": "s-1"}, (
+        "the read-back sends only the session id: SessionReadParams define no "
+        "commandId, so it rides request()"
+    )
     answer(transport, 1, _read_result("s-1", _triple(OTHER)))
 
     with pytest.raises(PermissionProfileNotApplied) as refused:
@@ -302,4 +307,50 @@ async def test_refused_id_stays_resumable_after_the_drop() -> None:
     )
     session = await resumed
     assert session.session_id == "s-1"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_read_back_propagates_its_wire_error_and_is_not_retried() -> None:
+    client, transport = _client()
+    pending = asyncio.ensure_future(
+        client.start_session(
+            StartSessionOptions(
+                permission_profile=REQUIRED, require_permission_profile=True
+            )
+        )
+    )
+    await wait_for_writes(transport, 1)
+    answer(transport, 0, _start_result("s-1"))
+
+    await wait_for_writes(transport, 2)
+    assert sent_frame(transport, 1)["method"] == "session/read"
+    # The retryable pair is what a ``command()`` read-back would re-send after
+    # a backoff, so this is the error whose retry frame would show.
+    answer_error(
+        transport,
+        1,
+        {"code": -32001, "message": "host overloaded", "data": {"kind": "overloaded"}},
+    )
+
+    # Bounded: a read-back that went back through the retrying ``command()``
+    # would back off and wait on a third frame the fake never answers, so an
+    # unbounded ``await pending`` would hang the job instead of failing here.
+    state, error = await settlement(pending)
+    if state == "pending":
+        pending.cancel()
+    assert state == "rejected", f"read-back must reject promptly, got {state}"
+    assert isinstance(error, MspError)
+    assert error.code == -32001
+    assert error.kind == "overloaded"
+    await pump()
+    assert len(transport.writes) == 2, "a failed read-back is not retried: no third frame"
+
+    # The client stays usable: a plain retry by the caller works.
+    retry = asyncio.ensure_future(client.start_session(StartSessionOptions()))
+    await wait_for_writes(transport, 3)
+    assert sent_frame(transport, 2)["method"] == "session/start"
+    answer(transport, 2, _start_result("s-2"))
+    session = await retry
+    assert session.session_id == "s-2"
     await client.close()

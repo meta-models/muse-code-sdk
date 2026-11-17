@@ -301,11 +301,7 @@ export class TurnSubmitter<I> {
     remembered: RememberedSubmit,
     commandId: string,
   ): Promise<SentSubmit> {
-    const result = await connection.command(
-      remembered.method,
-      remembered.params as unknown as Record<string, unknown>,
-      { commandId },
-    );
+    const result = await connection.command(remembered.method, remembered.params, { commandId });
     // `turnId` comes from the ACK and never from the `commandId`: SS3.2 makes
     // the ack authoritative, and a queued submit's turn may already exist.
     if (remembered.method === "turn/steer") {

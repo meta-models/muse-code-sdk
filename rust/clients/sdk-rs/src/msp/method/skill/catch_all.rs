@@ -11,6 +11,7 @@ impl SkillSource {
             Self::User => "user",
             Self::Project => "project",
             Self::Plugin => "plugin",
+            Self::SkillProvider => "skillProvider",
             Self::Unknown(word) => word,
         }
     }
@@ -30,6 +31,7 @@ impl<'de> Deserialize<'de> for SkillSource {
             "user" => Self::User,
             "project" => Self::Project,
             "plugin" => Self::Plugin,
+            "skillProvider" => Self::SkillProvider,
             _ => Self::Unknown(word),
         })
     }

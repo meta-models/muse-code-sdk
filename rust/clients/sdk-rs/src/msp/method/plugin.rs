@@ -39,6 +39,26 @@ pub struct PluginCatalogEntry {
     pub enabled: bool,
     /// The installed record's source provenance.
     pub source: PluginSource,
+    /// Where the plugin came from. Absent when the host cannot name it, for
+    /// example a marketplace install whose marketplace was removed later.
+    /// **Experimental** (`plugin/list.origin`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<PluginOrigin>,
+}
+
+/// Where a `plugin/list` row came from, in the `plugin/install` target
+/// vocabulary: the host sets exactly one member (the `PluginInstallTarget`
+/// shape; the one-member rule is the host's, not the schema's).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct PluginOrigin {
+    /// The configured marketplace that a marketplace install came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marketplace: Option<String>,
+    /// The host folder that a folder install was copied from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
 }
 
 /// A plugin row's source provenance: camelCase of `PluginSourceProvenance`.

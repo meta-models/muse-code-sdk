@@ -11,6 +11,13 @@ file must equal the generator's output byte for byte), so consuming it
 directly needs no Rust toolchain and cannot drift from the binary that
 produced it.
 
+Besides one type per schema definition, it carries three method → type
+maps, keyed by wire method: `MspMethodMap` (`{ params, result }` per client
+method), `MspNotificationMap` (`params` per notification) and
+`MspServerRequestMap` (`{ params, result }` per server-initiated request).
+`@muse-code/sdk` types its `request`, `command` and notification listeners
+from them.
+
 Nothing is copied into this directory. A second copy of the declarations
 would fork from the generator-owned original — the failure mode the
 fingerprint pin (`@muse-code/sdk`'s `EXPECTED_SCHEMA_FINGERPRINT`) exists

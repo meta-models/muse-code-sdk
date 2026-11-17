@@ -91,6 +91,71 @@ export const WRAPPER_WITH_STDOUT_HOLDING_GRANDCHILD = [
   "setInterval(() => {}, 1000)",
 ].join(";");
 
+/**
+ * A host that never answers `initialize`: it reports the frame's arrival on
+ * stderr and exits on stdin EOF, so only an abort can end its handshake.
+ */
+export const NEVER_ANSWERS_INITIALIZE = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'process.stdin.once("data", () => process.stderr.write("initialize_received\\n"))',
+  'process.stdin.on("end", () => process.exit(0))',
+  "process.stdin.resume()",
+].join(";");
+
+/**
+ * A stuck host: it never answers `initialize`, reports the frame's arrival, and
+ * keeps running after stdin EOF, so only the SIGTERM stage of the shutdown
+ * ladder ends it.
+ */
+export const NEVER_ANSWERS_AND_IGNORES_EOF = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'process.stdin.once("data", () => process.stderr.write("initialize_received\\n"))',
+  "process.stdin.resume()",
+  "setInterval(() => {}, 1000)",
+].join(";");
+
+/**
+ * The same in-group grandchild, under a host that EXITS on stdin EOF instead
+ * of trapping SIGTERM: the host is gone before any signal, so only the
+ * post-drain group stage can end the grandchild it left in the group.
+ */
+export const EXITS_ON_EOF_LEAVING_STDOUT_HOLDING_GRANDCHILD = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  // The grandchild reports readiness only after its trap is set, so no test
+  // can signal it before the trap exists (PR #95788 review).
+  'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\", () => {});process.stderr.write(\\"grandchild_ready\\\\n\\");setInterval(() => {}, 1000)"], { stdio: ["ignore", 1, 2] })',
+  `process.stderr.write("${GRANDCHILD_PID_MARKER}" + grandchild.pid + "\\n")`,
+  'process.stdin.on("end", () => process.exit(0))',
+  "process.stdin.resume()",
+].join(";");
+
+/**
+ * A host that exits 0 on stdin EOF leaving a same-group grandchild that holds
+ * NO stdio: the pipes close with the host, so the orderly drain sends no
+ * signal and the grandchild (which does not trap SIGTERM) outlives close().
+ */
+export const EXITS_ON_EOF_LEAVING_STDIO_FREE_GRANDCHILD = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })',
+  `process.stderr.write("${GRANDCHILD_PID_MARKER}" + grandchild.pid + "\\n")`,
+  'process.stdin.on("end", () => process.exit(0))',
+  "process.stdin.resume()",
+].join(";");
+
+/**
+ * A host that starts a DETACHED grandchild holding its inherited stdout and
+ * stderr, then exits 70 on its first stdin line. Detached puts the grandchild
+ * outside the host's process group, so nothing the SDK signals reaches it:
+ * only the SDK letting go of its own pipe ends lets `close` fire.
+ */
+export const EXITS_LEAVING_DETACHED_STDIO_HOLDER = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", 1, 2], detached: true })',
+  "grandchild.unref()",
+  `process.stderr.write("${GRANDCHILD_PID_MARKER}" + grandchild.pid + "\\n")`,
+  'process.stdin.once("data", () => process.exit(70))',
+].join(";");
+
 /** Bytes that comfortably exceed a pipe buffer, so a write cannot flush. */
 export const UNFLUSHABLE_WRITE = "x".repeat(2 * 1024 * 1024);
 
@@ -150,6 +215,45 @@ export async function awaitAnnouncedPid(
 ): Promise<number> {
   return await awaitAnnounced(PID_MARKER, stderr, budgetMs);
 }
+
+/**
+ * Resolve once a stderr chunk fed to `onChunk` completes `line`. One labelled
+ * failure-only cap fails the wait if the line never comes; no polling.
+ */
+export function stderrLineProbe(line: string, budgetMs = 10_000): {
+  readonly onChunk: (chunk: string) => void;
+  readonly seen: Promise<void>;
+} {
+  let onChunk!: (chunk: string) => void;
+  const seen = new Promise<void>((resolve, reject) => {
+    let buffered = "";
+    const timeout = setTimeout(
+      () => reject(new Error(`failure-only missing-marker cap (${budgetMs} ms): ${line} not reported`)),
+      budgetMs,
+    );
+    onChunk = (chunk) => {
+      buffered += chunk;
+      if (!buffered.includes(line)) return;
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
+  seen.catch(() => {});
+  return { onChunk, seen };
+}
+
+/**
+ * A host that starts a DETACHED grandchild writing to the host's stdout every
+ * 100 ms, then exits 0. After the drain drops the SDK's pipe ends, the
+ * grandchild's next write fails and it dies: nothing signals it.
+ */
+export const EXITS_LEAVING_DETACHED_WRITING_HOLDER = [
+  `process.stderr.write("${PID_MARKER}" + process.pid + "\\n")`,
+  'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => process.stdout.write(\\"tick\\\\n\\"), 100)"], { stdio: ["ignore", 1, 2], detached: true })',
+  "grandchild.unref()",
+  `process.stderr.write("${GRANDCHILD_PID_MARKER}" + grandchild.pid + "\\n")`,
+  "process.exit(0)",
+].join(";");
 
 /** Read the grandchild pid the #22777 wrapper announced. */
 export async function awaitAnnouncedGrandchildPid(

@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, AsyncIterator, List
+from types import SimpleNamespace
+from typing import Any, AsyncIterator, List, cast
 
 import pytest
 
@@ -34,6 +35,7 @@ from muse_code import (
     read_session_durability,
 )
 from muse_code.connection import Connection
+from muse_code.connection.spawn import ExitClassification
 from muse_code.pending import ReclaimedRetirement
 
 from helpers_connection import FakeDuplex, answer, frame, pump, sent_frame, sent_params, wait_for_writes
@@ -288,24 +290,108 @@ async def test_a_gap_fills_paged_and_buffered_frames_are_yielded_once_each_in_or
 
 
 @pytest.mark.asyncio
-async def test_aclose_unsubscribes_and_other_streams_are_unaffected() -> None:
+async def test_aclose_unsubscribes_and_deregisters_and_other_streams_are_unaffected() -> None:
     client, transport = _client()
     session = await _started(client, transport)
     async with contextlib.aclosing(session.events()) as closing:
+        assert len(session._event_streams) == 1
         transport.incoming.push(_turn_started())
         async for event in closing:
             assert event.frame["method"] == "turn/started"
             break
     assert isinstance(await _finished(closing), StopAsyncIteration)
+    assert len(session._event_streams) == 0, "aclosing deregisters the stream"
 
     closed = session.events()
     kept = session.events()
     await closed.aclose()  # type: ignore[attr-defined]
+    assert len(session._event_streams) == 1, "aclose deregisters only its own stream"
     transport.incoming.push(_item_started())
     await pump(50)
     assert isinstance(await _finished(closed), StopAsyncIteration)
     assert _methods(await _take(kept, 1)) == ["item/started"]
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_the_live_twin_of_an_event_a_gap_fill_already_yielded_is_not_yielded_again() -> None:
+    # The wire promises no order between the gap marker and the frame at its
+    # ``next``, so the live copy can arrive after the fill ends; folding refuses
+    # it as an overlap, and the stream must not hand it out a second time.
+    client, transport = _client()
+    session = await _started(client, transport, _turn_started())
+    events = session.events()
+    transport.incoming.push(_gap("v:1", "v:2"))
+    await wait_for_writes(transport, 2)
+    answer(transport, 1, {"events": [_paged("item/started", {"viewCursor": "v:2", "item": _item(1)})], "nextCursor": "v:2"})
+    assert _methods(await _take(events, 2)) == ["view/gap", "item/started"]
+    waiting = asyncio.ensure_future(events.__anext__())
+    transport.incoming.push(_item_started())
+    await pump(50)
+    assert not waiting.done(), "the overlap twin is not yielded"
+    transport.incoming.push(_item_updated(2, "v:3"))
+    await pump(50)
+    assert waiting.done() and waiting.result().frame["method"] == "item/updated", "the stream keeps going after the twin"
+    await client.close()
+
+
+class _CleanChild:
+    """The owned host's process boundary, for the spawned branch of
+    ``MuseClient.close()``: its own close reports a clean shutdown."""
+
+    async def close(self) -> ExitClassification:
+        return ExitClassification(kind="cleanShutdown")
+
+
+class _CrashingChild:
+    """A spawned host's process boundary whose close reports an abnormal exit."""
+
+    async def close(self) -> ExitClassification:
+        return ExitClassification(kind="unhandledError", exit_code=1)
+
+
+@pytest.mark.asyncio
+async def test_a_close_whose_host_exits_abnormally_fails_open_streams_with_muse_host_died_error() -> None:
+    # close() reports an abnormal exit as a death before it ends the streams,
+    # so an open loop still learns that its durable host died.
+    transport = FakeDuplex()
+    host = SimpleNamespace(child=_CrashingChild(), initialize_result=None)
+    client: MuseClient[str] = MuseClient(
+        Connection(transport), MuseClientOptions(durability=DURABLE, host=cast(Any, host))
+    )
+    session = await _started(client, transport)
+    events = session.events()
+    await client.close()
+    assert isinstance(await _finished(events), MuseHostDiedError)
+
+
+@pytest.mark.asyncio
+async def test_an_orderly_close_of_a_spawned_client_ends_its_event_streams() -> None:
+    # The child branch of MuseClient.close(): the path every MuseClient.spawn app takes.
+    transport = FakeDuplex()
+    host = SimpleNamespace(child=_CleanChild(), initialize_result=None)
+    client: MuseClient[str] = MuseClient(
+        Connection(transport), MuseClientOptions(durability=DURABLE, host=cast(Any, host))
+    )
+    session = await _started(client, transport)
+    events = session.events()
+    await client.close()
+    assert isinstance(await _finished(events), StopAsyncIteration), "the live stream ends"
+    assert isinstance(await _finished(session.events()), StopAsyncIteration), "a later stream ends at once"
+
+
+@pytest.mark.asyncio
+async def test_an_orderly_client_close_ends_every_live_stream_and_a_later_stream_at_once() -> None:
+    client, transport = _client()
+    session = await _started(client, transport)
+    events = session.events()
+    transport.incoming.push(_turn_started())
+    await pump(50)
+    await client.close()
+    assert _methods(await _take(events, 1)) == ["turn/started"], "buffered events come first"
+    assert isinstance(await _finished(events), StopAsyncIteration)
+    assert isinstance(await _finished(session.events()), StopAsyncIteration)
+    assert len(session._event_streams) == 0
 
 
 @pytest.mark.asyncio
@@ -356,6 +442,9 @@ async def test_a_durable_host_death_raises_muse_host_died_error_as_a_turns_items
     await pump(50)
     assert _methods(await _take(events, 1)) == ["turn/started"], "buffered events come first"
     assert isinstance(await _finished(events), MuseHostDiedError)
+    assert isinstance(await _finished(session.events()), MuseHostDiedError)
+    # A close after the death does not turn that failure into a plain end.
+    await client.close()
     assert isinstance(await _finished(session.events()), MuseHostDiedError)
 
 

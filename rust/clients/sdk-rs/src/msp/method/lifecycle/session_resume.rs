@@ -161,16 +161,15 @@ pub struct SessionResumeParams {
     /// `session/start.limits`'s shape, of which a resume names only
     /// `workspaceTrusted`. Naming another axis is invalid params: a resumed
     /// session keeps its stored sandbox, write and shell limits. The ask takes
-    /// the place of the session's stored trust choice, made or not, and the
-    /// load records it as the session's choice; the host's ceiling bounds it as
-    /// it bounds a stored one (`tightenedAxes` names a clamp). Only the resume
-    /// that loads the session reads it; an attach ignores it. **Experimental,
-    /// served only by the per-run host a TUI run starts**
-    /// (`session/resume.limits`; unopted callers are refused `-32602`, as are
-    /// opted callers on every other host, where a session resumes with its
-    /// saved trust choice, which an earlier ask on a TUI run's host may have
-    /// replaced, a fork or side-chat child included). Explicit `null` is
-    /// invalid params.
+    /// the place of the session's stored trust choice, made or not, for that
+    /// load only: the host saves no trust choice, so a later load reads the
+    /// stored one again; the host's ceiling bounds it as it bounds a stored one
+    /// (`tightenedAxes` names a clamp). Only the resume that loads the session
+    /// reads it; an attach ignores it. **Experimental, served only by the
+    /// per-run host a TUI run starts** (`session/resume.limits`; unopted
+    /// callers are refused `-32602`, as are opted callers on every other host,
+    /// where a session resumes with its saved trust choice, a fork or side-chat
+    /// child included). Explicit `null` is invalid params.
     #[serde(
         default,
         deserialize_with = "super::deserialize_non_null_optional",
@@ -191,6 +190,14 @@ pub struct SessionResumeParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub auto_recover: Option<bool>,
+    /// The `session/start.worktree` ask on a resume: a resume that loads a
+    /// session whose log records no worktree creates or attaches it as a start
+    /// does and runs the session there. A session whose log records a worktree
+    /// keeps reattaching it, and an attach ignores the member. **Experimental**
+    /// (`session/resume.worktree`; unopted callers are refused `-32602`).
+    /// Absent means no worktree ask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::msp::method::worktree::WorktreeStartRequest>,
 }
 
 /// the governing rules explicit continuation object on `session/resume`:

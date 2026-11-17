@@ -4,9 +4,9 @@
   "scenario": "handshake-liststream-not-granted",
   "provenance": "host-generated",
   "regenerationJustification": {
-    "cite": "ADR 97527 D5; OWNER-DECISION https://github.com/mslsrc/tbh/issues/97527#issuecomment-6785009129 (exact member ack)",
-    "rationale": "Re-record the owner-acked additive SchemaInfo.experimentalFingerprint member in the handshake frame; no other wire byte changes.",
-    "trackingIssue": "#97527"
+    "cite": "ADR 22936 D2; OWNER-DECISION https://github.com/mslsrc/tbh/pull/101168#issuecomment-6838032057 (exact member ack, \"Ack as written (Recommended)\")",
+    "rationale": "Re-record the owner-acked additive SchemaInfo.compatibilityEpoch member in the handshake frame (the replay host serves its fixed fixture value); no other wire byte changes.",
+    "trackingIssue": "#22936"
   },
   "viewSchemaVersion": 1,
   "serverConfig": {

@@ -28,11 +28,19 @@
  */
 
 export {
+  EXPECTED_SCHEMA_COMPATIBILITY_EPOCH,
   EXPECTED_SCHEMA_FINGERPRINT,
+  SchemaCompatibilityError,
   checkServedFingerprint,
+  classifyServedSchema,
   fingerprintMismatchMessage,
 } from "./fingerprint.js";
-export type { FingerprintWarning } from "./fingerprint.js";
+export type {
+  AdditiveFingerprintWarning,
+  DeclaredBreakingFingerprintWarning,
+  FingerprintWarning,
+  ServedSchemaIdentity,
+} from "./fingerprint.js";
 
 export { ItemStore } from "./fold/item-store.js";
 export type {
@@ -96,6 +104,7 @@ export type {
   ConnectionOptions,
   DuplexTransport,
   NotificationHandler,
+  NotificationListener,
   ProtocolErrorHandler,
   ServerRequestHandler,
 } from "./connection/connection.js";
@@ -169,15 +178,18 @@ export type {
 export { Session } from "./facade/session.js";
 export type {
   PendingCommandView,
+  ReloadOptions,
   SessionApplyOutcome,
   SessionApplyRefusal,
   SessionEvent,
+  SessionEventSubagent,
   SessionEventsOptions,
   SessionFoldView,
   SessionGapBuffered,
   SessionGapOverlap,
   SessionOpening,
   SessionOptions,
+  SessionReplayDuplicate,
   SubagentReasonOptions,
   ViewFrame,
 } from "./facade/session.js";

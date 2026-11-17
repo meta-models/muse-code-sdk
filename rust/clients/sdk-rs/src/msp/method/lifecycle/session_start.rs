@@ -128,18 +128,19 @@ pub struct SessionStartParams {
     /// for the sandbox axes (the ceiling, unless `--allow-session-posture`
     /// widens the ceiling above it). A choice wider than the ceiling on any
     /// axis refuses the start `-32028 limitsAboveMax` naming every too-wide
-    /// axis. An equal or tighter choice is what the session runs and reports,
-    /// with two exceptions refused `-32602`: on a daemon whose default sandbox
-    /// is off, a start naming `sandboxEnabled: true` without `sandboxNetwork`,
-    /// or a network restriction (`restricted` or `proxy-only`) without naming
-    /// `sandboxEnabled`, until a tracked change settles how a session turns the
-    /// sandbox on there, and a network restriction beside an explicit
-    /// `sandboxEnabled: false`, which never turns it on and stays refused while
-    /// a tracked change is open: drop the restriction, since a sandbox-off
-    /// session has no network to restrict (`data.reason:
-    /// "tighterSandboxUnserved"` for all three); and under `--trust-workspace
-    /// --listen` without `--allow-session-posture`, an explicit
-    /// `workspaceTrusted: false`, naming the axis. Elsewhere a network
+    /// axis and the ceiling kind (`error.data.ceilingKind`: the daemon default
+    /// or managed policy). An equal or tighter choice is what the session runs
+    /// and reports, with two exceptions refused `-32602`: on a daemon whose
+    /// default sandbox is off, a start naming `sandboxEnabled: true` without
+    /// `sandboxNetwork`, or a network restriction (`restricted` or
+    /// `proxy-only`) without naming `sandboxEnabled`, until a tracked change
+    /// settles how a session turns the sandbox on there, and a network
+    /// restriction beside an explicit `sandboxEnabled: false`, which never
+    /// turns it on and stays refused while a tracked change is open: drop the
+    /// restriction, since a sandbox-off session has no network to restrict
+    /// (`data.reason: "tighterSandboxUnserved"` for all three); and under
+    /// `--trust-workspace --listen` without `--allow-session-posture`, an
+    /// explicit `workspaceTrusted: false`, naming the axis. Elsewhere a network
     /// restriction beside `sandboxEnabled: false` restricts nothing: with the
     /// sandbox off the network is not sandboxed (`sandboxNetwork` reports
     /// `enabled`).

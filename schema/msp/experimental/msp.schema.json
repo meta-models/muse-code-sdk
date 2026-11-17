@@ -575,9 +575,34 @@
       "type": "string",
       "x-msp-openness": "open"
     },
+    "ApprovalCuaBrowser": {
+      "description": "A browser card's notices: the first time Computer Use uses a browser on\nthis Mac, and the session's consent before it opens its own window in a\nbrowser that comes to the front when it does. A client words each flag\nitself.",
+      "properties": {
+        "firstUse": {
+          "description": "Show the first-use notice: Computer Use hasn't used this browser on\nthis Mac before and will act signed in as the person.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The browser's display name.",
+          "type": "string"
+        },
+        "windowConsent": {
+          "description": "Show the window consent line: Computer Use will open its own window\nin this browser and bring the browser to the front, once per session.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "ApprovalCuaCardFacts": {
       "description": "One Computer Use card's facts. Empty collections and absent rows are\nomitted, never `null`.",
       "properties": {
+        "browser": {
+          "$ref": "#/$defs/ApprovalCuaBrowser",
+          "description": "For a browser card, the notices it carries; absent unless at least\none shows."
+        },
         "data": {
           "description": "The data the call would send that the card must name; a card with any\noffers only one-shot choices.",
           "items": {
@@ -1869,6 +1894,13 @@
           "type": "string",
           "x-msp-descriptor": "CapabilityName.launchContext",
           "x-msp-stability": "experimental"
+        },
+        {
+          "const": "skillProvider",
+          "description": "The Skill Provider (ADR 85664 D1): named only as `-32010`'s\n`data.capability` when a connection without the effective\n`initialize` member `skillProvider` sends `skillProvider/updated`.\nNever granted through `requestedCapabilities`: the client declares it\nin `capabilities.skillProvider` instead, so it is in no grantable list.",
+          "type": "string",
+          "x-msp-descriptor": "CapabilityName.skillProvider",
+          "x-msp-stability": "experimental"
         }
       ],
       "x-msp-openness": "open"
@@ -1947,6 +1979,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "skillProvider": {
+          "$ref": "#/$defs/SkillProviderCapability",
+          "description": "The client offers a skill catalog for the sessions it drives (CO-SP,\n#85664). **Experimental**: honoured only with `experimentalApi` and\nthe host's `skill_provider` gate open; the result echoes the effective\nvalue.",
+          "x-msp-descriptor": "ClientCapabilities.skillProvider",
+          "x-msp-stability": "experimental"
         },
         "userInputDialogs": {
           "description": "Whether this client can render a `userInput/request` dialog and answer\nit (SS5.10). **Absent means capable** (D-047): a client that predates\nthe member keeps today's contract, so no existing client changes its\nhandshake. `false` makes the host withhold `userInput/request` toward\nthis client — the D-027 additive-optional-field + withheld-method\nconvention.\n\nDeliberately NOT a `requestedCapabilities` name: that registry records\noperations a host GRANTS (SS1.4.4), and whether a client can draw a\ndialog is a fact about the client, never a privilege the host hands\nout.",
@@ -2945,6 +2983,12 @@
         "capacity": {
           "description": "The configured command-admission bound, on `backpressured` errors.",
           "type": "integer"
+        },
+        "ceilingKind": {
+          "$ref": "#/$defs/LimitsCeilingKind",
+          "description": "What caps the ceiling, on `limitsAboveMax` (ADR 69811 D2 items 1-2):\nalways present on that refusal, never elsewhere.\n`daemonDefault` means the daemon runs without\n`--allow-session-posture` and the ceiling is its own start posture;\n`managedPolicy` means the allowance is on and the refusal is the\nmanaged cap itself. A client that sees `daemonDefault` may offer a\nstart within the ceiling or a daemon restart; one that sees\n`managedPolicy` knows a restart cannot raise the ceiling.",
+          "x-msp-descriptor": "ErrorData.ceilingKind",
+          "x-msp-stability": "experimental"
         },
         "choiceId": {
           "description": "Rejected server-minted choice on `approvalChoiceInvalid`.",
@@ -4122,6 +4166,12 @@
           "$ref": "#/$defs/SessionDurability",
           "description": "Whether this host persists its sessions. Optional so adding it stays\nbackward compatible; a v1 host always sends it, and a client reads\nabsent as `durable` because no server that omits it has the ephemeral\nprofile."
         },
+        "skillProvider": {
+          "$ref": "#/$defs/SkillProviderCapability",
+          "description": "The effective Skill Provider capability (CO-SP, #85664).\n**Experimental**: present exactly when the host's `skill_provider`\ngate is open, the connection negotiated `experimentalApi`, and the\nclient declared version 1; absent otherwise.",
+          "x-msp-descriptor": "InitializeResult.skillProvider",
+          "x-msp-stability": "experimental"
+        },
         "userAgent": {
           "description": "Exact user-agent string presented to upstream model providers.",
           "type": "string"
@@ -4609,7 +4659,11 @@
           "type": "string"
         },
         "terminalRowAfterItemId": {
-          "description": "Terminal `toolCall`, or a `subagent` whose result drained\n(#70249): the item after whose rows the terminal row renders\n(tdd SS4.5.21, ADR 56496 D2/D3).",
+          "description": "Terminal monitor `toolCall`, drained `subagent`,\n`backgroundTerminalCompletion`, or Finished-row `toolCall`: render after\nthe target's logical rows (tdd SS4.5.21, ADR 56496 D2/D3, OD #738).",
+          "type": "string"
+        },
+        "terminalRowBeforeItemId": {
+          "description": "`backgroundTerminalCompletion`, or a terminal `toolCall` that already\nshows a Finished row: render before the target's whole coalesced region\n(tdd SS4.5.21, ADR 50041 D6).",
           "type": "string"
         },
         "text": {
@@ -5010,7 +5064,7 @@
           "type": "string"
         },
         "sourceGeneration": {
-          "description": "The store's generation of this source (D117 amendment, ADR 61595\nD3.3), maintained by the store and starting at 1. The store raises\nit each time it discards and recreates this source, and at no other\ntime; it never lowers it. The host sends it back on every\n`journal/commitBatch`; the store refuses a commit from another\ngeneration with the conditions error.",
+          "description": "Deprecated (owner D203, M4.5): always 1. The store's generation of\nthis source (D117 amendment, ADR 61595 D3.3), maintained by the store\nand starting at 1. The store raises\nit each time it discards and recreates this source, and at no other\ntime; it never lowers it. The host sends it back on every\n`journal/commitBatch`; the store refuses a commit from another\ngeneration with the conditions error.",
           "type": "integer"
         }
       },
@@ -5039,27 +5093,30 @@
       "x-msp-stability": "experimental"
     },
     "JournalAnchor": {
-      "description": "A journal anchor: bare per-source ordinals plus the qualified binding.",
+      "description": "A journal anchor: the host's LOCAL per-source sequences, and on admission\nthe store's REMOTE cursor of the first row to read.\n\nNumbering (owner D209, the design's section 5): `floor` is the LOCAL\nsequence of the first row to read, the newest closed checkpoint's first\nrecord (the log's first record when there is none); a restore reads from\nsequence `floor`. On admission `next` is the next sequence to write,\n`conditions.predecessor + 1`. Example: a checkpoint starting at sequence\n5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5,\npredecessor 9 and `next` 10. A store before Milestone 4.5 sends record\ncounts here instead; the host adapter translates them.",
       "properties": {
         "floor": {
           "type": "integer"
+        },
+        "floorCursor": {
+          "description": "The store's REMOTE cursor of the row holding LOCAL sequence `floor`,\nthe first row to read (owner D209; owner D204: an opaque string,\nnever parsed or compared). Set only in admission's `initialAnchor`;\nthe first `journal/readPage` starts there. Absent from a store that\nhas no cursor yet.",
+          "type": "string"
         },
         "next": {
           "type": "integer"
         },
         "throughMeaning": {
-          "description": "The meaning of the batch at the qualified cut (ADR 61595 D3.2), named\nfor what it carries (owner D166; formerly `throughWriteId`).",
+          "description": "Deprecated (owner D203, M4.5), optional: the meaning of the batch at\nthe qualified cut (ADR 61595 D3.2), named for what it carries (owner\nD166; formerly `throughWriteId`). The host computes the cut itself\nfrom batch stamps; a store may leave this out.",
           "type": "string"
         },
         "throughPosition": {
+          "description": "Deprecated (owner D203, M4.5), optional: the qualified cut's LOCAL\nposition. A store may leave this out.",
           "type": "integer"
         }
       },
       "required": [
         "floor",
-        "next",
-        "throughMeaning",
-        "throughPosition"
+        "next"
       ],
       "type": "object",
       "x-msp-descriptor": "journal/readPage",
@@ -5077,6 +5134,28 @@
       },
       "required": [
         "end",
+        "id"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "journal/commitBatch",
+      "x-msp-stability": "experimental"
+    },
+    "JournalCheckpointMarker": {
+      "description": "Owner D217: `{id, start}` on the first record of a checkpoint transaction,\n`{id, end}` on its last, both flags on a one-record transaction. `id` is\nthe checkpoint record's id. A store that keeps a checkpoint pointer\nremembers `(id, position)` at `start` and moves its pointer forward to that\nposition once it durably holds the matching `end`; it ignores an `end`\nwhose id it never saw start.",
+      "properties": {
+        "end": {
+          "description": "This record closes the transaction that completes the checkpoint.",
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "start": {
+          "description": "This record is the first a resume from the checkpoint reads.",
+          "type": "boolean"
+        }
+      },
+      "required": [
         "id"
       ],
       "type": "object",
@@ -5140,7 +5219,7 @@
       "description": "`journal/commitBatch` result.",
       "properties": {
         "disposition": {
-          "description": "notAdmitted | unknown | pending | live | qualified (open).",
+          "description": "notAdmitted | unknown | pending | live | qualified (open). `live`:\naccepted but not yet durable; `qualified`: accepted and durable\n(owner D203).",
           "type": "string"
         },
         "ids": {
@@ -5278,7 +5357,7 @@
           "type": "string"
         },
         "owner": {
-          "description": "The writer's admitted owner, always the in-doubt commit's own (owner\nD170 addendum, D177, D180: a writer observes only its own commits);\nthe store refuses a stale one with the conditions error. Absent:\nanswered as before. Must become required before any writer with\nderived ids lands (TLA #5521).",
+          "description": "The writer's admitted owner, always the in-doubt commit's own (owner\nD170 addendum, D177, D180: a writer observes only its own commits);\nthe store refuses a stale one with the conditions error. Required in\nthe final design (owner D203): the host always sends it, and a store\nanswers from (owner, ownerStart, last, durable) alone. Optional on\nthe wire only for older hosts; absent: answered as before.",
           "type": "integer"
         },
         "sessionId": {
@@ -5302,7 +5381,7 @@
       "description": "`journal/observeOriginal` result.",
       "properties": {
         "disposition": {
-          "description": "The id stored at the v1 meaning's sequence against the meaning's own\n(owner D177): `qualified` (the same), `conflict` (another id),\n`notAdmitted` (nothing stored there) or `unknown` (not a v1 meaning).",
+          "description": "What happened to the v1 meaning's sequence `s` (ADR 61595 D3.6 as\ncorrected by #104722; owner D203), answered from the store's owner\nterm, its first position, its last and its durable tail:\n`notAdmitted` (`s` past the last: never landed, resend), `live`\n(accepted, not yet durable: still in doubt), `qualified` (this owner\nterm wrote it and it is durable), `conflict` (another owner term\nholds that sequence, or the tail holds another meaning) or `unknown`\n(not a v1 meaning). A store before Milestone 4.5 compares the id\nstored at `s` instead (owner D177).",
           "type": "string"
         },
         "ids": {
@@ -5369,13 +5448,15 @@
       "description": "A caller-owned read/operation budget slice.",
       "properties": {
         "bytes": {
+          "description": "The most total `encodedBytes` of the records returned.",
           "type": "integer"
         },
         "records": {
-          "description": "The most records the call may return: a page holds at most this many\nrows (#99213).",
+          "description": "The most whole host records the call may return (#99213; ADR 61595\nD3.6): the store's own rows, the parts of a split record and its\ninternal scans are never charged.",
           "type": "integer"
         },
         "work": {
+          "description": "Deprecated (owner D203, M4.5): the budget bounds only what comes back\non the wire, records and bytes. Still sent until the store makes it\noptional.",
           "type": "integer"
         }
       },
@@ -5404,6 +5485,10 @@
         "budget": {
           "$ref": "#/$defs/JournalReadBudget"
         },
+        "cursor": {
+          "description": "The store's REMOTE cursor to read from, inclusive: admission's\n`floorCursor` or the previous page's `nextCursor` (owner D204: an\nopaque string). Absent: the store reads from `anchor` as before.",
+          "type": "string"
+        },
         "sessionId": {
           "type": "string"
         },
@@ -5425,11 +5510,11 @@
       "description": "`journal/readPage` result.",
       "properties": {
         "atCut": {
-          "description": "This page reached the store's log end (owner D177).",
+          "description": "This page reached the durable tail: the store's records run out\nthere, and pages are never clipped at a cut (owner D177, D203).",
           "type": "boolean"
         },
         "completeThrough": {
-          "description": "The last closed transaction end this page crossed; it may pass the\nanchor's cut and is never an anchor or a floor (owner D177).",
+          "description": "Deprecated (owner D204, M4.5), kept on the wire: the last closed\ntransaction end this page crossed; it may pass the anchor's cut and\nis never an anchor or a floor (owner D177). The host computes closed\ntransactions from batch stamps.",
           "type": [
             "integer",
             "null"
@@ -5443,7 +5528,11 @@
         },
         "next": {
           "$ref": "#/$defs/JournalAnchor",
-          "description": "Where to continue: `floor`, `throughMeaning` and `throughPosition`\necho the request's anchor unchanged and never pass the cut; `next` may\nrun past `throughPosition` up to the store's log end (owner D177)."
+          "description": "Where to continue in LOCAL terms: `floor` echoes the request's anchor\nand `next` moves over the records returned. A store before Milestone\n4.5 echoes `throughMeaning` and `throughPosition` unchanged too (owner\nD177); pages run to the durable tail either way."
+        },
+        "nextCursor": {
+          "description": "The store's REMOTE cursor where the next page continues, inclusive\n(owner D204: an opaque string). Absent from a store that has no\ncursor yet.",
+          "type": "string"
         },
         "records": {
           "items": {
@@ -5502,6 +5591,10 @@
             "string",
             "null"
           ]
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/JournalCheckpointMarker",
+          "description": "Owner D217: the checkpoint marker, a hint for the store. Absent,\nnever null, except on a checkpoint transaction's first record\n(`start`) and last (`end`). The host writes it and never reads it\n(D218 item 3): a malformed marker reads as absent."
         },
         "durability": {
           "description": "`durable` or `ephemeral`, as the record's v1 envelope carries it.",
@@ -5691,6 +5784,17 @@
       ],
       "description": "One axis value in a limits refusal: a boolean on the four boolean axes,\nthe mode string on `sandboxNetwork` (tdd SS2.9). **Closed**: exactly the\ntwo shapes, never another — named in ADR 51992 D10's closed\nuntagged-union list (`CLOSED_WITHOUT_MARKER`), since the untagged shape\ncarries no schema marker. Untagged so the wire\ncarries the bare JSON value; untagged also keeps the §4.3 shape the\nschema builder requires (a bare `serde_json::Value` renders no type and\nis rejected).",
       "x-msp-descriptor": "ErrorData.axes",
+      "x-msp-stability": "experimental"
+    },
+    "LimitsCeilingKind": {
+      "description": "What caps the ceiling a `-32028 limitsAboveMax` refusal names (ADR 69811\nD2 items 1-2): the kind of the ceiling, so a client can tell\na ceiling a newer daemon start can raise from one managed policy fixes.\n**Closed**: exactly these two — a refusal's ceiling is either the daemon's\nown start posture or the widest managed policy allows, never a third\nsource (the socket limits regime's ceiling computation has exactly these\ntwo arms).",
+      "enum": [
+        "daemonDefault",
+        "managedPolicy"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "ErrorData.ceilingKind",
+      "x-msp-openness": "closed",
       "x-msp-stability": "experimental"
     },
     "LimitsNetworkMode": {
@@ -8613,6 +8717,12 @@
           "description": "The installed plugin's identifier.",
           "type": "string"
         },
+        "origin": {
+          "$ref": "#/$defs/PluginOrigin",
+          "description": "Where the plugin came from (tdd SS3.43, ADR 94273 D4). Absent when\nthe host cannot name it, for example a marketplace install whose\nmarketplace was removed later. **Experimental** (`plugin/list.origin`).",
+          "x-msp-descriptor": "plugin/list.origin",
+          "x-msp-stability": "experimental"
+        },
         "source": {
           "$ref": "#/$defs/PluginSource",
           "description": "The installed record's source provenance (ADR 33398 D7 item 3)."
@@ -9427,6 +9537,22 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "PluginOrigin": {
+      "description": "Where a `plugin/list` row came from (tdd SS3.43, ADR 94273 D4), in the\n`plugin/install` target vocabulary: the host sets exactly one member (the\n`PluginInstallTarget` shape; the one-member rule is the host's, not the\nschema's).",
+      "properties": {
+        "localPath": {
+          "description": "The host folder that a folder install was copied from.",
+          "type": "string"
+        },
+        "marketplace": {
+          "description": "The configured marketplace that a marketplace install came from.",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "x-msp-descriptor": "plugin/list.origin",
+      "x-msp-stability": "experimental"
     },
     "PluginSource": {
       "description": "A plugin row's source provenance (tdd SS3.26.2, ADR 33398 D7 item 3):\ncamelCase of `PluginSourceProvenance`. Open (server-produced result\nvocabulary, the #22785 enum-openness rule): a future provenance is\nadditive.",
@@ -10905,6 +11031,10 @@
     "SchemaInfo": {
       "description": "The `schema` pair in [`InitializeResult`] (SS1.4.1, SS1.5.3). `version`\nis the wire **envelope** schema version — distinct from the session-view\n`schemaVersion`, the raw-log `schema_version`, and the 0.x/1.0 stability\nposture, which is not on the wire at all (INV-006a).",
       "properties": {
+        "compatibilityEpoch": {
+          "description": "The host's declared compatibility epoch (spec 206 amendment #22936\nFR-22936-2, ADR 22936 D2): the count of declared non-additive\nadvances of the stable surface. A client reads a `fingerprint`\nmismatch by comparing this with its own pin: equal, every difference\nis additive; different, a declared non-additive advance lies between.\nAdditive-optional: a host that predates the member omits it, and\nthe reader treats absence as unknown, never a guessed value\n(SS1.5.4).",
+          "type": "integer"
+        },
         "experimentalFingerprint": {
           "description": "`sha256:<64 lower hex>` content hash of this server binary's\nexperimental-surface bundle (ADR 97527 D5). Additive-optional: a\nhost that predates the member omits it, and the reader treats\nabsence as unknown — never a guessed value (SS1.5.4).",
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -13078,7 +13208,7 @@
         },
         "limits": {
           "$ref": "#/$defs/SessionLimitsChoice",
-          "description": "The SS1.10 trust ask for the session this resume loads (ADR 73001\nD6): `session/start.limits`'s shape, of which a resume names only\n`workspaceTrusted`. Naming another axis is invalid params: a resumed\nsession keeps its stored sandbox, write and shell limits. The ask\ntakes the place of the session's stored trust choice, made or not, and\nthe load records it as the session's choice; the host's ceiling bounds\nit as it bounds a stored one (`tightenedAxes` names a clamp). Only the\nresume that loads the session reads it; an attach ignores it.\n**Experimental, served only by the per-run host a TUI run starts**\n(`session/resume.limits`; unopted callers are refused `-32602`, as are\nopted callers on every other host, where a session resumes with its\nsaved trust choice, which an earlier ask on a TUI run's host may have\nreplaced, a fork or side-chat child included (ADR 69811 D2 (c) as\namended by #83669)). Explicit `null` is invalid params.",
+          "description": "The SS1.10 trust ask for the session this resume loads (ADR 73001\nD6): `session/start.limits`'s shape, of which a resume names only\n`workspaceTrusted`. Naming another axis is invalid params: a resumed\nsession keeps its stored sandbox, write and shell limits. The ask\ntakes the place of the session's stored trust choice, made or not, for\nthat load only: the host saves no trust choice, so a later load reads\nthe stored one again; the host's ceiling bounds it as it bounds a\nstored one (`tightenedAxes` names a clamp). Only the resume that loads\nthe session reads it; an attach ignores it.\n**Experimental, served only by the per-run host a TUI run starts**\n(`session/resume.limits`; unopted callers are refused `-32602`, as are\nopted callers on every other host, where a session resumes with its\nsaved trust choice, a fork or side-chat child included (ADR 69811 D2\n(c) as amended by #83669)). Explicit `null` is invalid params.",
           "x-msp-descriptor": "session/resume.limits",
           "x-msp-stability": "experimental"
         },
@@ -13117,6 +13247,12 @@
           },
           "type": "array",
           "x-msp-descriptor": "session/resume.workspaceRoots",
+          "x-msp-stability": "experimental"
+        },
+        "worktree": {
+          "$ref": "#/$defs/WorktreeStartRequest",
+          "description": "The `session/start.worktree` ask on a resume (ADR 95570 D1): a resume\nthat loads a session whose log records no worktree creates or attaches\nit as a start does and runs the session there. A session whose log\nrecords a worktree keeps reattaching it, and an attach ignores the\nmember. **Experimental** (`session/resume.worktree`; unopted callers\nare refused `-32602`). Absent means no worktree ask.",
+          "x-msp-descriptor": "session/resume.worktree",
           "x-msp-stability": "experimental"
         }
       },
@@ -13562,7 +13698,7 @@
       "properties": {
         "history": {
           "$ref": "#/$defs/SessionHistory",
-          "description": "The served history (inline; SS2.5.7's empty-items half is #49416 —\ninherited turns surface until the boundary-aware fold lands)."
+          "description": "The served history: inline, with empty items, since the side opens\nempty (SS2.5.7)."
         },
         "pendingRequests": {
           "description": "The late-joiner pointer set.",
@@ -13700,7 +13836,7 @@
         },
         "limits": {
           "$ref": "#/$defs/SessionLimitsChoice",
-          "description": "The SS1.10 per-session restriction (tdd SS1.10; ADR 39851-ss1-10 D2\nQ1; ADR 59770 D4): the axes this session chooses, each at or below\nthe host ceiling. **Experimental, socket-only** (`session/start.limits`;\nunopted callers are refused `-32602`, as are opted callers on hosts\nwith no limits regime). Absent means the default on every axis —\nthe daemon default for trust (untrusted, except trusted under\n`--trust-workspace --listen`, ADR 59770 D4a), the daemon's own\nposture for the sandbox axes (the ceiling, unless\n`--allow-session-posture` widens the ceiling above it). A choice\nwider than the ceiling on any axis refuses the\nstart `-32028 limitsAboveMax` naming every too-wide axis. An equal or\ntighter choice is what the session runs and reports, with two\nexceptions refused `-32602`: on a daemon whose default sandbox is\noff, a start naming `sandboxEnabled: true` without `sandboxNetwork`,\nor a network restriction (`restricted` or `proxy-only`) without\nnaming `sandboxEnabled`, until #63513 settles how a session turns the\nsandbox on there, and a network restriction beside an explicit\n`sandboxEnabled: false`, which never turns it on and stays refused\nwhile #76053 is open: drop the restriction, since a sandbox-off\nsession has no network to restrict\n(`data.reason: \"tighterSandboxUnserved\"` for all three); and under\n`--trust-workspace --listen` without `--allow-session-posture`, an\nexplicit `workspaceTrusted: false`, naming the axis. Elsewhere a\nnetwork restriction beside `sandboxEnabled: false` restricts nothing:\nwith the sandbox off the network is not sandboxed (`sandboxNetwork`\nreports `enabled`).",
+          "description": "The SS1.10 per-session restriction (tdd SS1.10; ADR 39851-ss1-10 D2\nQ1; ADR 59770 D4): the axes this session chooses, each at or below\nthe host ceiling. **Experimental, socket-only** (`session/start.limits`;\nunopted callers are refused `-32602`, as are opted callers on hosts\nwith no limits regime). Absent means the default on every axis —\nthe daemon default for trust (untrusted, except trusted under\n`--trust-workspace --listen`, ADR 59770 D4a), the daemon's own\nposture for the sandbox axes (the ceiling, unless\n`--allow-session-posture` widens the ceiling above it). A choice\nwider than the ceiling on any axis refuses the\nstart `-32028 limitsAboveMax` naming every too-wide axis and the\nceiling kind (`error.data.ceilingKind`: the daemon default or managed\npolicy). An equal or\ntighter choice is what the session runs and reports, with two\nexceptions refused `-32602`: on a daemon whose default sandbox is\noff, a start naming `sandboxEnabled: true` without `sandboxNetwork`,\nor a network restriction (`restricted` or `proxy-only`) without\nnaming `sandboxEnabled`, until #63513 settles how a session turns the\nsandbox on there, and a network restriction beside an explicit\n`sandboxEnabled: false`, which never turns it on and stays refused\nwhile #76053 is open: drop the restriction, since a sandbox-off\nsession has no network to restrict\n(`data.reason: \"tighterSandboxUnserved\"` for all three); and under\n`--trust-workspace --listen` without `--allow-session-posture`, an\nexplicit `workspaceTrusted: false`, naming the axis. Elsewhere a\nnetwork restriction beside `sandboxEnabled: false` restricts nothing:\nwith the sandbox off the network is not sandboxed (`sandboxNetwork`\nreports `enabled`).",
           "x-msp-descriptor": "session/start.limits",
           "x-msp-stability": "experimental"
         },
@@ -14652,6 +14788,343 @@
       ],
       "type": "object"
     },
+    "SkillProviderActivation": {
+      "description": "Who may load a provider skill. **Open**: a later value is additive.",
+      "enum": [
+        "model",
+        "userOnly",
+        "alwaysInline"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderCapability": {
+      "description": "`capabilities.skillProvider` in `initialize` params, and the host's echo\nof the effective value in the result.",
+      "properties": {
+        "version": {
+          "description": "The wire version; only `1` is defined.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "ClientCapabilities.skillProvider",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderEntry": {
+      "description": "One provider skill: the SEP-2640 skill entry plus `kind`, `activation`\nand `scope`.",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/SkillProviderActivation",
+          "description": "Who may load it; `model` when absent."
+        },
+        "frontmatter": {
+          "$ref": "#/$defs/SkillProviderFrontmatter",
+          "description": "The `SKILL.md` frontmatter."
+        },
+        "kind": {
+          "$ref": "#/$defs/SkillProviderKind",
+          "description": "What the entry is; `skill` when absent."
+        },
+        "resources": {
+          "description": "The skill's complete file list, `SKILL.md` included; at least one item.",
+          "items": {
+            "$ref": "#/$defs/SkillProviderResource"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "scope": {
+          "description": "The directory root the skill belongs to; informational.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "The skill's identity and the URI of its `SKILL.md`; 1 to 2,048\ncharacters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frontmatter",
+        "resources",
+        "uri"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderFrontmatter": {
+      "description": "The `SKILL.md` frontmatter of a provider skill.",
+      "properties": {
+        "description": {
+          "description": "The one-line description the catalog shows; 1 to 1,024 characters.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The skill's name; the model sees `msp:<name>`.",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "name"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderGetParams": {
+      "description": "`skillProvider/get` params (SEP-2640 `skills/get`): the model loads one\nprovider skill.",
+      "properties": {
+        "sessionId": {
+          "description": "The session.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "An entry's `uri`; 1 to 2,048 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "uri"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/get",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderGetResult": {
+      "description": "`skillProvider/get` result: the entry as it is now.",
+      "properties": {
+        "skill": {
+          "$ref": "#/$defs/SkillProviderEntry",
+          "description": "The entry."
+        }
+      },
+      "required": [
+        "skill"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/get",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderKind": {
+      "description": "What a provider entry is. **Open**: a later kind is additive, and v1\nserves only `skill`.",
+      "enum": [
+        "skill",
+        "instruction"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderListParams": {
+      "description": "`skillProvider/list` params: the host asks for one page of the session's\ncatalog.",
+      "properties": {
+        "cursor": {
+          "description": "The page to read; absent or null asks for the first page.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The session whose catalog is asked for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderListResult": {
+      "description": "`skillProvider/list` result: one page of the catalog.",
+      "properties": {
+        "entries": {
+          "description": "This page's entries.",
+          "items": {
+            "$ref": "#/$defs/SkillProviderEntry"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "description": "The next page; absent or null on the last page.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The catalog's revision; every page of one listing carries the same.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "revision"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderReadResourceParams": {
+      "description": "`skillProvider/readResource` params (SEP-2640 `resources/read`): the host\nfetches one listed file.",
+      "properties": {
+        "sessionId": {
+          "description": "The session.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "A listed `resources[].uri`; 1 to 2,048 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "uri"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/readResource",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderReadResourceResult": {
+      "description": "`skillProvider/readResource` result: exactly one file.",
+      "properties": {
+        "contents": {
+          "description": "The file: exactly one item.",
+          "items": {
+            "$ref": "#/$defs/SkillProviderResourceContents"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "contents"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/readResource",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderResource": {
+      "description": "One listed file of a provider skill.",
+      "properties": {
+        "digest": {
+          "description": "`sha256:<64 lowercase hex>` of the file's bytes.",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size": {
+          "description": "The file's size in bytes, at most 1 MiB.",
+          "maximum": 1048576,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "uri": {
+          "description": "The file's URI, under the entry's root; 1 to 2,048 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "size",
+        "uri"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderResourceContents": {
+      "description": "One fetched file. It carries exactly one of `text` or `blob`; both, or\nneither, is invalid and the host refuses the file.",
+      "properties": {
+        "blob": {
+          "description": "The file's bytes, base64; exactly one of `text` or `blob`.",
+          "type": "string"
+        },
+        "mimeType": {
+          "description": "The file's media type.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The file as UTF-8 text; exactly one of `text` or `blob`.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "Echoes the requested URI; 1 to 2,048 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/readResource",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderUpdatedParams": {
+      "description": "`skillProvider/updated` params: the client's delta (or snapshot) for one\nsession it drives.",
+      "properties": {
+        "baseRevision": {
+          "description": "The revision it applies on top of.",
+          "type": "integer"
+        },
+        "removes": {
+          "description": "The `uri`s of entries that no longer exist, each 1 to 2,048\ncharacters. A non-empty list with `snapshot: true` is invalid params,\nand so is a `uri` that is also in `upserts`.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "revision": {
+          "description": "The revision this update produces.",
+          "type": "integer"
+        },
+        "sessionId": {
+          "description": "The session.",
+          "type": "string"
+        },
+        "snapshot": {
+          "description": "`true`: `upserts` is the complete catalog, and `removes` must be absent\nor empty; `false` when absent.",
+          "type": "boolean"
+        },
+        "upserts": {
+          "description": "Entries added or replaced, keyed by `uri`.",
+          "items": {
+            "$ref": "#/$defs/SkillProviderEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "baseRevision",
+        "revision",
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/updated",
+      "x-msp-stability": "experimental"
+    },
+    "SkillProviderUpdatedResult": {
+      "description": "`skillProvider/updated` result.",
+      "properties": {
+        "appliedRevision": {
+          "description": "The host's revision after this request.",
+          "type": "integer"
+        },
+        "resync": {
+          "description": "`true`: the base did not match, nothing was applied, and the host\npulls `skillProvider/list` itself.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "appliedRevision"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "skillProvider/updated",
+      "x-msp-stability": "experimental"
+    },
     "SkillSetActivationParams": {
       "description": "`skill/setActivation` params (tdd SS3.30.1, #45433): turn one skill on\nor off in any scope through the single\n`SkillsService::set_activation` seam.",
       "properties": {
@@ -14725,13 +15198,25 @@
     },
     "SkillSource": {
       "description": "A skill row's source scope (tdd SS3.22.1): the projection of the skills\ncrate's `SkillsSourceScope`. Open (server-produced result vocabulary,\nthe #22785 enum-openness rule): a future scope value is additive.",
-      "enum": [
-        "bundled",
-        "user",
-        "project",
-        "plugin"
+      "oneOf": [
+        {
+          "enum": [
+            "bundled",
+            "user",
+            "project",
+            "plugin"
+          ],
+          "type": "string",
+          "x-msp-openness": "open"
+        },
+        {
+          "const": "skillProvider",
+          "description": "Offered by the session's Skill Provider client (CO-SP, #85664); the\n`selector` is `msp:<name>`. Experimental: the per-variant\nstability strips it from the stable JSON bundle; the Rust render keeps\nit, so a Rust client's match reaches its catch-all arm.",
+          "type": "string",
+          "x-msp-descriptor": "SkillSource.skillProvider",
+          "x-msp-stability": "experimental"
+        }
       ],
-      "type": "string",
       "x-msp-openness": "open"
     },
     "SnapshotAnchor": {
@@ -18268,6 +18753,7 @@
       }
     ]
   },
+  "compatibilityEpoch": 0,
   "description": "Muse Session Protocol (MSP) v1 wire schema bundle, rendered from the tbh-protocol schema model (spec 206). Generated; do not edit.",
   "errors": [
     {
@@ -19150,6 +19636,28 @@
       "x-msp-descriptor": "pluginData/read",
       "x-msp-stability": "experimental"
     },
+    "pluginData/subscribe": {
+      "description": "Subscribe to the changed project, turn or tool-call records of the host's local projection. pluginData/changed carries them to this connection only (spec 85050 FR-015, FR-016).",
+      "params": {
+        "$ref": "#/$defs/PluginDataSubscribeParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginDataSubscribeResult"
+      },
+      "x-msp-descriptor": "pluginData/subscribe",
+      "x-msp-stability": "experimental"
+    },
+    "pluginData/unsubscribe": {
+      "description": "End one pluginData subscription of this connection; an unknown or ended subscription also answers {} (spec 85050 FR-015).",
+      "params": {
+        "$ref": "#/$defs/PluginDataUnsubscribeParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginDataUnsubscribeResult"
+      },
+      "x-msp-descriptor": "pluginData/unsubscribe",
+      "x-msp-stability": "experimental"
+    },
     "projection/list": {
       "description": "Lists the registered server-side read projections (SS6.6).",
       "params": {
@@ -19535,6 +20043,17 @@
       "result": {
         "$ref": "#/$defs/SkillSetActivationResult"
       }
+    },
+    "skillProvider/updated": {
+      "description": "Pushes a change to the root session's provider catalog: a delta on `baseRevision`, or a `snapshot`. A base mismatch answers `resync: true` and the host lists again; no `commandId`, no durable record (SS3.42.4).",
+      "params": {
+        "$ref": "#/$defs/SkillProviderUpdatedParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillProviderUpdatedResult"
+      },
+      "x-msp-descriptor": "skillProvider/updated",
+      "x-msp-stability": "experimental"
     },
     "subagent/close": {
       "description": "Owner-close a child; the terminal mapping folds per SS4.5.7 (SS3.16).",
@@ -20059,6 +20578,14 @@
         "$ref": "#/$defs/PluginMarketplaceChangedParams"
       }
     },
+    "pluginData/changed": {
+      "description": "The changed records of one pluginData subscription, or a reset with no records when the reader must read again; to the subscribing connection only (spec 85050 FR-008, FR-015).",
+      "params": {
+        "$ref": "#/$defs/PluginDataChangedParams"
+      },
+      "x-msp-descriptor": "pluginData/changed",
+      "x-msp-stability": "experimental"
+    },
     "recap/completed": {
       "description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream (ADR 45447 D2, tdd SS3.28.2).",
       "params": {
@@ -20332,6 +20859,39 @@
         "$ref": "#/$defs/HookRequestResult"
       },
       "x-msp-descriptor": "hook/request",
+      "x-msp-stability": "experimental"
+    },
+    "skillProvider/get": {
+      "description": "Server-initiated must-answer request to the session's drive-grant holder for one provider entry as it is now, before the host loads it for read_skill (SS3.42.4).",
+      "params": {
+        "$ref": "#/$defs/SkillProviderGetParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillProviderGetResult"
+      },
+      "x-msp-descriptor": "skillProvider/get",
+      "x-msp-stability": "experimental"
+    },
+    "skillProvider/list": {
+      "description": "Server-initiated must-answer request to the root session's drive-grant holder for one page of its provider catalog; the host replaces its table with the listing (SS3.42.3).",
+      "params": {
+        "$ref": "#/$defs/SkillProviderListParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillProviderListResult"
+      },
+      "x-msp-descriptor": "skillProvider/list",
+      "x-msp-stability": "experimental"
+    },
+    "skillProvider/readResource": {
+      "description": "Server-initiated must-answer request to the session's drive-grant holder for one listed file; the host checks it against the listed size and digest (SS3.42.4).",
+      "params": {
+        "$ref": "#/$defs/SkillProviderReadResourceParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillProviderReadResourceResult"
+      },
+      "x-msp-descriptor": "skillProvider/readResource",
       "x-msp-stability": "experimental"
     },
     "userInput/request": {
