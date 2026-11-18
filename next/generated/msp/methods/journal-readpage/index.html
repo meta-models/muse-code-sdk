@@ -107,7 +107,7 @@
 <td><code dir="auto">string</code></td>
 <td>Experimental</td>
 <td>optional</td>
-<td>The store’s REMOTE cursor to read from, inclusive: admission’s <code dir="auto">floorCursor</code> or the previous page’s <code dir="auto">nextCursor</code> (owner D204: an opaque string). Absent: the store reads from <code dir="auto">anchor</code> as before.</td>
+<td>The store’s REMOTE cursor to read from, inclusive: admission’s <code dir="auto">floorCursor</code> or the previous page’s <code dir="auto">nextCursor</code> (owner D204: an opaque string). Absent only on a read of a journal with no row to read.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
