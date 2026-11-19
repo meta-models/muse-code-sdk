@@ -3837,7 +3837,7 @@ components:
       description: "The session goal block. `status` and `percentComplete` are carried **verbatim** —\nout-of-contract status strings and >100 percents pass through; display\nclamping is the renderer's job."
       properties:
         createdAtMs:
-          description: "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (tool-result adoptions,\nolder logs); absence must never render as a fabricated zero."
+          description: "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (older logs, a goal\ntool result without the row's times); absence must never render as a\nfabricated zero."
           type: integer
         currentWork:
           description: "Current work description, when present."
