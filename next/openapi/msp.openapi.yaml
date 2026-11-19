@@ -5827,16 +5827,22 @@ components:
       type: string
       x-msp-openness: open
     PrunedSubagent:
-      description: "One child session pruned below a checkpoint boundary: the restored row's key, text, and stoppability —\nnever pruned transcript."
+      description: "One child session pruned below a checkpoint boundary: the restored row's key, text,\nstoppability and place in the agent tree — never pruned transcript."
       properties:
         label:
           description: "The served display label (the spawn's role, agent path as\nfallback); absent when the spawn records carry neither."
+          type: string
+        parentSubagentId:
+          description: "For a nested run, the subagent id of the child that spawned it,\nwhose thread the row seats in; absent for the session's own\nchildren, on an entry stored before it, for a grandchild whose spawn\nthe session's own log does not hold, and for a grandchild whose\nparent survives only as an entry stored before it."
           type: string
         sessionId:
           description: "The child session id — the trace key for `session/read` on the\nchild, exactly as for a live child row."
           type: string
         status:
           description: "`running`, `completed`, or `failed`; absent reads as `running`."
+          type: string
+        subagentId:
+          description: "The child's own subagent id, the row's key as for a live child;\nabsent on an entry stored before it, which a newer boundary\ncheckpoint carries unchanged."
           type: string
       required:
         - sessionId
