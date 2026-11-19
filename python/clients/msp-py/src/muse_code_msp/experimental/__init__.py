@@ -1611,6 +1611,7 @@ class ErrorData(_ErrorDataBase, total=False):
     details: dict[str, Any]
     earliestCursor: str | None
     failureKind: str
+    gate: str
     index: int
     itemId: str
     keyPath: str
@@ -3483,6 +3484,40 @@ class PluginOrigin(TypedDict, total=False):
 
     localPath: str
     marketplace: str
+
+
+class _PluginRemoveParamsBase(TypedDict):
+    commandId: str
+    id: str
+
+
+class PluginRemoveParams(_PluginRemoveParamsBase, total=False):
+    """`plugin/remove` params: experimental, served only while the host's plugin gate is on."""
+
+    deleteData: bool
+    sessionId: str
+
+
+class _PluginRemoveResultBase(TypedDict):
+    commandId: str
+    id: str
+    status: CommandStatus
+
+
+class PluginRemoveResult(_PluginRemoveResultBase, total=False):
+    """`plugin/remove` result: the ack envelope plus the removed plugin's id."""
+
+    warning: str
+
+
+class _PluginRemovedParamsBase(TypedDict):
+    id: str
+
+
+class PluginRemovedParams(_PluginRemovedParamsBase, total=False):
+    """`plugin/removed` params: a remove landed; clients re-issue `plugin/list` (plus `hook/list` and `skill/list`). Experimental."""
+
+    sessionId: str
 
 
 class ProjectionBasis(TypedDict):
@@ -6430,6 +6465,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "plugin/marketplaceAdd": {"description": "Add a marketplace from `owner/repo`, git URL, `file://` URL, or local path (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceAddParams", "result": "PluginMarketplaceRecordResult"},
     "plugin/marketplaceRemove": {"description": "Remove a marketplace (per-session, `commandId`-idempotent; answers the removed name).", "params": "PluginMarketplaceRemoveParams", "result": "PluginMarketplaceRemoveResult"},
     "plugin/marketplaceUpdate": {"description": "Refresh a marketplace in place (per-session, `commandId`-idempotent; answers the stored record).", "params": "PluginMarketplaceUpdateParams", "result": "PluginMarketplaceRecordResult"},
+    "plugin/remove": {"description": "Remove one installed plugin, as `muse plugins remove` does on the session's host (per-session, `commandId`-idempotent; answers the removed id).", "params": "PluginRemoveParams", "result": "PluginRemoveResult"},
     "pluginData/read": {"description": "Read a page of project, turn or tool-call records from the host's local projection.", "params": "PluginDataReadParams", "result": "PluginDataReadResult"},
     "pluginData/subscribe": {"description": "Subscribe to the changed project, turn or tool-call records of the host's local projection. pluginData/changed carries them to this connection only.", "params": "PluginDataSubscribeParams", "result": "PluginDataSubscribeResult"},
     "pluginData/unsubscribe": {"description": "End one pluginData subscription of this connection; an unknown or ended subscription also answers {}.", "params": "PluginDataUnsubscribeParams", "result": "PluginDataUnsubscribeResult"},
@@ -6541,6 +6577,7 @@ NOTIFICATIONS: Final[dict[str, NotificationSpec]] = {
     "peer/settlementsChanged": {"description": "A peer-admission settlement committed in the receiving session; read `peer/settlements` from your cursor.", "params": "PeerSettlementsChangedParams"},
     "plugin/changed": {"description": "An install landed; carries the installed-row summary and clients re-issue `plugin/list`.", "params": "PluginChangedParams"},
     "plugin/marketplaceChanged": {"description": "A marketplace was added, updated, or removed; carries the change summary.", "params": "PluginMarketplaceChangedParams"},
+    "plugin/removed": {"description": "A remove landed; carries the removed id and clients re-issue `plugin/list`.", "params": "PluginRemovedParams"},
     "pluginData/changed": {"description": "The changed records of one pluginData subscription, or a reset with no records when the reader must read again; to the subscribing connection only.", "params": "PluginDataChangedParams"},
     "recap/completed": {"description": "A recap request settled exactly once — `completed` (with `text` plus optional `title`), `failed` (`providerFailed`), `cancelled`, or `timedOut` — delivered to the requesting connection outside the view stream.", "params": "RecapCompletedParams"},
     "session/activationChanged": {"description": "A resume recomposed the session's skill and plugin selection and it differs from the one the session recorded (a plugin uninstalled, a policy or settings change). The resume proceeded; the params name what the session has now.", "params": "SessionActivationChangedParams"},

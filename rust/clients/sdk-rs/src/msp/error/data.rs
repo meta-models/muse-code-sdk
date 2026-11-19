@@ -244,6 +244,11 @@ pub struct ErrorData {
     /// `credential_rejected`. Never credential material.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<String>,
+    /// The gate that is off, on the `methodNotFound` refusal of a verb that
+    /// follows a host gate, so a client can tell it from an old host's
+    /// `methodNotFound`, which has no `gate`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate: Option<String>,
 }
 
 impl ErrorData {
@@ -302,6 +307,7 @@ impl ErrorData {
             ceiling_kind: None,
             retry_after_ms: None,
             failure_kind: None,
+            gate: None,
         }
     }
 }

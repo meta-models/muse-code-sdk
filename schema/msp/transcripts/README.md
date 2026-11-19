@@ -72,7 +72,9 @@ wire order. No consumer needs the Rust harness to read one.
 - `regenerationJustification` — optional durable evidence for accepting a
   semantic host-vs-fixture change. When present, this object requires non-empty
   string fields `cite`, `rationale`, and `trackingIssue`; additive members are
-  tolerated. Byte-identical regeneration needs no object.
+  tolerated. Its `scope` member lists the finding JSON paths the waiver
+  covers (ADR 100150 D1); without a scope it waives nothing.
+  Byte-identical regeneration needs no object.
 - `source` — per-line-range citations into the normative protocol
   specification; every frame traces to normative text.
 
@@ -174,8 +176,10 @@ captured server stream is semantically identical under the manifest's exact
 named path diff and the “host wrong or fixture wrong” decision, and rewrites
 nothing unless the manifest carries the complete owner-approved
 `regenerationJustification` object. A complete object permits the semantic
-rewrite, remains in the regenerated manifest, and is cited in the report; a
-partial object fails before either file is written. A commit message or
+rewrite only when every semantic finding names at least one path and every
+named path is in the object's `scope` (ADR 100150 D1/D2); it then remains in
+the regenerated manifest and is cited in the report. A partial object, and a
+finding outside the scope, fail before either file is written. A commit message or
 implicit flag is never a waiver. `--muse-bin PATH` selects an explicit host
 binary, matching `replay`.
 

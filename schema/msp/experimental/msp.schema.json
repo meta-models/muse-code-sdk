@@ -3030,6 +3030,12 @@
           "x-msp-descriptor": "ErrorData.failureKind",
           "x-msp-stability": "experimental"
         },
+        "gate": {
+          "description": "The gate that is off, on the `methodNotFound` refusal of a verb that\nfollows a host gate (tdd SS3.43, ADR 94273 D5), so a client can tell\nit from an old host's `methodNotFound`, which has no `gate`.",
+          "type": "string",
+          "x-msp-descriptor": "ErrorData.gate",
+          "x-msp-stability": "experimental"
+        },
         "index": {
           "description": "The rejected edit's index into the `settings/writeMany` `edits`\narray, on the same arms; absent on `settings/writeValue`, which\ncarries no edit list.",
           "type": "integer",
@@ -9552,6 +9558,82 @@
       },
       "type": "object",
       "x-msp-descriptor": "plugin/list.origin",
+      "x-msp-stability": "experimental"
+    },
+    "PluginRemoveParams": {
+      "description": "`plugin/remove` params (tdd SS3.43, ADR 94273): experimental, served\nonly while the host's plugin gate is on (ADR 94273 D5).",
+      "properties": {
+        "commandId": {
+          "description": "The client-generated idempotency key (UUIDv7).",
+          "type": "string"
+        },
+        "deleteData": {
+          "description": "Also delete the plugin's data folder (`muse plugins remove\n--delete-data`); omitted means `false`.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The installed plugin to remove, as a `plugin/list` row names it.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session; its host runs the remove. Left out, the host acts\non the person's user-scope plugins (tdd SS3.43, owner decision DEP-1).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "id"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "plugin/remove",
+      "x-msp-stability": "experimental"
+    },
+    "PluginRemoveResult": {
+      "description": "`plugin/remove` result (tdd SS3.43): the SS3.1.2 ack envelope plus the\nremoved plugin's id.",
+      "properties": {
+        "commandId": {
+          "description": "The echoed idempotency key.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The removed plugin's id.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandStatus",
+          "description": "The ack status."
+        },
+        "warning": {
+          "description": "The remover's advisory text when the remove succeeded with a\ncaveat; absent otherwise.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "id",
+        "status"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "plugin/remove",
+      "x-msp-stability": "experimental"
+    },
+    "PluginRemovedParams": {
+      "description": "`plugin/removed` params (tdd SS3.43): a remove landed; clients re-issue\n`plugin/list` (plus `hook/list` and `skill/list`). Experimental.",
+      "properties": {
+        "id": {
+          "description": "The removed plugin's id.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The acting session; absent after a call without a session (tdd\nSS3.43).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "plugin/removed",
       "x-msp-stability": "experimental"
     },
     "PluginSource": {
@@ -19625,6 +19707,17 @@
         "$ref": "#/$defs/PluginMarketplaceRecordResult"
       }
     },
+    "plugin/remove": {
+      "description": "Remove one installed plugin, as `muse plugins remove` does on the session's host (per-session, `commandId`-idempotent; answers the removed id) (SS3.43).",
+      "params": {
+        "$ref": "#/$defs/PluginRemoveParams"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginRemoveResult"
+      },
+      "x-msp-descriptor": "plugin/remove",
+      "x-msp-stability": "experimental"
+    },
     "pluginData/read": {
       "description": "Read a page of project, turn or tool-call records from the host's local projection (spec 85050 FR-015).",
       "params": {
@@ -20577,6 +20670,14 @@
       "params": {
         "$ref": "#/$defs/PluginMarketplaceChangedParams"
       }
+    },
+    "plugin/removed": {
+      "description": "A remove landed; carries the removed id and clients re-issue `plugin/list` (ADR 94273).",
+      "params": {
+        "$ref": "#/$defs/PluginRemovedParams"
+      },
+      "x-msp-descriptor": "plugin/removed",
+      "x-msp-stability": "experimental"
     },
     "pluginData/changed": {
       "description": "The changed records of one pluginData subscription, or a reset with no records when the reader must read again; to the subscribing connection only (spec 85050 FR-008, FR-015).",
