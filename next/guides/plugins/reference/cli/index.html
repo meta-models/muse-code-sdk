@@ -925,6 +925,11 @@ message is printed on stderr with exit code 1.</p>
 <td><code dir="auto">inspect</code>, <code dir="auto">approve</code>, <code dir="auto">reject</code></td>
 <td>The capability snapshot could not be built</td>
 </tr>
+<tr>
+<td><code dir="auto">builtin-plugin-not-revocable</code></td>
+<td><code dir="auto">reject</code></td>
+<td>The plugin is compiled into this binary and has nothing to revoke; its product gate, named in the message, is its only switch</td>
+</tr>
 </tbody>
 </table>
 <p>Validation diagnostic codes such as <code dir="auto">invalid-plugin-id</code> can also appear as
