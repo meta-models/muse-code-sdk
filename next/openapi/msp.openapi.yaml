@@ -4485,7 +4485,7 @@ components:
             type: string
           type: array
         workId:
-          description: "`toolCall`: the task's registered Work ID, verbatim\n(`work.v2.managed_bash.sha256.…`); present only when the task\nregistered a ManagedBash id, absent otherwise. Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation."
+          description: "`toolCall`: the task's Work ID, verbatim: the registered\nManagedBash id (`work.v2.managed_bash.sha256.…`), or, on a\n`cancelled` monitor stopped by hand, the id its stop carries\n(`work.v2.monitor.sha256.…`); absent otherwise. Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation."
           type: string
         workflowRunId:
           description: "`subagent`/`workflow`: the owning durable workflow run id (opaque\nstring — not a UUID family)."
