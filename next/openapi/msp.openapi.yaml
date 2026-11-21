@@ -6122,6 +6122,30 @@ components:
       description: "The presentation receipt — the client's response to a\nserver-initiated request (`approval/request`, `userInput/request`).\n\nThe response acknowledges presentation only (\"a surface showed or will\nshow this\"): it changes no state, the server uses it for diagnostics\nalone, and the decision/answer travels as a command (`approval/decide`,\n`userInput/answer`). An error response or a dropped connection means this\nconnection could not present the request; the approval or prompt stays\npending and the request is re-issued on the next subscribe.\nThere is no dismiss-without-deciding on the wire."
       properties: {}
       type: object
+    ResumedPrunedSubagent:
+      description: "One `session/resume` roster entry: the `session/read` entry plus the ended\nWorkflow run. The owner's format ack (card 0a755a9b) covers\n`session/resume` only, so `session/read` entries never carry it."
+      properties:
+        endedWorkflowRunId:
+          description: "The Workflow run the child belonged to, set only when that run ended\nbefore the checkpoint and the checkpoint's ended-children summary\nnames the child: the child can no longer be followed up, by the user\nor its parent. Absent on every other row, ordinary children included."
+          type: string
+        label:
+          description: "The served display label (the spawn's role, agent path as\nfallback); absent when the spawn records carry neither."
+          type: string
+        parentSubagentId:
+          description: "For a nested run, the subagent id of the child that spawned it,\nwhose thread the row seats in; absent for the session's own\nchildren, on an entry stored before it, for a grandchild whose spawn\nthe session's own log does not hold, and for a grandchild whose\nparent survives only as an entry stored before it."
+          type: string
+        sessionId:
+          description: "The child session id — the trace key for `session/read` on the\nchild, exactly as for a live child row."
+          type: string
+        status:
+          description: "`running`, `completed`, or `failed`; absent reads as `running`."
+          type: string
+        subagentId:
+          description: "The child's own subagent id, the row's key as for a live child;\nabsent on an entry stored before it, which a newer boundary\ncheckpoint carries unchanged."
+          type: string
+      required:
+        - sessionId
+      type: object
     RetractOutcome:
       description: "A `turn/retracted` settlement outcome.\nOpen enum: decode is tolerant — a value outside the list reads\nas `Accepted` (the event's historical meaning — pre-feature hosts emit\nit only for accepted retracts), never fails. The bundle keeps\nenumerating the known values for codegen and docs."
       enum:
@@ -7213,7 +7237,7 @@ components:
         prunedSubagents:
           description: "One short record per child session the checkpoint boundary pruned. **Additive-optional**, like\n`queuedInputs` on the read: absent-when-empty, never stripped."
           items:
-            "$ref": "#/components/schemas/PrunedSubagent"
+            "$ref": "#/components/schemas/ResumedPrunedSubagent"
           type: array
         session:
           "$ref": "#/components/schemas/Session"
