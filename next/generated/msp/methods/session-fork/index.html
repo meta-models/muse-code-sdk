@@ -102,6 +102,13 @@
 <td>The idempotency handle (UUIDv7).</td>
 </tr>
 <tr>
+<td><code dir="auto">config</code></td>
+<td><a href="../../types/sessionconfig/">SessionConfig</a></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The same open construction-time extension object as <code dir="auto">session/start</code> and <code dir="auto">session/resume</code> (owner D243, M4.6), checked by the same door and applied to the load that creates the fork. It replaces what the fork would otherwise compose from its source (on a multi-tenant host, the source’s endpoint and settings overrides). A retry of the same <code dir="auto">commandId</code> reattaches the fork it created and ignores this member. Explicit <code dir="auto">null</code> is invalid params. <strong>Experimental</strong> (<code dir="auto">session/fork.config</code>).</td>
+</tr>
+<tr>
 <td><code dir="auto">cutPoint</code></td>
 <td><a href="../../types/forkcutpoint/">ForkCutPoint</a></td>
 <td></td>
@@ -114,6 +121,13 @@
 <td></td>
 <td>optional</td>
 <td>Skip inline history in the result and page it later — same as <code dir="auto">session/resume</code>.</td>
+</tr>
+<tr>
+<td><code dir="auto">modelId</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>The new session’s model (owner D243, M4.6): the same member and rule as <code dir="auto">session/resume.modelId</code>, applied by the load that creates the fork. Nothing is recorded when the fork already runs that model; a model the host refuses, a blank one included, leaves the fork on the model it inherited and the result names it in <code dir="auto">modelIdRefusal</code>. A retry of the same <code dir="auto">commandId</code> reattaches the fork it created and ignores this member. Omitted keeps the inherited model. Explicit <code dir="auto">null</code> is invalid params. <strong>Experimental</strong> (<code dir="auto">session/fork.modelId</code>).</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
