@@ -105,11 +105,32 @@ existing <code dir="auto">SessionResumeResult</code>.</p>
 <td>This attach command’s id (atomic replay).</td>
 </tr>
 <tr>
+<td><code dir="auto">config</code></td>
+<td><a href="../../types/sessionconfig/">SessionConfig</a></td>
+<td>Experimental</td>
+<td>optional</td>
+<td><code dir="auto">session/resume</code>’s <code dir="auto">config</code>, with its meaning and refusals, on every resume call the host makes for the child. Omit-only.</td>
+</tr>
+<tr>
 <td><code dir="auto">excludeItems</code></td>
 <td><code dir="auto">boolean</code></td>
 <td>Experimental</td>
 <td>optional</td>
 <td>Keeps ordinary resume meaning. Omit-only.</td>
+</tr>
+<tr>
+<td><code dir="auto">modelId</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td><code dir="auto">session/resume</code>’s <code dir="auto">modelId</code>, with its meaning and refusals, on every resume call the host makes for the child. Omit-only.</td>
+</tr>
+<tr>
+<td><code dir="auto">permissionProfile</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td><code dir="auto">session/resume</code>’s <code dir="auto">permissionProfile</code>, with its meaning and refusals, on every resume call the host makes for the child. Omit-only.</td>
 </tr>
 <tr>
 <td><code dir="auto">sessionId</code></td>
