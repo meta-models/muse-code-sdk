@@ -1978,10 +1978,12 @@ class _PrunedSubagentBase(TypedDict):
 
 
 class PrunedSubagent(_PrunedSubagentBase, total=False):
-    """One child session pruned below a checkpoint boundary: the restored row's key, text, and stoppability — never pruned transcript."""
+    """One child session pruned below a checkpoint boundary: the restored row's key, text, stoppability and place in the agent tree — never pruned transcript."""
 
     label: str
+    parentSubagentId: str
     status: str
+    subagentId: str
 
 
 class _QueuedInputBase(TypedDict):

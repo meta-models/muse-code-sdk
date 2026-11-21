@@ -97,7 +97,7 @@ AutomaticContinuation = Literal["enabled", "paused", "unloaded", "unavailable"]
 BackgroundInitiator = str  # open enum: unknown values stay representable
 BACKGROUND_INITIATOR_KNOWN_VALUES: Final[tuple[str, ...]] = ("user", "timeout",)
 
-# Presentation state of a backgrounded running tool item. Open — new states are additive. Asserts presentation only, never durable backgrounding (that claim stays `Item::background`, set only behind a durable `TaskBackgrounded`).
+# Presentation state of a `toolCall` item that went to the background. Open — new states are additive. Asserts presentation only, never durable backgrounding (that claim stays `Item::background`, set only behind a durable `TaskBackgrounded`).
 BackgroundState = str  # open enum: unknown values stay representable
 BACKGROUND_STATE_KNOWN_VALUES: Final[tuple[str, ...]] = ("backgrounded",)
 
@@ -674,6 +674,10 @@ ViewPageDirection = Literal["forward", "backward"]
 # Which control to apply to the child's current attempt. Closed on the wire: an unknown value is `-32602 invalidParams`.
 WorkflowChildAction = Literal["skip", "retry"]
 
+# Why the host withholds a workflow run's declared phase plan: the plan was written by a newer host (`upgradeRequired`) or is damaged (`corrupt`). Open; a client treats an unknown value like `corrupt`. Experimental.
+WorkflowPhasePlanUnreadable = str  # open enum: unknown values stay representable
+WORKFLOW_PHASE_PLAN_UNREADABLE_KNOWN_VALUES: Final[tuple[str, ...]] = ("upgradeRequired", "corrupt",)
+
 # A subagent child's workspace placement: `shared` when the spawn requested no worktree isolation, `isolated` when it did. Open; unknown values read as unknown. Experimental.
 WorkspacePlacement = str  # open enum: unknown values stay representable
 WORKSPACE_PLACEMENT_KNOWN_VALUES: Final[tuple[str, ...]] = ("shared", "isolated",)
@@ -1165,7 +1169,7 @@ class _BackgroundStatusBase(TypedDict):
 
 
 class BackgroundStatus(_BackgroundStatusBase, total=False):
-    """The backgrounded-row payload for a running `toolCall` item: the presentation state plus the live status text the row body renders. Experimental — stable clients ignore the member."""
+    """The backgrounded-row payload of a `toolCall` item that went to the background: the presentation state plus the result text the row body renders. Experimental — stable clients ignore the member."""
 
     detail: str
 
@@ -1280,6 +1284,30 @@ class ClientCapabilities(TypedDict, total=False):
     userInputDialogs: bool
 
 
+class ClientCommandInvokedRecord(TypedDict):
+    """The `command_invoked` record."""
+
+    command: str
+
+
+class _ClientFeedbackSubmittedRecordBase(TypedDict):
+    durationBand: str
+    entryPath: str
+    outcome: str
+    route: str
+
+
+class ClientFeedbackSubmittedRecord(_ClientFeedbackSubmittedRecordBase, total=False):
+    """The `feedback_submitted` record."""
+
+    clientVersion: str
+    droppedBytesBand: str
+    failureClass: str
+    localTracing: str
+    sessionRecord: str
+    uploadBytesBand: str
+
+
 class _ClientInfoBase(TypedDict):
     name: str
     version: str
@@ -1291,10 +1319,63 @@ class ClientInfo(_ClientInfoBase, total=False):
     title: str
 
 
+class ClientLoginCompletedRecord(TypedDict):
+    """The `login_completed` record."""
+
+    durationMs: int
+    method: str
+    subscribed: bool
+    trigger: str
+
+
+class ClientPaymentBannerShownRecord(TypedDict):
+    """The `payment_banner_shown` record."""
+
+    hasActionUrl: bool
+    model: str
+    paymentTier: str
+
+
+class ClientPaymentUnresolvedAtPollCapRecord(TypedDict):
+    """The `payment_unresolved_at_poll_cap` record."""
+
+    hasActionUrl: bool
+    model: str
+    paymentTier: str
+    remintAttempts: int
+
+
 class ClientRef(TypedDict):
     """A client's own name for an image part: 1 to 256 bytes of UTF-8, returned verbatim. Open, so a later optional member decodes on an older client."""
 
     name: str
+
+
+class ClientSubscriptionEntrypointImpressionRecord(TypedDict):
+    """The `subscription_entrypoint_impression` record."""
+
+    entrypoint: str
+    surface: str
+
+
+class _ClientVoiceCaptureObservedRecordBase(TypedDict):
+    audioMs: int
+    mode: str
+    outcome: str
+
+
+class ClientVoiceCaptureObservedRecord(_ClientVoiceCaptureObservedRecordBase, total=False):
+    """The `voice_capture_observed` record."""
+
+    connectMs: int
+    editedBeforeSubmit: bool
+    failureClass: str
+    finalizeMs: int
+    partialLagP50Ms: int
+    partialLagP95Ms: int
+    stopReason: str
+    timeToArmedMs: int
+    turnId: str
 
 
 class CodeModeOutputSpan(TypedDict):
@@ -1984,6 +2065,8 @@ class Item(_ItemBase, total=False):
     pattern: str
     paused: bool
     peerMessage: PeerMessage
+    phasePlan: list[WorkflowPhasePlanEntry]
+    phasePlanUnreadable: WorkflowPhasePlanUnreadable
     providerItemId: str
     providerStatus: str
     query: str
@@ -2128,7 +2211,6 @@ class JournalAdmissionContextResult(TypedDict):
     limits: JournalLimits
     remainingBudget: JournalReadBudget
     source: str
-    sourceGeneration: int
 
 
 class _JournalAnchorBase(TypedDict):
@@ -2137,11 +2219,9 @@ class _JournalAnchorBase(TypedDict):
 
 
 class JournalAnchor(_JournalAnchorBase, total=False):
-    """A journal anchor: the host's LOCAL per-source sequences, and on admission the store's REMOTE cursor of the first row to read. Numbering: `floor` is the LOCAL sequence of the first row to read, the newest closed checkpoint's first record (the log's first record when there is none); a restore reads from sequence `floor`. On admission `next` is the next sequence to write, `conditions.predecessor + 1`. Example: a checkpoint starting at sequence 5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5, predecessor 9 and `next` 10. A store before Milestone 4.5 sends record counts here instead; the host adapter translates them."""
+    """A journal anchor: the host's LOCAL per-source sequences, and on admission the store's REMOTE cursor of the first row to read. Numbering: `floor` is the LOCAL sequence of the first row to read, the newest closed checkpoint's first record (the log's first record when there is none); a restore reads from sequence `floor`. On admission `next` is the next sequence to write, `conditions.predecessor + 1`. Example: a checkpoint starting at sequence 5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5, predecessor 9 and `next` 10."""
 
     floorCursor: str
-    throughMeaning: str
-    throughPosition: int
 
 
 class JournalBatchStamp(TypedDict):
@@ -2170,7 +2250,6 @@ class JournalCommitBatchParams(TypedDict):
     records: list[JournalRecord]
     sessionId: str
     source: str
-    sourceGeneration: int
 
 
 class JournalCommitBatchResult(TypedDict):
@@ -2248,7 +2327,6 @@ class JournalReadBudget(TypedDict):
 
     bytes: int
     records: int
-    work: int
 
 
 class _JournalReadPageParamsBase(TypedDict):
@@ -2266,7 +2344,6 @@ class JournalReadPageParams(_JournalReadPageParamsBase, total=False):
 
 class _JournalReadPageResultBase(TypedDict):
     atCut: bool
-    completeThrough: int | None
     journalError: str | None
     next: JournalAnchor
     records: list[JournalPageRecord]
@@ -3566,10 +3643,12 @@ class _PrunedSubagentBase(TypedDict):
 
 
 class PrunedSubagent(_PrunedSubagentBase, total=False):
-    """One child session pruned below a checkpoint boundary: the restored row's key, text, and stoppability — never pruned transcript."""
+    """One child session pruned below a checkpoint boundary: the restored row's key, text, stoppability and place in the agent tree — never pruned transcript."""
 
     label: str
+    parentSubagentId: str
     status: str
+    subagentId: str
 
 
 class _QueuedInputBase(TypedDict):
@@ -4187,17 +4266,24 @@ class SessionForkParams(_SessionForkParamsBase, total=False):
     """`session/fork` params."""
 
     approvalRules: list[ClientApprovalRule]
+    config: SessionConfig
     cutPoint: ForkCutPoint
     excludeItems: bool
+    modelId: str
 
 
-class SessionForkResult(TypedDict):
-    """`session/fork` result: the `session/resume` envelope for the **new** session, whose `session.forkedFrom` carries the provenance."""
-
+class _SessionForkResultBase(TypedDict):
     history: SessionHistory
     pendingRequests: list[PendingRequestPointer]
     session: Session
     viewCursor: str
+
+
+class SessionForkResult(_SessionForkResultBase, total=False):
+    """`session/fork` result: the `session/resume` envelope for the **new** session, whose `session.forkedFrom` carries the provenance."""
+
+    modelIdRefusal: ModelIdRefusal
+    warnings: list[SessionLoadWarning]
 
 
 class SessionGoalChangedParams(TypedDict):
@@ -4529,6 +4615,20 @@ class SessionRenameResult(_SessionRenameResultBase, total=False):
     """`session/rename` result: `name` is the canonical (normalized) name the durable record settled."""
 
     name: str
+
+
+class SessionReportClientRecordsParams(TypedDict):
+    """`session/reportClientRecords` params: the session whose log takes the records, a client-minted report id (a new UUID per request, any textual UUID form), and 1 to 64 records in the order they happened. No `commandId`: the report id is the idempotency key and the call is best-effort."""
+
+    records: list[SessionClientRecord]
+    reportId: str
+    sessionId: str
+
+
+class SessionReportClientRecordsResult(TypedDict):
+    """`session/reportClientRecords` result: `true` when this request's records were appended, `false` when its report id was already reported and nothing was written."""
+
+    recorded: bool
 
 
 class _SessionReportStartupPhaseSpanBase(TypedDict):
@@ -6253,6 +6353,17 @@ class WorkflowPauseParams(TypedDict):
     workflowRunId: str
 
 
+class _WorkflowPhasePlanEntryBase(TypedDict):
+    key: str
+    title: str
+
+
+class WorkflowPhasePlanEntry(_WorkflowPhasePlanEntryBase, total=False):
+    """One entry of a workflow run's declared phase plan, in declared order. Experimental."""
+
+    phaseId: str
+
+
 class WorkflowResumeParams(TypedDict):
     """`workflow/resume` params: resume a paused workflow run, host-driven."""
 
@@ -6316,6 +6427,44 @@ class _PluginDataRecordsToolCalls(TypedDict):
 
 # The records of one resource, newest first, tagged with the resource's name: `{"resource": "turns", "turns": [...]}`. A union in the MSP bundle needs a member with a fixed string in each arm, and a tool call record holds every turn field, so the tag also makes decoding unambiguous.
 PluginDataRecords = _PluginDataRecordsProjects | _PluginDataRecordsTurns | _PluginDataRecordsToolCalls
+
+class _SessionClientRecordCommandInvoked(TypedDict):
+    record: ClientCommandInvokedRecord
+    recordType: Literal["commandInvoked"]
+
+
+class _SessionClientRecordVoiceCaptureObserved(TypedDict):
+    record: ClientVoiceCaptureObservedRecord
+    recordType: Literal["voiceCaptureObserved"]
+
+
+class _SessionClientRecordFeedbackSubmitted(TypedDict):
+    record: ClientFeedbackSubmittedRecord
+    recordType: Literal["feedbackSubmitted"]
+
+
+class _SessionClientRecordLoginCompleted(TypedDict):
+    record: ClientLoginCompletedRecord
+    recordType: Literal["loginCompleted"]
+
+
+class _SessionClientRecordPaymentBannerShown(TypedDict):
+    record: ClientPaymentBannerShownRecord
+    recordType: Literal["paymentBannerShown"]
+
+
+class _SessionClientRecordPaymentUnresolvedAtPollCap(TypedDict):
+    record: ClientPaymentUnresolvedAtPollCapRecord
+    recordType: Literal["paymentUnresolvedAtPollCap"]
+
+
+class _SessionClientRecordSubscriptionEntrypointImpression(TypedDict):
+    record: ClientSubscriptionEntrypointImpressionRecord
+    recordType: Literal["subscriptionEntrypointImpression"]
+
+
+# One reported record: `recordType` names the log kind and `record` is that kind's inner record without `schema_version` or `session_id`, which the host stamps at append. **Closed union**: a `recordType` outside the seven is `invalidParams`.
+SessionClientRecord = _SessionClientRecordCommandInvoked | _SessionClientRecordVoiceCaptureObserved | _SessionClientRecordFeedbackSubmitted | _SessionClientRecordLoginCompleted | _SessionClientRecordPaymentBannerShown | _SessionClientRecordPaymentUnresolvedAtPollCap | _SessionClientRecordSubscriptionEntrypointImpression
 
 class __SessionMcpServerConfigStdioBase(TypedDict):
     command: str
@@ -6486,6 +6635,7 @@ METHODS: Final[dict[str, MethodSpec]] = {
     "session/readLimits": {"description": "Reads one session's effective limits — experimental, same-user socket only.", "params": "SessionReadLimitsParams", "result": "SessionReadLimitsResult"},
     "session/releaseDrive": {"description": "The holder gives a loaded session's drive back without ending the load: `released` (nobody drives until a request or resume takes it; `session/driveChanged` tells every connection), `busy` while a turn runs, or the session is idle with a launch still queued or its launch count unreadable (no `turn/completed` is promised on that arm).", "params": "SessionReleaseDriveParams", "result": "SessionReleaseDriveResult"},
     "session/rename": {"description": "Sets or changes the durable allocated session name through the runtime session_name command; withheld under the ephemeral profile.", "params": "SessionRenameParams", "result": "SessionRenameResult"},
+    "session/reportClientRecords": {"description": "Reports the session records a client with no local session record sink writes itself; the host validates the whole request and appends them in order as single writer.", "params": "SessionReportClientRecordsParams", "result": "SessionReportClientRecordsResult"},
     "session/reportStartupPhases": {"description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer.", "params": "SessionReportStartupPhasesParams", "result": "SessionReportStartupPhasesResult"},
     "session/requestDrive": {"description": "Asks for a loaded session's drive: `granted` at once and stopping nothing — when no turn runs, and to another connection while a turn runs or input waits, which run on under the caller (the drive moves and `session/driveChanged` tells every connection); `busy` while the caller's own turn runs or its input waits, while a live holder is idle and its queue cannot be read (no `turn/completed` is promised then), or for a live holder not opted into `experimentalApi` while it is not quiet (a result; nothing parked; ask again later, after `turn/completed` when a turn runs).", "params": "SessionRequestDriveParams", "result": "SessionRequestDriveResult"},
     "session/resume": {"description": "Loads a stored session on this host, auto-subscribes this connection, and returns the history needed to render it.", "params": "SessionResumeParams", "result": "SessionResumeResult"},

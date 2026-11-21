@@ -355,7 +355,8 @@ pub use self::view::item_status::{
 };
 
 pub use self::view::item_subagent_workflow::{
-    SubagentControlStatus, SubagentResult, WorkflowChild, WorkflowTokenBudget, WorkspacePlacement,
+    SubagentControlStatus, SubagentResult, WorkflowChild, WorkflowPhasePlanEntry,
+    WorkflowPhasePlanUnreadable, WorkflowTokenBudget, WorkspacePlacement,
 };
 
 pub use self::view::message_phase::MessagePhase;

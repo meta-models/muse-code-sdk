@@ -11,6 +11,8 @@ pub use super::item_peer_message::PeerMessage;
 pub use super::item_subagent_workflow::SubagentControlStatus;
 pub use super::item_subagent_workflow::SubagentResult;
 pub use super::item_subagent_workflow::WorkflowChild;
+pub use super::item_subagent_workflow::WorkflowPhasePlanEntry;
+pub use super::item_subagent_workflow::WorkflowPhasePlanUnreadable;
 pub use super::item_subagent_workflow::WorkflowTokenBudget;
 pub use super::item_subagent_workflow::WorkspacePlacement;
 pub use crate::msp::view::subagent_input_phase::SubagentInputPhase;

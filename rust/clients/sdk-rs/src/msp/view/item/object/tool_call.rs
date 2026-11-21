@@ -89,10 +89,12 @@ pub struct ToolCallMembers {
     /// never inferred.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_initiator: Option<BackgroundInitiator>,
-    /// `toolCall`: the backgrounded-row payload for a running backgrounded item
-    /// — auto-yield or an explicit user/timeout background; may appear with or
-    /// without `background`/`backgroundInitiator`. Experimental, delivered via
-    /// `item/updated`. Presentation only — never a durability claim.
+    /// `toolCall`: the backgrounded-row payload of a call that went to the
+    /// background — auto-yield or an explicit user/timeout background; may
+    /// appear with or without `background`/`backgroundInitiator`. Experimental:
+    /// set on the flip `item/updated` and, for a shell call, on every later
+    /// emission of its item, its final `item/completed` and history snapshots
+    /// included. Presentation only — never a durability claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_status: Option<BackgroundStatus>,
     /// `toolCall`: the task's visible latest-status line — the latest `Status`
@@ -135,12 +137,12 @@ pub struct ToolCallMembers {
     /// clients ignore it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bash_title: Option<String>,
-    /// `toolCall`: the task's registered Work ID, verbatim
-    /// (`work.v2.managed_bash.sha256.…`); present only when the task registered
-    /// a ManagedBash id, absent otherwise. Stable from day one: no
-    /// `x-msp-stability` marker. The host serves it at the later of the task
-    /// terminal and the inbox admission; absence keeps the client's v1
-    /// derivation.
+    /// `toolCall`: the task's Work ID, verbatim: the registered ManagedBash id
+    /// (`work.v2.managed_bash.sha256.…`), or, on a `cancelled` monitor stopped
+    /// by hand, the id its stop carries (`work.v2.monitor.sha256.…`); absent
+    /// otherwise. Stable from day one: no `x-msp-stability` marker. The host
+    /// serves it at the later of the task terminal and the inbox admission;
+    /// absence keeps the client's v1 derivation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_id: Option<String>,
     /// `toolCall`: this call's live background-target record. Set when the

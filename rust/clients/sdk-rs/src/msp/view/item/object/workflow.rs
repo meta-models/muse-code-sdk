@@ -2,6 +2,8 @@
 
 use crate::msp::view::item_content::OutputRef;
 use crate::msp::view::item_content::WorkflowChild;
+use crate::msp::view::item_content::WorkflowPhasePlanEntry;
+use crate::msp::view::item_content::WorkflowPhasePlanUnreadable;
 use crate::msp::view::item_content::WorkflowTokenBudget;
 use serde::Deserialize;
 use serde::Serialize;
@@ -59,4 +61,14 @@ pub struct WorkflowMembers {
     /// `item/readOutput`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_prompt_refs: Option<Vec<OutputRef>>,
+    /// `workflow`: the run's declared phase plan, whole and in declared
+    /// order, re-sent on every emission. `[]` is a declared plan with no
+    /// phases; absent means the run declared no plan, or the host has not
+    /// read it yet. Never present together with `phasePlanUnreadable`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_plan: Option<Vec<WorkflowPhasePlanEntry>>,
+    /// `workflow`: served instead of `phasePlan` when the host cannot read
+    /// the run's declared phase plan; once set, it stays for the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_plan_unreadable: Option<WorkflowPhasePlanUnreadable>,
 }

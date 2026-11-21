@@ -988,7 +988,7 @@ export interface ForkProvenance {
 
 /** The session goal block (tdd SS4.6.2, mirrors the runtime's goal state, camelCased). `status` and `percentComplete` are carried **verbatim** — out-of-contract status strings and >100 percents pass through; display clamping is the renderer's job. */
 export interface Goal {
-  /** Goal creation time, epoch milliseconds, verbatim from the durable row. Absent on blocks whose producer never carried it (tool-result adoptions, older logs); absence must never render as a fabricated zero. */
+  /** Goal creation time, epoch milliseconds, verbatim from the durable row. Absent on blocks whose producer never carried it (older logs, a goal tool result without the row's times); absence must never render as a fabricated zero. */
   createdAtMs?: number;
   /** Current work description, when present. */
   currentWork?: string;
@@ -1360,7 +1360,7 @@ export interface Item {
   visibleOutput?: string;
   /** `agentMessage`: the Monitor source descriptions for the wake turn's first answer (ADR 62265 D1, #62265) — stripped, bounded, one entry per arming drain in drain order. Absent (or empty) means untagged: the row renders the ordinary untagged shape. The client scrubs per part before joining. */
   wakeSourceDescriptions?: string[];
-  /** `toolCall`: the task's registered Work ID, verbatim (`work.v2.managed_bash.sha256.…`); present only when the task registered a ManagedBash id, absent otherwise (tdd SS4.5.5, ADR 50041 D20). Stable from day one: no `x-msp-stability` marker. The host serves it at the later of the task terminal and the inbox admission (D21); absence keeps the client's v1 derivation. */
+  /** `toolCall`: the task's Work ID, verbatim: the registered ManagedBash id (`work.v2.managed_bash.sha256.…`), or, on a `cancelled` monitor stopped by hand, the id its stop carries (`work.v2.monitor.sha256.…`); absent otherwise (tdd SS4.5.5, ADR 50041 D20, D30). Stable from day one: no `x-msp-stability` marker. The host serves it at the later of the task terminal and the inbox admission (D21); absence keeps the client's v1 derivation. */
   workId?: string;
   /** `subagent`/`workflow`: the owning durable workflow run id (opaque string — not a UUID family). */
   workflowRunId?: string;
@@ -2088,14 +2088,18 @@ export type PluginSource = "curated" | "marketplaceUserAdded" | "foreignImport" 
 /** Why a workspace status probe produced no fresh reading (#35065 item 2).  **Open**: a new reason is additive evolution, and a client MUST render an unknown value as an unknown-but-present reason rather than rejecting the row. */
 export type ProbeDegradedReason = "skippedUntrusted" | "skippedSandboxUnavailable" | "probeFailed" | (string & {});
 
-/** One child session pruned below a checkpoint boundary (tdd SS2.5.5, ADR 71910 D8): the restored row's key, text, and stoppability — never pruned transcript. */
+/** One child session pruned below a checkpoint boundary (tdd SS2.5.5, ADR 71910 D8, ADR 90129 D1): the restored row's key, text, stoppability and place in the agent tree — never pruned transcript. */
 export interface PrunedSubagent {
   /** The served display label (the spawn's role, agent path as fallback); absent when the spawn records carry neither. */
   label?: string;
+  /** For a nested run, the subagent id of the child that spawned it, whose thread the row seats in; absent for the session's own children, on an entry stored before it, for a grandchild whose spawn the session's own log does not hold, and for a grandchild whose parent survives only as an entry stored before it. */
+  parentSubagentId?: string;
   /** The child session id — the trace key for `session/read` on the child, exactly as for a live child row. */
   sessionId: string;
   /** `running`, `completed`, or `failed`; absent reads as `running`. */
   status?: string;
+  /** The child's own subagent id, the row's key as for a live child; absent on an entry stored before it, which a newer boundary checkpoint carries unchanged. */
+  subagentId?: string;
 }
 
 /** One input still queued for delivery to a session (tdd SS2.5.5, ADR 63254-queued-inputs-on-read D2): the full message body plus its log record sequence, the delivery-order and re-read dedupe key, plus the run-log record id clients join served entries against record-seeded rows by. */

@@ -1568,7 +1568,7 @@
       "x-msp-openness": "open"
     },
     "BackgroundState": {
-      "description": "Presentation state of a backgrounded running tool item (ADR 50041 D1).\nOpen — new states are additive. Asserts presentation only, never durable\nbackgrounding (that claim stays `Item::background`, set only behind a\ndurable `TaskBackgrounded`).",
+      "description": "Presentation state of a `toolCall` item that went to the background (ADR\n50041 D1, ADR 98547 D1). Open — new states are additive. Asserts presentation only, never durable\nbackgrounding (that claim stays `Item::background`, set only behind a\ndurable `TaskBackgrounded`).",
       "enum": [
         "backgrounded"
       ],
@@ -1578,10 +1578,10 @@
       "x-msp-stability": "experimental"
     },
     "BackgroundStatus": {
-      "description": "The backgrounded-row payload for a running `toolCall` item (ADR 50041\nD1): the presentation state plus the live status text the row body\nrenders. Experimental — stable clients ignore the member.",
+      "description": "The backgrounded-row payload of a `toolCall` item that went to the\nbackground (ADR 50041 D1, ADR 98547 D1): the presentation state plus the\nresult text the row body renders. Experimental — stable clients ignore\nthe member.",
       "properties": {
         "detail": {
-          "description": "The live status text the backgrounded row body renders. The flip\ngate requires non-empty detail (the fold always sets it); a\nstate-only member leaves the row alone.",
+          "description": "The result JSON text committed at the yield, which the backgrounded\nrow body renders; a shell call's later emissions carry it verbatim\n(ADR 98547 D1). The flip gate requires non-empty detail (the fold\nalways sets it); a state-only member leaves the row alone.",
           "type": "string"
         },
         "state": {
@@ -1993,6 +1993,75 @@
       },
       "type": "object"
     },
+    "ClientCommandInvokedRecord": {
+      "description": "The `command_invoked` record (spec 8403).",
+      "properties": {
+        "command": {
+          "description": "A built-in slash command name (`/name` included) or `custom`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
+    "ClientFeedbackSubmittedRecord": {
+      "description": "The `feedback_submitted` record (spec 9752).",
+      "properties": {
+        "clientVersion": {
+          "description": "The client version; empty is omitted, longer than 64 characters cut.",
+          "type": "string"
+        },
+        "droppedBytesBand": {
+          "description": "`lt_1m`, `1m_8m`, `8m_25m` or `gt_25m`.",
+          "type": "string"
+        },
+        "durationBand": {
+          "description": "`lt_1s`, `1s_5s`, `5s_30s`, `30s_60s` or `gt_60s`.",
+          "type": "string"
+        },
+        "entryPath": {
+          "description": "`tui` or `msp`.",
+          "type": "string"
+        },
+        "failureClass": {
+          "description": "`timeout`, `transport`, `http_4xx` or `http_5xx`.",
+          "type": "string"
+        },
+        "localTracing": {
+          "description": "`attached`, `truncated` or `dropped_too_large`.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "One of the thirteen feedback outcomes.",
+          "type": "string"
+        },
+        "route": {
+          "description": "`internal` or `external`.",
+          "type": "string"
+        },
+        "sessionRecord": {
+          "description": "`attached`, `truncated` or `dropped_too_large`.",
+          "type": "string"
+        },
+        "uploadBytesBand": {
+          "description": "`lt_64k`, `64k_1m`, `1m_8m`, `8m_32m` or `gt_32m`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "durationBand",
+        "entryPath",
+        "outcome",
+        "route"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
     "ClientInfo": {
       "description": "Client identification inside `initialize` params (SS1.4.1). Diagnostics\nand telemetry attribution only; never an authority claim (SS1.10).",
       "properties": {
@@ -2016,6 +2085,91 @@
       ],
       "type": "object"
     },
+    "ClientLoginCompletedRecord": {
+      "description": "The `login_completed` record (spec 25818).",
+      "properties": {
+        "durationMs": {
+          "description": "Panel open to completion, in milliseconds.",
+          "type": "integer"
+        },
+        "method": {
+          "description": "`device_code` or `pasted_key`.",
+          "type": "string"
+        },
+        "subscribed": {
+          "description": "Whether the activation stamp reported a subscription.",
+          "type": "boolean"
+        },
+        "trigger": {
+          "description": "`onboarding` or `command`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "durationMs",
+        "method",
+        "subscribed",
+        "trigger"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
+    "ClientPaymentBannerShownRecord": {
+      "description": "The `payment_banner_shown` record (spec 8200).",
+      "properties": {
+        "hasActionUrl": {
+          "description": "Whether the banner offered a billing URL (never the URL).",
+          "type": "boolean"
+        },
+        "model": {
+          "description": "The model label at gate entry, written as sent.",
+          "type": "string"
+        },
+        "paymentTier": {
+          "description": "`subscription`, `stored_api_key`, `unsaved_api_key`, `env_api_key` or\n`unknown`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hasActionUrl",
+        "model",
+        "paymentTier"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
+    "ClientPaymentUnresolvedAtPollCapRecord": {
+      "description": "The `payment_unresolved_at_poll_cap` record (spec 8200).",
+      "properties": {
+        "hasActionUrl": {
+          "description": "Whether the banner offered a billing URL (never the URL).",
+          "type": "boolean"
+        },
+        "model": {
+          "description": "The model label at gate entry, written as sent.",
+          "type": "string"
+        },
+        "paymentTier": {
+          "description": "`subscription`, `stored_api_key`, `unsaved_api_key`, `env_api_key` or\n`unknown`.",
+          "type": "string"
+        },
+        "remintAttempts": {
+          "description": "Scheduled re-mints before dormancy.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hasActionUrl",
+        "model",
+        "paymentTier",
+        "remintAttempts"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
     "ClientRef": {
       "description": "A client's own name for an image part (ADR 78319 D2): 1 to 256 bytes of\nUTF-8, returned verbatim. Open, so a later optional member decodes on an\nolder client.",
       "properties": {
@@ -2028,6 +2182,87 @@
       ],
       "type": "object",
       "x-msp-descriptor": "session/resume.unavailableInputAssets",
+      "x-msp-stability": "experimental"
+    },
+    "ClientSubscriptionEntrypointImpressionRecord": {
+      "description": "The `subscription_entrypoint_impression` record (spec 20888).",
+      "properties": {
+        "entrypoint": {
+          "description": "`payg`, `cli`, `xgrade` or `no_payg`.",
+          "type": "string"
+        },
+        "surface": {
+          "description": "`upgrade_command`, `login_flow`, `spend_nudge`, `payment_banner` or\n`quota_hit`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entrypoint",
+        "surface"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
+    "ClientVoiceCaptureObservedRecord": {
+      "description": "The `voice_capture_observed` record (spec 8198).",
+      "properties": {
+        "audioMs": {
+          "description": "Capture duration in milliseconds.",
+          "type": "integer"
+        },
+        "connectMs": {
+          "description": "ASR connect duration in milliseconds.",
+          "type": "integer"
+        },
+        "editedBeforeSubmit": {
+          "description": "On `submitted` only: whether the composer text changed after insert.",
+          "type": "boolean"
+        },
+        "failureClass": {
+          "description": "On `error` only: `mic_permission`, `auth`, `engine` or `timeout`.",
+          "type": "string"
+        },
+        "finalizeMs": {
+          "description": "Stop to transcript-settled latency in milliseconds.",
+          "type": "integer"
+        },
+        "mode": {
+          "description": "`tap` or `record`.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "`submitted`, `canceled`, `no_speech` or `error`.",
+          "type": "string"
+        },
+        "partialLagP50Ms": {
+          "description": "Audio-chunk to partial-insert lag, 50th percentile, in milliseconds.",
+          "type": "integer"
+        },
+        "partialLagP95Ms": {
+          "description": "Audio-chunk to partial-insert lag, 95th percentile, in milliseconds.",
+          "type": "integer"
+        },
+        "stopReason": {
+          "description": "`manual` or `cap`, when the session reached a finalizing stop.",
+          "type": "string"
+        },
+        "timeToArmedMs": {
+          "description": "Trigger keypress to capture armed, in milliseconds.",
+          "type": "integer"
+        },
+        "turnId": {
+          "description": "The turn the composer submit started (a UUID).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "audioMs",
+        "mode",
+        "outcome"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
       "x-msp-stability": "experimental"
     },
     "CodeModeLanguage": {
@@ -3584,7 +3819,7 @@
       "description": "The session goal block (tdd SS4.6.2, mirrors the runtime's goal state,\ncamelCased). `status` and `percentComplete` are carried **verbatim** —\nout-of-contract status strings and >100 percents pass through; display\nclamping is the renderer's job.",
       "properties": {
         "createdAtMs": {
-          "description": "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (tool-result adoptions,\nolder logs); absence must never render as a fabricated zero.",
+          "description": "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (older logs, a goal\ntool result without the row's times); absence must never render as a\nfabricated zero.",
           "type": "integer"
         },
         "currentWork": {
@@ -4233,7 +4468,7 @@
         },
         "backgroundStatus": {
           "$ref": "#/$defs/BackgroundStatus",
-          "description": "`toolCall`: the backgrounded-row payload for a running\nbackgrounded item (ADR 50041 D1) — auto-yield or an explicit\nuser/timeout background; may appear with or without\n`background`/`backgroundInitiator`. Experimental, delivered via\n`item/updated`. Presentation only — never a durability claim.",
+          "description": "`toolCall`: the backgrounded-row payload of a call that went to the\nbackground (ADR 50041 D1, ADR 98547 D1) — auto-yield or an explicit\nuser/timeout background; may appear with or without\n`background`/`backgroundInitiator`. Experimental: set on the flip\n`item/updated` and, for a shell call, on every later emission of its\nitem, its final `item/completed` and history snapshots included.\nPresentation only — never a durability claim.",
           "x-msp-descriptor": "item/updated.backgroundStatus",
           "x-msp-stability": "experimental"
         },
@@ -4502,6 +4737,21 @@
           "$ref": "#/$defs/PeerMessage",
           "description": "`peerMessage`: the four facts the consumed card renders (ADR\n72708 D2, tdd SS4.5.24)."
         },
+        "phasePlan": {
+          "description": "`workflow`: the run's declared phase plan, whole and in declared\norder, re-sent on every emission. `[]` is a declared plan with no\nphases; absent means the run declared no plan, or the host has not\nread it yet. Never present together with `phasePlanUnreadable`.",
+          "items": {
+            "$ref": "#/$defs/WorkflowPhasePlanEntry"
+          },
+          "type": "array",
+          "x-msp-descriptor": "Item.phasePlan",
+          "x-msp-stability": "experimental"
+        },
+        "phasePlanUnreadable": {
+          "$ref": "#/$defs/WorkflowPhasePlanUnreadable",
+          "description": "`workflow`: served instead of `phasePlan` when the host cannot read\nthe run's declared phase plan; once set, it stays for the run.",
+          "x-msp-descriptor": "Item.phasePlanUnreadable",
+          "x-msp-stability": "experimental"
+        },
         "providerItemId": {
           "description": "`reasoning`: provider reasoning item id (e.g. `rs_...`), for\nprovider-side correlation.",
           "type": "string"
@@ -4737,7 +4987,7 @@
           "type": "array"
         },
         "workId": {
-          "description": "`toolCall`: the task's registered Work ID, verbatim\n(`work.v2.managed_bash.sha256.…`); present only when the task\nregistered a ManagedBash id, absent otherwise (tdd SS4.5.5,\nADR 50041 D20). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
+          "description": "`toolCall`: the task's Work ID, verbatim: the registered\nManagedBash id (`work.v2.managed_bash.sha256.…`), or, on a\n`cancelled` monitor stopped by hand, the id its stop carries\n(`work.v2.monitor.sha256.…`); absent otherwise (tdd SS4.5.5,\nADR 50041 D20, D30). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
           "type": "string"
         },
         "workflowRunId": {
@@ -5068,10 +5318,6 @@
         },
         "source": {
           "type": "string"
-        },
-        "sourceGeneration": {
-          "description": "Deprecated (owner D203, M4.5): always 1. The store's generation of\nthis source (D117 amendment, ADR 61595 D3.3), maintained by the store\nand starting at 1. The store raises\nit each time it discards and recreates this source, and at no other\ntime; it never lowers it. The host sends it back on every\n`journal/commitBatch`; the store refuses a commit from another\ngeneration with the conditions error.",
-          "type": "integer"
         }
       },
       "required": [
@@ -5080,8 +5326,7 @@
         "journalError",
         "limits",
         "remainingBudget",
-        "source",
-        "sourceGeneration"
+        "source"
       ],
       "type": "object",
       "x-msp-descriptor": "journal/admissionContext",
@@ -5099,24 +5344,16 @@
       "x-msp-stability": "experimental"
     },
     "JournalAnchor": {
-      "description": "A journal anchor: the host's LOCAL per-source sequences, and on admission\nthe store's REMOTE cursor of the first row to read.\n\nNumbering (owner D209, the design's section 5): `floor` is the LOCAL\nsequence of the first row to read, the newest closed checkpoint's first\nrecord (the log's first record when there is none); a restore reads from\nsequence `floor`. On admission `next` is the next sequence to write,\n`conditions.predecessor + 1`. Example: a checkpoint starting at sequence\n5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5,\npredecessor 9 and `next` 10. A store before Milestone 4.5 sends record\ncounts here instead; the host adapter translates them.",
+      "description": "A journal anchor: the host's LOCAL per-source sequences, and on admission\nthe store's REMOTE cursor of the first row to read.\n\nNumbering (owner D209, the design's section 5): `floor` is the LOCAL\nsequence of the first row to read, the newest closed checkpoint's first\nrecord (the log's first record when there is none); a restore reads from\nsequence `floor`. On admission `next` is the next sequence to write,\n`conditions.predecessor + 1`. Example: a checkpoint starting at sequence\n5, durable through 9, gives `floor` 5, `floorCursor` at sequence 5,\npredecessor 9 and `next` 10.",
       "properties": {
         "floor": {
           "type": "integer"
         },
         "floorCursor": {
-          "description": "The store's REMOTE cursor of the row holding LOCAL sequence `floor`,\nthe first row to read (owner D209; owner D204: an opaque string,\nnever parsed or compared). Set only in admission's `initialAnchor`;\nthe first `journal/readPage` starts there. Absent from a store that\nhas no cursor yet.",
+          "description": "The store's REMOTE cursor of the row holding LOCAL sequence `floor`,\nthe first row to read (owner D209; owner D204: an opaque string,\nnever parsed or compared). Set only in admission's `initialAnchor`;\nthe first `journal/readPage` starts there. Absent when the journal\nholds no row to read.",
           "type": "string"
         },
         "next": {
-          "type": "integer"
-        },
-        "throughMeaning": {
-          "description": "Deprecated (owner D203, M4.5), optional: the meaning of the batch at\nthe qualified cut (ADR 61595 D3.2), named for what it carries (owner\nD166; formerly `throughWriteId`). The host computes the cut itself\nfrom batch stamps; a store may leave this out.",
-          "type": "string"
-        },
-        "throughPosition": {
-          "description": "Deprecated (owner D203, M4.5), optional: the qualified cut's LOCAL\nposition. A store may leave this out.",
           "type": "integer"
         }
       },
@@ -5203,10 +5440,6 @@
         },
         "source": {
           "type": "string"
-        },
-        "sourceGeneration": {
-          "description": "The source generation the store answered in\n`journal/admissionContext` (D117 amendment, ADR 61595 D3.3). The\nstore raises its generation each time it discards and recreates\nthe source, so a commit prepared before that carries the old one;\nthe store refuses a mismatch with the conditions error before any\nother check, exact retries included.",
-          "type": "integer"
         }
       },
       "required": [
@@ -5214,8 +5447,7 @@
         "meaning",
         "records",
         "sessionId",
-        "source",
-        "sourceGeneration"
+        "source"
       ],
       "type": "object",
       "x-msp-descriptor": "journal/commitBatch",
@@ -5387,7 +5619,7 @@
       "description": "`journal/observeOriginal` result.",
       "properties": {
         "disposition": {
-          "description": "What happened to the v1 meaning's sequence `s` (ADR 61595 D3.6 as\ncorrected by #104722; owner D203), answered from the store's owner\nterm, its first position, its last and its durable tail:\n`notAdmitted` (`s` past the last: never landed, resend), `live`\n(accepted, not yet durable: still in doubt), `qualified` (this owner\nterm wrote it and it is durable), `conflict` (another owner term\nholds that sequence, or the tail holds another meaning) or `unknown`\n(not a v1 meaning). A store before Milestone 4.5 compares the id\nstored at `s` instead (owner D177).",
+          "description": "What happened to the v1 meaning's sequence `s` (ADR 61595 D3.6 as\ncorrected by #104722; owner D203), answered from the store's owner\nterm, its first position, its last and its durable tail:\n`notAdmitted` (`s` past the last: never landed, resend), `live`\n(accepted, not yet durable: still in doubt), `qualified` (this owner\nterm wrote it and it is durable), `conflict` (another owner term\nholds that sequence, or the tail holds another meaning) or `unknown`\n(not a v1 meaning).",
           "type": "string"
         },
         "ids": {
@@ -5460,16 +5692,11 @@
         "records": {
           "description": "The most whole host records the call may return (#99213; ADR 61595\nD3.6): the store's own rows, the parts of a split record and its\ninternal scans are never charged.",
           "type": "integer"
-        },
-        "work": {
-          "description": "Deprecated (owner D203, M4.5): the budget bounds only what comes back\non the wire, records and bytes. Still sent until the store makes it\noptional.",
-          "type": "integer"
         }
       },
       "required": [
         "bytes",
-        "records",
-        "work"
+        "records"
       ],
       "type": "object",
       "x-msp-descriptor": "journal/readPage",
@@ -5492,7 +5719,7 @@
           "$ref": "#/$defs/JournalReadBudget"
         },
         "cursor": {
-          "description": "The store's REMOTE cursor to read from, inclusive: admission's\n`floorCursor` or the previous page's `nextCursor` (owner D204: an\nopaque string). Absent: the store reads from `anchor` as before.",
+          "description": "The store's REMOTE cursor to read from, inclusive: admission's\n`floorCursor` or the previous page's `nextCursor` (owner D204: an\nopaque string). Absent only on a read of a journal with no row to read.",
           "type": "string"
         },
         "sessionId": {
@@ -5519,13 +5746,6 @@
           "description": "This page reached the durable tail: the store's records run out\nthere, and pages are never clipped at a cut (owner D177, D203).",
           "type": "boolean"
         },
-        "completeThrough": {
-          "description": "Deprecated (owner D204, M4.5), kept on the wire: the last closed\ntransaction end this page crossed; it may pass the anchor's cut and\nis never an anchor or a floor (owner D177). The host computes closed\ntransactions from batch stamps.",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "journalError": {
           "type": [
             "string",
@@ -5534,10 +5754,10 @@
         },
         "next": {
           "$ref": "#/$defs/JournalAnchor",
-          "description": "Where to continue in LOCAL terms: `floor` echoes the request's anchor\nand `next` moves over the records returned. A store before Milestone\n4.5 echoes `throughMeaning` and `throughPosition` unchanged too (owner\nD177); pages run to the durable tail either way."
+          "description": "Where to continue in LOCAL terms: `floor` echoes the request's anchor\nand `next` moves over the records returned."
         },
         "nextCursor": {
-          "description": "The store's REMOTE cursor where the next page continues, inclusive\n(owner D204: an opaque string). Absent from a store that has no\ncursor yet.",
+          "description": "The store's REMOTE cursor where the next page continues, inclusive\n(owner D204: an opaque string).",
           "type": "string"
         },
         "records": {
@@ -5552,7 +5772,6 @@
       },
       "required": [
         "atCut",
-        "completeThrough",
         "journalError",
         "next",
         "records",
@@ -9802,10 +10021,14 @@
       "x-msp-stability": "experimental"
     },
     "PrunedSubagent": {
-      "description": "One child session pruned below a checkpoint boundary (tdd SS2.5.5,\nADR 71910 D8): the restored row's key, text, and stoppability —\nnever pruned transcript.",
+      "description": "One child session pruned below a checkpoint boundary (tdd SS2.5.5,\nADR 71910 D8, ADR 90129 D1): the restored row's key, text,\nstoppability and place in the agent tree — never pruned transcript.",
       "properties": {
         "label": {
           "description": "The served display label (the spawn's role, agent path as\nfallback); absent when the spawn records carry neither.",
+          "type": "string"
+        },
+        "parentSubagentId": {
+          "description": "For a nested run, the subagent id of the child that spawned it,\nwhose thread the row seats in; absent for the session's own\nchildren, on an entry stored before it, for a grandchild whose spawn\nthe session's own log does not hold, and for a grandchild whose\nparent survives only as an entry stored before it.",
           "type": "string"
         },
         "sessionId": {
@@ -9814,6 +10037,10 @@
         },
         "status": {
           "description": "`running`, `completed`, or `failed`; absent reads as `running`.",
+          "type": "string"
+        },
+        "subagentId": {
+          "description": "The child's own subagent id, the row's key as for a live child;\nabsent on an entry stored before it, which a newer boundary\ncheckpoint carries unchanged.",
           "type": "string"
         }
       },
@@ -10692,7 +10919,7 @@
           ]
         },
         "olderHistoryUnavailable": {
-          "description": "Whether the page extends below the preserved history head.",
+          "description": "The older-history Catalog's evidence status (ADR 26998 D9): true\nwhen that evidence is missing, locked, corrupt, newer, stale or\nincomplete, or a row was refused — the \"Older history is\nunavailable.\" footer. It says nothing about whether the page\nextends below the preserved history head.",
           "type": "boolean"
         },
         "sessionId": {
@@ -11567,6 +11794,126 @@
       ],
       "type": "object"
     },
+    "SessionClientRecord": {
+      "description": "One reported record (ADR 100103 D1): `recordType` names the log kind\nand `record` is that kind's inner record without `schema_version` or\n`session_id`, which the host stamps at append.\n\n**Closed union**: a `recordType` outside the seven is `invalidParams`.",
+      "oneOf": [
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientCommandInvokedRecord"
+            },
+            "recordType": {
+              "const": "commandInvoked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientVoiceCaptureObservedRecord"
+            },
+            "recordType": {
+              "const": "voiceCaptureObserved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientFeedbackSubmittedRecord"
+            },
+            "recordType": {
+              "const": "feedbackSubmitted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientLoginCompletedRecord"
+            },
+            "recordType": {
+              "const": "loginCompleted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientPaymentBannerShownRecord"
+            },
+            "recordType": {
+              "const": "paymentBannerShown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientPaymentUnresolvedAtPollCapRecord"
+            },
+            "recordType": {
+              "const": "paymentUnresolvedAtPollCap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ClientSubscriptionEntrypointImpressionRecord"
+            },
+            "recordType": {
+              "const": "subscriptionEntrypointImpression",
+              "type": "string"
+            }
+          },
+          "required": [
+            "record",
+            "recordType"
+          ],
+          "type": "object"
+        }
+      ],
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-openness": "closed",
+      "x-msp-stability": "experimental"
+    },
     "SessionClosedParams": {
       "description": "`session/closed` params (tdd SS2.6.2; enrolled by #33065): a loaded\nsession was unloaded from this host, broadcast to every initialized\nconnection. After it, the session is `notLoaded`; the log remains on disk\nand `session/resume` reloads it. A crash emits nothing — only the\norderly unload paths do (idle unload, host shutdown and a released\n`session/leave`), and each writes the durable `SessionEnd` record first.",
       "properties": {
@@ -11938,6 +12285,12 @@
           "description": "The SS2.5 idempotency handle (UUIDv7).",
           "type": "string"
         },
+        "config": {
+          "$ref": "#/$defs/SessionConfig",
+          "description": "The same open construction-time extension object as `session/start`\nand `session/resume` (owner D243, M4.6), checked by the same door\nand applied to the load that creates the fork. It replaces what the\nfork would otherwise compose from its source (on a multi-tenant host,\nthe source's endpoint and settings overrides). A retry of the same\n`commandId` reattaches the fork it created and ignores this member.\nExplicit `null` is invalid params. **Experimental**\n(`session/fork.config`).",
+          "x-msp-descriptor": "session/fork.config",
+          "x-msp-stability": "experimental"
+        },
         "cutPoint": {
           "$ref": "#/$defs/ForkCutPoint",
           "description": "Copy history through a completed turn, inclusive. Omitted means \"all\ncompleted turns\" (tdd SS2.5.3)."
@@ -11945,6 +12298,12 @@
         "excludeItems": {
           "description": "Skip inline history in the result and page it later — same as\n`session/resume` (tdd SS2.5.3).",
           "type": "boolean"
+        },
+        "modelId": {
+          "description": "The new session's model (owner D243, M4.6): the same member and\nrule as `session/resume.modelId`, applied by the load that creates\nthe fork. Nothing is recorded when the fork already runs that model;\na model the host refuses, a blank one included, leaves the fork on\nthe model it inherited and the result names it in `modelIdRefusal`.\nA retry of the same `commandId` reattaches the fork it created and\nignores this member. Omitted keeps the inherited model. Explicit\n`null` is invalid params. **Experimental** (`session/fork.modelId`).",
+          "type": "string",
+          "x-msp-descriptor": "session/fork.modelId",
+          "x-msp-stability": "experimental"
         },
         "sessionId": {
           "description": "The source session.",
@@ -11964,6 +12323,12 @@
           "$ref": "#/$defs/SessionHistory",
           "description": "The served history."
         },
+        "modelIdRefusal": {
+          "$ref": "#/$defs/ModelIdRefusal",
+          "description": "The `modelId` this fork carried and the host refused: the fork opened\non the model it inherited, which `session` reports. **Experimental**\n(`session/fork.modelIdRefusal`); absent when the fork carried no\n`modelId` or the host recorded or kept it.",
+          "x-msp-descriptor": "session/fork.modelIdRefusal",
+          "x-msp-stability": "experimental"
+        },
         "pendingRequests": {
           "description": "The late-joiner pointer set.",
           "items": {
@@ -11978,6 +12343,15 @@
         "viewCursor": {
           "description": "The new session's view head.",
           "type": "string"
+        },
+        "warnings": {
+          "description": "What the host did not apply of this fork's `config` (ADR 94800 D5).\n**Experimental** (`session/fork.warnings`). Absent when there is\nnothing to warn about, never an empty array.",
+          "items": {
+            "$ref": "#/$defs/SessionLoadWarning"
+          },
+          "type": "array",
+          "x-msp-descriptor": "session/fork.warnings",
+          "x-msp-stability": "experimental"
         }
       },
       "required": [
@@ -13101,6 +13475,52 @@
         "status"
       ],
       "type": "object"
+    },
+    "SessionReportClientRecordsParams": {
+      "description": "`session/reportClientRecords` params (ADR 100103 D1): the session whose\nlog takes the records, a client-minted report id (a new UUID per\nrequest, any textual UUID form), and 1 to 64 records in the order they\nhappened. No `commandId`: the report id is the idempotency key and the\ncall is best-effort.",
+      "properties": {
+        "records": {
+          "description": "The records, in the order they happened (1 to 64).",
+          "items": {
+            "$ref": "#/$defs/SessionClientRecord"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "x-msp-descriptor": "session/reportClientRecords",
+          "x-msp-stability": "experimental"
+        },
+        "reportId": {
+          "description": "The report id (any UUID: hyphenated any-case or 32-hex simple).",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The target session; it must be attached to the requesting connection.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "records",
+        "reportId",
+        "sessionId"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
+    },
+    "SessionReportClientRecordsResult": {
+      "description": "`session/reportClientRecords` result (ADR 100103 D1): `true` when this\nrequest's records were appended, `false` when its report id was already\nreported and nothing was written.",
+      "properties": {
+        "recorded": {
+          "description": "True when this request's records were appended.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recorded"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
     },
     "SessionReportStartupPhase": {
       "description": "`session/reportStartupPhases` span phase (ADR 50064 pick-1 D1):\nthe `StartupPhasesRecord` phase vocabulary in camelCase (INV-016;\nD1 delegates member names to the lane). The host maps each value\nonto the record's snake_case spelling at append.\nExperimental: the stable bundle strips this until the surface\nstabilizes (in-v1 row 348).",
@@ -18600,6 +19020,41 @@
       ],
       "type": "object"
     },
+    "WorkflowPhasePlanEntry": {
+      "description": "One entry of a workflow run's declared phase plan, in declared order.\nExperimental.",
+      "properties": {
+        "key": {
+          "description": "The phase's declared key, unique within the plan.",
+          "type": "string"
+        },
+        "phaseId": {
+          "description": "The id of the phase the run registered for this entry, joined by a\nchild's `phase`; absent until the run registers it.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The phase's declared display title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "title"
+      ],
+      "type": "object",
+      "x-msp-descriptor": "Item.phasePlan",
+      "x-msp-stability": "experimental"
+    },
+    "WorkflowPhasePlanUnreadable": {
+      "description": "Why the host withholds a workflow run's declared phase plan: the plan\nwas written by a newer host (`upgradeRequired`) or is damaged\n(`corrupt`). Open; a client treats an unknown value like `corrupt`.\nExperimental.",
+      "enum": [
+        "upgradeRequired",
+        "corrupt"
+      ],
+      "type": "string",
+      "x-msp-descriptor": "Item.phasePlanUnreadable",
+      "x-msp-openness": "open",
+      "x-msp-stability": "experimental"
+    },
     "WorkflowResumeParams": {
       "description": "`workflow/resume` params (tdd SS3.34, ADR 45437 D3): resume a paused\nworkflow run, host-driven.",
       "properties": {
@@ -19914,6 +20369,17 @@
       "result": {
         "$ref": "#/$defs/SessionRenameResult"
       }
+    },
+    "session/reportClientRecords": {
+      "description": "Reports the session records a client with no local session record sink writes itself; the host validates the whole request and appends them in order as single writer (ADR 100103 D1).",
+      "params": {
+        "$ref": "#/$defs/SessionReportClientRecordsParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionReportClientRecordsResult"
+      },
+      "x-msp-descriptor": "session/reportClientRecords",
+      "x-msp-stability": "experimental"
     },
     "session/reportStartupPhases": {
       "description": "Reports the client's measured startup spans once per launch; the host appends the durable phases record as single writer (ADR 50064 pick-1 D1).",

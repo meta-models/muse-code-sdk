@@ -129,6 +129,39 @@ pub struct WorkflowChild {
     pub failure_reason: Option<String>,
 }
 
+/// One entry of a workflow run's declared phase plan, in declared order.
+/// Experimental.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct WorkflowPhasePlanEntry {
+    /// The phase's declared key, unique within the plan.
+    pub key: String,
+    /// The phase's declared display title.
+    pub title: String,
+    /// The id of the phase the run registered for this entry, joined by a
+    /// child's `phase`; absent until the run registers it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_id: Option<String>,
+}
+
+/// Why the host withholds a workflow run's declared phase plan: the plan
+/// was written by a newer host (`upgradeRequired`) or is damaged
+/// (`corrupt`). Open; a client treats an unknown value like `corrupt`.
+/// Experimental.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WorkflowPhasePlanUnreadable {
+    /// The plan or one of its phase records needs a newer host.
+    UpgradeRequired,
+    /// The plan or one of its phase records is damaged or contradicts it.
+    Corrupt,
+    /// A value from a newer host, kept verbatim so an older client decodes the
+    /// rest of the message. Excluded from the generated schema while the enum
+    /// stays declared open; never construct it with a known word.
+    Unknown(String),
+}
+
 /// `workflow`: the run's launch token budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -126,8 +126,9 @@ pub struct Goal {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_work: Option<String>,
     /// Goal creation time, epoch milliseconds, verbatim from the durable row.
-    /// Absent on blocks whose producer never carried it (tool-result adoptions,
-    /// older logs); absence must never render as a fabricated zero.
+    /// Absent on blocks whose producer never carried it (older logs, a goal
+    /// tool result without the row's times); absence must never render as a
+    /// fabricated zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at_ms: Option<i64>,
     /// Last goal mutation time, epoch milliseconds, verbatim from the durable

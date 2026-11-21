@@ -2395,7 +2395,7 @@
       "description": "The session goal block (tdd SS4.6.2, mirrors the runtime's goal state,\ncamelCased). `status` and `percentComplete` are carried **verbatim** —\nout-of-contract status strings and >100 percents pass through; display\nclamping is the renderer's job.",
       "properties": {
         "createdAtMs": {
-          "description": "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (tool-result adoptions,\nolder logs); absence must never render as a fabricated zero.",
+          "description": "Goal creation time, epoch milliseconds, verbatim from the durable row.\nAbsent on blocks whose producer never carried it (older logs, a goal\ntool result without the row's times); absence must never render as a\nfabricated zero.",
           "type": "integer"
         },
         "currentWork": {
@@ -3254,7 +3254,7 @@
           "type": "array"
         },
         "workId": {
-          "description": "`toolCall`: the task's registered Work ID, verbatim\n(`work.v2.managed_bash.sha256.…`); present only when the task\nregistered a ManagedBash id, absent otherwise (tdd SS4.5.5,\nADR 50041 D20). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
+          "description": "`toolCall`: the task's Work ID, verbatim: the registered\nManagedBash id (`work.v2.managed_bash.sha256.…`), or, on a\n`cancelled` monitor stopped by hand, the id its stop carries\n(`work.v2.monitor.sha256.…`); absent otherwise (tdd SS4.5.5,\nADR 50041 D20, D30). Stable from day one: no `x-msp-stability`\nmarker. The host serves it at the later of the task terminal\nand the inbox admission (D21); absence keeps the client's v1\nderivation.",
           "type": "string"
         },
         "workflowRunId": {
@@ -5045,10 +5045,14 @@
       "x-msp-openness": "open"
     },
     "PrunedSubagent": {
-      "description": "One child session pruned below a checkpoint boundary (tdd SS2.5.5,\nADR 71910 D8): the restored row's key, text, and stoppability —\nnever pruned transcript.",
+      "description": "One child session pruned below a checkpoint boundary (tdd SS2.5.5,\nADR 71910 D8, ADR 90129 D1): the restored row's key, text,\nstoppability and place in the agent tree — never pruned transcript.",
       "properties": {
         "label": {
           "description": "The served display label (the spawn's role, agent path as\nfallback); absent when the spawn records carry neither.",
+          "type": "string"
+        },
+        "parentSubagentId": {
+          "description": "For a nested run, the subagent id of the child that spawned it,\nwhose thread the row seats in; absent for the session's own\nchildren, on an entry stored before it, for a grandchild whose spawn\nthe session's own log does not hold, and for a grandchild whose\nparent survives only as an entry stored before it.",
           "type": "string"
         },
         "sessionId": {
@@ -5057,6 +5061,10 @@
         },
         "status": {
           "description": "`running`, `completed`, or `failed`; absent reads as `running`.",
+          "type": "string"
+        },
+        "subagentId": {
+          "description": "The child's own subagent id, the row's key as for a live child;\nabsent on an entry stored before it, which a newer boundary\ncheckpoint carries unchanged.",
           "type": "string"
         }
       },

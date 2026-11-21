@@ -83,7 +83,8 @@ pub struct SessionReadResult {
 }
 
 /// One child session pruned below a checkpoint boundary: the restored row's
-/// key, text, and stoppability — never pruned transcript.
+/// key, text, stoppability and place in the agent tree — never pruned
+/// transcript.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -98,6 +99,18 @@ pub struct PrunedSubagent {
     /// `running`, `completed`, or `failed`; absent reads as `running`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// The child's own subagent id, the row's key as for a live child;
+    /// absent on an entry stored before it, which a newer boundary
+    /// checkpoint carries unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    /// For a nested run, the subagent id of the child that spawned it,
+    /// whose thread the row seats in; absent for the session's own
+    /// children, on an entry stored before it, for a grandchild whose spawn
+    /// the session's own log does not hold, and for a grandchild whose
+    /// parent survives only as an entry stored before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_subagent_id: Option<String>,
 }
 
 /// One input still queued for delivery to a session: the full message body plus

@@ -7,13 +7,16 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 pub use session_config_mt_providers::SessionEndpointProviders;
+pub use session_mcp::SessionConfig;
 pub use session_read::PrunedSubagent;
 pub use session_resume::HistoryNoneReason;
 pub use session_resume::SessionHistory;
 pub use session_resume_input_assets::ClientRef;
 pub use session_resume_input_assets::MissingInputAssets;
 pub use session_resume_input_assets::UnavailableInputAsset;
+pub use session_resume_members::ModelIdRefusal;
 pub use session_resume_members::PendingRequestPointer;
+pub use session_start::SessionLoadWarning;
 
 pub(crate) mod recovery;
 pub(crate) mod runtime_worktree;
@@ -84,6 +87,33 @@ pub struct SessionForkParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub approval_rules: Option<Vec<super::approval::ClientApprovalRule>>,
+    /// The new session's model: the same member and rule as
+    /// `session/resume.modelId`, applied by the load that creates the fork.
+    /// Nothing is recorded when the fork already runs that model; a model the
+    /// host refuses, a blank one included, leaves the fork on the model it
+    /// inherited and the result names it in `modelIdRefusal`. A retry of the
+    /// same `commandId` reattaches the fork it created and ignores this member.
+    /// Omitted keeps the inherited model. Explicit `null` is invalid params.
+    /// **Experimental** (`session/fork.modelId`).
+    #[serde(
+        default,
+        deserialize_with = "deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_id: Option<String>,
+    /// The same open construction-time extension object as `session/start` and
+    /// `session/resume`, checked by the same door and applied to the load that
+    /// creates the fork. It replaces what the fork would otherwise compose from
+    /// its source (on a multi-tenant host, the source's endpoint and settings
+    /// overrides). A retry of the same `commandId` reattaches the fork it
+    /// created and ignores this member. Explicit `null` is invalid params.
+    /// **Experimental** (`session/fork.config`).
+    #[serde(
+        default,
+        deserialize_with = "deserialize_non_null_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub config: Option<SessionConfig>,
 }
 
 /// Where a fork cuts the source history. Turn ids are used instead of counts
@@ -111,6 +141,17 @@ pub struct SessionForkResult {
     pub history: SessionHistory,
     /// The late-joiner pointer set.
     pub pending_requests: Vec<PendingRequestPointer>,
+    /// The `modelId` this fork carried and the host refused: the fork opened
+    /// on the model it inherited, which `session` reports. **Experimental**
+    /// (`session/fork.modelIdRefusal`); absent when the fork carried no
+    /// `modelId` or the host recorded or kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id_refusal: Option<ModelIdRefusal>,
+    /// What the host did not apply of this fork's `config`. **Experimental**
+    /// (`session/fork.warnings`). Absent when there is nothing to warn about,
+    /// never an empty array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<SessionLoadWarning>>,
 }
 
 /// `session/sideChat` params.
