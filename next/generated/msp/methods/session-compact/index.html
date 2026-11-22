@@ -97,6 +97,13 @@ asynchronously; the ack is admission only.</p>
 <td>The idempotency handle (UUIDv7).</td>
 </tr>
 <tr>
+<td><code dir="auto">instructions</code></td>
+<td><code dir="auto">string</code></td>
+<td>Experimental</td>
+<td>optional</td>
+<td>Freeform guidance for this compaction’s summary (<code dir="auto">/compact &lt;text&gt;</code>), added to the summarizer’s instruction as “Additional Instructions”. Omit, or send an empty or whitespace-only string, for today’s summary. It applies to this compaction only; later compactions never see it. A connection without <code dir="auto">experimentalApi</code> that spells it gets <code dir="auto">experimentalRequired</code>. <strong>Experimental</strong> (<code dir="auto">session/compact.instructions</code>, owner D256).</td>
+</tr>
+<tr>
 <td><code dir="auto">sessionId</code></td>
 <td><code dir="auto">string</code></td>
 <td></td>
