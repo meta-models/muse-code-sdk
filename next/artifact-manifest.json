@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "snapshot": {
     "schemaVersion": 1,
-    "sourceCommit": "f2b2f39f45e55114d725011ff9fdc1f56baa3027",
+    "sourceCommit": "3b6a8ad46d96556426801fa40cd3ded183ce5e7e",
     "sourceDirty": false,
-    "renderedCommit": "f2b2f39f45e55114d725011ff9fdc1f56baa3027",
-    "sourceDateEpoch": 1795436590,
+    "renderedCommit": "3b6a8ad46d96556426801fa40cd3ded183ce5e7e",
+    "sourceDateEpoch": 1795467636,
     "schemaFingerprint": "sha256:3f9caad7a2c6d2bcac5ac30f090f4edd73f26017db164ff038ec06b16f09f07d",
     "status": "developer-preview",
     "docsVersion": "next",
@@ -80,7 +80,7 @@
     },
     {
       "path": "build-meta.json",
-      "sha256": "3047e65a3fd2f30ec8f747178115263436843cbf3210355174b7fd5284a531b9"
+      "sha256": "1e62e02f06d6c53099c5a0cbd65b85ff40a84a1ee90b2a0e4060a411621b16b7"
     },
     {
       "path": "compatibility/index.html",
@@ -5212,7 +5212,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "b6400a4a6b3ff28f00316844d012ac49615ff70b2d67dd6b8d29b51d8bb275f1"
+      "sha256": "f9b605f93c006b633e30949d8dfc1fa91631209d2205a947ae2deb4470785b65"
     },
     {
       "path": "openapi/msp.openapi.yaml",
@@ -9587,10 +9587,6 @@
       "sha256": "9e7217963f8de3011cd52a1202b7c9cf17afb1a74bcbee34fa236bb0b7c7b02d"
     },
     {
-      "path": "pagefind/fragment/en_debd20f.pf_fragment",
-      "sha256": "0b3aefb78daad08b78ad02d72994a755cb16fe67b22f7946854519bcf1734db1"
-    },
-    {
       "path": "pagefind/fragment/en_dedcf67.pf_fragment",
       "sha256": "87da2d1bd40fe421c3bcb7fef7562c6867c1f6328723ec4e6e1622362942b851"
     },
@@ -9957,6 +9953,10 @@
     {
       "path": "pagefind/fragment/en_ee67ace.pf_fragment",
       "sha256": "1e3a38bdb2f4f74a8f01ce2710812b8ac639e64087f5f9a39f22c063178909b7"
+    },
+    {
+      "path": "pagefind/fragment/en_ee8673c.pf_fragment",
+      "sha256": "baa98bfaab773a5cf39043ab804c56cc5921dadbcc7db2c58ee56a83733c62e2"
     },
     {
       "path": "pagefind/fragment/en_ee8a60f.pf_fragment",
@@ -10379,10 +10379,6 @@
       "sha256": "519ea085f6fa19aee4070a219fcaeb02e87b53e12c9a19da75abdcddab2402e1"
     },
     {
-      "path": "pagefind/index/en_31e3c27.pf_index",
-      "sha256": "3ba302fe39be3187a83d3d324bb9c1c712bf3f0040d832d0a4f874e4b058d79e"
-    },
-    {
       "path": "pagefind/index/en_4814a35.pf_index",
       "sha256": "28c5cbe6c640a58bc9e0615adb732d72a54d8e53027cac584fa5d1544bce1617"
     },
@@ -10435,10 +10431,6 @@
       "sha256": "be635ee7877ce5fb2047d1f09c6e00bbf28af4b85d912dc796abd7648f66c0e5"
     },
     {
-      "path": "pagefind/index/en_a263295.pf_index",
-      "sha256": "d2db676747674262a92ce735d073ae5baf23c25df50ddd1e9ea098a4c648948e"
-    },
-    {
       "path": "pagefind/index/en_ad18bec.pf_index",
       "sha256": "db9b2946de91be43d088ec72336679b5bcb334191b35e10a7447a2403b4af283"
     },
@@ -10451,6 +10443,10 @@
       "sha256": "1ae43b63eceafeb532be93d2e2d7cf7122187e40794b52e8939c782f9783aa1f"
     },
     {
+      "path": "pagefind/index/en_c0dabde.pf_index",
+      "sha256": "23bcf0f847bcc69462f36990a425a0888bd5d45ec46cc52ac3d1171814d0bdd6"
+    },
+    {
       "path": "pagefind/index/en_c21f384.pf_index",
       "sha256": "b42496591f48f94b398aaef6ee1808e524d59ee15d0a8f7a259aa97546dcac13"
     },
@@ -10461,6 +10457,10 @@
     {
       "path": "pagefind/index/en_d9b4b2c.pf_index",
       "sha256": "4a4c07fbacb6b539a0362433c043146c9510780a8470ae59e2f602c84c54996a"
+    },
+    {
+      "path": "pagefind/index/en_e1b2115.pf_index",
+      "sha256": "0fb9b909386d6c8639eb2471d0ec1479d8474f84f3f0b4867f86d2f2984c0464"
     },
     {
       "path": "pagefind/index/en_e3e9899.pf_index",
@@ -10496,7 +10496,7 @@
     },
     {
       "path": "pagefind/pagefind-entry.json",
-      "sha256": "178aa5b36e3bacc21da0f8c2d792a7eb43978a9801b21ddf2e80ea73cd8840b4"
+      "sha256": "4e44e6afc68e6bca4f0438fd2638a964aec588eddd592be25dc83b155db83cfd"
     },
     {
       "path": "pagefind/pagefind-highlight.js",
@@ -10523,8 +10523,8 @@
       "sha256": "78115e3651f11d29f03a1f3eb2776a7901c22532bdfa23b7ae73c693c0867bda"
     },
     {
-      "path": "pagefind/pagefind.en_ededefec7c.pf_meta",
-      "sha256": "86d8fa8040bb83d91f281be26d53fabcab5a004209e14e97bd4e1772dadf8720"
+      "path": "pagefind/pagefind.en_c36e138cf9.pf_meta",
+      "sha256": "e027b67cf00f4bf88c11dcdc7fd176598032f1601b0cd1449eeeb5eebc42f83d"
     },
     {
       "path": "pagefind/pagefind.js",
