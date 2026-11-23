@@ -9992,6 +9992,9 @@ components:
         label:
           description: "The child's display label, when recorded."
           type: string
+        modelId:
+          description: "The model this attempt ran with, copied verbatim from the attempt's\n`Started` lifecycle fact and kept by its later facts; absent before\n`Started` or when none was recorded."
+          type: string
         phase:
           description: "The child's phase, when recorded."
           type: string
