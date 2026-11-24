@@ -7556,6 +7556,9 @@ components:
         promptTokens:
           description: "Prompt tokens counted exactly once under the provider's cache\nconvention. Server-derived; deterministic — the provider is\nin the log."
           type: integer
+        refusal:
+          "$ref": "#/components/schemas/TokenUsageRefusal"
+          description: "The provider safety filter's refusal details: present\nexactly when `finishReason` is `content_filter` on a completion\nrecorded by a host build that records this member. An\nolder completion serves none: absent means unknown, never \"no output\".\nAdditive-optional: absent on every other completion."
         sessionId:
           description: "The owning session."
           type: string
@@ -8651,6 +8654,18 @@ components:
         - inputTokens
         - outputTokens
         - reasoningTokens
+      type: object
+    TokenUsageRefusal:
+      description: "`session/tokenUsage.refusal`: what the provider's safety filter said when\nit stopped this completion, so a client can word the refusal the way the\nuser saw it."
+      properties:
+        category:
+          description: "The filter's policy category, verbatim (open vocabulary, for example\n`bio`); absent when the provider named none."
+          type: string
+        replyHadOutput:
+          description: "Whether this same reply had already produced output before the filter\nstopped it: non-empty assistant text (answer or commentary) or a tool\ncall, so the refusal cut that output short."
+          type: boolean
+      required:
+        - replyHadOutput
       type: object
     ToolDisplayLabel:
       description: "`toolCall.displayLabel`: the call's words in three forms, each one line of\nplain text, always present together. The item's `status` picks the form."
