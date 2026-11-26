@@ -77,7 +77,7 @@
 <p>Type: <a href="../../types/sessioncontextusageparams/">SessionContextUsageParams</a></p>
 <p><code dir="auto">session/contextUsage</code> params: context-window
 pressure — the counted-once occupancy at the latest provider-reported
-durable fact, joined with the host’s pressure basis. Replace wholesale;
+durable fact, joined with the session’s pressure basis. Replace wholesale;
 emitted only when the <code dir="auto">(windowTokens, usedTokens, pressure)</code> triple
 changes value (identical adoptions emit nothing).</p>
 <table>
@@ -131,7 +131,7 @@ changes value (identical adoptions emit nothing).</p>
 <td><code dir="auto">integer</code></td>
 <td></td>
 <td>optional</td>
-<td>The effective context-window size from the host’s pressure basis; absent when the basis has no limit — the limit part is omitted, never invented.</td>
+<td>The effective context-window size from the session’s pressure basis; absent when the basis has no limit — the limit part is omitted, never invented.</td>
 </tr>
 </tbody>
 </table>

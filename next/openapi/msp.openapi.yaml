@@ -6549,7 +6549,7 @@ components:
           type: object
       type: object
     SessionContextUsageParams:
-      description: "`session/contextUsage` params: context-window\npressure — the counted-once occupancy at the latest provider-reported\ndurable fact, joined with the host's pressure basis. Replace wholesale;\nemitted only when the `(windowTokens, usedTokens, pressure)` triple\nchanges value (identical adoptions emit nothing)."
+      description: "`session/contextUsage` params: context-window\npressure — the counted-once occupancy at the latest provider-reported\ndurable fact, joined with the session's pressure basis. Replace wholesale;\nemitted only when the `(windowTokens, usedTokens, pressure)` triple\nchanges value (identical adoptions emit nothing)."
       properties:
         pressure:
           "$ref": "#/components/schemas/ContextPressureLevel"
@@ -6567,7 +6567,7 @@ components:
           description: "Opaque, strictly monotonic view cursor."
           type: string
         windowTokens:
-          description: "The effective context-window size from the host's pressure basis;\nabsent when the basis has no limit — the limit part is omitted,\nnever invented."
+          description: "The effective context-window size from the session's pressure basis;\nabsent when the basis has no limit — the limit part is omitted,\nnever invented."
           type: integer
       required:
         - pressure
