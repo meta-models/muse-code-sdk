@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "snapshot": {
     "schemaVersion": 1,
-    "sourceCommit": "9dd738407c9dd946d7ca5467b585d2f59c9ca853",
+    "sourceCommit": "f88748dd3391d6e907ad0fae0cf99b5b8cf0ecbb",
     "sourceDirty": false,
-    "renderedCommit": "9dd738407c9dd946d7ca5467b585d2f59c9ca853",
-    "sourceDateEpoch": 1795714943,
+    "renderedCommit": "f88748dd3391d6e907ad0fae0cf99b5b8cf0ecbb",
+    "sourceDateEpoch": 1795716630,
     "schemaFingerprint": "sha256:c06267dc9d1b323e5e464117d17d4666f00754008927a9f19ea40c8426a5419c",
     "status": "developer-preview",
     "docsVersion": "next",
@@ -80,7 +80,7 @@
     },
     {
       "path": "build-meta.json",
-      "sha256": "15f92b186601ea6dde477c172be0d2693e07cf3617f3cc209a6f74a3f05efc11"
+      "sha256": "305b70866fa4a7491c5280cbe469fcc41049e5768b82789ae094fad1a5b8a97a"
     },
     {
       "path": "compatibility/index.html",
@@ -5256,7 +5256,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "31004652232319c6424fd39dfd2a79e74d98ff7c58aa65875729374c51ada6c0"
+      "sha256": "08ebdc49e5c10f8bf5411525dc01d5f09aebcf851882eab2a66a9b8643f82a76"
     },
     {
       "path": "openapi/msp.openapi.yaml",
@@ -5313,6 +5313,10 @@
     {
       "path": "pagefind/fragment/en_10b58db.pf_fragment",
       "sha256": "a7c800adc781abbb7716988889d2386e7d3979e47ff2835a5316f2c8c5a58f0e"
+    },
+    {
+      "path": "pagefind/fragment/en_10b6f09.pf_fragment",
+      "sha256": "620a994303d996dd1cf71d1c60fdbb03f8b4d202fbed13c10499ba2117ac4faf"
     },
     {
       "path": "pagefind/fragment/en_10e380d.pf_fragment",
@@ -9463,10 +9467,6 @@
       "sha256": "085929aaef6dbc3952abbd1e7ecd11c0229b6c3eba1f935ad454c62bdcf9668b"
     },
     {
-      "path": "pagefind/fragment/en_d72c8c1.pf_fragment",
-      "sha256": "2aa05e81911153ea81c4877b0dc324047594d5320f51f4407c36e761f0c04471"
-    },
-    {
       "path": "pagefind/fragment/en_d737c13.pf_fragment",
       "sha256": "c105791a57280050897fecaeb9de0b4f5594acafda67b72bc91328a20444e94a"
     },
@@ -10471,10 +10471,6 @@
       "sha256": "6a42c12c59292cf197d01960a0bbfface83151dfc32d3603b7cd990f9bf72f0e"
     },
     {
-      "path": "pagefind/index/en_42bdb08.pf_index",
-      "sha256": "a3a8223c26b42dfc222b778012f2a263ba10eeab23d1e499f4340d8026573fc7"
-    },
-    {
       "path": "pagefind/index/en_4cec6b0.pf_index",
       "sha256": "81a7685082c79331de19af346c70d7bedf52f36e281d3b85a749f31369bd1647"
     },
@@ -10495,6 +10491,10 @@
       "sha256": "ce6b0c6c17e7263da2aa8a916bf6ac719f54ca2062a7967c3e9f4440741a8537"
     },
     {
+      "path": "pagefind/index/en_6b28df1.pf_index",
+      "sha256": "e7fd1775afaf02c23d74a53ee056ad5b01c0ded954d681cc867ae56b497749a9"
+    },
+    {
       "path": "pagefind/index/en_6e222ae.pf_index",
       "sha256": "60b0d4f15897dcdb0212ed8b9987fc25abc8e7114840a06890f581a4af9d6b59"
     },
@@ -10503,8 +10503,8 @@
       "sha256": "4458428d2bfaf0e35f72fb2b97b8605281e6af47074025bc70d2427fa1013be5"
     },
     {
-      "path": "pagefind/index/en_8754916.pf_index",
-      "sha256": "6d6c1ddd4d695d0c61f30e14138daa039bef9cdc52426fe4265f37afa2e346b7"
+      "path": "pagefind/index/en_85c1151.pf_index",
+      "sha256": "9a82ab8b5f40965929ce207e5d61413e1e8a846805b8b618af0446e508cce1eb"
     },
     {
       "path": "pagefind/index/en_8910caf.pf_index",
@@ -10588,7 +10588,7 @@
     },
     {
       "path": "pagefind/pagefind-entry.json",
-      "sha256": "a83bd8f89dd99a54c27adcec73ce096bca20e92f2dba3ba663d1d3bc106259d4"
+      "sha256": "fb3295b8b66c1a63f55fb638c74a83e03c2c53e66aabd5fc4c03f06b7801fd8c"
     },
     {
       "path": "pagefind/pagefind-highlight.js",
@@ -10615,8 +10615,8 @@
       "sha256": "78115e3651f11d29f03a1f3eb2776a7901c22532bdfa23b7ae73c693c0867bda"
     },
     {
-      "path": "pagefind/pagefind.en_f1dca139ee.pf_meta",
-      "sha256": "1968dca1143ce0220890db9c68406cb2a38ea6cb751433be8e99f43beba4e129"
+      "path": "pagefind/pagefind.en_958e98f7d9.pf_meta",
+      "sha256": "4f21b522837f8840709d366da185326c3bc08d6dd9d5ddcd2a0dc30dded898ed"
     },
     {
       "path": "pagefind/pagefind.js",
