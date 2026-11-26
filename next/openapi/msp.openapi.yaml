@@ -5620,7 +5620,7 @@ components:
       type: string
       x-msp-openness: closed
     PluginInstallTarget:
-      description: "The one structured install target: a flat object with\ntwo optional arms, exactly one present — the `TurnInputPart`\nconvention, since the v1 schema model names no object-variant union.\nBoth arms or neither is `-32602 invalidParams`."
+      description: "The one structured install target: a flat object with\noptional arms, exactly one present — the `TurnInputPart` convention,\nsince the v1 schema model names no object-variant union. Two or more\narms, or none, is `-32602 invalidParams`."
       properties:
         localPath:
           "$ref": "#/components/schemas/PluginInstallLocalPathTarget"
@@ -5816,6 +5816,7 @@ components:
         - marketplaceUserAdded
         - foreignImport
         - nativeLocal
+        - package
       type: string
       x-msp-openness: open
     ProbeDegradedReason:
