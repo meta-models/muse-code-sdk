@@ -7679,6 +7679,11 @@ components:
     SkillCatalogEntry:
       description: "One typed-invocable shortcut spelling. A plugin skill may\ncontribute two rows: its bare-name winner and its qualified\n`<pluginId>:<skillId>` form."
       properties:
+        aliases:
+          description: "Other names for this row's skill, without the leading slash, in\ndeclared order: the aliases the skill declares that no built-in\ncommand, skill or plugin command already uses (ADR 92341 D1). Only the\nrow that owns the skill's bare name carries them; a client reads a\ntyped alias as this row and sends its `selector`. Omitted when none."
+          items:
+            type: string
+          type: array
         argumentHint:
           description: "Present when the skill declares an argument hint."
           type: string
