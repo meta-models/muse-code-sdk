@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "snapshot": {
     "schemaVersion": 1,
-    "sourceCommit": "e598d0f478dbcc1041757ab9338ea64fd02e662d",
+    "sourceCommit": "15d8c72e9b26ae83bcd8825500687cdcf95fbcd1",
     "sourceDirty": false,
-    "renderedCommit": "e598d0f478dbcc1041757ab9338ea64fd02e662d",
-    "sourceDateEpoch": 1795758137,
+    "renderedCommit": "15d8c72e9b26ae83bcd8825500687cdcf95fbcd1",
+    "sourceDateEpoch": 1795783042,
     "schemaFingerprint": "sha256:565608d5ec28daaa98a0708eebd218f733830c3ffb9fe43ee07ebc60b3346a91",
     "status": "developer-preview",
     "docsVersion": "next",
@@ -80,7 +80,7 @@
     },
     {
       "path": "build-meta.json",
-      "sha256": "276ff6c3ac0e7109bd5fb03e32e3114db0a3bce13f3837626d3fab44bf1b8c35"
+      "sha256": "2e3f01f449892e512c5608e77d4dc6a1938125fd9d18122e853614059601ca18"
     },
     {
       "path": "compatibility/index.html",
@@ -5256,7 +5256,7 @@
     },
     {
       "path": "index.html",
-      "sha256": "dc5131f1860ba8c74a3ab544ebfce7e2c0546a7d214f5b7b0f0f7c4b3acbf3e8"
+      "sha256": "c7aec1dab059c4400d293d3e56d883fdcc12d0d34deecf3807ad08ee433d0680"
     },
     {
       "path": "openapi/msp.openapi.yaml",
@@ -8883,6 +8883,10 @@
       "sha256": "fe40b040db9b43136db7b1b3c848c3e7eaf3ec2b700cfc8e46a2d6d7ede46035"
     },
     {
+      "path": "pagefind/fragment/en_b6d6c18.pf_fragment",
+      "sha256": "ef132a5f49f3a1feff529d8c3be6d021093006dbf45185319b5ccb0e43747ce0"
+    },
+    {
       "path": "pagefind/fragment/en_b6db959.pf_fragment",
       "sha256": "8370a233d805450a77e5c24dde4501fd3082f8a69da9a848105211ccd4176db6"
     },
@@ -10207,10 +10211,6 @@
       "sha256": "8aeceda9ff988058fadc18d6c91f071a8d36ce9ccede41e802ac3c3a83212845"
     },
     {
-      "path": "pagefind/fragment/en_f5820e2.pf_fragment",
-      "sha256": "9d482e2b701bdfd6ed1071fbbf7435b59b5078467d4ad9a479e0bd307f84520d"
-    },
-    {
       "path": "pagefind/fragment/en_f586eca.pf_fragment",
       "sha256": "8158aa1b86e097877d91bc31a40e886e151a6741b77c89ae75d2394c9ee805d7"
     },
@@ -10443,6 +10443,10 @@
       "sha256": "694199917689298c875674aabb6f8b5aff4a0554effbe1833977bb5e3a86b432"
     },
     {
+      "path": "pagefind/index/en_184fc19.pf_index",
+      "sha256": "29b7bbf2eb585a29e18daeb15ebd0a7b657b2ac92dd0c547bcb4567eb1dc251c"
+    },
+    {
       "path": "pagefind/index/en_1990985.pf_index",
       "sha256": "b3117cd2fff988e58b55220ecf651bd74a52d0caebbb3923b357e552d411198d"
     },
@@ -10487,8 +10491,8 @@
       "sha256": "acbda13a986d0f014afcec364970ec8708e5a5fecf84ea31f0eed882fa4dd68d"
     },
     {
-      "path": "pagefind/index/en_6eafa54.pf_index",
-      "sha256": "1f3720de093cc0c008af04b5fd8f570c58ae450c390b9689a6a64c8d5cb8e15d"
+      "path": "pagefind/index/en_60ffa36.pf_index",
+      "sha256": "9c7e03349b21648c2451adb893748d0fbfa456063a318c8f7c15ecc54f5dfca9"
     },
     {
       "path": "pagefind/index/en_6f4c39c.pf_index",
@@ -10513,10 +10517,6 @@
     {
       "path": "pagefind/index/en_9bf32e0.pf_index",
       "sha256": "2f9df2a68213edbb9e455162a64201b20b1b29f28fd6b442c05a5fded6fb4ef5"
-    },
-    {
-      "path": "pagefind/index/en_a3f9551.pf_index",
-      "sha256": "cc93b6d757bef8fe082a7fc81ba955b2698ab476f4730e275378a7dd69ec3306"
     },
     {
       "path": "pagefind/index/en_acd839b.pf_index",
@@ -10588,7 +10588,7 @@
     },
     {
       "path": "pagefind/pagefind-entry.json",
-      "sha256": "21d712b2c8120c2f0816ea757737ab72a762040a4e4a419570996e47c90baf43"
+      "sha256": "3bf0d9cb87a1fe95072a93336e3396dab03d9a5c5110d7758295eeeea8ae85ed"
     },
     {
       "path": "pagefind/pagefind-highlight.js",
@@ -10615,8 +10615,8 @@
       "sha256": "78115e3651f11d29f03a1f3eb2776a7901c22532bdfa23b7ae73c693c0867bda"
     },
     {
-      "path": "pagefind/pagefind.en_3072f31734.pf_meta",
-      "sha256": "c4f6e2cac4aed67f06422dec678ea762c84d793339c8c847dbb89e27caa8f86d"
+      "path": "pagefind/pagefind.en_1df033cc3f.pf_meta",
+      "sha256": "bbd10145b17788e5000a8dc12f0c64be64fcc245043750a9722526727f11e488"
     },
     {
       "path": "pagefind/pagefind.js",
